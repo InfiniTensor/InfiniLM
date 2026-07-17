@@ -291,6 +291,79 @@ def _phase_marker(name: str) -> None:
         print(f"=== PHASE {name} ===", flush=True)
 
 
+def _host_split_enabled() -> bool:
+    return os.environ.get("INFINI_MOE_HOST_SPLIT", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+class _HostSplitAccum:
+    """Accumulate host-side ms for MoE opaque attribution (Phase 0)."""
+
+    __slots__ = ("enabled", "totals", "_stack")
+
+    def __init__(self) -> None:
+        self.enabled = _host_split_enabled()
+        self.totals: Dict[str, float] = {}
+        self._stack: list = []
+
+    def reset(self) -> None:
+        self.totals.clear()
+        self._stack.clear()
+
+    def begin(self, name: str) -> None:
+        if not self.enabled:
+            return
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        import time
+
+        self._stack.append((name, time.perf_counter()))
+
+    def end(self, name: str) -> None:
+        if not self.enabled:
+            return
+        if not self._stack:
+            return
+        top_name, t0 = self._stack.pop()
+        if top_name != name:
+            # Mismatched begin/end — drop rather than corrupt totals.
+            return
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+        import time
+
+        dt_ms = (time.perf_counter() - t0) * 1000.0
+        self.totals[name] = self.totals.get(name, 0.0) + dt_ms
+
+    def report(self, label: str = "host_split") -> Dict[str, float]:
+        if not self.enabled:
+            return {}
+        parts = " ".join(f"{k}={v:.3f}" for k, v in sorted(self.totals.items()))
+        total = sum(self.totals.values())
+        print(
+            f"[moe-host-split] {label} sum_keys_ms={total:.3f} {parts}",
+            flush=True,
+        )
+        return dict(self.totals)
+
+
+# Process-wide accumulator; profile harness resets between timed iters.
+_HOST_SPLIT = _HostSplitAccum()
+
+
+def host_split_reset() -> None:
+    _HOST_SPLIT.reset()
+    _HOST_SPLIT.enabled = _host_split_enabled()
+
+
+def host_split_report(label: str = "host_split") -> Dict[str, float]:
+    return _HOST_SPLIT.report(label)
+
+
 def _moe_capture_safe_enabled() -> bool:
     """INFINI_MOE_CAPTURE_SAFE=1: aten MoE under stream capture; Triton eager."""
     raw = os.environ.get("INFINI_MOE_CAPTURE_SAFE", "").strip().lower()
@@ -334,33 +407,109 @@ def _routed_experts_aten(
     return acc
 
 
+def _moe_align_block_size_host(
+    topk_ids: torch.Tensor,
+    block_size: int,
+    num_experts: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """CPU align for small ``numel`` (decode M=1): one D2H + H2D, no GPU kernel storm."""
+    import numpy as np
+
+    device = topk_ids.device
+    flat_t = topk_ids.reshape(-1)
+    numel = int(flat_t.numel())
+
+    if numel == 0:
+        max_num_tokens_padded = num_experts * (block_size - 1)
+        sorted_ids = torch.full(
+            (max(max_num_tokens_padded, 0),), 0, dtype=torch.int32, device=device
+        )
+        expert_ids_out = torch.full((1,), -1, dtype=torch.int32, device=device)
+        num_tokens_post_pad = torch.zeros(1, dtype=torch.int32, device=device)
+        return sorted_ids, expert_ids_out, num_tokens_post_pad
+
+    # Single small D2H (replaces many MetaX kernel launches + former ``.item()`` syncs).
+    flat = flat_t.detach().to(dtype=torch.int64, device="cpu").numpy()
+    order = np.argsort(flat, kind="stable")
+    sorted_experts = flat[order]
+
+    counts = np.bincount(sorted_experts, minlength=num_experts).astype(np.int64)
+    rem = counts % block_size
+    padded_counts = counts + np.where(rem == 0, 0, block_size - rem)
+    n_post = int(padded_counts.sum())
+
+    padded_offsets = np.zeros(num_experts + 1, dtype=np.int64)
+    padded_offsets[1:] = np.cumsum(padded_counts)
+
+    first_pos = np.full(num_experts, numel, dtype=np.int64)
+    # First occurrence of each expert in sorted order.
+    for i, e in enumerate(sorted_experts):
+        if first_pos[e] == numel:
+            first_pos[e] = i
+
+    idx = np.arange(numel, dtype=np.int64)
+    within_expert = idx - first_pos[sorted_experts]
+    out_pos = padded_offsets[sorted_experts] + within_expert
+
+    # Exact ``n_post`` buffer (not max-pad) — smaller H2D + tighter Triton grid.
+    sorted_ids_np = np.full(n_post, numel, dtype=np.int32)
+    sorted_ids_np[out_pos] = order.astype(np.int32)
+
+    n_m_blocks = max(n_post // block_size, 1)
+    expert_ids_np = np.full(n_m_blocks, -1, dtype=np.int32)
+    block_idx = out_pos // block_size
+    expert_ids_np[block_idx] = sorted_experts.astype(np.int32)
+
+    sorted_ids = torch.as_tensor(sorted_ids_np, dtype=torch.int32, device=device)
+    expert_ids_out = torch.as_tensor(expert_ids_np, dtype=torch.int32, device=device)
+    num_tokens_post_pad = torch.tensor([n_post], dtype=torch.int32, device=device)
+    return sorted_ids, expert_ids_out, num_tokens_post_pad
+
+
 def moe_align_block_size(
     topk_ids: torch.Tensor,
     block_size: int,
     num_experts: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Vectorized align (no vLLM ``_custom_ops``, no per-expert Python loop)."""
+    """Vectorized align (no vLLM ``_custom_ops``, no mid-align ``.item()`` syncs).
+
+    For small token counts (decode ``M=1``, ``TOP_K=16`` → 16 ids) uses a host
+    path: one D2H of ids + CPU align + H2D of outputs — avoids MetaX launch tax
+    from argsort/bincount/scatter storms. Larger ``numel`` stays on-device with
+    pad-sentinel init (no redundant pad_fill / ``repeat_interleave``).
+    """
     device = topk_ids.device
+    numel = int(topk_ids.numel())
+    # Decode-sized (e.g. M=1,TOP_K=16 → 16 ids): host path wins on MetaX.
+    # Keep larger prefill-like aligns on-device (avoid big D2H).
+    if numel > 0 and numel <= 64 and topk_ids.is_cuda:
+        _HOST_SPLIT.begin("align_host_small")
+        out = _moe_align_block_size_host(topk_ids, block_size, num_experts)
+        _HOST_SPLIT.end("align_host_small")
+        return out
+
     flat = topk_ids.reshape(-1).to(torch.int64)
-    numel = int(flat.numel())
     max_num_tokens_padded = numel + num_experts * (block_size - 1)
+    # Host-known: #blocks with ≥1 real token ≤ numel (ceil(c/B) ≤ c).
+    n_m_blocks = max(numel, 1)
 
     if numel == 0:
         sorted_ids = torch.full(
             (max_num_tokens_padded,), 0, dtype=torch.int32, device=device
         )
-        n_m_blocks = 1
         expert_ids_out = torch.full((n_m_blocks,), -1, dtype=torch.int32, device=device)
-        num_tokens_post_pad = torch.tensor([0], dtype=torch.int32, device=device)
+        num_tokens_post_pad = torch.zeros(1, dtype=torch.int32, device=device)
         return sorted_ids, expert_ids_out, num_tokens_post_pad
 
+    _HOST_SPLIT.begin("align_pre_item")
     order = torch.argsort(flat, stable=True)
     sorted_experts = flat[order]
     idx = torch.arange(numel, device=device, dtype=torch.int64)
 
     counts = torch.bincount(sorted_experts, minlength=num_experts)
     padded_counts = counts + (block_size - counts % block_size) % block_size
-    n_post = int(padded_counts.sum().item())
+    # Stay on device — Triton loads this scalar; no ``.item()``.
+    num_tokens_post_pad = padded_counts.sum().to(dtype=torch.int32).reshape(1)
 
     padded_offsets = torch.zeros(num_experts + 1, dtype=torch.int64, device=device)
     padded_offsets[1:] = padded_counts.cumsum(0)
@@ -371,34 +520,15 @@ def moe_align_block_size(
     within_expert = idx - first_pos[sorted_experts]
     out_pos = padded_offsets[sorted_experts] + within_expert
 
+    # Init to pad sentinel; real tokens overwrite via scatter. Trailing pad
+    # slots in each expert region remain ``numel`` — no explicit pad_fill.
     sorted_ids = torch.full((max_num_tokens_padded,), numel, dtype=torch.int32, device=device)
     sorted_ids.scatter_(0, out_pos, order.to(torch.int32))
 
-    pad_needed = (padded_counts - counts).to(torch.int64)
-    total_pad = int(pad_needed.sum().item())
-    if total_pad > 0:
-        pad_cum = pad_needed.cumsum(0)
-        pad_global = torch.arange(total_pad, device=device, dtype=torch.int64)
-        pad_expert = torch.arange(num_experts, device=device, dtype=torch.int64).repeat_interleave(
-            pad_needed
-        )
-        pad_cum_start = torch.zeros(num_experts, dtype=torch.int64, device=device)
-        pad_cum_start[1:] = pad_cum[:-1]
-        pad_within = pad_global - pad_cum_start.repeat_interleave(pad_needed)
-        pad_starts = padded_offsets[:-1] + counts
-        pad_positions = pad_starts[pad_expert] + pad_within
-        sorted_ids[pad_positions] = numel
-
-    n_m_blocks = max((n_post + block_size - 1) // block_size, 1)
-    block_counts = (padded_counts // block_size).to(torch.int64)
-    expert_ids_full = torch.arange(num_experts, device=device, dtype=torch.int32).repeat_interleave(
-        block_counts
-    )
     expert_ids_out = torch.full((n_m_blocks,), -1, dtype=torch.int32, device=device)
-    if expert_ids_full.numel() > 0:
-        expert_ids_out[: expert_ids_full.numel()] = expert_ids_full
-
-    num_tokens_post_pad = torch.tensor([n_post], dtype=torch.int32, device=device)
+    block_idx = out_pos // block_size
+    expert_ids_out.scatter_(0, block_idx, sorted_experts.to(torch.int32))
+    _HOST_SPLIT.end("align_pre_item")
     return sorted_ids, expert_ids_out, num_tokens_post_pad
 
 
@@ -499,6 +629,65 @@ def _invoke_kernel(
         raise
 
 
+class _RoutedWorkspace:
+    """Persistent scratch for ``fused_moe_routed`` (Phase 3: stop per-call alloc)."""
+
+    __slots__ = ("cache13", "cache2", "out", "device", "dtype", "cap13", "cap2", "cap_out")
+
+    def __init__(self) -> None:
+        self.cache13: Optional[torch.Tensor] = None
+        self.cache2: Optional[torch.Tensor] = None
+        self.out: Optional[torch.Tensor] = None
+        self.device = None
+        self.dtype = None
+        self.cap13 = 0
+        self.cap2 = 0
+        self.cap_out = 0
+
+    def acquire(
+        self,
+        *,
+        num_tokens: int,
+        top_k: int,
+        N2: int,
+        H: int,
+        N: int,
+        device,
+        dtype,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        need13 = num_tokens * top_k * max(N2, H)
+        need2 = num_tokens * top_k * N
+        need_out = num_tokens * H
+        if (
+            self.cache13 is None
+            or self.device != device
+            or self.dtype != dtype
+            or self.cap13 < need13
+        ):
+            self.cache13 = torch.empty(need13, device=device, dtype=dtype)
+            self.cap13 = need13
+            self.device = device
+            self.dtype = dtype
+        if self.cache2 is None or self.cap2 < need2 or self.cache2.device != device:
+            self.cache2 = torch.empty(need2, device=device, dtype=dtype)
+            self.cap2 = need2
+        if self.out is None or self.cap_out < need_out or self.out.device != device:
+            self.out = torch.empty(need_out, device=device, dtype=dtype)
+            self.cap_out = need_out
+        intermediate_cache1 = self.cache13[: num_tokens * top_k * N2].view(
+            num_tokens, top_k, N2
+        )
+        intermediate_cache3 = self.cache13[: num_tokens * top_k * H].view(
+            num_tokens, top_k, H
+        )
+        intermediate_cache2 = self.cache2[:need2].view(num_tokens * top_k, N)
+        out = self.out[:need_out].view(num_tokens, H)
+        return intermediate_cache1, intermediate_cache2, intermediate_cache3, out
+
+
+_ROUTED_WS = _RoutedWorkspace()
+
+
 def fused_moe_routed(
     x: torch.Tensor,
     topk_w: torch.Tensor,
@@ -544,22 +733,29 @@ def fused_moe_routed(
     cfg1 = get_moe_config_for_m(num_tokens, E=E, N=N, H=H, stage="stage1")
     cfg2 = get_moe_config_for_m(num_tokens, E=E, N=N, H=H, stage="stage2")
 
-    cache13 = torch.empty(
-        num_tokens * top_k * max(N2, H), device=x.device, dtype=x.dtype
+    _HOST_SPLIT.begin("opaque_alloc")
+    intermediate_cache1, intermediate_cache2, intermediate_cache3, out = (
+        _ROUTED_WS.acquire(
+            num_tokens=num_tokens,
+            top_k=top_k,
+            N2=N2,
+            H=H,
+            N=N,
+            device=x.device,
+            dtype=x.dtype,
+        )
     )
-    intermediate_cache1 = cache13[: num_tokens * top_k * N2].view(num_tokens, top_k, N2)
-    intermediate_cache3 = cache13[: num_tokens * top_k * H].view(num_tokens, top_k, H)
-    intermediate_cache2 = torch.empty(
-        (num_tokens * top_k, N), device=x.device, dtype=x.dtype
-    )
-    out = torch.empty_like(x)
+    _HOST_SPLIT.end("opaque_alloc")
 
     _phase_marker("align1")
+    _HOST_SPLIT.begin("opaque_align1_wall")
     sorted_token_ids, expert_ids, num_tokens_post_padded = moe_align_block_size(
         topk_ids, int(cfg1["BLOCK_SIZE_M"]), E
     )
+    _HOST_SPLIT.end("opaque_align1_wall")
 
     _phase_marker("kernel1")
+    _HOST_SPLIT.begin("opaque_kernel1")
     _invoke_kernel(
         x,
         w_gate_up,
@@ -573,16 +769,28 @@ def fused_moe_routed(
         cfg1,
         compute_type,
     )
+    _HOST_SPLIT.end("opaque_kernel1")
 
     _phase_marker("silu")
+    _HOST_SPLIT.begin("opaque_silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
     intermediate_cache2.copy_(F.silu(gate) * up)
+    _HOST_SPLIT.end("opaque_silu")
 
     _phase_marker("align2")
-    sorted_token_ids2, expert_ids2, num_tokens_post_padded2 = moe_align_block_size(
-        topk_ids, int(cfg2["BLOCK_SIZE_M"]), E
-    )
+    _HOST_SPLIT.begin("opaque_align2_wall")
+    # Same BLOCK_SIZE_M → identical align; reuse (common for decode M=1).
+    if int(cfg2["BLOCK_SIZE_M"]) == int(cfg1["BLOCK_SIZE_M"]):
+        sorted_token_ids2 = sorted_token_ids
+        expert_ids2 = expert_ids
+        num_tokens_post_padded2 = num_tokens_post_padded
+    else:
+        sorted_token_ids2, expert_ids2, num_tokens_post_padded2 = moe_align_block_size(
+            topk_ids, int(cfg2["BLOCK_SIZE_M"]), E
+        )
+    _HOST_SPLIT.end("opaque_align2_wall")
     _phase_marker("kernel2")
+    _HOST_SPLIT.begin("opaque_kernel2")
     _invoke_kernel(
         intermediate_cache2,
         w_down,
@@ -596,7 +804,11 @@ def fused_moe_routed(
         cfg2,
         compute_type,
     )
+    _HOST_SPLIT.end("opaque_kernel2")
 
     _phase_marker("moe_sum")
+    _HOST_SPLIT.begin("opaque_moe_sum")
     moe_sum(intermediate_cache3, out)
+    _HOST_SPLIT.end("opaque_moe_sum")
+    # Workspace ``out`` is overwritten on the next call; serve/C++ copies immediately.
     return out

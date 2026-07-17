@@ -31,6 +31,10 @@ def assert_no_vllm(*, probe_import: bool = False) -> None:
     """
     if allow_moe_jit():
         return
+    # Hot-path: after first PASS, skip sys.modules scan (decode calls this every layer).
+    cached = getattr(assert_no_vllm, "_ok", None)
+    if cached is True and not probe_import:
+        return
     if "vllm" in sys.modules or "vllm_mars" in sys.modules:
         raise RuntimeError(
             "fused_moe_runtime: vLLM is loaded (sys.modules). "
@@ -45,3 +49,4 @@ def assert_no_vllm(*, probe_import: bool = False) -> None:
                     f"fused_moe_runtime: refusing serve with {name!r} importable. "
                     "Use a vLLM-free serve env; rebuild artifacts offline."
                 )
+    assert_no_vllm._ok = True  # type: ignore[attr-defined]

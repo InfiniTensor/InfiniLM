@@ -38,13 +38,50 @@ std::vector<size_t> parse_capture_batches_() {
         }
     }
     if (batches.empty()) {
-        // G7 MC=1 is the critical path; widen via INFINI_DECODE_PIECEWISE_BATCHES.
         batches = {1};
     }
     std::sort(batches.begin(), batches.end());
     batches.erase(std::unique(batches.begin(), batches.end()), batches.end());
     return batches;
 }
+
+/// 0 (default) = span fuse: FA outside recording; MoE host-break inside
+///                 record(post_i + moe_i + pre_{i+1}). Graph::run ~30; device
+///                 segments still ~57 while MoE is host-break.
+///   1 = legacy per-layer pre/post (FA+MoE fully outside recording).
+///   2 = post-only CG: eager pre+FA+MoE; device-graph only post (+lm_head).
+///       Cuts device launches ~57→29 (MetaX M=1 launch-tax experiment).
+size_t parse_fuse_layers_() {
+    const char *raw = std::getenv("INFINI_DECODE_PIECEWISE_FUSE_LAYERS");
+    if (raw == nullptr || raw[0] == '\0') {
+        return 0;
+    }
+    return static_cast<size_t>(std::stoul(raw));
+}
+
+size_t count_device_segments_(const std::shared_ptr<infinicore::graph::Graph> &g) {
+    if (!g) {
+        return 0;
+    }
+    return g->device_segment_count();
+}
+
+struct RecGuard {
+    bool active{true};
+    RecGuard() { infinicore::context::startGraphRecording(); }
+    std::shared_ptr<infinicore::graph::Graph> stop() {
+        active = false;
+        return infinicore::context::stopGraphRecording();
+    }
+    ~RecGuard() {
+        if (active) {
+            try {
+                (void)infinicore::context::stopGraphRecording();
+            } catch (...) {
+            }
+        }
+    }
+};
 
 } // namespace
 
@@ -56,6 +93,7 @@ PiecewiseDecodeCompiler::PiecewiseDecodeCompiler(const std::shared_ptr<InfinilmM
         return;
     }
     capture_batches_ = parse_capture_batches_();
+    fuse_layers_ = parse_fuse_layers_();
 }
 
 void PiecewiseDecodeCompiler::allocate_layer_staging_(size_t batch, size_t num_layers) {
@@ -92,7 +130,6 @@ InfinilmModel::Input PiecewiseDecodeCompiler::make_batch_input_(size_t batch,
                                                                 size_t nblocks) const {
     InfinilmModel::Input input;
     const auto device = infinicore::context::getDevice();
-    // Decode: tokens == requests (batch_size == input_width).
     input.input_ids = infinicore::Tensor::empty({1, batch}, infinicore::DataType::I64, device);
     input.position_ids = infinicore::Tensor::empty({batch}, infinicore::DataType::I64, device);
     input.total_sequence_lengths =
@@ -126,7 +163,6 @@ InfinilmModel::Input PiecewiseDecodeCompiler::make_batch_input_(size_t batch,
     input.block_tables =
         block_tables_holder_->as_strided({batch, block_per_req}, {(ptrdiff_t)block_per_req, 1});
     set_minus_one(input.block_tables.value());
-    // Assign trivial block 0.. for capture warmup (overwritten on replay).
     for (size_t row = 0; row < batch; ++row) {
         std::vector<int32_t> block_row(block_per_req, -1);
         block_row[0] = static_cast<int32_t>(row);
@@ -138,6 +174,164 @@ InfinilmModel::Input PiecewiseDecodeCompiler::make_batch_input_(size_t batch,
     input.slot_mapping = infinicore::Tensor::empty({batch}, infinicore::DataType::I64, device);
     set_zeros(input.slot_mapping.value());
     return input;
+}
+
+void PiecewiseDecodeCompiler::capture_batch_legacy_(size_t /*batch*/,
+                                                    BatchGraphs &graphs,
+                                                    size_t capture_layers) {
+    auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+    auto &hidden = piecewise.hidden_states;
+    auto &residual = piecewise.residual;
+    const bool need_barrier = barrier_ != nullptr && barrier_->num_ranks() > 1;
+
+    graphs.pre_attn.resize(capture_layers);
+    graphs.post_attn.resize(capture_layers);
+
+    size_t device_segs = 0;
+    for (size_t layer = 0; layer < capture_layers; ++layer) {
+        piecewise.active_layer = layer;
+        piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
+
+        if (need_barrier) {
+            barrier_->wait("piecewise_decode_capture_pre_attn");
+        }
+        {
+            RecGuard rec;
+            model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
+            graphs.pre_attn[layer] = rec.stop();
+        }
+        device_segs += count_device_segments_(graphs.pre_attn[layer]);
+
+        piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+        model_->native_piecewise_eager_attn_layer(layer, graphs.input);
+
+        piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
+        if (need_barrier) {
+            barrier_->wait("piecewise_decode_capture_post_attn");
+        }
+        {
+            RecGuard rec;
+            model_->native_piecewise_post_attn_decode_cg_layer(
+                layer, graphs.input, hidden, residual);
+            graphs.post_attn[layer] = rec.stop();
+        }
+        device_segs += count_device_segments_(graphs.post_attn[layer]);
+
+        model_->native_piecewise_eager_moe_layer(layer, graphs.input, hidden, residual);
+    }
+
+    piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
+    if (need_barrier) {
+        barrier_->wait("piecewise_decode_capture_lm_head");
+    }
+    {
+        RecGuard rec;
+        model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
+        graphs.lm_head = rec.stop();
+    }
+    device_segs += count_device_segments_(graphs.lm_head);
+    graphs.device_segments = device_segs;
+}
+
+void PiecewiseDecodeCompiler::capture_batch_fused_(size_t /*batch*/,
+                                                   BatchGraphs &graphs,
+                                                   size_t capture_layers) {
+    auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+    auto &hidden = piecewise.hidden_states;
+    auto &residual = piecewise.residual;
+    const bool need_barrier = barrier_ != nullptr && barrier_->num_ranks() > 1;
+    size_t device_segs = 0;
+
+    // Mode 2: post-only device graphs — skip pre CG to cut launches ~57→29.
+    if (fuse_layers_ == 2) {
+        graphs.post_attn.resize(capture_layers);
+        for (size_t layer = 0; layer < capture_layers; ++layer) {
+            piecewise.active_layer = layer;
+            piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
+            model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
+            piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+            model_->native_piecewise_eager_attn_layer(layer, graphs.input);
+
+            piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
+            if (need_barrier) {
+                barrier_->wait("piecewise_decode_capture_post_only");
+            }
+            {
+                RecGuard rec;
+                model_->native_piecewise_post_attn_decode_cg_layer(
+                    layer, graphs.input, hidden, residual);
+                graphs.post_attn[layer] = rec.stop();
+            }
+            device_segs += count_device_segments_(graphs.post_attn[layer]);
+            model_->native_piecewise_eager_moe_layer(layer, graphs.input, hidden, residual);
+        }
+        piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
+        {
+            RecGuard rec;
+            model_->native_piecewise_lm_head(
+                graphs.input, hidden, residual, graphs.logits_holder);
+            graphs.lm_head = rec.stop();
+        }
+        device_segs += count_device_segments_(graphs.lm_head);
+        graphs.device_segments = device_segs;
+        graphs.fuse_layers = 2;
+        return;
+    }
+
+    // Mode 0: span fusion (MetaX-safe): FA never under isGraphRecording.
+    // record(pre_0); then for each layer: FA; record(post + MoE_hostbreak [+ pre_next]).
+    piecewise.active_layer = 0;
+    piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
+    if (need_barrier) {
+        barrier_->wait("piecewise_decode_capture_pre0");
+    }
+    {
+        RecGuard rec;
+        model_->native_piecewise_pre_attn_layer(0, graphs.input, hidden, residual);
+        auto g = rec.stop();
+        device_segs += count_device_segments_(g);
+        graphs.layer_groups.push_back(std::move(g));
+        graphs.group_layer0.push_back(0);
+    }
+
+    for (size_t layer = 0; layer < capture_layers; ++layer) {
+        piecewise.active_layer = layer;
+        piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
+        model_->native_piecewise_eager_attn_layer(layer, graphs.input);
+
+        piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
+        if (need_barrier) {
+            barrier_->wait("piecewise_decode_capture_span");
+        }
+        {
+            RecGuard rec;
+            model_->native_piecewise_post_attn_decode_cg_layer(
+                layer, graphs.input, hidden, residual);
+            model_->native_piecewise_eager_moe_layer(layer, graphs.input, hidden, residual);
+            if (layer + 1 < capture_layers) {
+                piecewise.active_layer = layer + 1;
+                piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
+                model_->native_piecewise_pre_attn_layer(
+                    layer + 1, graphs.input, hidden, residual);
+            }
+            auto g = rec.stop();
+            device_segs += count_device_segments_(g);
+            graphs.layer_groups.push_back(std::move(g));
+            graphs.group_layer0.push_back(layer);
+        }
+    }
+
+    piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
+    if (need_barrier) {
+        barrier_->wait("piecewise_decode_capture_lm_head");
+    }
+    {
+        RecGuard rec;
+        model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
+        graphs.lm_head = rec.stop();
+    }
+    device_segs += count_device_segments_(graphs.lm_head);
+    graphs.device_segments = device_segs;
 }
 
 void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
@@ -163,10 +357,10 @@ void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
 
     BatchGraphs graphs;
     graphs.input = std::move(batch_input);
+    graphs.fuse_layers = fuse_layers_;
 
     auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
     piecewise.valid_seq_len = batch;
-    // Decode uses native gemm/norm CG segments; MoE AOTI is eager between runs.
     piecewise.allow_inductor_pre_attn = false;
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
 
@@ -177,6 +371,7 @@ void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
     if (const char *raw = std::getenv("INFINI_NATIVE_CG_MAX_LAYERS")) {
         capture_layers = std::min(num_layers, static_cast<size_t>(std::stoul(raw)));
     }
+    graphs.capture_layers = capture_layers;
 
     const auto &model_config = infinilm::global_state::get_infinilm_config().model_config;
     const auto dtype = model_config->get_dtype();
@@ -194,56 +389,14 @@ void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
     }
     model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
 
-    graphs.pre_attn.resize(capture_layers);
-    graphs.post_attn.resize(capture_layers);
-
     set_zeros(piecewise.residual);
     model_->native_piecewise_embed(graphs.input, hidden);
 
-    const bool need_barrier = barrier_ != nullptr && barrier_->num_ranks() > 1;
-    size_t device_segs = 0;
-    for (size_t layer = 0; layer < capture_layers; ++layer) {
-        piecewise.active_layer = layer;
-        piecewise.phase = global_state::PiecewiseCapturePhase::PreAttn;
-
-        if (need_barrier) {
-            barrier_->wait("piecewise_decode_capture_pre_attn");
-        }
-        // Separate recordings: FA/MoE must NOT run under isGraphRecording on MetaX
-        // (unified layer capture HTC-faults even with host_break splits).
-        infinicore::context::startGraphRecording();
-        model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
-        graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
-        if (graphs.pre_attn[layer] && graphs.pre_attn[layer]->has_device_exec()) {
-            ++device_segs;
-        }
-
-        piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
-        model_->native_piecewise_eager_attn_layer(layer, graphs.input);
-
-        piecewise.phase = global_state::PiecewiseCapturePhase::PostAttn;
-        if (need_barrier) {
-            barrier_->wait("piecewise_decode_capture_post_attn");
-        }
-        infinicore::context::startGraphRecording();
-        model_->native_piecewise_post_attn_decode_cg_layer(layer, graphs.input, hidden, residual);
-        graphs.post_attn[layer] = infinicore::context::stopGraphRecording();
-        if (graphs.post_attn[layer] && graphs.post_attn[layer]->has_device_exec()) {
-            ++device_segs;
-        }
-
-        model_->native_piecewise_eager_moe_layer(layer, graphs.input, hidden, residual);
-    }
-
-    piecewise.phase = global_state::PiecewiseCapturePhase::LmHead;
-    if (need_barrier) {
-        barrier_->wait("piecewise_decode_capture_lm_head");
-    }
-    infinicore::context::startGraphRecording();
-    model_->native_piecewise_lm_head(graphs.input, hidden, residual, graphs.logits_holder);
-    graphs.lm_head = infinicore::context::stopGraphRecording();
-    if (graphs.lm_head && graphs.lm_head->has_device_exec()) {
-        ++device_segs;
+    const bool use_legacy = (fuse_layers_ == 1);
+    if (use_legacy) {
+        capture_batch_legacy_(batch, graphs, capture_layers);
+    } else {
+        capture_batch_fused_(batch, graphs, capture_layers);
     }
 
     piecewise.phase = global_state::PiecewiseCapturePhase::None;
@@ -251,15 +404,29 @@ void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
     graphs.residual = piecewise.residual;
     graphs.ar_staging = piecewise.ar_staging;
     graphs.layer_staging = piecewise.layer_staging;
-    graphs.device_segments = device_segs;
-    device_segments_captured_ += device_segs;
+    device_segments_captured_ += graphs.device_segments;
     compiled_[batch] = std::move(graphs);
 
+    const auto &stored = compiled_[batch];
+    const bool capture_safe = []() {
+        const char *v = std::getenv("INFINI_MOE_CAPTURE_SAFE");
+        return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+    }();
+    const char *mode_name = capture_safe ? "span_fuse_capture_safe" : "span_fuse_moe_hostbreak";
+    if (stored.fuse_layers == 1) {
+        mode_name = "legacy_split";
+    } else if (stored.fuse_layers == 2) {
+        mode_name = capture_safe ? "post_only_capture_safe" : "post_only_cg";
+    }
     spdlog::info(
-        "native piecewise decode CG: captured batch={} layers={} device_segments={}",
+        "native piecewise decode CG: captured batch={} layers={} fuse_layers={} "
+        "layer_groups={} device_segments={} mode={}",
         batch,
         capture_layers,
-        device_segs);
+        stored.fuse_layers,
+        stored.layer_groups.size(),
+        stored.device_segments,
+        mode_name);
 }
 
 void PiecewiseDecodeCompiler::compile() {
@@ -288,7 +455,7 @@ void PiecewiseDecodeCompiler::compile() {
         {nblocks * max_batch}, infinicore::DataType::I32, infinicore::context::getDevice());
     set_zeros(block_tables_holder_);
 
-    spdlog::info("piecewise decode CG: compiling batches=[{}]", [&]() {
+    spdlog::info("piecewise decode CG: compiling batches=[{}] fuse_layers={}", [&]() {
         std::ostringstream oss;
         for (size_t i = 0; i < capture_batches_.size(); ++i) {
             if (i) {
@@ -297,7 +464,8 @@ void PiecewiseDecodeCompiler::compile() {
             oss << capture_batches_[i];
         }
         return oss.str();
-    }());
+    }(),
+                 fuse_layers_);
 
     for (size_t batch : capture_batches_) {
         capture_batch_(batch);
@@ -336,7 +504,6 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
     }
     const size_t batch = input.block_tables.value()->size(0);
     const size_t input_width = input.input_ids.value()->size(1);
-    // Decode only (tokens == requests).
     if (batch != input_width) {
         ++decode_misses_;
         return std::nullopt;
@@ -363,71 +530,150 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
     set_zeros(piecewise.residual);
     model_->native_piecewise_embed(batch_graphs.input, piecewise.hidden_states);
 
-    // MetaX M=1: device-graph replay of 57 tiny segments regresses (~+80ms vs eager
-    // piecewise). Default serve path uses eager piecewise; capture still proves
-    // has_device_exec for Phase 2. Set INFINI_DECODE_PIECEWISE_REPLAY=graph to force
-    // device launches.
     static const bool eager_replay = []() {
         const char *v = std::getenv("INFINI_DECODE_PIECEWISE_REPLAY");
         if (v == nullptr || v[0] == '\0') {
-            return true; // latency-first default on MetaX decode M=1
+            return true;
         }
         return std::string(v) == "eager";
     }();
 
-    const size_t num_layers = batch_graphs.pre_attn.size();
     size_t device_runs = 0;
-    for (size_t layer = 0; layer < num_layers; ++layer) {
-        if (!eager_replay && batch_graphs.pre_attn[layer]) {
-            batch_graphs.pre_attn[layer]->run();
-            ++segment_replays_;
-            if (batch_graphs.pre_attn[layer]->last_replay_used_device()) {
-                ++device_runs;
+    const bool span_fused = batch_graphs.fuse_layers == 0 && !batch_graphs.layer_groups.empty();
+    const bool post_only = batch_graphs.fuse_layers == 2;
+
+    if (span_fused) {
+        if (eager_replay) {
+            const size_t num_layers = batch_graphs.capture_layers;
+            for (size_t layer = 0; layer < num_layers; ++layer) {
+                model_->native_piecewise_pre_attn_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+                model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
+                model_->native_piecewise_post_attn_decode_cg_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+                model_->native_piecewise_eager_moe_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
             }
+            model_->native_piecewise_lm_head(batch_graphs.input,
+                                             piecewise.hidden_states,
+                                             piecewise.residual,
+                                             batch_graphs.logits_holder);
         } else {
+            if (!batch_graphs.layer_groups.empty() && batch_graphs.layer_groups[0]) {
+                batch_graphs.layer_groups[0]->run();
+                ++segment_replays_;
+                if (batch_graphs.layer_groups[0]->last_replay_used_device()) {
+                    device_runs += batch_graphs.layer_groups[0]->device_segment_count();
+                }
+            }
+            const size_t num_layers = batch_graphs.capture_layers;
+            for (size_t layer = 0; layer < num_layers; ++layer) {
+                model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
+                const size_t gi = layer + 1;
+                if (gi < batch_graphs.layer_groups.size() && batch_graphs.layer_groups[gi]) {
+                    batch_graphs.layer_groups[gi]->run();
+                    ++segment_replays_;
+                    if (batch_graphs.layer_groups[gi]->last_replay_used_device()) {
+                        device_runs += batch_graphs.layer_groups[gi]->device_segment_count();
+                    }
+                }
+            }
+            if (batch_graphs.lm_head) {
+                batch_graphs.lm_head->run();
+                ++segment_replays_;
+                if (batch_graphs.lm_head->last_replay_used_device()) {
+                    device_runs += batch_graphs.lm_head->device_segment_count();
+                }
+            }
+        }
+    } else if (post_only) {
+        const size_t num_layers = batch_graphs.capture_layers;
+        for (size_t layer = 0; layer < num_layers; ++layer) {
             model_->native_piecewise_pre_attn_layer(
                 layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+            model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
+            if (!eager_replay && layer < batch_graphs.post_attn.size()
+                && batch_graphs.post_attn[layer]) {
+                batch_graphs.post_attn[layer]->run();
+                ++segment_replays_;
+                if (batch_graphs.post_attn[layer]->last_replay_used_device()) {
+                    ++device_runs;
+                }
+            } else {
+                model_->native_piecewise_post_attn_decode_cg_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+            }
+            model_->native_piecewise_eager_moe_layer(
+                layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
         }
-
-        model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
-
-        if (!eager_replay && batch_graphs.post_attn[layer]) {
-            batch_graphs.post_attn[layer]->run();
+        if (!eager_replay && batch_graphs.lm_head) {
+            batch_graphs.lm_head->run();
             ++segment_replays_;
-            if (batch_graphs.post_attn[layer]->last_replay_used_device()) {
+            if (batch_graphs.lm_head->last_replay_used_device()) {
                 ++device_runs;
             }
         } else {
-            model_->native_piecewise_post_attn_decode_cg_layer(
+            model_->native_piecewise_lm_head(batch_graphs.input,
+                                             piecewise.hidden_states,
+                                             piecewise.residual,
+                                             batch_graphs.logits_holder);
+        }
+    } else {
+        const size_t num_layers = batch_graphs.pre_attn.size();
+        for (size_t layer = 0; layer < num_layers; ++layer) {
+            if (!eager_replay && batch_graphs.pre_attn[layer]) {
+                batch_graphs.pre_attn[layer]->run();
+                ++segment_replays_;
+                if (batch_graphs.pre_attn[layer]->last_replay_used_device()) {
+                    ++device_runs;
+                }
+            } else {
+                model_->native_piecewise_pre_attn_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+            }
+
+            model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
+
+            if (!eager_replay && batch_graphs.post_attn[layer]) {
+                batch_graphs.post_attn[layer]->run();
+                ++segment_replays_;
+                if (batch_graphs.post_attn[layer]->last_replay_used_device()) {
+                    ++device_runs;
+                }
+            } else {
+                model_->native_piecewise_post_attn_decode_cg_layer(
+                    layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
+            }
+
+            model_->native_piecewise_eager_moe_layer(
                 layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
         }
 
-        model_->native_piecewise_eager_moe_layer(
-            layer, batch_graphs.input, piecewise.hidden_states, piecewise.residual);
-    }
-
-    if (!eager_replay && batch_graphs.lm_head) {
-        batch_graphs.lm_head->run();
-        ++segment_replays_;
-        if (batch_graphs.lm_head->last_replay_used_device()) {
-            ++device_runs;
+        if (!eager_replay && batch_graphs.lm_head) {
+            batch_graphs.lm_head->run();
+            ++segment_replays_;
+            if (batch_graphs.lm_head->last_replay_used_device()) {
+                ++device_runs;
+            }
+        } else {
+            model_->native_piecewise_lm_head(batch_graphs.input,
+                                             piecewise.hidden_states,
+                                             piecewise.residual,
+                                             batch_graphs.logits_holder);
         }
-    } else {
-        model_->native_piecewise_lm_head(batch_graphs.input,
-                                         piecewise.hidden_states,
-                                         piecewise.residual,
-                                         batch_graphs.logits_holder);
     }
 
     ++decode_hits_;
     if (decode_hits_ == 1 || decode_hits_ % 32 == 0) {
         spdlog::info(
-            "piecewise decode replay: hits={} eager_replay={} segment_replays={} "
-            "device_runs_this_step={}",
+            "piecewise decode replay: hits={} eager_replay={} fuse_layers={} segment_replays={} "
+            "device_runs_this_step={} device_segments_captured={}",
             decode_hits_,
             eager_replay,
+            batch_graphs.fuse_layers,
             segment_replays_,
-            device_runs);
+            device_runs,
+            batch_graphs.device_segments);
     }
     return batch_graphs.logits_holder->narrow({{1, 0, batch}});
 }
