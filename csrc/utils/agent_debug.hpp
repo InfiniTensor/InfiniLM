@@ -111,6 +111,10 @@ inline void log(const char *location, const char *message, const char *hypothesi
 
 inline void session_log(const char *location, const char *message, const char *hypothesis_id,
                         const std::string &data_json, const char *run_id = "cg-capture") {
+    // Same gate as log(): ungated file I/O on the decode hot path is host tax.
+    if (!debug_enabled()) {
+        return;
+    }
     const char *path = std::getenv("INFINI_DEBUG_SESSION_LOG");
     const std::string log_path = (path != nullptr && path[0] != '\0')
                                      ? path

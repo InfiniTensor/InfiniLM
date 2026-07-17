@@ -1,5 +1,6 @@
 #include "piecewise_decode_compiler.hpp"
 
+#include "../../global_state/decode_phase_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
 #include "../compiled_prefill_flags.hpp"
@@ -502,7 +503,11 @@ void PiecewiseDecodeCompiler::copy_runtime_into_batch_(BatchGraphs &batch_graphs
         throw std::runtime_error("piecewise decode: runtime block_tables width exceeds compiled");
     }
     auto &graph_block_tables = graph_input.block_tables.value();
-    set_minus_one(graph_block_tables);
+    // Full wipe only when runtime width is narrower (padding slots must be -1).
+    // Decode MC=1 usually matches compiled width — skip the extra kernel.
+    if (block_per_req < compiled_block_per_req) {
+        set_minus_one(graph_block_tables);
+    }
     graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(runtime.block_tables.value());
     graph_input.slot_mapping.value()->copy_from(runtime.slot_mapping.value());
 }
@@ -574,8 +579,35 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                                              piecewise.residual,
                                              batch_graphs.logits_holder);
         } else {
+            // Graph replay: FA host-break between device segments. Profile splits
+            // attn_ms (eager FA) vs graph_run_ms (Graph::run = post+MoE[+pre]).
+            const bool profile = global_state::decode_phase_profile::recording();
+            const bool exclusive =
+                profile && global_state::decode_phase_profile::exclusive_sync();
+            auto profile_sync = [exclusive]() {
+                if (exclusive) {
+                    infinicore::context::syncStream();
+                }
+            };
+            auto add_graph_ms = [profile](double t0) {
+                if (profile) {
+                    global_state::decode_phase_profile::counters().graph_run_ms +=
+                        global_state::decode_phase_profile::monotonic_ms() - t0;
+                }
+            };
+            auto add_attn_ms = [profile](double t0) {
+                if (profile) {
+                    global_state::decode_phase_profile::counters().attn_ms +=
+                        global_state::decode_phase_profile::monotonic_ms() - t0;
+                }
+            };
+
             if (!batch_graphs.layer_groups.empty() && batch_graphs.layer_groups[0]) {
+                const double t0 =
+                    profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
                 batch_graphs.layer_groups[0]->run();
+                profile_sync();
+                add_graph_ms(t0);
                 ++segment_replays_;
                 if (batch_graphs.layer_groups[0]->last_replay_used_device()) {
                     device_runs += batch_graphs.layer_groups[0]->device_segment_count();
@@ -583,10 +615,18 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
             }
             const size_t num_layers = batch_graphs.capture_layers;
             for (size_t layer = 0; layer < num_layers; ++layer) {
+                const double t_attn =
+                    profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
                 model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
+                profile_sync();
+                add_attn_ms(t_attn);
                 const size_t gi = layer + 1;
                 if (gi < batch_graphs.layer_groups.size() && batch_graphs.layer_groups[gi]) {
+                    const double t_g =
+                        profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
                     batch_graphs.layer_groups[gi]->run();
+                    profile_sync();
+                    add_graph_ms(t_g);
                     ++segment_replays_;
                     if (batch_graphs.layer_groups[gi]->last_replay_used_device()) {
                         device_runs += batch_graphs.layer_groups[gi]->device_segment_count();
@@ -594,7 +634,11 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                 }
             }
             if (batch_graphs.lm_head) {
+                const double t_lm =
+                    profile ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
                 batch_graphs.lm_head->run();
+                profile_sync();
+                add_graph_ms(t_lm);
                 ++segment_replays_;
                 if (batch_graphs.lm_head->last_replay_used_device()) {
                     device_runs += batch_graphs.lm_head->device_segment_count();

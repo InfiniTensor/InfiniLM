@@ -82,15 +82,19 @@ def grouped_sigmoid_topk(
     bias_f = bias.to(dtype=torch.float32).reshape(1, -1)
     choice = scores + bias_f
     t_tokens, n_experts = choice.shape
-    experts_per_group = n_experts // n_group
-    choice_g = choice.view(t_tokens, n_group, experts_per_group)
-    top2 = choice_g.topk(k=min(2, experts_per_group), dim=-1).values
-    group_scores = top2.sum(dim=-1)
-    group_idx = group_scores.topk(k=topk_group, dim=-1).indices
-    keep = torch.zeros(t_tokens, n_group, device=choice.device, dtype=torch.bool)
-    keep.scatter_(1, group_idx, True)
-    mask = keep.unsqueeze(-1).expand(-1, -1, experts_per_group).reshape(t_tokens, n_experts)
-    choice = torch.where(mask, choice, torch.zeros_like(choice))
+    # MiniCPM5 default n_group=1: skip group mask (no-op that still launched topk).
+    if n_group != 1:
+        experts_per_group = n_experts // n_group
+        choice_g = choice.view(t_tokens, n_group, experts_per_group)
+        top2 = choice_g.topk(k=min(2, experts_per_group), dim=-1).values
+        group_scores = top2.sum(dim=-1)
+        group_idx = group_scores.topk(k=topk_group, dim=-1).indices
+        keep = torch.zeros(t_tokens, n_group, device=choice.device, dtype=torch.bool)
+        keep.scatter_(1, group_idx, True)
+        mask = keep.unsqueeze(-1).expand(-1, -1, experts_per_group).reshape(
+            t_tokens, n_experts
+        )
+        choice = torch.where(mask, choice, torch.zeros_like(choice))
     topk_vals, topk_ids = torch.topk(choice, k=top_k, dim=-1)
     del topk_vals
     topk_weights = torch.gather(scores, 1, topk_ids)
@@ -98,6 +102,50 @@ def grouped_sigmoid_topk(
         topk_weights = topk_weights / (topk_weights.sum(dim=-1, keepdim=True) + 1e-20)
     topk_weights = topk_weights * float(routed_scaling_factor)
     return topk_weights, topk_ids
+
+
+def grouped_sigmoid_topk_host(
+    logits: torch.Tensor,
+    bias: torch.Tensor,
+    *,
+    top_k: int,
+    norm_topk_prob: bool,
+    routed_scaling_factor: float,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Eager decode: D2H logits + NumPy top-k + H2D (n_group=1 only)."""
+    import numpy as np
+
+    device = logits.device
+    row = logits.detach().to(dtype=torch.float32, device="cpu").contiguous().numpy()
+    if row.ndim == 1:
+        row = row.reshape(1, -1)
+    bias_np = bias.detach().to(dtype=torch.float32, device="cpu").numpy().reshape(-1)
+    t_tokens, n_experts = row.shape
+    w_out = np.empty((t_tokens, top_k), dtype=np.float32)
+    id_out = np.empty((t_tokens, top_k), dtype=np.int32)
+    for t in range(t_tokens):
+        logits_t = row[t]
+        # Stable sigmoid (avoid overflow).
+        pos = logits_t >= 0
+        z = np.empty_like(logits_t)
+        z[pos] = np.exp(-logits_t[pos])
+        z[~pos] = np.exp(logits_t[~pos])
+        scores = np.empty_like(logits_t)
+        scores[pos] = 1.0 / (1.0 + z[pos])
+        scores[~pos] = z[~pos] / (1.0 + z[~pos])
+        choice = scores + bias_np
+        k = min(top_k, n_experts)
+        idx = np.argpartition(-choice, k - 1)[:k]
+        idx = idx[np.argsort(-choice[idx])]
+        w = scores[idx]
+        if norm_topk_prob:
+            w = w / (w.sum() + 1e-20)
+        w = w * float(routed_scaling_factor)
+        w_out[t, :k] = w
+        id_out[t, :k] = idx.astype(np.int32)
+    topk_w = torch.as_tensor(w_out, dtype=torch.float32, device=device)
+    topk_ids = torch.as_tensor(id_out, dtype=torch.int32, device=device)
+    return topk_w, topk_ids
 
 
 def _silu_mlp(x: torch.Tensor, w_gate_up: torch.Tensor, w_down: torch.Tensor) -> torch.Tensor:

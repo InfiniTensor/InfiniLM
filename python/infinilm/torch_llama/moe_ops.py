@@ -75,9 +75,40 @@ def moe_block_eager(
 
     x: [T, H] valid tokens (already unpadded). Returns [T, H].
     """
-    from infinilm.compile.piecewise_moe_segment import grouped_sigmoid_topk
+    from infinilm.compile.piecewise_moe_segment import (
+        grouped_sigmoid_topk,
+        grouped_sigmoid_topk_host,
+    )
 
     cfg = _ROUTING
+    # Overlap shared MLP with host top-k when decode-sized (eager only).
+    use_host = (
+        x.is_cuda
+        and int(x.size(0)) <= 16
+        and int(cfg["n_group"]) == 1
+    )
+    if use_host:
+        try:
+            capturing = bool(torch.cuda.is_current_stream_capturing())
+        except Exception:
+            capturing = False
+        use_host = not capturing
+    if use_host:
+        shared = _silu_mlp(x, shared_gate_up, shared_down)
+        logits = torch.nn.functional.linear(
+            x.to(dtype=torch.float32), gate_weight.to(dtype=torch.float32)
+        )
+        topk_w, topk_ids = grouped_sigmoid_topk_host(
+            logits,
+            e_score_correction_bias,
+            top_k=int(cfg["top_k"]),
+            norm_topk_prob=bool(cfg["norm_topk_prob"]),
+            routed_scaling_factor=float(cfg["routed_scaling_factor"]),
+        )
+        topk_w = topk_w.to(dtype=x.dtype)
+        routed = _run_fused_moe_routed(x, topk_w, topk_ids, w_gate_up, w_down)
+        return routed + shared
+
     logits = F.linear(
         x.to(dtype=torch.float32), gate_weight.to(dtype=torch.float32)
     )

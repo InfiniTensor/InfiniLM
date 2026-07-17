@@ -752,16 +752,38 @@ void RankWorker::thread_loop() {
                             } else if (!is_prefill && general_compiler != nullptr
                                        && general_compiler->native_piecewise_decode_enabled()) {
                                 const bool profile = rank_worker_profile_enabled();
+                                const bool decode_prof =
+                                    global_state::decode_phase_profile::enabled();
+                                if (decode_prof) {
+                                    global_state::decode_phase_profile::reset();
+                                    global_state::decode_phase_profile::decode_step_active() = true;
+                                }
+                                const double t_fwd0 =
+                                    decode_prof ? global_state::decode_phase_profile::monotonic_ms()
+                                                : 0.0;
                                 const double t_pw0 = profile ? monotonic_ms() : 0.0;
                                 global_state::hang_trace::ScopedBracket pw_bracket(
                                     "native_piecewise_decode", rank_info_.tp_rank);
-                                if (auto pw_logits =
-                                        general_compiler->run_native_piecewise_decode(model_input)) {
-                                    logits = *pw_logits;
-                                    piecewise_ran = true;
-                                    if (auto *gc = dynamic_cast<GeneralCompiler *>(compiler_.get())) {
-                                        gc->record_graph_hit(/*is_prefill=*/false);
+                                try {
+                                    if (auto pw_logits =
+                                            general_compiler->run_native_piecewise_decode(model_input)) {
+                                        logits = *pw_logits;
+                                        piecewise_ran = true;
+                                        if (auto *gc = dynamic_cast<GeneralCompiler *>(compiler_.get())) {
+                                            gc->record_graph_hit(/*is_prefill=*/false);
+                                        }
                                     }
+                                } catch (...) {
+                                    if (decode_prof) {
+                                        global_state::decode_phase_profile::decode_step_active() =
+                                            false;
+                                    }
+                                    throw;
+                                }
+                                if (decode_prof) {
+                                    global_state::decode_phase_profile::counters().eager_forward_ms +=
+                                        global_state::decode_phase_profile::monotonic_ms() - t_fwd0;
+                                    global_state::decode_phase_profile::decode_step_active() = false;
                                 }
                                 if (profile) {
                                     const auto stats = general_compiler->graph_stats();
@@ -1031,7 +1053,15 @@ void RankWorker::thread_loop() {
                                 !is_prefill && global_state::decode_phase_profile::enabled();
                             const double t_sync0 =
                                 decode_prof ? global_state::decode_phase_profile::monotonic_ms() : 0.0;
-                            infinicore::context::syncStream();
+                            // TP=1 + LIGHT_SYNC: sample D2H already drains the stream.
+                            // Skip a redundant full syncStream (FA correctness does not need it).
+                            const bool skip_end_sync = decode_light_sync_enabled()
+                                                       && rank_info_.tp_size == 1
+                                                       && !skip_sampling
+                                                       && rank_info_.tp_rank == 0;
+                            if (!skip_end_sync) {
+                                infinicore::context::syncStream();
+                            }
                             if (decode_prof) {
                                 global_state::decode_phase_profile::counters().sync_ms +=
                                     global_state::decode_phase_profile::monotonic_ms() - t_sync0;

@@ -916,9 +916,8 @@ def fused_moe_routed(
     _phase_marker("silu")
     _HOST_SPLIT.begin("opaque_silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
-    silu_prod = F.silu(gate) * up
-    _retain_capture(silu_prod)
-    intermediate_cache2.copy_(silu_prod)
+    # Write silu*up into workspace cache2 (avoid extra temporary + copy_).
+    torch.mul(F.silu(gate), up, out=intermediate_cache2)
     _HOST_SPLIT.end("opaque_silu")
 
     _phase_marker("align2")
