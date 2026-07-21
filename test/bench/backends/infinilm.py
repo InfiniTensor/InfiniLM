@@ -28,6 +28,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             "cambricon": "mlu",
             "ascend": "npu",
             "metax": "cuda",
+            "mars": "cuda",
             "moore": "musa",
             "iluvatar": "cuda",
             "kunlun": "cuda",
