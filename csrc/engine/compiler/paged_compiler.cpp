@@ -4,16 +4,63 @@
 #include "../../utils.hpp"
 #include "attn_metadata_utils.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+#include <string>
+#include <vector>
+
 namespace infinilm::engine {
+namespace {
+
+std::vector<size_t> parse_decode_cg_batches_() {
+    std::vector<size_t> batches;
+    if (const char *raw = std::getenv("INFINI_DECODE_CG_BATCHES")) {
+        std::string spec(raw);
+        size_t start = 0;
+        while (start < spec.size()) {
+            const size_t comma = spec.find(',', start);
+            const std::string token =
+                spec.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+            if (!token.empty()) {
+                batches.push_back(static_cast<size_t>(std::stoul(token)));
+            }
+            if (comma == std::string::npos) {
+                break;
+            }
+            start = comma + 1;
+        }
+    }
+    if (batches.empty()) {
+        // Default ladder (was 76 sizes up to 512). Decode graphs are not
+        // replayed under TP>1 (see get_compiled); smaller ladder saves compile VRAM on TP=1.
+        for (size_t b = 1; b <= 16; ++b) {
+            batches.push_back(b);
+        }
+        batches.push_back(32);
+        batches.push_back(64);
+    }
+    std::sort(batches.begin(), batches.end());
+    batches.erase(std::unique(batches.begin(), batches.end()), batches.end());
+    return batches;
+}
+
+} // namespace
+
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
     : GraphCompiler(model, barrier) {
-    // Reduced ladder for debug/smoke (was 76 sizes up to 512). Decode graphs are not
-    // replayed under TP>1 (see get_compiled); smaller ladder saves compile VRAM on TP=1.
-    for (size_t b = 1; b <= 16; ++b) {
-        decode_batch_sizes_.push_back(b);
-    }
-    decode_batch_sizes_.push_back(32);
-    decode_batch_sizes_.push_back(64);
+    decode_batch_sizes_ = parse_decode_cg_batches_();
+    spdlog::info(
+        "paged decode CG: capture batches=[{}]",
+        [&]() {
+            std::string s;
+            for (size_t i = 0; i < decode_batch_sizes_.size(); ++i) {
+                if (i) {
+                    s += ',';
+                }
+                s += std::to_string(decode_batch_sizes_[i]);
+            }
+            return s;
+        }());
 }
 
 void PagedCompiler::compile() {

@@ -608,6 +608,9 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                 batch_graphs.layer_groups[0]->run();
                 profile_sync();
                 add_graph_ms(t0);
+                if (profile) {
+                    ++global_state::decode_phase_profile::counters().n_graph_runs;
+                }
                 ++segment_replays_;
                 if (batch_graphs.layer_groups[0]->last_replay_used_device()) {
                     device_runs += batch_graphs.layer_groups[0]->device_segment_count();
@@ -620,6 +623,9 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                 model_->native_piecewise_eager_attn_layer(layer, batch_graphs.input);
                 profile_sync();
                 add_attn_ms(t_attn);
+                if (profile) {
+                    ++global_state::decode_phase_profile::counters().n_fa;
+                }
                 const size_t gi = layer + 1;
                 if (gi < batch_graphs.layer_groups.size() && batch_graphs.layer_groups[gi]) {
                     const double t_g =
@@ -627,6 +633,9 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                     batch_graphs.layer_groups[gi]->run();
                     profile_sync();
                     add_graph_ms(t_g);
+                    if (profile) {
+                        ++global_state::decode_phase_profile::counters().n_graph_runs;
+                    }
                     ++segment_replays_;
                     if (batch_graphs.layer_groups[gi]->last_replay_used_device()) {
                         device_runs += batch_graphs.layer_groups[gi]->device_segment_count();
@@ -639,6 +648,9 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
                 batch_graphs.lm_head->run();
                 profile_sync();
                 add_graph_ms(t_lm);
+                if (profile) {
+                    ++global_state::decode_phase_profile::counters().n_graph_runs;
+                }
                 ++segment_replays_;
                 if (batch_graphs.lm_head->last_replay_used_device()) {
                     device_runs += batch_graphs.lm_head->device_segment_count();

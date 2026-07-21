@@ -15,6 +15,9 @@ struct Counters {
     /// Span-fuse graph path: host+GPU exclusive wall of Graph::run segments
     /// (post+MoE[+next_pre] folded). Zero on pure-eager MoE host-break path.
     double graph_run_ms{0.0};
+    /// P8b: number of FA host-breaks / Graph::run calls this step (launch tax).
+    uint64_t n_fa{0};
+    uint64_t n_graph_runs{0};
     double dense_mlp_ms{0.0};
     double other_layer_ms{0.0};
     double sync_ms{0.0};
@@ -73,16 +76,24 @@ inline void log_step_if_due(size_t n_req = 1) {
     auto &c = counters();
     c.decode_steps++;
     // Per-step log (reset() clears prior step); keep every step for small cells.
+    const double per_graph =
+        c.n_graph_runs > 0 ? c.graph_run_ms / static_cast<double>(c.n_graph_runs) : 0.0;
+    const double per_fa =
+        c.n_fa > 0 ? c.attn_ms / static_cast<double>(c.n_fa) : 0.0;
     spdlog::info(
         "decode_phase_profile: steps={} n_req={} forward_ms={:.3f} attn_ms={:.3f} moe_ms={:.3f} "
-        "graph_run_ms={:.3f} dense_mlp_ms={:.3f} other_layer_ms={:.3f} sync_ms={:.3f} "
-        "sample_ms={:.3f}",
+        "graph_run_ms={:.3f} n_fa={} n_graph_runs={} per_fa_ms={:.3f} per_graph_ms={:.3f} "
+        "dense_mlp_ms={:.3f} other_layer_ms={:.3f} sync_ms={:.3f} sample_ms={:.3f}",
         c.decode_steps,
         n_req,
         c.eager_forward_ms,
         c.attn_ms,
         c.moe_ms,
         c.graph_run_ms,
+        c.n_fa,
+        c.n_graph_runs,
+        per_fa,
+        per_graph,
         c.dense_mlp_ms,
         c.other_layer_ms,
         c.sync_ms,

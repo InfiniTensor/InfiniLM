@@ -395,6 +395,89 @@ def _empty_capture(numel: int, *, dtype, device) -> torch.Tensor:
     return torch.empty(int(numel), dtype=dtype, device=device)
 
 
+def _zero_capture(t: torch.Tensor) -> None:
+    """Capture-safe zero: MetaX ATen ``zero_()`` / ``FillFunctor`` HTC's on IC arena temps.
+
+    Under device-stream capture, call ``hcMemsetAsync`` on the current capture stream
+    (Memcpy/memset graph node) instead of ``vectorized_elementwise_kernel`` FillFunctor.
+    """
+    if t is None or not isinstance(t, torch.Tensor) or t.numel() == 0:
+        return
+    if not _under_device_stream_capture():
+        t.zero_()
+        return
+    if not t.is_contiguous():
+        # Rare under capture; fall back to H2D of a contiguous host buffer.
+        host = torch.zeros(t.shape, dtype=t.dtype, device="cpu").contiguous()
+        _retain_capture(host)
+        t.copy_(host, non_blocking=False)
+        return
+    import ctypes
+
+    lib = ctypes.CDLL("/opt/hpcc/lib/libhcruntime.so")
+    # hcError_t hcMemsetAsync(void *devPtr, int value, size_t count, hcStream_t stream)
+    lib.hcMemsetAsync.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_int,
+        ctypes.c_size_t,
+        ctypes.c_void_p,
+    ]
+    lib.hcMemsetAsync.restype = ctypes.c_int
+    stream = torch.cuda.current_stream().cuda_stream
+    nbytes = int(t.numel() * t.element_size())
+    st = lib.hcMemsetAsync(ctypes.c_void_p(t.data_ptr()), 0, nbytes, ctypes.c_void_p(stream))
+    if st != 0:
+        raise RuntimeError(f"_zero_capture: hcMemsetAsync failed status={st}")
+
+
+def _fill_capture(t: torch.Tensor, value: int) -> None:
+    """Capture-safe scalar fill via host H2D (hcMemset only supports 0-byte pattern).
+
+    Always ``non_blocking=False`` under capture so H2D stays on the capture stream
+    (unjoined async H2D can invalidate MetaX ``hcStreamEndCapture``).
+
+    Host staging tensors are retained on the CaptureArena so MetaX graph replay does
+    not HTC on a freed host pointer (ephemeral CPU buffer would dangle on probe).
+    """
+    if t is None or not isinstance(t, torch.Tensor) or t.numel() == 0:
+        return
+    if not _under_device_stream_capture():
+        t.fill_(value)
+        return
+    if value == 0:
+        _zero_capture(t)
+        return
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(
+            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
+            "a",
+            encoding="utf-8",
+        ) as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "11084d",
+                        "runId": "post-fix",
+                        "hypothesisId": "J",
+                        "location": "fused_moe_runtime.py:_fill_capture",
+                        "message": "h2d_fill_retain_host",
+                        "data": {"numel": int(t.numel()), "value": int(value), "dtype": str(t.dtype)},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+    host = torch.full(t.shape, value, dtype=t.dtype, device="cpu").contiguous()
+    _retain_capture(host)
+    t.copy_(host, non_blocking=False)
+
+
 def _retain_capture(*tensors) -> None:
     """Retain residual torch-allocator temps on the active CaptureArena."""
     if not _under_device_stream_capture():
@@ -499,83 +582,206 @@ def _moe_align_block_size_host(
     return sorted_ids, expert_ids_out, num_tokens_post_pad
 
 
+def _capture_safe_to_dtype(t: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+    """Capture-safe dtype cast: avoid ATen ``.to`` FillFunctor on MetaX under hcStream capture.
+
+    Prefer CaptureArena empty + ``copy_`` (same pattern as C++ ``capture_safe_to_dtype``).
+    """
+    if t is None or not isinstance(t, torch.Tensor) or t.dtype == dtype:
+        return t
+    if not _under_device_stream_capture():
+        return t.to(dtype)
+    out = _empty_capture(int(t.numel()), dtype=dtype, device=t.device)
+    if tuple(t.shape) != (t.numel(),):
+        out = out.view(t.shape)
+    out.copy_(t)
+    _retain_capture(out)
+    return out
+
+
 def _moe_align_block_size_capture(
     topk_ids: torch.Tensor,
     block_size: int,
     num_experts: int,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Device align under hcStream capture — arena temps, no ``torch.bincount``.
+    """Device align under hcStream capture — arena temps, no ``torch.bincount``/``argsort``.
 
-    Full-model piecewise capture segfaulted in MetaX ``bincount`` (smoke-only
-    MoE capture was fine). Use ``scatter_add_`` + CaptureArena empties instead.
+    Decode-sized path uses an O(n²) counting-sort placement (no ATen ``argsort`` /
+    ``FillFunctor<long>`` scratch) so MetaX graph replay does not ATU. Host D2H of
+    ids under capture is unsafe on MetaX (garbage reads).
     """
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(
+            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
+            "a",
+            encoding="utf-8",
+        ) as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "11084d",
+                        "runId": "m2-classify",
+                        "hypothesisId": "A",
+                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
+                        "message": "align_capture_enter",
+                        "data": {
+                            "numel": int(topk_ids.numel()),
+                            "dtype": str(topk_ids.dtype),
+                            "block_size": int(block_size),
+                            "num_experts": int(num_experts),
+                        },
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
     device = topk_ids.device
     numel = int(topk_ids.numel())
-    max_num_tokens_padded = numel + num_experts * (block_size - 1)
-    n_m_blocks = max(numel, 1)
 
     if numel == 0:
+        max_num_tokens_padded = num_experts * (block_size - 1)
         sorted_ids = _empty_capture(max(max_num_tokens_padded, 0), dtype=torch.int32, device=device)
-        sorted_ids.zero_()
-        expert_ids_out = _empty_capture(n_m_blocks, dtype=torch.int32, device=device)
-        expert_ids_out.fill_(-1)
+        _zero_capture(sorted_ids)
+        expert_ids_out = _empty_capture(1, dtype=torch.int32, device=device)
+        _fill_capture(expert_ids_out, -1)
         num_tokens_post_pad = _empty_capture(1, dtype=torch.int32, device=device)
-        num_tokens_post_pad.zero_()
+        _zero_capture(num_tokens_post_pad)
         return sorted_ids, expert_ids_out, num_tokens_post_pad
 
-    flat = topk_ids.reshape(-1).to(torch.int64)
-    order = torch.argsort(flat, stable=True)
-    sorted_experts = flat[order]
-    idx = torch.arange(numel, device=device, dtype=torch.int64)
+    flat_i32 = topk_ids.reshape(-1)
+    if flat_i32.dtype != torch.int32:
+        flat_i32 = _capture_safe_to_dtype(flat_i32, torch.int32)
+    # Scatter index API wants Long — arena cast (no ``.to(int64)`` FillFunctor).
+    flat = _capture_safe_to_dtype(flat_i32, torch.int64)
+    idx = _empty_capture(numel, dtype=torch.int64, device=device)
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(
+            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
+            "a",
+            encoding="utf-8",
+        ) as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "11084d",
+                        "runId": "post-fix",
+                        "hypothesisId": "J",
+                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
+                        "message": "h2d_arange_retain_host",
+                        "data": {"numel": int(numel)},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+    host_idx = torch.arange(numel, dtype=torch.int64, device="cpu").contiguous()
+    _retain_capture(host_idx)
+    idx.copy_(host_idx, non_blocking=False)
 
     counts = _empty_capture(num_experts, dtype=torch.int64, device=device)
-    counts.zero_()
+    _zero_capture(counts)
     ones = _empty_capture(numel, dtype=torch.int64, device=device)
-    ones.fill_(1)
-    counts.scatter_add_(0, sorted_experts, ones)
+    _fill_capture(ones, 1)
+    counts.scatter_add_(0, flat, ones)
 
     rem = counts % block_size
     pad = (block_size - rem) % block_size
     padded_counts = counts + pad
-    num_tokens_post_pad = padded_counts.sum().to(dtype=torch.int32).reshape(1)
+    num_tokens_post_pad = _capture_safe_to_dtype(padded_counts.sum().reshape(1), torch.int32)
 
     padded_offsets = _empty_capture(num_experts + 1, dtype=torch.int64, device=device)
-    padded_offsets.zero_()
-    padded_offsets[1:] = padded_counts.cumsum(0)
+    _zero_capture(padded_offsets)
+    padded_offsets_tail = padded_counts.cumsum(0)
+    padded_offsets[1:] = padded_offsets_tail
 
-    first_pos = _empty_capture(num_experts, dtype=torch.int64, device=device)
-    first_pos.fill_(numel)
-    first_pos.scatter_reduce_(0, sorted_experts, idx, reduce="amin", include_self=True)
+    # within[i] = #{j < i | flat[j]==flat[i]} via lower-triangular eq sum (no argsort).
+    fi = flat.unsqueeze(0).expand(numel, numel)
+    fj = flat.unsqueeze(1).expand(numel, numel)
+    j_idx = idx.unsqueeze(0).expand(numel, numel)
+    i_idx = idx.unsqueeze(1).expand(numel, numel)
+    # #region agent log
+    try:
+        import json
+        import time
+        with open(
+            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
+            "a",
+            encoding="utf-8",
+        ) as _dbg:
+            _dbg.write(
+                json.dumps(
+                    {
+                        "sessionId": "11084d",
+                        "runId": "post-fix",
+                        "hypothesisId": "E",
+                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
+                        "message": "align_bool_sum_no_where",
+                        "data": {"numel": int(numel)},
+                        "timestamp": int(time.time() * 1000),
+                    }
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
+    # #endregion
+    # Avoid ``torch.where`` under capture — MetaX records Fill/where nodes that ATU on
+    # probe/replay. Bool compare + sum is enough for the O(n²) within-count.
+    within = ((fi == fj) & (j_idx < i_idx)).sum(dim=1)
 
-    within_expert = idx - first_pos[sorted_experts]
-    out_pos = padded_offsets[sorted_experts] + within_expert
+    out_pos = padded_offsets[flat] + within
+    if numel <= 64:
+        max_num_tokens_padded = numel + numel * (block_size - 1)
+    else:
+        max_num_tokens_padded = numel + num_experts * (block_size - 1)
+    n_m_blocks = max(max_num_tokens_padded // max(block_size, 1), 1)
 
     sorted_ids = _empty_capture(max_num_tokens_padded, dtype=torch.int32, device=device)
-    sorted_ids.fill_(numel)
-    sorted_ids.scatter_(0, out_pos, order.to(torch.int32))
+    _fill_capture(sorted_ids, numel)
+    order_i32 = _capture_safe_to_dtype(idx, torch.int32)
+    sorted_ids.scatter_(0, out_pos, order_i32)
 
     expert_ids_out = _empty_capture(n_m_blocks, dtype=torch.int32, device=device)
-    expert_ids_out.fill_(-1)
+    _fill_capture(expert_ids_out, -1)
     block_idx = out_pos // block_size
-    expert_ids_out.scatter_(0, block_idx, sorted_experts.to(torch.int32))
+    flat_i32_out = _capture_safe_to_dtype(flat, torch.int32)
+    expert_ids_out.scatter_(0, block_idx, flat_i32_out)
 
     _retain_capture(
-        order,
-        sorted_experts,
+        flat,
+        flat_i32,
         idx,
         ones,
         counts,
-        padded_counts,
         rem,
         pad,
+        padded_counts,
         num_tokens_post_pad,
         padded_offsets,
-        first_pos,
-        within_expert,
+        padded_offsets_tail,
+        fi,
+        fj,
+        j_idx,
+        i_idx,
+        within,
         out_pos,
         sorted_ids,
         expert_ids_out,
         block_idx,
+        order_i32,
+        flat_i32_out,
     )
     return sorted_ids, expert_ids_out, num_tokens_post_pad
 
