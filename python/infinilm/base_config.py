@@ -149,27 +149,26 @@ class BaseConfig:
         if self.enable_paged_attn and self.attn == "default":
             self.attn = "paged-attn"
 
-        # Force sync weight loading for Metax devices
-        self._force_sync_for_metax()
+        self._force_sync_weight_loading()
 
-    def _force_sync_for_metax(self):
-        """Force weight_load_mode to 'sync' for Metax devices."""
-        # Check if device is explicitly set to Metax
-        if self.device.lower() == "metax":
+    def _force_sync_weight_loading(self):
+        """Force synchronous weight loading on MetaX and Mars devices."""
+        device = self.device.lower()
+        if device in ("metax", "mars"):
             self.weight_load_mode = "sync"
             warnings.warn(
-                "Metax device detected: forcing weight_load_mode to 'sync'",
+                f"{device} device detected: forcing weight_load_mode to 'sync'",
                 UserWarning,
             )
             return
 
-        # Check if auto-detected device is Metax
-        if self.device.lower() == "auto":
+        if device == "auto":
             detected_device = self.detect_device()
-            if detected_device.lower() == "metax":
+            if detected_device.lower() in ("metax", "mars"):
                 self.weight_load_mode = "sync"
                 warnings.warn(
-                    "Auto-detected Metax device: forcing weight_load_mode to 'sync'",
+                    f"Auto-detected {detected_device} device: "
+                    "forcing weight_load_mode to 'sync'",
                     UserWarning,
                 )
 
@@ -193,7 +192,7 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
+                "device platform: auto, cpu, nvidia, qy, metax, mars, moore, iluvatar, "
                 "ali, cambricon, ascend, kunlun, hygon, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
@@ -478,6 +477,7 @@ class BaseConfig:
                 return device_name
 
         env_checks = [
+            ("mars", ["HPCC_PATH", "HPCC_HOME"]),
             ("metax", ["MACA_PATH", "MACA_HOME", "MACA_ROOT"]),
             ("hygon", ["DTK_HOME", "DTK_PATH"]),
         ]
@@ -489,7 +489,8 @@ class BaseConfig:
             ("cambricon", ["cnmon"]),
             ("ascend", ["npu-smi"]),
             ("moore", ["mthreads-gmi"]),
-            ("metax", ["mx-smi", "ht-smi"]),
+            ("mars", ["ht-smi"]),
+            ("metax", ["mx-smi"]),
             ("hygon", ["hy-smi"]),
             ("ali", ["ppu-smi"]),
             ("iluvatar", ["ixsmi"]),
@@ -517,6 +518,7 @@ class BaseConfig:
             "cambricon": "mlu",
             "ascend": "npu",
             "metax": "cuda",
+            "mars": "cuda",
             "moore": "musa",
             "iluvatar": "cuda",
             "kunlun": "cuda",
