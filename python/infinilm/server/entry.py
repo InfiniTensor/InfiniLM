@@ -1,0 +1,147 @@
+# Copyright (c) 2025, InfiniCore
+"""Unified process entry: offline AOT compile and/or HTTP serve.
+
+Phases:
+  compile — plan + AOT for missing packages; exit (no InferEngine / HTTP).
+  serve   — same as ``inference_server.main`` (register-only AOT at engine init).
+  all     — compile missing packages (skip entirely on full cache hit), then serve.
+
+Cold kickoff (InfiniOrchestrator Qwen): ``python -m infinilm.server.entry --phase all ...``
+"""
+
+from __future__ import annotations
+
+import argparse
+import gc
+import logging
+import sys
+from typing import Optional, Sequence
+
+logger = logging.getLogger(__name__)
+
+
+def _peel_entry_args(argv: Optional[Sequence[str]] = None):
+    """Parse ``--phase`` / ``--force``; leave remaining argv for ``BaseConfig``."""
+    parser = argparse.ArgumentParser(
+        prog="infinilm.server.entry",
+        description="InfiniLM server entry (compile | serve | all)",
+        add_help=False,
+    )
+    parser.add_argument(
+        "--phase",
+        choices=("compile", "serve", "all"),
+        default="serve",
+        help="compile: offline AOT only; serve: HTTP only; all: compile-prep then serve",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompile planned packages even when segment.pt2 already exists",
+    )
+    parser.add_argument(
+        "-h",
+        "--help",
+        action="store_true",
+        help="Show help (entry + BaseConfig flags)",
+    )
+    args, remaining = parser.parse_known_args(list(argv) if argv is not None else None)
+    return args, remaining
+
+
+def _run_compile(cfg, *, force: bool) -> dict:
+    from infinilm.compile.piecewise_bootstrap_plan import (
+        build_piecewise_bootstrap_plan,
+        compile_planned_packages,
+    )
+    from infinilm.compile.env import piecewise_inductor_segment_enabled
+
+    if not piecewise_inductor_segment_enabled():
+        logger.warning(
+            "INFINI_PIECEWISE_INDUCTOR_SEGMENT is off; compile phase is a no-op"
+        )
+        return {"compiled": 0, "skipped": 0, "noop": True}
+
+    plan = build_piecewise_bootstrap_plan(
+        model_path=cfg.model,
+        tp_size=cfg.tp,
+    )
+    if plan.full_cache_exists() and not force:
+        logger.info(
+            "piecewise AOT cache hit: all %s planned packages present under %s; "
+            "skip compile",
+            plan.expected_count,
+            plan.cache_root,
+        )
+        return {"compiled": 0, "skipped": plan.expected_count, "cache_hit": True}
+
+    return compile_planned_packages(plan, force=force)
+
+
+def _release_compile_memory() -> None:
+    gc.collect()
+    try:
+        import torch
+
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    entry_args, remaining = _peel_entry_args(argv)
+
+    # BaseConfig reads sys.argv; temporarily replace so --phase/--force are not warned.
+    old_argv = sys.argv
+    try:
+        sys.argv = [old_argv[0], *remaining]
+        if entry_args.help or "-h" in remaining or "--help" in remaining:
+            print(
+                "usage: python -m infinilm.server.entry --phase {compile,serve,all} "
+                "[--force] [BaseConfig flags...]\n"
+                "\n"
+                "  compile  Offline AOT for planned packages; exit (no HTTP).\n"
+                "  serve    Start inference server (register-only AOT).\n"
+                "  all      Compile missing packages (skip on full cache hit), then serve.\n"
+            )
+            from infinilm.base_config import BaseConfig
+
+            stub = BaseConfig.__new__(BaseConfig)
+            stub.parser = argparse.ArgumentParser(description="InfiniLM Unified Config")
+            BaseConfig._add_common_args(stub)
+            stub.parser.print_help()
+            return 0
+
+        from infinilm.base_config import BaseConfig
+        from infinilm.server.inference_server import (
+            run_server_from_config,
+            setup_logging,
+        )
+
+        cfg = BaseConfig()
+        setup_logging(cfg.log_level)
+
+        phase = entry_args.phase
+        force = bool(entry_args.force)
+
+        if phase == "compile":
+            _run_compile(cfg, force=force)
+            _release_compile_memory()
+            return 0
+
+        if phase == "all":
+            _run_compile(cfg, force=force)
+            _release_compile_memory()
+            logger.info("entry --phase all: starting serve after compile-prep")
+            run_server_from_config(cfg)
+            return 0
+
+        # serve
+        run_server_from_config(cfg)
+        return 0
+    finally:
+        sys.argv = old_argv
+
+
+if __name__ == "__main__":
+    sys.exit(main())

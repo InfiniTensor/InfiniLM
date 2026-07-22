@@ -160,9 +160,36 @@ def piecewise_inductor_require_aot() -> bool:
     return _truthy("INFINI_PIECEWISE_INDUCTOR_REQUIRE_AOT", "0")
 
 
+_COMPILE_ON_MISS_WARNED = False
+
+
 def piecewise_inductor_compile_on_miss() -> bool:
-    """When set (default), bootstrap AOT-compiles missing segment packages before register."""
-    return _truthy("INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS", "1")
+    """Deprecated: InferEngine never compile-on-miss.
+
+    Default is off. If ``INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS=1``, emit a
+    one-shot DeprecationWarning and ignore (always returns False). Use
+    ``python -m infinilm.server.entry --phase compile|all`` for offline AOT.
+    """
+    global _COMPILE_ON_MISS_WARNED
+    raw = os.environ.get("INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS", "0")
+    if str(raw).strip().lower() not in ("", "0", "false", "no", "off"):
+        if not _COMPILE_ON_MISS_WARNED:
+            import warnings
+
+            warnings.warn(
+                "INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS=1 is deprecated and ignored; "
+                "InferEngine is register-only. Use "
+                "`python -m infinilm.server.entry --phase compile|all` for offline AOT.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            _COMPILE_ON_MISS_WARNED = True
+    return False
+
+
+def aot_check_skip() -> bool:
+    """When set, skip piecewise AOT register/check at InferEngine bootstrap (debug)."""
+    return _truthy("INFINI_AOT_CHECK_SKIP", "0")
 
 
 def piecewise_inductor_segment_enabled() -> bool:

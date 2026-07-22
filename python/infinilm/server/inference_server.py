@@ -810,8 +810,8 @@ def setup_logging(log_level: str = "INFO"):
     )
 
 
-def main():
-    cfg = BaseConfig()
+def run_server_from_config(cfg: BaseConfig) -> None:
+    """Start HTTP inference server from a parsed ``BaseConfig`` (serve phase)."""
     setup_logging(cfg.log_level)
     device = cfg.get_device_str(cfg.device)
 
@@ -836,6 +836,12 @@ def main():
         ignore_eos=cfg.ignore_eos,
     )
     server.start()
+
+
+def main():
+    """Serve-only entry (back-compat alias for ``infinilm.server.entry --phase serve``)."""
+    cfg = BaseConfig()
+    run_server_from_config(cfg)
 
 
 if __name__ == "__main__":

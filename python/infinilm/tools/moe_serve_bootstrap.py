@@ -21,9 +21,10 @@ def assert_moe_compile_on_miss_disabled() -> None:
         "on",
     ):
         raise RuntimeError(
-            "minicpm5_moe forbids INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS=1. "
-            "Rebuild via ./scripts/rebuild_minicpm5_moe_artifacts.sh "
-            "(no compile-on-miss escape hatch)."
+            "minicpm5_moe forbids INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS=1 "
+            "(compile-on-miss is deprecated for all models). "
+            "Offline AOT: python -m infinilm.server.entry --phase compile|all "
+            "or ./scripts/rebuild_minicpm5_moe_artifacts.sh"
         )
     os.environ["INFINI_PIECEWISE_INDUCTOR_COMPILE_ON_MISS"] = "0"
 
