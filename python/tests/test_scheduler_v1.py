@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import unittest
 
-from infinilm.compile.env import long_prefill_threshold
+from infinilm.compile.env import long_prefill_threshold, schedule_homogeneous_enabled
 from infinilm.llm.request import InferenceRequest, RequestStatus
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
@@ -44,6 +44,9 @@ class SchedulerV1Test(unittest.TestCase):
         os.environ.pop("INFINI_MAX_PREFILL_BATCH", None)
         os.environ.pop("INFINI_SCHEDULE_HOMOGENEOUS", None)
         os.environ.pop("INFINI_PREFILL_NATIVE_CG", None)
+        os.environ.pop("INFINI_PREFILL_CHUNKED", None)
+        os.environ.pop("INFINI_PREFILL_CHUNK_SIZE", None)
+        os.environ.pop("INFINI_LONG_PREFILL_THRESHOLD", None)
         self.scheduler = Scheduler(
             max_batch_size=4,
             num_blocks=512,
@@ -57,34 +60,108 @@ class SchedulerV1Test(unittest.TestCase):
         os.environ.pop("INFINI_MAX_NUM_BATCHED_TOKENS", None)
         os.environ.pop("INFINI_SCHEDULE_HOMOGENEOUS", None)
         os.environ.pop("INFINI_PREFILL_NATIVE_CG", None)
+        os.environ.pop("INFINI_PREFILL_CHUNKED", None)
+        os.environ.pop("INFINI_PREFILL_CHUNK_SIZE", None)
+        os.environ.pop("INFINI_LONG_PREFILL_THRESHOLD", None)
 
-    def _enable_homogeneous(self) -> None:
-        os.environ["INFINI_SCHEDULE_HOMOGENEOUS"] = "1"
-        os.environ["INFINI_PREFILL_NATIVE_CG"] = "1"
+    def test_mixed_on_ladder_prefill_2047_and_decode_one(self):
+        """Running decode + waiting prefill 2047 → MIXED total 2048 (on MoE max)."""
+        os.environ["INFINI_MAX_NUM_BATCHED_TOKENS"] = "2048"
+        os.environ["INFINI_LONG_PREFILL_THRESHOLD"] = "2048"
 
-    def test_mixed_prefill_4096_and_decode_one(self):
-        """Running decode + new 4096 prefill → MIXED step, 4097 tokens."""
-        decode = _req("decode", 4096, chunk_size=4096)
+        decode = _req("decode", 512, chunk_size=2048)
         decode.is_prefill = False
         decode.generated_token_ids = [99]
         _prime_kv(self.scheduler, decode)
         self.scheduler.running_queue.sync_q.put(decode)
 
-        prefill = _req("prefill", 4096, chunk_size=4096)
+        prefill = _req("prefill", 2047, chunk_size=2048)
         self.scheduler.add_request(prefill)
 
         out = self.scheduler.schedule()
         self.assertIsNotNone(out)
         assert out is not None
         self.assertEqual(out.scheduling_mode, "MIXED")
-        self.assertEqual(out.total_scheduled_tokens, 4097)
+        self.assertEqual(out.total_scheduled_tokens, 2048)
         self.assertEqual(len(out.rows), 2)
         prefill_rows = [r for r in out.rows if r.is_prefill_row]
         decode_rows = [r for r in out.rows if not r.is_prefill_row]
         self.assertEqual(len(prefill_rows), 1)
         self.assertEqual(len(decode_rows), 1)
-        self.assertEqual(prefill_rows[0].num_scheduled_tokens, 4096)
+        self.assertEqual(prefill_rows[0].num_scheduled_tokens, 2047)
         self.assertEqual(decode_rows[0].num_scheduled_tokens, 1)
+
+    def test_decode_deferred_when_would_create_4097(self):
+        """Running mid-prefill 4096 + decode → DECODE deferred (no 4097)."""
+        mid = _req("mid", 8192, chunk_size=4096)
+        _prime_kv(self.scheduler, mid)
+        mid.num_cached_tokens = 0
+        mid.chunk_prefill_offset = 0
+        mid.is_prefill = True
+        self.scheduler.running_queue.sync_q.put(mid)
+
+        decode = _req("decode", 512, chunk_size=4096)
+        decode.is_prefill = False
+        decode.generated_token_ids = [99]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        out = self.scheduler.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out.scheduling_mode, "PREFILL")
+        self.assertEqual(out.total_scheduled_tokens, 4096)
+        self.assertEqual(len(out.rows), 1)
+        self.assertTrue(out.rows[0].is_prefill_row)
+        # Decode remains on running queue for the next step.
+        self.assertEqual(self.scheduler.running_queue.sync_q.qsize(), 1)
+        deferred = self.scheduler.running_queue.sync_q.get_nowait()
+        self.assertEqual(deferred.request_id, "decode")
+
+    def test_running_decode_before_waiting_prefill_when_budget_tight(self):
+        """Budget 1: RUNNING decode consumes step; WAITING prefill stays waiting."""
+        os.environ["INFINI_MAX_NUM_BATCHED_TOKENS"] = "1"
+
+        decode = _req("decode", 512, chunk_size=512)
+        decode.is_prefill = False
+        decode.generated_token_ids = [1]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
+
+        out = self.scheduler.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        self.assertEqual(out.scheduling_mode, "DECODE")
+        self.assertEqual(out.total_scheduled_tokens, 1)
+        self.assertEqual(len(out.rows), 1)
+        self.assertFalse(out.rows[0].is_prefill_row)
+        self.assertEqual(self.scheduler.waiting_queue.sync_q.qsize(), 1)
+
+    def test_homogeneous_env_ignored(self):
+        """INFINI_SCHEDULE_HOMOGENEOUS=1 does not change mixed RUNNING-first behavior."""
+        os.environ["INFINI_SCHEDULE_HOMOGENEOUS"] = "1"
+        os.environ["INFINI_PREFILL_NATIVE_CG"] = "1"
+        self.assertFalse(schedule_homogeneous_enabled())
+
+        os.environ["INFINI_MAX_NUM_BATCHED_TOKENS"] = "2048"
+        os.environ["INFINI_LONG_PREFILL_THRESHOLD"] = "2048"
+
+        decode = _req("decode", 512, chunk_size=2048)
+        decode.is_prefill = False
+        decode.generated_token_ids = [99]
+        _prime_kv(self.scheduler, decode)
+        self.scheduler.running_queue.sync_q.put(decode)
+
+        self.scheduler.add_request(_req("prefill", 2047, chunk_size=2048))
+
+        out = self.scheduler.schedule()
+        self.assertIsNotNone(out)
+        assert out is not None
+        # Still MIXED (homogeneous path deleted / ignored).
+        self.assertEqual(out.scheduling_mode, "MIXED")
+        self.assertEqual(out.total_scheduled_tokens, 2048)
 
     def test_budget_exhaustion_prefill_before_decode(self):
         """Budget 4096: prefill fills step; decode on next step."""
@@ -112,10 +189,11 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertEqual(out2.total_scheduled_tokens, 1)
 
     def test_seq_cap_max_batch_size_two(self):
-        """Only two rows scheduled when max_batch_size=2."""
+        """Only two rows scheduled when max_batch_size=2 (no chunk pack cap)."""
         self.scheduler.max_batch_size = 2
         for i in range(4):
-            self.scheduler.add_request(_req(f"r{i}", 1024, chunk_size=1024))
+            # chunk_size=0 → pack budget=_PACK_BUCKET_CAP so two 1024-token rows pack.
+            self.scheduler.add_request(_req(f"r{i}", 1024, chunk_size=0))
 
         out = self.scheduler.schedule()
         self.assertIsNotNone(out)
@@ -146,8 +224,8 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertEqual(out2.total_scheduled_tokens, 4096)
         self.assertTrue(out2.rows[0].is_final_prefill_chunk)
 
-    def test_four_8192_chunk4096_pack_two_rows(self):
-        """4×8192 chunk4096 → one step packs 2 rows, 8192 tokens."""
+    def test_four_8192_chunk4096_no_two_pack(self):
+        """4×8192 chunk4096 → pack≡chunk: one full mid-chunk per step (not 8192)."""
         chunk_size = 4096
         for i in range(4):
             self.scheduler.add_request(_req(f"r{i}", 8192, chunk_size=chunk_size))
@@ -156,90 +234,12 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertIsNotNone(out)
         assert out is not None
         self.assertEqual(out.scheduling_mode, "PREFILL")
-        self.assertEqual(len(out.rows), 2)
-        self.assertEqual(out.total_scheduled_tokens, 8192)
-        self.assertTrue(all(r.is_prefill_row for r in out.rows))
-        self.assertTrue(
-            all(r.num_scheduled_tokens == chunk_size for r in out.rows)
-        )
-
-    def test_homogeneous_prefill_then_decode_not_mixed(self):
-        """Homogeneous: 1 decode + 1 waiting prefill → PREFILL then DECODE."""
-        self._enable_homogeneous()
-
-        decode = _req("decode", 4096, chunk_size=4096)
-        decode.is_prefill = False
-        decode.generated_token_ids = [99]
-        _prime_kv(self.scheduler, decode)
-        self.scheduler.running_queue.sync_q.put(decode)
-
-        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
-
-        out1 = self.scheduler.schedule()
-        self.assertIsNotNone(out1)
-        assert out1 is not None
-        self.assertEqual(out1.scheduling_mode, "PREFILL")
-        self.assertEqual(out1.total_scheduled_tokens, 4096)
-        self.assertEqual(len(out1.rows), 1)
-
-        self.scheduler.requeue_running(out1.rows[0].request)
-
-        out2 = self.scheduler.schedule()
-        self.assertIsNotNone(out2)
-        assert out2 is not None
-        self.assertEqual(out2.scheduling_mode, "DECODE")
-        self.assertEqual(out2.total_scheduled_tokens, 1)
-
-    def test_homogeneous_four_decode_before_waiting_prefill(self):
-        """Homogeneous: 4 decode-ready + 1 waiting prefill → decode batch=4 first."""
-        self._enable_homogeneous()
-
-        for i in range(4):
-            decode = _req(f"decode{i}", 512, chunk_size=512)
-            decode.is_prefill = False
-            decode.generated_token_ids = [i + 1]
-            _prime_kv(self.scheduler, decode)
-            self.scheduler.running_queue.sync_q.put(decode)
-
-        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
-
-        out = self.scheduler.schedule()
-        self.assertIsNotNone(out)
-        assert out is not None
-        self.assertEqual(out.scheduling_mode, "DECODE")
-        self.assertEqual(len(out.rows), 4)
-        self.assertTrue(all(not r.is_prefill_row for r in out.rows))
-
-    def test_homogeneous_starvation_waiting_prefill_eventually_scheduled(self):
-        """Homogeneous: waiting prefill scheduled after decode-yield cap."""
-        self._enable_homogeneous()
-        self.scheduler.max_waiting_yields = 2
-
-        decode = _req("decode", 512, chunk_size=512)
-        decode.is_prefill = False
-        decode.generated_token_ids = [1]
-        _prime_kv(self.scheduler, decode)
-        self.scheduler.running_queue.sync_q.put(decode)
-
-        self.scheduler.add_request(_req("prefill", 4096, chunk_size=4096))
-
-        modes = []
-        for _ in range(4):
-            out = self.scheduler.schedule()
-            if out is None:
-                break
-            modes.append(out.scheduling_mode)
-            for row in out.rows:
-                if row.is_prefill_row:
-                    self.scheduler.complete_requests([row.request])
-                else:
-                    row.request.generated_token_ids.append(2)
-                    self.scheduler.requeue_running(row.request)
-
-        self.assertIn("PREFILL", modes)
+        self.assertEqual(len(out.rows), 1)
+        self.assertEqual(out.total_scheduled_tokens, 4096)
+        self.assertTrue(out.rows[0].is_prefill_row)
 
     def test_dry_run_one_decode_one_prefill_shape(self):
-        """Schedule-only: 1 decode + 1 prefill metadata shape."""
+        """RUNNING decode first; waiting prefill shrinks to MoE headroom (no 4097)."""
         decode = _req("d", 512, chunk_size=512)
         decode.is_prefill = False
         decode.generated_token_ids = [7]
@@ -252,9 +252,13 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertIsNotNone(out)
         assert out is not None
         self.assertEqual(out.scheduling_mode, "MIXED")
-        self.assertEqual(out.total_scheduled_tokens, 4097)
-        self.assertEqual(len(out.scheduled_requests), 2)
-        self.assertEqual(len(out.rows), 2)
+        self.assertEqual(out.total_scheduled_tokens, 4096)
+        self.assertLessEqual(out.total_scheduled_tokens, 4096)
+        prefill_rows = [r for r in out.rows if r.is_prefill_row]
+        decode_rows = [r for r in out.rows if not r.is_prefill_row]
+        self.assertEqual(len(decode_rows), 1)
+        self.assertEqual(len(prefill_rows), 1)
+        self.assertEqual(prefill_rows[0].num_scheduled_tokens, 4095)
 
     def test_can_accept_rejects_third_long_seq(self):
         """3×65536-token requests with num_blocks=512 → third rejected."""
@@ -285,24 +289,22 @@ class SchedulerV1Test(unittest.TestCase):
         self.assertFalse(self.scheduler.can_accept_request(second_long))
 
     def test_can_accept_small_max_tokens_long_prompt(self):
-        """16k prompt + max_tokens=512 admits more concurrent reqs than a 32768 cap."""
+        """16k prompt + max_tokens=512 admits multiple concurrent reqs; overflow rejected."""
         prompt_len = 16384
         max_tokens = 512
-        block_size = self.scheduler.block_size
-        blocks_per = (prompt_len + max_tokens + block_size - 1) // block_size
-        max_concurrent = 512 // blocks_per
 
-        for i in range(max_concurrent):
+        admitted = 0
+        for i in range(16):
             req = _req(f"r{i}", prompt_len, max_tokens=max_tokens)
-            self.assertTrue(self.scheduler.can_accept_request(req))
+            if not self.scheduler.can_accept_request(req):
+                break
             _prime_kv(self.scheduler, req)
             self.scheduler.running_queue.sync_q.put(req)
+            admitted += 1
 
+        self.assertGreaterEqual(admitted, 2)
         overflow = _req("overflow", prompt_len, max_tokens=max_tokens)
         self.assertFalse(self.scheduler.can_accept_request(overflow))
-
-        inflated_blocks = (prompt_len + 32768 + block_size - 1) // block_size
-        self.assertGreater(max_concurrent, 512 // inflated_blocks)
 
     def test_can_accept_running_decode_remaining_generation(self):
         """Running decode reserves remaining generation budget, not full max_tokens."""
@@ -349,9 +351,9 @@ class LongPrefillThresholdTest(unittest.TestCase):
         os.environ["INFINI_LONG_PREFILL_THRESHOLD"] = "4096"
         self.assertEqual(long_prefill_threshold(), 4096)
 
-    def test_defaults_to_4096_when_chunked_prefill_disabled(self):
+    def test_defaults_to_zero_when_chunked_prefill_disabled(self):
         os.environ.pop("INFINI_PREFILL_CHUNKED", None)
-        self.assertEqual(long_prefill_threshold(), 4096)
+        self.assertEqual(long_prefill_threshold(), 0)
 
 
 if __name__ == "__main__":

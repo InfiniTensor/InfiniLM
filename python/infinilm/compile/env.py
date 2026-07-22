@@ -6,7 +6,7 @@ Classification (for PR review):
     ``prefill_native_cg_enabled``, ``prefill_chunked_enabled``, ``prefill_chunk_size``,
     ``prefill_compile_enabled``, ``prefill_share_weights_enabled``, ``prefill_cudagraph_enabled``,
     ``compile_max_seq_len``, ``compile_buckets`` / ``compile_warmup_seq_lens``,
-    ``v1_scheduler_enabled``, ``schedule_homogeneous_enabled``.
+    ``v1_scheduler_enabled``, ``schedule_homogeneous_enabled`` (deprecated no-op).
   C++ code defaults (no env): decode pre-barrier on, piecewise post-AR barrier trim
     (opt-out: INFINI_DECODE_SKIP_PRE_BARRIER, INFINI_PIECEWISE_KEEP_BARRIERS).
   C++ production env (``infinilm_production_env.sh``): ``INFINI_DECODE_LIGHT_SYNC``,
@@ -32,6 +32,7 @@ from typing import List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 _PREFILL_COMPILE_WARNED = False
+_SCHEDULE_HOMOGENEOUS_WARNED = False
 
 # Power-mode overflow buckets (+256 past anchor).
 COMPILE_OVERFLOW_BUCKET_1024 = 1280
@@ -42,6 +43,12 @@ COMPILE_OVERFLOW_BUCKET = COMPILE_OVERFLOW_BUCKET_4096
 # vLLM default piecewise ladder floor (512) through 8192, plus non-power max_seq tail.
 _VLLM_POWER_LADDER_FLOOR = 512
 _VLLM_POWER_LADDER_CAP = 8192
+
+# Track-B MoE AOT step totals (pack_moe DEFAULT_BUCKETS + decode sub-16 powers).
+_MOE_AOT_STEP_LADDER_MAX = 4096
+_MOE_AOT_STEP_TOKEN_LADDER: Tuple[int, ...] = tuple(
+    1 << i for i in range(0, 13) if (1 << i) <= _MOE_AOT_STEP_LADDER_MAX
+)
 
 
 def _truthy(name: str, default: str = "0") -> bool:
@@ -84,24 +91,62 @@ def v1_scheduler_enabled() -> bool:
 
 
 def schedule_homogeneous_enabled() -> bool:
-    """Emit PREFILL-only or DECODE-only v1 steps (no MIXED) for native CG replay."""
-    return _truthy("INFINI_SCHEDULE_HOMOGENEOUS", "0")
+    """Deprecated: homogeneous PREFILL XOR DECODE is removed (vLLM-align M6).
+
+    If ``INFINI_SCHEDULE_HOMOGENEOUS`` is set truthy, log a one-shot warning and
+    ignore — v1 always uses continuous mixed scheduling + MoE shape gate.
+    """
+    global _SCHEDULE_HOMOGENEOUS_WARNED
+    if _truthy("INFINI_SCHEDULE_HOMOGENEOUS", "0"):
+        if not _SCHEDULE_HOMOGENEOUS_WARNED:
+            logger.warning(
+                "INFINI_SCHEDULE_HOMOGENEOUS is deprecated and ignored; "
+                "v1 scheduler always uses continuous mixed batching "
+                "(see docs/M6_scheduler_vllm_align_design.md)"
+            )
+            _SCHEDULE_HOMOGENEOUS_WARNED = True
+    return False
 
 
 def max_num_batched_tokens(default: int = 8192) -> int:
-    """Token budget per v1 scheduler step."""
+    """Token budget per v1 scheduler step (primary shared chunker, as vLLM)."""
     raw = os.environ.get("INFINI_MAX_NUM_BATCHED_TOKENS")
     return int(raw) if raw else default
 
 
-def long_prefill_threshold(default: int = 4096) -> int:
-    """Cap prefill tokens scheduled per row in one v1 step."""
+def long_prefill_threshold(default: int = 0) -> int:
+    """Per-request prefill cap for one v1 step (vLLM ``long_prefill_token_threshold``).
+
+    Default **0** (inactive) when unset. Explicit ``INFINI_LONG_PREFILL_THRESHOLD``
+    wins; otherwise chunked prefill uses ``INFINI_PREFILL_CHUNK_SIZE`` as the
+    per-request cap only (shared step budget remains ``max_num_batched_tokens``).
+    """
     raw = os.environ.get("INFINI_LONG_PREFILL_THRESHOLD")
     if raw:
         return int(raw)
     if prefill_chunked_enabled():
         return prefill_chunk_size()
     return default
+
+
+def moe_aot_step_max_tokens() -> int:
+    """Largest MoE/piecewise AOT bucket (shape-gate ceiling)."""
+    return _MOE_AOT_STEP_LADDER_MAX
+
+
+def moe_aot_step_token_ladder() -> Tuple[int, ...]:
+    """MoE/piecewise AOT bucket sizes (powers of two through 4096)."""
+    return _MOE_AOT_STEP_TOKEN_LADDER
+
+
+def moe_aot_step_total_allowed(total: int) -> bool:
+    """True if step total can be served by MoE AOT (runtime pads up to a bucket).
+
+    Rejects totals above the max compiled bucket (e.g. 4097). Scheduler does not
+    invent pad tokens; engine pads within 1..max. Exact power-of-two is preferred
+    but not required so final prefill remainders still schedule.
+    """
+    return 0 < total <= _MOE_AOT_STEP_LADDER_MAX
 
 
 def prefill_cudagraph_enabled() -> bool:

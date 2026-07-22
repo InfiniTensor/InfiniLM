@@ -13,8 +13,8 @@ from typing import List, Optional
 from infinilm.compile.env import (
     long_prefill_threshold,
     max_num_batched_tokens,
-    prefill_native_cg_enabled,
-    schedule_homogeneous_enabled,
+    moe_aot_step_max_tokens,
+    moe_aot_step_total_allowed,
     v1_scheduler_enabled,
 )
 from infinilm.llm.request import RequestStatus, InferenceRequest, FinishReason, TokenOutput
@@ -140,9 +140,9 @@ class Scheduler:
       2. Decode (running_queue).
       3. Continue chunked-prefill (chunking_queue) — pack up to max_batch_size.
 
-    V1 (``INFINI_V1_SCHEDULER=1``) uses a token budget and two queues only:
-      1. Running (decode + chunked-prefill continuations).
-      2. Waiting (new prefills into remaining budget).
+    V1 (``INFINI_V1_SCHEDULER=1``) uses a token budget and continuous mixed batching
+    (RUNNING decode + mid-prefill first, then WAITING), with a MoE shape gate so
+    step totals never exceed the compiled ladder max.
     """
 
     def __init__(
@@ -175,7 +175,6 @@ class Scheduler:
 
         self._waiting_yields_in_a_row: int = 0
         self.max_waiting_yields: int = max_waiting_yields
-        self._homogeneous_decode_yields_in_a_row: int = 0
         self._hang_trace_last_log_mono: float = 0.0
 
     def _hang_trace_should_log(self, interval_sec: float = 5.0) -> bool:
@@ -305,32 +304,16 @@ class Scheduler:
 
         return None
 
-    def _homogeneous_scheduling_active(self) -> bool:
-        return schedule_homogeneous_enabled() and prefill_native_cg_enabled()
-
-    def _waiting_has_admissible_prefill(self) -> bool:
-        """True if waiting queue has a request eligible for first-chunk prefill."""
-        waiting_size = self.waiting_queue.sync_q.qsize()
-        requeue: List[InferenceRequest] = []
-        found = False
-        for _ in range(waiting_size):
-            try:
-                req = self.waiting_queue.sync_q.get_nowait()
-            except queue.Empty:
-                break
-            requeue.append(req)
-            if not req.is_finished() and self.can_accept_request(req):
-                found = True
-        for req in requeue:
-            self.waiting_queue.sync_q.put(req)
-        return found
-
     def _schedule_v1(self) -> Optional[SchedulerOutput]:
-        if self._homogeneous_scheduling_active():
-            return self._schedule_v1_homogeneous()
+        # Homogeneous PREFILL XOR DECODE removed (M6); always continuous mixed.
         return self._schedule_v1_mixed()
 
     def _schedule_v1_mixed(self) -> Optional[SchedulerOutput]:
+        """vLLM-like continuous batch: RUNNING (decode + mid-prefill) then WAITING.
+
+        MoE/piecewise shape gate defers any row that would make the step total
+        leave the exact AOT ladder (powers of two through 4096).
+        """
         budget = SchedulingBudget(
             max_num_batched_tokens(),
             self.max_batch_size,
@@ -338,48 +321,43 @@ class Scheduler:
         rows: List[ScheduledRow] = []
         scheduled_requests: List[InferenceRequest] = []
         chunk_size_hint = 0
-
-        running_snapshot = self._drain_running_queue()
         deferred_running: List[InferenceRequest] = []
-        decode_pending: List[InferenceRequest] = []
 
+        # Phase 1 — RUNNING first (mid-prefill and decode share the budget).
+        running_snapshot = self._drain_running_queue()
         for req in running_snapshot:
             if req.is_finished():
                 self.complete_requests([req])
                 continue
             if req.is_prefill and req.prefill_debt() > 0:
-                q = self._next_prefill_chunk_len(req, budget)
-                if q <= 0 or not budget.can_add(req.request_id, q):
-                    deferred_running.append(req)
-                    continue
-                if rows and not self._can_add_v1_prefill_row(
-                    rows, req, chunk_size_hint
+                chunk_size_hint_ref = [chunk_size_hint]
+                if self._try_schedule_v1_prefill_row(
+                    req,
+                    rows,
+                    scheduled_requests,
+                    budget,
+                    chunk_size_hint_ref,
+                    defer_fn=deferred_running.append,
+                    from_waiting=False,
                 ):
-                    deferred_running.append(req)
-                    continue
-                if not scheduled_requests and req.chunk_size > 0:
-                    chunk_size_hint = req.chunk_size
-                rows.append(
-                    ScheduledRow(
-                        req,
-                        q,
-                        True,
-                        self._is_final_prefill_chunk(req, q),
-                    )
-                )
-                scheduled_requests.append(req)
-                budget.add(req.request_id, q)
+                    chunk_size_hint = chunk_size_hint_ref[0]
             elif not req.is_prefill:
-                decode_pending.append(req)
+                self._try_schedule_v1_decode_row(
+                    req, rows, scheduled_requests, budget, deferred_running
+                )
             else:
                 deferred_running.append(req)
 
+        # Phase 2 — WAITING prefills into remaining budget.
         prefill_batch_cap = min(
             self.max_batch_size,
             self.max_prefill_batch_size or self.max_batch_size,
         )
-
-        while len(scheduled_requests) < prefill_batch_cap:
+        n_prefill = sum(1 for r in rows if r.is_prefill_row)
+        while (
+            n_prefill < prefill_batch_cap
+            and len(scheduled_requests) < self.max_batch_size
+        ):
             try:
                 req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
@@ -412,55 +390,20 @@ class Scheduler:
             if req.chunk_size > 0 and remaining > req.chunk_size:
                 req.chunk_prefill_offset = req.num_cached_tokens
 
-            q = self._next_prefill_chunk_len(req, budget)
-            if q <= 0 or not budget.can_add(req.request_id, q):
-                req.status = RequestStatus.WAITING
-                self.waiting_queue.sync_q.put(req)
-                break
-
-            if scheduled_requests:
-                if chunk_size_hint == 0:
-                    chunk_size_hint = req.chunk_size
-                if not self._can_add_v1_prefill_row(rows, req, chunk_size_hint):
-                    req.status = RequestStatus.WAITING
-                    self.waiting_queue.sync_q.put(req)
-                    break
-            elif req.chunk_size > 0:
-                chunk_size_hint = req.chunk_size
-
-            rows.append(
-                ScheduledRow(
-                    req,
-                    q,
-                    True,
-                    self._is_final_prefill_chunk(req, q),
-                )
+            chunk_size_hint_ref = [chunk_size_hint]
+            ok = self._try_schedule_v1_prefill_row(
+                req,
+                rows,
+                scheduled_requests,
+                budget,
+                chunk_size_hint_ref,
+                defer_fn=None,
+                from_waiting=True,
             )
-            scheduled_requests.append(req)
-            budget.add(req.request_id, q)
-
-        for req in decode_pending:
-            if len(scheduled_requests) >= self.max_batch_size:
-                deferred_running.append(req)
-                continue
-            if not budget.can_add(req.request_id, 1):
-                deferred_running.append(req)
-                continue
-            try:
-                req.block_table, new_slot = self.cache_manager.append_slot(
-                    req.block_table,
-                    req.get_total_length(),
-                    req.get_all_token_ids(),
-                )
-                req.slot_mapping = [new_slot]
-                req.num_blocks = len(req.block_table)
-                req.num_cached_tokens = req.get_total_length() - 1
-            except RuntimeError:
-                deferred_running.append(req)
-                continue
-            rows.append(ScheduledRow(req, 1, False, False))
-            scheduled_requests.append(req)
-            budget.add(req.request_id, 1)
+            chunk_size_hint = chunk_size_hint_ref[0]
+            if not ok:
+                break
+            n_prefill += 1
 
         for req in deferred_running:
             self.running_queue.sync_q.put(req)
@@ -478,222 +421,124 @@ class Scheduler:
             rows=rows,
         )
 
-    def _schedule_v1_homogeneous(self) -> Optional[SchedulerOutput]:
-        budget = SchedulingBudget(
-            max_num_batched_tokens(),
-            self.max_batch_size,
-        )
-        running_snapshot = self._drain_running_queue()
-        deferred_running: List[InferenceRequest] = []
-        decode_pending: List[InferenceRequest] = []
+    def _step_scheduled_tokens(self, rows: List[ScheduledRow]) -> int:
+        return sum(r.num_scheduled_tokens for r in rows)
 
-        for req in running_snapshot:
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-            if req.is_prefill and req.prefill_debt() > 0:
-                deferred_running.append(req)
-            elif not req.is_prefill:
-                decode_pending.append(req)
-            else:
-                deferred_running.append(req)
-
-        waiting_admissible = self._waiting_has_admissible_prefill()
-        force_prefill = (
-            waiting_admissible
-            and self._homogeneous_decode_yields_in_a_row >= self.max_waiting_yields
-        )
-        prefer_decode = (
-            decode_pending
-            and not force_prefill
-            and (
-                not waiting_admissible
-                or len(decode_pending) >= self.max_batch_size
-            )
+    def _shape_gate_allows(self, rows: List[ScheduledRow], add_tokens: int) -> bool:
+        """Defer when new total would exceed the MoE/piecewise max bucket."""
+        return moe_aot_step_total_allowed(
+            self._step_scheduled_tokens(rows) + add_tokens
         )
 
-        if prefer_decode:
-            if waiting_admissible:
-                self._homogeneous_decode_yields_in_a_row += 1
-            else:
-                self._homogeneous_decode_yields_in_a_row = 0
-            out = self._schedule_v1_decode_rows(decode_pending, budget)
-            for req in deferred_running:
-                self.running_queue.sync_q.put(req)
-            return out
+    def _shape_headroom(self, rows: List[ScheduledRow]) -> int:
+        """Tokens still schedulable before hitting MoE max bucket."""
+        return max(0, moe_aot_step_max_tokens() - self._step_scheduled_tokens(rows))
 
-        self._homogeneous_decode_yields_in_a_row = 0
-        out = self._schedule_v1_prefill_rows(
-            deferred_running, budget
-        )
-        for req in decode_pending:
-            self.running_queue.sync_q.put(req)
-        return out
-
-    def _schedule_v1_decode_rows(
+    def _try_schedule_v1_decode_row(
         self,
-        decode_pending: List[InferenceRequest],
+        req: InferenceRequest,
+        rows: List[ScheduledRow],
+        scheduled_requests: List[InferenceRequest],
         budget: SchedulingBudget,
-    ) -> Optional[SchedulerOutput]:
-        rows: List[ScheduledRow] = []
-        scheduled_requests: List[InferenceRequest] = []
-        deferred: List[InferenceRequest] = []
-
-        for req in decode_pending:
-            if len(scheduled_requests) >= self.max_batch_size:
-                deferred.append(req)
-                continue
-            if not budget.can_add(req.request_id, 1):
-                deferred.append(req)
-                continue
-            try:
-                req.block_table, new_slot = self.cache_manager.append_slot(
-                    req.block_table,
-                    req.get_total_length(),
-                    req.get_all_token_ids(),
-                )
-                req.slot_mapping = [new_slot]
-                req.num_blocks = len(req.block_table)
-                req.num_cached_tokens = req.get_total_length() - 1
-            except RuntimeError:
-                deferred.append(req)
-                continue
-            rows.append(ScheduledRow(req, 1, False, False))
-            scheduled_requests.append(req)
-            budget.add(req.request_id, 1)
-
-        for req in deferred:
-            self.running_queue.sync_q.put(req)
-
-        if not scheduled_requests:
-            return None
-
-        self._log_v1_step(rows)
-        return SchedulerOutput(
-            scheduled_requests=scheduled_requests,
-            is_prefill=False,
-            rows=rows,
-        )
-
-    def _schedule_v1_prefill_rows(
-        self,
-        running_prefill: List[InferenceRequest],
-        budget: SchedulingBudget,
-    ) -> Optional[SchedulerOutput]:
-        rows: List[ScheduledRow] = []
-        scheduled_requests: List[InferenceRequest] = []
-        chunk_size_hint = 0
-        deferred_running: List[InferenceRequest] = []
-
-        for req in running_prefill:
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-            if not (req.is_prefill and req.prefill_debt() > 0):
-                deferred_running.append(req)
-                continue
-            q = self._next_prefill_chunk_len(req, budget)
-            if q <= 0 or not budget.can_add(req.request_id, q):
-                deferred_running.append(req)
-                continue
-            if rows and not self._can_add_v1_prefill_row(
-                rows, req, chunk_size_hint
-            ):
-                deferred_running.append(req)
-                continue
-            if not scheduled_requests and req.chunk_size > 0:
-                chunk_size_hint = req.chunk_size
-            rows.append(
-                ScheduledRow(
-                    req,
-                    q,
-                    True,
-                    self._is_final_prefill_chunk(req, q),
-                )
+        deferred: List[InferenceRequest],
+    ) -> bool:
+        if len(scheduled_requests) >= self.max_batch_size:
+            deferred.append(req)
+            return False
+        if not budget.can_add(req.request_id, 1):
+            deferred.append(req)
+            return False
+        if not self._shape_gate_allows(rows, 1):
+            deferred.append(req)
+            return False
+        try:
+            req.block_table, new_slot = self.cache_manager.append_slot(
+                req.block_table,
+                req.get_total_length(),
+                req.get_all_token_ids(),
             )
-            scheduled_requests.append(req)
-            budget.add(req.request_id, q)
-
-        prefill_batch_cap = min(
-            self.max_batch_size,
-            self.max_prefill_batch_size or self.max_batch_size,
-        )
-
-        while len(scheduled_requests) < prefill_batch_cap:
-            try:
-                req = self.waiting_queue.sync_q.get_nowait()
-            except queue.Empty:
-                break
-
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-
-            if not self.can_accept_request(req):
-                self.waiting_queue.sync_q.put(req)
-                break
-
-            req_tokens = req.get_input_tokens()
-            num_required_blocks = req.get_num_blocks_required(self.block_size)
-
-            if not self.cache_manager.can_allocate(num_required_blocks):
-                if not self.cache_manager.try_free_blocks(num_required_blocks):
-                    raise RuntimeError("No available cache blocks for new request")
-
-            if not req.block_table:
-                req.block_table, req.slot_mapping, req.num_cached_tokens = (
-                    self.cache_manager.allocate_blocks(req_tokens, req.block_table)
-                )
-
+            req.slot_mapping = [new_slot]
             req.num_blocks = len(req.block_table)
-            req.status = RequestStatus.RUNNING
+            req.num_cached_tokens = req.get_total_length() - 1
+        except RuntimeError:
+            deferred.append(req)
+            return False
+        rows.append(ScheduledRow(req, 1, False, False))
+        scheduled_requests.append(req)
+        budget.add(req.request_id, 1)
+        return True
 
-            remaining = req.prompt_length - req.num_cached_tokens
-            if req.chunk_size > 0 and remaining > req.chunk_size:
-                req.chunk_prefill_offset = req.num_cached_tokens
+    def _try_schedule_v1_prefill_row(
+        self,
+        req: InferenceRequest,
+        rows: List[ScheduledRow],
+        scheduled_requests: List[InferenceRequest],
+        budget: SchedulingBudget,
+        chunk_size_hint_ref: List[int],
+        *,
+        defer_fn,
+        from_waiting: bool,
+    ) -> bool:
+        """Try to append one prefill row. Returns False if blocked / deferred.
 
-            q = self._next_prefill_chunk_len(req, budget)
-            if q <= 0 or not budget.can_add(req.request_id, q):
+        When ``from_waiting`` and blocked, requeues the request as WAITING and
+        stops further waiting admissions. When from RUNNING, calls ``defer_fn``.
+
+        Prefill length is clamped to MoE shape headroom so a prior RUNNING decode
+        cannot permanently starve WAITING prefills (e.g. 1+4096 → schedule 4095).
+        """
+        q = self._next_prefill_chunk_len(req, budget)
+        headroom = self._shape_headroom(rows)
+        if headroom <= 0:
+            if from_waiting:
                 req.status = RequestStatus.WAITING
                 self.waiting_queue.sync_q.put(req)
-                break
+            elif defer_fn is not None:
+                defer_fn(req)
+            return False
+        q = min(q, headroom)
+        if q <= 0 or not budget.can_add(req.request_id, q):
+            if from_waiting:
+                req.status = RequestStatus.WAITING
+                self.waiting_queue.sync_q.put(req)
+            elif defer_fn is not None:
+                defer_fn(req)
+            return False
+        if not self._shape_gate_allows(rows, q):
+            if from_waiting:
+                req.status = RequestStatus.WAITING
+                self.waiting_queue.sync_q.put(req)
+            elif defer_fn is not None:
+                defer_fn(req)
+            return False
 
-            if scheduled_requests:
-                if chunk_size_hint == 0:
-                    chunk_size_hint = req.chunk_size
-                if not self._can_add_v1_prefill_row(rows, req, chunk_size_hint):
+        chunk_size_hint = chunk_size_hint_ref[0]
+        prefill_rows = [r for r in rows if r.is_prefill_row]
+        if prefill_rows:
+            if chunk_size_hint == 0:
+                chunk_size_hint = req.chunk_size
+            if not self._can_add_v1_prefill_row(rows, req, chunk_size_hint):
+                if from_waiting:
                     req.status = RequestStatus.WAITING
                     self.waiting_queue.sync_q.put(req)
-                    break
-            elif req.chunk_size > 0:
-                chunk_size_hint = req.chunk_size
+                elif defer_fn is not None:
+                    defer_fn(req)
+                return False
+        elif req.chunk_size > 0 and chunk_size_hint == 0:
+            chunk_size_hint = req.chunk_size
 
-            rows.append(
-                ScheduledRow(
-                    req,
-                    q,
-                    True,
-                    self._is_final_prefill_chunk(req, q),
-                )
+        rows.append(
+            ScheduledRow(
+                req,
+                q,
+                True,
+                self._is_final_prefill_chunk(req, q),
             )
-            scheduled_requests.append(req)
-            budget.add(req.request_id, q)
-
-        for req in deferred_running:
-            self.running_queue.sync_q.put(req)
-
-        if not scheduled_requests:
-            return None
-
-        prefill_rows = [r.request for r in rows if r.is_prefill_row]
-        self._log_prefill_pack(prefill_rows)
-        self._log_v1_step(rows)
-
-        return SchedulerOutput(
-            scheduled_requests=scheduled_requests,
-            is_prefill=True,
-            rows=rows,
         )
+        scheduled_requests.append(req)
+        budget.add(req.request_id, q)
+        chunk_size_hint_ref[0] = chunk_size_hint
+        return True
 
     def _drain_running_queue(self) -> List[InferenceRequest]:
         reqs: List[InferenceRequest] = []
@@ -711,8 +556,11 @@ class Scheduler:
         q = self._prefill_compute_len(req)
         if q <= 0:
             return 0
+        remaining = budget.remaining_tokens()
         threshold = long_prefill_threshold()
-        return min(q, threshold, budget.remaining_tokens())
+        if threshold > 0:
+            return min(q, threshold, remaining)
+        return min(q, remaining)
 
     def _is_final_prefill_chunk(self, req: InferenceRequest, q: int) -> bool:
         return req.num_computed_tokens + q >= req.prompt_length
@@ -723,11 +571,10 @@ class Scheduler:
         candidate: InferenceRequest,
         chunk_size: int,
     ) -> bool:
-        if not rows:
-            return True
+        """Pack rules among prefill rows only (decode may already be in the step)."""
         prefill_rows = [r for r in rows if r.is_prefill_row]
-        if any(not r.is_prefill_row for r in rows):
-            return len(prefill_rows) == 0
+        if not prefill_rows:
+            return True
         scheduled = [r.request for r in prefill_rows]
         if not self._can_add_to_prefill_pack(
             scheduled, candidate, chunk_size=chunk_size
@@ -761,7 +608,12 @@ class Scheduler:
         )
 
     def _pack_token_budget(self, chunk_size: int) -> int:
-        """Max sum(compute_len) per prefill pack step (piecewise bucket cap)."""
+        """Max sum(compute_len) per prefill pack step.
+        When chunking, budget equals chunk_size so packed Q never exceeds
+        one chunk (aligns with MoE/piecewise ladders sized to chunk).
+        """
+        if chunk_size > 0:
+            return min(_PACK_BUCKET_CAP, chunk_size)
         return _PACK_BUCKET_CAP
 
     @staticmethod
@@ -815,7 +667,7 @@ class Scheduler:
         budget = self._pack_token_budget(chunk_size)
         if total_q > budget:
             return False
-        if _padded_bucket(total_q) > _PACK_BUCKET_CAP:
+        if _padded_bucket(total_q) > budget:
             return False
         return True
 

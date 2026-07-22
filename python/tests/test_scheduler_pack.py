@@ -31,11 +31,48 @@ class SchedulerPackTest(unittest.TestCase):
             enable_prefix_cache=False,
         )
 
-    def test_four_4096_chunks_pack_two_per_step(self):
-        """4×4096-chunk @8192 prompts → 2 steps of 2-pack mid-chunks."""
+    def test_four_4096_chunks_no_two_pack_at_chunk_budget(self):
+        """With chunk_size=4096, full mid-chunks schedule one per step (2×4096 pack forbidden)."""
         chunk_size = 4096
         for i in range(4):
             req = _req(f"r{i}", 8192, chunk_size=chunk_size)
+            self.scheduler.add_request(req)
+
+        mid_lens = []
+        for _ in range(4):
+            out = self.scheduler.schedule()
+            self.assertIsNotNone(out)
+            assert out is not None
+            self.assertTrue(out.is_prefill)
+            self.assertEqual(len(out.scheduled_requests), 1)
+            req = out.scheduled_requests[0]
+            self.assertTrue(req.is_chunking() and not req.chunk_is_last())
+            total_q = Scheduler._prefill_compute_len(req)
+            mid_lens.append(total_q)
+            self.assertNotEqual(total_q, 8192)
+            self.assertEqual(total_q, 4096)
+            req.chunk_prefill_offset += chunk_size
+            self.scheduler.requeue_chunking(req)
+
+        self.assertEqual(mid_lens, [4096, 4096, 4096, 4096])
+
+        # Final chunks also one-at-a-time under the same budget.
+        for _ in range(4):
+            out = self.scheduler.schedule()
+            self.assertIsNotNone(out)
+            assert out is not None
+            self.assertEqual(len(out.scheduled_requests), 1)
+            self.assertTrue(out.scheduled_requests[0].chunk_is_last())
+            total_q = sum(
+                Scheduler._prefill_compute_len(r) for r in out.scheduled_requests
+            )
+            self.assertNotEqual(total_q, 8192)
+
+    def test_smaller_chunks_still_multi_pack(self):
+        """Under chunk_size=4096 budget, four 2048-token prefills pack two per step (total_q=4096)."""
+        chunk_size = 4096
+        for i in range(4):
+            req = _req(f"r{i}", 2048, chunk_size=chunk_size)
             self.scheduler.add_request(req)
 
         out1 = self.scheduler.schedule()
@@ -43,32 +80,19 @@ class SchedulerPackTest(unittest.TestCase):
         assert out1 is not None
         self.assertTrue(out1.is_prefill)
         self.assertEqual(len(out1.scheduled_requests), 2)
-        self.assertTrue(all(r.is_chunking() and not r.chunk_is_last() for r in out1.scheduled_requests))
+        total_q1 = sum(
+            Scheduler._prefill_compute_len(r) for r in out1.scheduled_requests
+        )
+        self.assertEqual(total_q1, 4096)
 
         out2 = self.scheduler.schedule()
         self.assertIsNotNone(out2)
         assert out2 is not None
         self.assertEqual(len(out2.scheduled_requests), 2)
-
-        # Simulate mid-chunk advance + requeue
-        for req in out1.scheduled_requests:
-            req.chunk_prefill_offset += chunk_size
-            self.scheduler.requeue_chunking(req)
-        for req in out2.scheduled_requests:
-            req.chunk_prefill_offset += chunk_size
-            self.scheduler.requeue_chunking(req)
-
-        out3 = self.scheduler.schedule()
-        self.assertIsNotNone(out3)
-        assert out3 is not None
-        self.assertEqual(len(out3.scheduled_requests), 2)
-        self.assertTrue(all(r.chunk_is_last() for r in out3.scheduled_requests))
-
-        out4 = self.scheduler.schedule()
-        self.assertIsNotNone(out4)
-        assert out4 is not None
-        self.assertEqual(len(out4.scheduled_requests), 2)
-        self.assertTrue(all(r.chunk_is_last() for r in out4.scheduled_requests))
+        total_q2 = sum(
+            Scheduler._prefill_compute_len(r) for r in out2.scheduled_requests
+        )
+        self.assertEqual(total_q2, 4096)
 
     def test_reject_mixed_mid_and_final(self):
         chunk_size = 4096
