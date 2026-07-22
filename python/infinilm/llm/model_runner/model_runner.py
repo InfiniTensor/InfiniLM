@@ -7,6 +7,7 @@ import infinicore
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
+from infinilm.distributed.pipeline_transport import PipelineControlServer
 from infinilm.infer_engine import InferEngine
 from infinilm.kv_connector import (
     KVConnectorFactory,
@@ -42,8 +43,9 @@ class ModelRunnerOutput:
 
 
 class ModelRunner:
-    def __init__(self, config: EngineConfig):
+    def __init__(self, config: EngineConfig, initialize_processor: bool = True):
         self.config = config
+        self._closed = False
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
@@ -65,7 +67,9 @@ class ModelRunner:
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
-        # Initialize model engine
+        # InferEngine creates the per-node TP communicator first. For PP it then
+        # uses the short-lived C++ TCP rendezvous to bootstrap one global
+        # InfiniCCL communicator spanning every (PP stage, TP rank) pair.
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
@@ -73,6 +77,10 @@ class ModelRunner:
                 config.tensor_parallel_size,
                 moe_ep_backend=config.moe_ep_backend,
                 moe_ep_size=config.moe_ep_size,
+                pp_size=config.pipeline_parallel_size,
+                pp_stage=config.pipeline_parallel_stage,
+                master_addr=config.master_addr,
+                master_port=config.master_port,
             ),
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
@@ -101,8 +109,21 @@ class ModelRunner:
                 config, self.model_engine, self.device
             )
 
-        # Initialize processor
-        self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
+        self.processor = (
+            AutoInfinilmProcessor.from_pretrained(config.model_path)
+            if initialize_processor
+            else None
+        )
+
+        self.pipeline_control = None
+        if config.pipeline_parallel_size > 1 and config.pipeline_parallel_stage == 0:
+            # The bootstrap listener has closed by this point. Stage 0 now
+            # reuses master_port for the persistent Python control plane; tensor
+            # activations continue to use the global InfiniCCL communicator.
+            self.pipeline_control = PipelineControlServer(
+                config.pipeline_parallel_size,
+                config.master_port,
+            )
 
         # Initialize KV connector
         self.kv_connector = None
@@ -197,8 +218,22 @@ class ModelRunner:
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
-        # Run inference
-        sampled_tokens = self.model_engine.forward(**model_input)
+        # Wake every stage before stage 0 enters forward. Each worker receives
+        # the same metadata and then blocks in its model on the activation from
+        # the preceding stage. Stage 0 waits for all acknowledgements afterward.
+        if self.pipeline_control is not None:
+            self.pipeline_control.dispatch_forward(model_input)
+        try:
+            sampled_tokens = self.model_engine.forward(**model_input)
+        except BaseException:
+            if self.pipeline_control is not None:
+                try:
+                    self.pipeline_control.wait_forward()
+                except BaseException:
+                    logger.exception("pipeline worker also failed during forward")
+            raise
+        if self.pipeline_control is not None:
+            self.pipeline_control.wait_forward()
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         return sampled_tokens_list
@@ -234,5 +269,10 @@ class ModelRunner:
 
     def close(self) -> None:
         """Release resources held by the KV connector."""
+        if self._closed:
+            return
+        if self.pipeline_control is not None:
+            self.pipeline_control.close()
         if self.kv_connector is not None:
             self.kv_connector.shutdown()
+        self._closed = True

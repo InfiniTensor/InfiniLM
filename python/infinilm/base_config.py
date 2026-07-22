@@ -63,6 +63,10 @@ class BaseConfig:
         self.num_draft_tokens = self.args.num_draft_tokens
         self.device = self.args.device
         self.tp = self.args.tp
+        self.pp = self.args.pp
+        self.node_rank = self.args.node_rank
+        self.master_addr = self.args.master_addr
+        self.master_port = self.args.master_port
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
@@ -199,6 +203,29 @@ class BaseConfig:
             ),
         )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
+        self.parser.add_argument(
+            "--pp", "--pipeline-parallel-size", type=int, default=1
+        )
+        self.parser.add_argument(
+            "--node-rank",
+            "--pp-stage",
+            "--pipeline-parallel-stage",
+            dest="node_rank",
+            type=int,
+            default=0,
+        )
+        self.parser.add_argument(
+            "--master-addr",
+            dest="master_addr",
+            type=str,
+            default="127.0.0.1",
+        )
+        self.parser.add_argument(
+            "--master-port",
+            dest="master_port",
+            type=int,
+            default=29500,
+        )
         self.parser.add_argument("--dp", "--data-parallel-size", type=int, default=1)
         self.parser.add_argument(
             "--ep", "--expert-parallel-size", type=int, default=None
