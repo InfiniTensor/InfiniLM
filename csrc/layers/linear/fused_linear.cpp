@@ -1,6 +1,5 @@
 #include "fused_linear.hpp"
 
-#include "../../utils/agent_debug.hpp"
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers::linear {
@@ -155,28 +154,12 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 }
 
 void QKVParallelLinear::process_weights_after_loading() {
-    // #region agent log
-    static thread_local bool qkv_pw_logged = false;
-    // #endregion
     infinilm::quantization::ParamsMap params;
     for (const auto &[name, param] : parameters_) {
         params[name] = static_cast<const infinicore::Tensor &>(param);
     }
 
     auto new_quant = quantization_->process_weights_after_loading(params, device_);
-    // #region agent log
-    if (!qkv_pw_logged) {
-        infinilm::agent_debug::log(
-            "fused_linear.cpp:QKVParallelLinear::process_weights_after_loading",
-            "qkv_process_weights",
-            "F",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank_) +
-                ",\"tp_size\":" + std::to_string(tp_size_) +
-                ",\"repacked\":" + (new_quant ? "true" : "false") + "}",
-            "post-fix");
-        qkv_pw_logged = true;
-    }
-    // #endregion
     if (!new_quant) {
         // Fused q/k/v were registered at construction and loaded directly from
         // checkpoint; re-splitting from the unused fused `weight` buffer would

@@ -338,6 +338,8 @@ void PiecewiseDecodeCompiler::capture_batch_fused_(size_t /*batch*/,
 void PiecewiseDecodeCompiler::capture_batch_(size_t batch) {
     const auto rank_device = infinilm::global_state::get_tensor_model_parallel_rank_info().device;
     infinicore::context::setDevice(rank_device);
+    infinicore::context::InferencePhaseGuard phase_guard(
+        infinicore::context::InferencePhase::Decode);
 
     auto &piecewise_flag = infinilm::global_state::get_forward_context().piecewise;
     struct CaptureGuard {

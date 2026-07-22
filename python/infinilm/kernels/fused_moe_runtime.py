@@ -371,9 +371,18 @@ def _moe_capture_safe_enabled() -> bool:
 
 
 def _moe_triton_capture_enabled() -> bool:
-    """INFINI_MOE_TRITON_CAPTURE=1: Triton fused_moe_routed under stream capture."""
+    """Triton fused_moe_routed under stream capture.
+
+    Explicit ``INFINI_MOE_TRITON_CAPTURE`` wins. Else
+    ``INFINI_CUDAGRAPH_POLICY=full_and_piecewise`` enables capture (phase-scoped
+    in C++; Python mirrors the policy bit for kernel-path gating). ``eager`` /
+    unset → off. Prefer policy over bare TRITON_CAPTURE in new paths.
+    """
     raw = os.environ.get("INFINI_MOE_TRITON_CAPTURE", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    if raw:
+        return raw in ("1", "true", "yes", "on")
+    policy = os.environ.get("INFINI_CUDAGRAPH_POLICY", "eager").strip().lower()
+    return policy == "full_and_piecewise"
 
 
 def _under_device_stream_capture() -> bool:
@@ -447,32 +456,6 @@ def _fill_capture(t: torch.Tensor, value: int) -> None:
     if value == 0:
         _zero_capture(t)
         return
-    # #region agent log
-    try:
-        import json
-        import time
-        with open(
-            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
-            "a",
-            encoding="utf-8",
-        ) as _dbg:
-            _dbg.write(
-                json.dumps(
-                    {
-                        "sessionId": "11084d",
-                        "runId": "post-fix",
-                        "hypothesisId": "J",
-                        "location": "fused_moe_runtime.py:_fill_capture",
-                        "message": "h2d_fill_retain_host",
-                        "data": {"numel": int(t.numel()), "value": int(value), "dtype": str(t.dtype)},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     host = torch.full(t.shape, value, dtype=t.dtype, device="cpu").contiguous()
     _retain_capture(host)
     t.copy_(host, non_blocking=False)
@@ -546,6 +529,10 @@ def _moe_align_block_size_host(
 
     # Single small D2H (replaces many MetaX kernel launches + former ``.item()`` syncs).
     flat = flat_t.detach().to(dtype=torch.int64, device="cpu").numpy()
+    # CG warmup / zeroed capture inputs can yield out-of-range or negative expert
+    # ids; clamp so ``np.bincount`` does not raise during instantiate warmup.
+    if num_experts > 0:
+        flat = np.clip(flat, 0, num_experts - 1)
     order = np.argsort(flat, kind="stable")
     sorted_experts = flat[order]
 
@@ -610,37 +597,6 @@ def _moe_align_block_size_capture(
     ``FillFunctor<long>`` scratch) so MetaX graph replay does not ATU. Host D2H of
     ids under capture is unsafe on MetaX (garbage reads).
     """
-    # #region agent log
-    try:
-        import json
-        import time
-        with open(
-            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
-            "a",
-            encoding="utf-8",
-        ) as _dbg:
-            _dbg.write(
-                json.dumps(
-                    {
-                        "sessionId": "11084d",
-                        "runId": "m2-classify",
-                        "hypothesisId": "A",
-                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
-                        "message": "align_capture_enter",
-                        "data": {
-                            "numel": int(topk_ids.numel()),
-                            "dtype": str(topk_ids.dtype),
-                            "block_size": int(block_size),
-                            "num_experts": int(num_experts),
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     device = topk_ids.device
     numel = int(topk_ids.numel())
 
@@ -660,32 +616,6 @@ def _moe_align_block_size_capture(
     # Scatter index API wants Long — arena cast (no ``.to(int64)`` FillFunctor).
     flat = _capture_safe_to_dtype(flat_i32, torch.int64)
     idx = _empty_capture(numel, dtype=torch.int64, device=device)
-    # #region agent log
-    try:
-        import json
-        import time
-        with open(
-            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
-            "a",
-            encoding="utf-8",
-        ) as _dbg:
-            _dbg.write(
-                json.dumps(
-                    {
-                        "sessionId": "11084d",
-                        "runId": "post-fix",
-                        "hypothesisId": "J",
-                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
-                        "message": "h2d_arange_retain_host",
-                        "data": {"numel": int(numel)},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     host_idx = torch.arange(numel, dtype=torch.int64, device="cpu").contiguous()
     _retain_capture(host_idx)
     idx.copy_(host_idx, non_blocking=False)
@@ -711,32 +641,6 @@ def _moe_align_block_size_capture(
     fj = flat.unsqueeze(1).expand(numel, numel)
     j_idx = idx.unsqueeze(0).expand(numel, numel)
     i_idx = idx.unsqueeze(1).expand(numel, numel)
-    # #region agent log
-    try:
-        import json
-        import time
-        with open(
-            "/opt/offline/infinilm-metax-20260622/.cursor/debug-11084d.log",
-            "a",
-            encoding="utf-8",
-        ) as _dbg:
-            _dbg.write(
-                json.dumps(
-                    {
-                        "sessionId": "11084d",
-                        "runId": "post-fix",
-                        "hypothesisId": "E",
-                        "location": "fused_moe_runtime.py:_moe_align_block_size_capture",
-                        "message": "align_bool_sum_no_where",
-                        "data": {"numel": int(numel)},
-                        "timestamp": int(time.time() * 1000),
-                    }
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
     # Avoid ``torch.where`` under capture — MetaX records Fill/where nodes that ATU on
     # probe/replay. Bool compare + sum is enough for the O(n²) within-count.
     within = ((fi == fj) & (j_idx < i_idx)).sum(dim=1)

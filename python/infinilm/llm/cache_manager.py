@@ -11,27 +11,6 @@ import xxhash
 import numpy as np
 
 
-def _agent_debug_log(location: str, message: str, hypothesis_id: str, data: dict) -> None:
-    if os.environ.get("INFINI_AGENT_DEBUG", "").strip().lower() in ("", "0", "false"):
-        return
-    log_path = os.environ.get(
-        "INFINI_AGENT_DEBUG_LOG", "/workspace/.cursor/debug-073e37.log"
-    )
-    try:
-        payload = {
-            "sessionId": "073e37",
-            "runId": "llm-engine-bench",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-
 
 class Block:
     """KV Cache Block with reference counting and hash-based reuse support."""
@@ -277,19 +256,6 @@ class BlockManager:
         last_block_id = block_table[-1]
         offset = (num_tokens - 1) % self.block_size
         slot_id = last_block_id * self.block_size + offset
-
-        _agent_debug_log(
-            "cache_manager.py:append_slot",
-            "append_slot",
-            "H-rope-oob",
-            {
-                "num_tokens": num_tokens,
-                "slot_id": slot_id,
-                "block_id": last_block_id,
-                "offset": offset,
-                "block_table_len": len(block_table),
-            },
-        )
 
         return block_table, slot_id
 

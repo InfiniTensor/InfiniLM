@@ -2,7 +2,6 @@
 #include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
-#include "../../utils/agent_debug.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
@@ -15,26 +14,6 @@
 namespace infinilm::layers::attention {
 
 namespace {
-
-bool piecewise_upstream_active() {
-    const auto &pw = infinilm::global_state::get_forward_context().piecewise;
-    return pw.valid_seq_len > 0 || pw.phase != infinilm::global_state::PiecewiseCapturePhase::None;
-}
-
-void log_piecewise_stage(size_t layer_idx, const char *stage, const char *hypothesis_id,
-                         const infinicore::Tensor &t, const char *run_id = "piecewise-upstream") {
-    if (layer_idx > 1 || !piecewise_upstream_active()) {
-        return;
-    }
-    const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-    infinilm::agent_debug::log(
-        "attention.cpp:piecewise",
-        stage,
-        hypothesis_id,
-        std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" + std::to_string(layer_idx) +
-            ",\"first_bits\":" + std::to_string(infinilm::agent_debug::first_elem_bits(t)) + "}",
-        run_id);
-}
 
 void restore_rank_device(const infinicore::Device &device) {
     infinicore::context::setDevice(device);
@@ -193,53 +172,12 @@ void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_id
     }
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
     rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
-    // #region agent log
-    log_piecewise_stage(layer_idx_, "pw_q_rope", "T1", q_rope);
-    log_piecewise_stage(layer_idx_, "pw_k_rope", "T1", k_rope);
-    // #endregion
 }
 
 void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
                                              global_state::PiecewiseLayerStaging &staging) const {
     restore_rank_device(staging.q_rope->device());
 
-    // #region agent log
-    if (layer_idx_ == 0) {
-        auto &fwd = global_state::get_forward_context();
-        const int tp_rank = global_state::get_tensor_model_parallel_rank();
-        const auto rank_dev = global_state::get_tensor_model_parallel_rank_info().device.toString();
-        const auto ctx_dev = infinicore::context::getDevice().toString();
-        const auto k_dev = staging.k_rope->device().toString();
-        const auto v_dev = staging.v_rope->device().toString();
-        std::string slot_dev = "none";
-        std::string kcache_dev = "none";
-        if (fwd.attn_metadata.slot_mapping.has_value()) {
-            slot_dev = fwd.attn_metadata.slot_mapping.value()->device().toString();
-        }
-        if (layer_idx_ < fwd.kv_cache_vec.size() && fwd.kv_cache_vec[layer_idx_]) {
-            kcache_dev = fwd.kv_cache_vec[layer_idx_]->device().toString();
-        }
-#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
-        const int c10_dev = static_cast<int>(c10::cuda::current_device());
-        infinilm::agent_debug::session_log(
-            "attention.cpp:forward_eager_attn_piecewise",
-            "paged_caching_devices",
-            "H2",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"rank_dev\":\"" + rank_dev +
-                "\",\"ctx_dev\":\"" + ctx_dev + "\",\"k_dev\":\"" + k_dev + "\",\"v_dev\":\"" + v_dev +
-                "\",\"slot_dev\":\"" + slot_dev + "\",\"kcache_dev\":\"" + kcache_dev +
-                "\",\"c10_dev\":" + std::to_string(c10_dev) + "}");
-#else
-        infinilm::agent_debug::session_log(
-            "attention.cpp:forward_eager_attn_piecewise",
-            "paged_caching_devices",
-            "H2",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"rank_dev\":\"" + rank_dev +
-                "\",\"ctx_dev\":\"" + ctx_dev + "\",\"k_dev\":\"" + k_dev + "\",\"v_dev\":\"" + v_dev +
-                "\",\"slot_dev\":\"" + slot_dev + "\",\"kcache_dev\":\"" + kcache_dev + "\"}");
-#endif
-    }
-    // #endregion
 
     auto &piecewise = global_state::get_forward_context().piecewise;
     const size_t seq_len = staging.q_rope->size(1);
@@ -266,13 +204,6 @@ void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
     } else {
         staging.attn_output->copy_from(attn_output);
     }
-    // #region agent log
-    log_piecewise_stage(
-        layer_idx_,
-        "pw_attn_out",
-        "T3",
-        staging.attn_output->narrow({{1, 0, valid_len}}));
-    // #endregion
 }
 
 void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
@@ -291,9 +222,6 @@ void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidde
     auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
     auto projected = o_proj_->forward_matmul_only(attn_for_proj);
     hidden_narrow->copy_from(projected);
-    // #region agent log
-    log_piecewise_stage(layer_idx_, "pw_o_proj_pre_ar", "T4", hidden_narrow);
-    // #endregion
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
         set_zeros(hidden_tail);
@@ -310,9 +238,6 @@ void Attention::forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_s
     auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
     auto projected = o_proj_->forward(attn_for_proj);
     hidden_narrow->copy_from(projected);
-    // #region agent log
-    log_piecewise_stage(layer_idx_, "pw_o_proj_post_ar", "T4", hidden_narrow);
-    // #endregion
     if (valid_len < seq_len) {
         auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
         set_zeros(hidden_tail);

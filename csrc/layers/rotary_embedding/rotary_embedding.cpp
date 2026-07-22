@@ -1,6 +1,5 @@
 #include "rotary_embedding.hpp"
 #include "../../engine/compiler/piecewise_bucket_policy.hpp"
-#include "../../utils/agent_debug.hpp"
 #include <algorithm> // std::clamp
 #include <cmath>     // std::llround
 #include <string>
@@ -58,16 +57,6 @@ std::shared_ptr<infinicore::nn::RoPE> get_rope(const std::shared_ptr<infinilm::c
     const size_t runtime_max_seq = compile_max_seq + decode_headroom;
     const size_t rope_cache_seq_len = std::max(max_position_embeddings, runtime_max_seq);
     double rope_theta = model_config->get<double>("rope_theta");
-
-    infinilm::agent_debug::log(
-        "rotary_embedding.cpp:get_rope",
-        "rope_cache_sizing",
-        "H-rope-oob",
-        std::string("{\"max_position_embeddings\":") + std::to_string(max_position_embeddings) +
-            ",\"compile_max_seq\":" + std::to_string(compile_max_seq) +
-            ",\"decode_headroom\":" + std::to_string(decode_headroom) +
-            ",\"rope_cache_seq_len\":" + std::to_string(rope_cache_seq_len) + "}",
-        "llm-engine-bench");
 
     std::string cache_key = scaling_type + "_rope_dim_" + std::to_string(rotary_dim) +
                             "_maxseq_" + std::to_string(rope_cache_seq_len);

@@ -1,7 +1,6 @@
 #include "paged_attn.hpp"
 
 #include "../../../utils.hpp"
-#include "../../../utils/agent_debug.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "../../../global_state/global_state.hpp"
@@ -33,35 +32,10 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
 
-    // #region agent log
-    if (layer_idx_ == 0) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "paged_attn.cpp:forward",
-            "paged_caching_begin",
-            "S",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"seq_len\":" + std::to_string(query->shape()[0]) +
-                ",\"slot_len\":" + std::to_string(slot_mapping.value()->shape()[0]) +
-                ",\"num_kv_heads\":" + std::to_string(num_kv_heads_) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     // 1. update paged kv cache
     auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());
     infinicore::context::syncStream();
-    // #region agent log
-    if (layer_idx_ == 0) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "paged_attn.cpp:forward",
-            "paged_caching_done",
-            "S",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);

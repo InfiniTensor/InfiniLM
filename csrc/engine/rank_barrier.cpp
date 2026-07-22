@@ -2,7 +2,6 @@
 
 #include "../global_state/ar_profile.hpp"
 #include "../global_state/hang_trace.hpp"
-#include "../utils/agent_debug.hpp"
 
 #include <spdlog/spdlog.h>
 #include <string>
@@ -18,18 +17,6 @@ void RankBarrier::wait(const char *label, int tp_rank) {
     size_t arrived_before = 0;
     int gen_before = 0;
 
-    // #region agent log
-    if (label != nullptr) {
-        const std::string tag(label);
-        if (tag.find("inductor") != std::string::npos || tag.find("piecewise_capture") != std::string::npos) {
-            infinilm::agent_debug::session_log(
-                "rank_barrier.cpp:wait",
-                "barrier_enter",
-                "H1",
-                std::string("{\"label\":\"") + tag + "\",\"tp_rank\":" + std::to_string(tp_rank) + "}");
-        }
-    }
-    // #endregion
 
     {
         std::unique_lock<std::mutex> lock(mutex_);
@@ -73,18 +60,6 @@ void RankBarrier::wait(const char *label, int tp_rank) {
         }
     }
 
-    // #region agent log
-    if (label != nullptr) {
-        const std::string tag(label);
-        if (tag.find("inductor") != std::string::npos || tag.find("piecewise_capture") != std::string::npos) {
-            infinilm::agent_debug::session_log(
-                "rank_barrier.cpp:wait",
-                "barrier_exit",
-                "H1",
-                std::string("{\"label\":\"") + tag + "\",\"tp_rank\":" + std::to_string(tp_rank) + "}");
-        }
-    }
-    // #endregion
 
     if (timed) {
         const double ms = global_state::ar_profile::monotonic_ms() - t0;

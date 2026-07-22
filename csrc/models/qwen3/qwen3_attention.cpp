@@ -1,7 +1,6 @@
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
-#include "../../utils/agent_debug.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 
@@ -71,21 +70,6 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
 
     ASSERT_EQ(batch_size, 1);
 
-    // #region agent log
-    if (layer_idx_ == 0) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "qwen3_paged_attn_entry",
-            "C",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"seq_len\":" + std::to_string(seq_len) +
-                ",\"num_attn_heads\":" + std::to_string(num_attention_heads_) +
-                ",\"num_kv_heads\":" + std::to_string(num_key_value_heads_) +
-                ",\"pos_rank\":" + std::to_string(position_ids->shape().size()) +
-                ",\"pos_dim0\":" + std::to_string(position_ids->size(0)) + "}");
-    }
-    // #endregion
 
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
 
@@ -116,19 +100,6 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
         v_reshaped = v_reshaped->contiguous();
     }
 
-    // #region agent log
-    if (layer_idx_ == 0) {
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "rope_inputs",
-            "R",
-            std::string("{\"q_shape\":\"") + std::to_string(q_reshaped->size(0)) + "," +
-                std::to_string(q_reshaped->size(1)) + "," + std::to_string(q_reshaped->size(2)) +
-                "\",\"q_stride2\":" + std::to_string(q_reshaped->stride(2)) + ",\"pos_len\":" +
-                std::to_string(pos_ids_for_rope->size(0)) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     auto q_rope_out = infinicore::Tensor::empty(
         {seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype(), q_reshaped->device());
@@ -136,79 +107,18 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
         {seq_len, num_key_value_heads_, head_dim_}, k_reshaped->dtype(), k_reshaped->device());
     rotary_emb_->forward(q_rope_out, q_reshaped, pos_ids_for_rope);
     infinicore::context::syncStream();
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "q_rope_done",
-            "R",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"layer\":" + std::to_string(layer_idx_) + "}",
-            "post-fix");
-    }
-    // #endregion
     rotary_emb_->forward(k_rope_out, k_reshaped, pos_ids_for_rope);
     infinicore::context::syncStream();
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "k_rope_done",
-            "R",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"layer\":" + std::to_string(layer_idx_) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     q_reshaped = q_rope_out;
     k_reshaped = k_rope_out;
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     infinicore::context::syncStream();
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "eager_attn_out",
-            "T3",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(attn_output)) + "}",
-            "eager-baseline");
-    }
-    // #endregion
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "paged_attn_done",
-            "P",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"layer\":" + std::to_string(layer_idx_) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     auto output = o_proj_->forward(attn_output);
     infinicore::context::syncStream();
 
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_paged_",
-            "o_proj_done",
-            "O",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) +
-                ",\"layer\":" + std::to_string(layer_idx_) + "}",
-            "post-fix");
-    }
-    // #endregion
 
     return output;
 }
@@ -225,45 +135,11 @@ void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &positi
 
     auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_pre_attn_piecewise",
-            "pw_qkv",
-            "T0",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(q)) + "}",
-            "piecewise-upstream");
-    }
-    // #endregion
 
     auto q_heads = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_heads = k->view({seq_len, num_key_value_heads_, head_dim_});
     q_heads = q_norm_->forward(q_heads);
     k_heads = k_norm_->forward(k_heads);
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_pre_attn_piecewise",
-            "pw_q_norm",
-            "T2",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(q_heads)) + "}",
-            "piecewise-upstream");
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_pre_attn_piecewise",
-            "pw_k_norm",
-            "T2",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(k_heads)) + "}",
-            "piecewise-upstream");
-    }
-    // #endregion
 
     auto q_staged = q_heads->view({1, seq_len, num_attention_heads_, head_dim_});
     auto k_staged = k_heads->view({1, seq_len, num_key_value_heads_, head_dim_});
@@ -309,27 +185,6 @@ void Qwen3Attention::forward_pre_attn_piecewise(const infinicore::Tensor &positi
     }
     rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
     rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
-    // #region agent log
-    if (layer_idx_ <= 1) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_pre_attn_piecewise",
-            "pw_q_rope",
-            "T1",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(q_rope)) + "}",
-            "piecewise-upstream");
-        infinilm::agent_debug::log(
-            "qwen3_attention.cpp:forward_pre_attn_piecewise",
-            "pw_k_rope",
-            "T1",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                std::to_string(layer_idx_) + ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(k_rope)) + "}",
-            "piecewise-upstream");
-    }
-    // #endregion
 }
 
 infinicore::op::inductor_segment_impl::PreAttnExternalWeightTensors

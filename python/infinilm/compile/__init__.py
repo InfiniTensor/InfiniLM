@@ -3,11 +3,13 @@
 
 from .config import TorchCompileConfig, default_compile_size_ladder, model_cache_hash
 from .env import (
+    apply_cudagraph_policy_env,
     compile_bucket_ceiling,
     compile_buckets,
     compile_max_seq_len,
     compile_overflow_tail_bucket,
     compile_warmup_seq_lens,
+    cudagraph_policy,
     default_cudagraph_capture_buckets,
     graph_replay_bucket_for_seq_len,
     long_prefill_threshold,
@@ -76,6 +78,8 @@ __all__ = [
     "compile_max_seq_len",
     "compile_overflow_tail_bucket",
     "compile_warmup_seq_lens",
+    "cudagraph_policy",
+    "apply_cudagraph_policy_env",
     "default_cudagraph_capture_buckets",
     "graph_replay_bucket_for_seq_len",
     "long_prefill_threshold",

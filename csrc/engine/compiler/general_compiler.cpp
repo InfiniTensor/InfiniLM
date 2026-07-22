@@ -33,10 +33,13 @@ GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, Ra
 
 void GeneralCompiler::compile() {
     static_batching_compiler_->compile();
-    paged_compiler_->compile();
+    // Capture native piecewise prefill before monolithic decode FULL so FA
+    // dry-runs see clean KV (paged decode capture/probe dirties caches).
     if (piecewise_prefill_compiler_ != nullptr) {
         piecewise_prefill_compiler_->compile();
+        zero_kv_caches_after_compile_();
     }
+    paged_compiler_->compile();
     if (piecewise_decode_compiler_ != nullptr) {
         piecewise_decode_compiler_->compile();
     }

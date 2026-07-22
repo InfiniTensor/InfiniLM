@@ -5,7 +5,6 @@
 #include "../global_state/decode_phase_profile.hpp"
 #include "../global_state/global_state.hpp"
 #include "../global_state/piecewise_inductor_flags.hpp"
-#include "../utils/agent_debug.hpp"
 #include "../models/model_factory.hpp"
 #include "../models/models_registry.hpp"
 #include "../models/qwen3/qwen3_for_causal_lm.hpp"
@@ -536,38 +535,6 @@ void RankWorker::thread_loop() {
             if (local_cmd == Command::LOAD) {
                 try {
                     model_->load_parameter(local_param_name, local_param);
-                    // #region agent log
-                    if (local_param_name.find("self_attn.q_proj.weight") != std::string::npos
-                        && local_param_name.find("layers.0.") != std::string::npos) {
-                        const auto &sd = model_->state_dict();
-                        auto it = sd.find(local_param_name);
-                        if (it != sd.end()) {
-                            const auto &stored = it->second;
-                            const auto shape = stored->shape();
-                            auto cpu = stored->to(infinicore::Device::cpu());
-                            const auto *data = reinterpret_cast<const uint16_t *>(cpu->data());
-                            std::string shape_str = "[";
-                            for (size_t i = 0; i < shape.size(); ++i) {
-                                if (i > 0) {
-                                    shape_str += ",";
-                                }
-                                shape_str += std::to_string(shape[i]);
-                            }
-                            shape_str += "]";
-                            infinilm::agent_debug::log(
-                                "rank_worker.cpp:LOAD",
-                                "q_proj_layer0_stored_param",
-                                "M",
-                                std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
-                                    ",\"tp_size\":" + std::to_string(rank_info_.tp_size) +
-                                    ",\"input_numel\":" + std::to_string(local_param->numel()) +
-                                    ",\"stored_numel\":" + std::to_string(stored->numel()) +
-                                    ",\"stored_shape\":\"" + shape_str + "\"" +
-                                    ",\"first_fp16_bits\":" + std::to_string(data[0]) + "}",
-                                "post-fix");
-                        }
-                    }
-                    // #endregion
                 } catch (const std::exception &e) {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -665,25 +632,6 @@ void RankWorker::thread_loop() {
                         if (local_args.input_offsets.has_value()) {
                             n_req = local_args.input_offsets.value()->size(0) - 1;
                         }
-                        // #region agent log
-                        if (rank_info_.tp_rank == 0) {
-                            size_t prefill_tokens = 0;
-                            if (local_args.input_ids.has_value()) {
-                                prefill_tokens = local_args.input_ids.value()->size(1);
-                            }
-                            infinilm::agent_debug::log(
-                                "rank_worker.cpp:RUN",
-                                "forward_begin",
-                                "H3",
-                                std::string("{\"tp_rank\":") + std::to_string(rank_info_.tp_rank) +
-                                    ",\"n_req\":" + std::to_string(n_req) +
-                                    ",\"batch_size\":" + std::to_string(batch_size) +
-                                    ",\"is_mixed\":" + (is_mixed ? "true" : "false") +
-                                    ",\"mode\":\"" + mode_str + "\"" +
-                                    ",\"prefill_tokens\":" + std::to_string(prefill_tokens) + "}",
-                                "timeout-repro");
-                        }
-                        // #endregion
                         if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
                                 "hang_trace: run_job_begin mode={} n_req={} batch_size={} is_mixed={}",
@@ -888,33 +836,6 @@ void RankWorker::thread_loop() {
                             global_state::hang_trace::ScopedBracket eager_bracket(
                                 "eager_forward", rank_info_.tp_rank);
                             auto model_args = local_args.to_model_input(rank_info_.device);
-                            int32_t prior_kv = -1;
-                            size_t prefill_w = 0;
-                            if (model_args.past_sequence_lengths.has_value()) {
-                                prior_kv = infinilm::agent_debug::first_int32(
-                                    model_args.past_sequence_lengths.value());
-                            }
-                            if (model_args.input_ids.has_value()) {
-                                prefill_w = model_args.input_ids.value()->size(1);
-                            }
-                            // #region agent log
-                            if (rank_info_.tp_rank == 0) {
-                                auto &ctx = global_state::get_forward_context();
-                                infinilm::agent_debug::session_log(
-                                    "rank_worker.cpp:eager_forward",
-                                    "eager_forward_begin",
-                                    "H2",
-                                    std::string("{\"tp_size\":") + std::to_string(rank_info_.tp_size) +
-                                        ",\"is_prefill\":" + (is_prefill ? "true" : "false") +
-                                        ",\"prefill_width\":" + std::to_string(prefill_w) +
-                                        ",\"prior_kv\":" + std::to_string(prior_kv) +
-                                        ",\"defer\":" +
-                                        (ctx.defer_row_parallel_allreduce ? "true" : "false") +
-                                        ",\"deferred_n\":" +
-                                        std::to_string(ctx.deferred_allreduces.size()) + "}",
-                                    "g3-repro");
-                            }
-                            // #endregion
                             const bool decode_prof =
                                 !is_prefill && global_state::decode_phase_profile::enabled();
                             if (decode_prof) {
@@ -936,49 +857,6 @@ void RankWorker::thread_loop() {
                                     global_state::decode_phase_profile::monotonic_ms() - t_fwd0;
                                 global_state::decode_phase_profile::decode_step_active() = false;
                             }
-                            // #region agent log
-                            if (rank_info_.tp_rank == 0) {
-                                auto &ctx = global_state::get_forward_context();
-                                infinilm::agent_debug::log(
-                                    "rank_worker.cpp:eager_forward",
-                                    "eager_forward_end",
-                                    "A",
-                                    std::string("{\"defer\":") +
-                                        (ctx.defer_row_parallel_allreduce ? "true" : "false") +
-                                        ",\"deferred_n\":" +
-                                        std::to_string(ctx.deferred_allreduces.size()) + "}");
-                                if (is_prefill && prior_kv == 0 && prefill_w == 512) {
-                                    auto &piecewise = ctx.piecewise;
-                                    uint32_t k0_checksum = 0;
-                                    uint32_t v0_checksum = 0;
-                                    uint16_t hidden_bits = 0;
-                                    if (!piecewise.layer_staging.empty()
-                                        && piecewise.layer_staging[0].k_rope
-                                        && piecewise.layer_staging[0].v_rope) {
-                                        k0_checksum = infinilm::agent_debug::tensor_checksum_bf16(
-                                            piecewise.layer_staging[0].k_rope->narrow({{1, 0, 1}}));
-                                        v0_checksum = infinilm::agent_debug::tensor_checksum_bf16(
-                                            piecewise.layer_staging[0].v_rope->narrow({{1, 0, 1}}));
-                                    }
-                                    if (piecewise.hidden_states) {
-                                        const size_t last = prefill_w > 0 ? prefill_w - 1 : 0;
-                                        hidden_bits = infinilm::agent_debug::first_elem_bits(
-                                            piecewise.hidden_states->narrow({{1, last, 1}}));
-                                    }
-                                    infinilm::agent_debug::session_log(
-                                        "rank_worker.cpp:eager_forward",
-                                        "pw_eager_mid_boundary",
-                                        "H9",
-                                        std::string("{\"tp_rank\":0,\"seq_len\":") +
-                                            std::to_string(prefill_w) + ",\"graph_bucket\":512" +
-                                            ",\"prior_kv\":0,\"hidden_bits\":" +
-                                            std::to_string(hidden_bits) + ",\"k0_checksum\":" +
-                                            std::to_string(k0_checksum) + ",\"v0_checksum\":" +
-                                            std::to_string(v0_checksum) + "}",
-                                        "phase2-instrument");
-                                }
-                            }
-                            // #endregion
                         }
 
                         // Random sampling (rank 0 only)

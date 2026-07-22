@@ -47,35 +47,6 @@ from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 logger = logging.getLogger(__name__)
 
 
-def _agent_debug_log(
-    location: str,
-    message: str,
-    hypothesis_id: str,
-    data: dict,
-    run_id: str = "timeout-repro",
-) -> None:
-    # #region agent log
-    if os.environ.get("INFINI_AGENT_DEBUG", "").strip().lower() in ("", "0", "false"):
-        return
-    log_path = os.environ.get(
-        "INFINI_AGENT_DEBUG_LOG", "/workspace/.cursor/debug-073e37.log"
-    )
-    try:
-        payload = {
-            "sessionId": "073e37",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except OSError:
-        pass
-    # #endregion
-
 
 def _scheduler_queue_stats(engine) -> dict:
     sched = engine.scheduler
@@ -1160,17 +1131,6 @@ class AsyncLLMEngine:
             except Exception as e:
                 self._hang_trace_forward_in_progress = False
                 logger.error(f"Error in step loop: {e}", exc_info=True)
-                # #region agent log
-                _agent_debug_log(
-                    "llm.py:_step_loop",
-                    "step_loop_exception",
-                    "H2",
-                    {
-                        "error": err_msg,
-                        **_scheduler_queue_stats(self.engine),
-                    },
-                )
-                # #endregion
                 self._healthy = False
                 self._running = False
                 break
@@ -1438,22 +1398,6 @@ class AsyncLLMEngine:
             try:
                 if request_timeout and time.time() - start > float(request_timeout):
                     request.mark_timeout()
-                    # #region agent log
-                    _agent_debug_log(
-                        "llm.py:stream_request",
-                        "request_timeout",
-                        "H1",
-                        {
-                            "request_id": request.request_id,
-                            "elapsed_s": round(time.time() - start, 3),
-                            "request_timeout_s": request_timeout,
-                            "prompt_len": request.prompt_length,
-                            "num_computed": request.num_computed_tokens(),
-                            "chunk_offset": request.chunk_prefill_offset,
-                            **_scheduler_queue_stats(self.engine),
-                        },
-                    )
-                    # #endregion
                     yield TokenOutput(
                         request_id=request.request_id,
                         token_id=-1,
@@ -1478,23 +1422,6 @@ class AsyncLLMEngine:
                 logger.warning(
                     f"Timeout while waiting for token from request {request.request_id}"
                 )
-                # #region agent log
-                _agent_debug_log(
-                    "llm.py:stream_request",
-                    "stream_token_timeout",
-                    "H1",
-                    {
-                        "request_id": request.request_id,
-                        "elapsed_s": round(time.time() - start, 3),
-                        "stream_timeout_s": timeout,
-                        "request_timeout_s": request_timeout,
-                        "prompt_len": request.prompt_length,
-                        "num_computed": request.num_computed_tokens(),
-                        "is_aborted": request.is_aborted(),
-                        **_scheduler_queue_stats(self.engine),
-                    },
-                )
-                # #endregion
                 if request.is_aborted():
                     while not request.output_queue.async_q.empty():
                         try:

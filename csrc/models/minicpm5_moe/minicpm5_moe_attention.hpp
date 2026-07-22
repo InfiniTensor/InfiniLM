@@ -66,8 +66,10 @@ protected:
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 
-    /// Gate scores from last pre_attn / forward split (piecewise post applies sigmoid*attn).
+    /// Stable per-layer gate buffers (avoid CG HostOp / free-list aliasing of
+    /// per-forward ``contiguous()`` / ``sigmoid()`` temporaries).
     mutable infinicore::Tensor gate_score_cache_;
+    mutable infinicore::Tensor gate_sigmoid_buf_;
 };
 
 } // namespace infinilm::models::minicpm5_moe

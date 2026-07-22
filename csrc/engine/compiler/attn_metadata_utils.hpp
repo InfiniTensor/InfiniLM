@@ -2,7 +2,6 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../models/infinilm_model.hpp"
-#include "../../utils/agent_debug.hpp"
 
 namespace infinilm::engine::attn_metadata_utils {
 
@@ -37,28 +36,6 @@ inline void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compi
     meta.block_tables = compiled.block_tables.value()->narrow({{0, 0, runtime_n_req}, {1, 0, block_per_req}});
     // paged_caching uses slot_mapping.shape[0] as num_tokens (see paged_caching/info.h).
     meta.slot_mapping = compiled.slot_mapping.value()->narrow({{0, 0, slot_len}});
-
-    if (infinilm::agent_debug::debug_enabled()) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        const int32_t rt_cu0 = infinilm::agent_debug::first_int32(runtime.cu_seqlens.value());
-        const int32_t rt_cuN = infinilm::agent_debug::last_int32(runtime.cu_seqlens.value());
-        const int32_t cp_cu0 =
-            infinilm::agent_debug::first_int32(compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}}));
-        const int32_t cp_cuN =
-            infinilm::agent_debug::last_int32(compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}}));
-        const int32_t meta_cu0 = infinilm::agent_debug::first_int32(meta.cu_seqlens.value());
-        const int32_t meta_cuN = infinilm::agent_debug::last_int32(meta.cu_seqlens.value());
-        infinilm::agent_debug::log(
-            "attn_metadata_utils.hpp:set_attn_metadata_for_varlen_batch",
-            "attn_meta_narrow",
-            "W1",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"slot_len\":" +
-                std::to_string(slot_len) + ",\"rt_cu0\":" + std::to_string(rt_cu0) +
-                ",\"rt_cuN\":" + std::to_string(rt_cuN) + ",\"cp_cu0\":" + std::to_string(cp_cu0) +
-                ",\"cp_cuN\":" + std::to_string(cp_cuN) + ",\"meta_cu0\":" + std::to_string(meta_cu0) +
-                ",\"meta_cuN\":" + std::to_string(meta_cuN) + "}",
-            "meta-check");
-    }
 }
 
 /// Decode replay: same narrow helper; decode batches use fixed width == num_requests.

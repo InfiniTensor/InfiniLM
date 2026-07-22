@@ -6,7 +6,6 @@
 #include "../compiled_prefill_flags.hpp"
 #include "../../global_state/piecewise_inductor_flags.hpp"
 #include "../../utils.hpp"
-#include "../../utils/agent_debug.hpp"
 #include "piecewise_bucket_policy.hpp"
 
 #include <algorithm>
@@ -146,27 +145,6 @@ void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compiled,
     // paged_caching uses slot_mapping.shape[0] as num_tokens (see paged_caching/info.h).
     meta.slot_mapping = compiled.slot_mapping.value()->narrow({{0, 0, slot_len}});
 
-    // #region agent log
-    if (infinilm::agent_debug::debug_enabled()) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        const int32_t rt_cu0 = infinilm::agent_debug::first_int32(runtime.cu_seqlens.value());
-        const int32_t rt_cuN = infinilm::agent_debug::last_int32(runtime.cu_seqlens.value());
-        const int32_t cp_cu0 = infinilm::agent_debug::first_int32(compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}}));
-        const int32_t cp_cuN = infinilm::agent_debug::last_int32(compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}}));
-        const int32_t meta_cu0 = infinilm::agent_debug::first_int32(meta.cu_seqlens.value());
-        const int32_t meta_cuN = infinilm::agent_debug::last_int32(meta.cu_seqlens.value());
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:set_attn_metadata_for_varlen_batch",
-            "pw_attn_meta",
-            "W1",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"slot_len\":" +
-                std::to_string(slot_len) + ",\"rt_cu0\":" + std::to_string(rt_cu0) +
-                ",\"rt_cuN\":" + std::to_string(rt_cuN) + ",\"cp_cu0\":" + std::to_string(cp_cu0) +
-                ",\"cp_cuN\":" + std::to_string(cp_cuN) + ",\"meta_cu0\":" + std::to_string(meta_cu0) +
-                ",\"meta_cuN\":" + std::to_string(meta_cuN) + "}",
-            "meta-check");
-    }
-    // #endregion
 }
 
 void zero_tensor_tail_seq_(infinicore::Tensor &tensor, size_t valid_len, size_t bucket) {
@@ -292,21 +270,6 @@ InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket,
     std::iota(position_ids_vec.begin(), position_ids_vec.end(), pos_start);
     infinicore::context::memcpyH2D(
         input.position_ids.value()->data(), position_ids_vec.data(), bucket * sizeof(int64_t), false);
-    // #region agent log
-    if (bucket <= 4) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:make_bucket_input_",
-            "b4_capture_positions",
-            "B4-POS",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + ",\"chunk_size\":" + std::to_string(chunk_size) +
-                ",\"pos_start\":" + std::to_string(pos_start) + ",\"pos0\":" +
-                std::to_string(position_ids_vec[0]) + ",\"pos_last\":" +
-                std::to_string(position_ids_vec[bucket > 0 ? bucket - 1 : 0]) + "}",
-            "b4-fix");
-    }
-    // #endregion
 
     std::vector<int32_t> past_lengths_vec(n_req, 0);
     std::vector<int32_t> total_lengths_vec(n_req, static_cast<int32_t>(bucket / std::max<size_t>(1, n_req)));
@@ -367,23 +330,15 @@ InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket,
     std::iota(slot_mapping_vec.begin(), slot_mapping_vec.end(), int64_t{0});
     infinicore::context::memcpyH2D(
         input.slot_mapping.value()->data(), slot_mapping_vec.data(), bucket * sizeof(int64_t), false);
-    // #region agent log
-    infinilm::agent_debug::log(
-        "piecewise_prefill_compiler.cpp:make_bucket_input_",
-        "capture_input_shape",
-        "C",
-        "{\"bucket\":" + std::to_string(bucket) + ",\"n_req\":" + std::to_string(n_req) +
-            ",\"per_req_tokens\":" + std::to_string(bucket / std::max<size_t>(1, n_req)) +
-            ",\"slot_mapping_len\":" + std::to_string(bucket) + ",\"block_per_req\":" +
-            std::to_string(block_per_req) + "}",
-        "repro");
-    // #endregion
     return input;
 }
 
 void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     const auto rank_device = infinilm::global_state::get_tensor_model_parallel_rank_info().device;
     infinicore::context::setDevice(rank_device);
+    // Prefill: FA host-break + AOT MoE under full_and_piecewise.
+    infinicore::context::InferencePhaseGuard phase_guard(
+        infinicore::context::InferencePhase::Prefill);
 
     auto &piecewise_flag = infinilm::global_state::get_forward_context().piecewise;
     struct CaptureGuard {
@@ -394,28 +349,6 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
 
     const size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
     const size_t num_layers = model_->native_piecewise_num_layers();
-    // #region agent log
-    {
-        const auto dev = infinicore::context::getDevice().toString();
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:capture_bucket_",
-            "capture_begin",
-            "A",
-            "{\"bucket\":" + std::to_string(bucket) + ",\"max_capture_req\":" +
-                std::to_string(max_capture_req_) + ",\"nblocks\":" + std::to_string(nblocks) +
-                ",\"device\":\"" + dev + "\"}",
-            "repro");
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:capture_bucket_",
-            "capture_begin",
-            "H3",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + ",\"max_capture_req\":" +
-                std::to_string(max_capture_req_) + ",\"max_seq\":" +
-                std::to_string(max_seq_len_) + "}");
-    }
-    // #endregion
     allocate_layer_staging_(bucket, num_layers);
     auto bucket_input = make_bucket_input_(bucket, nblocks, max_capture_req_);
     set_attn_metadata(bucket_input);
@@ -443,17 +376,6 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         {1, bucket, vocab_size}, dtype, infinicore::context::getDevice());
 
     // Eager warmup dry-run before capture (NONE-equivalent).
-    // #region agent log
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:capture_bucket_",
-            "dry_run_begin",
-            "H3",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + ",\"layers\":" + std::to_string(capture_layers) + "}");
-    }
-    // #endregion
     model_->native_piecewise_embed(graphs.input, hidden);
     for (size_t layer = 0; layer < capture_layers; ++layer) {
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
@@ -461,60 +383,16 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
             infinicore::context::syncDevice();
             barrier_->wait("piecewise_dry_run_pre_attn");
         }
-        // #region agent log
-        if (layer == 0 || layer == 1) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:capture_bucket_",
-                "dry_run_post_pre_attn",
-                "H4",
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                    std::to_string(bucket) + ",\"layer\":" + std::to_string(layer) + "}");
-        }
-        // #endregion
         model_->native_piecewise_eager_attn_layer(layer, graphs.input);
         if (infinilm::global_state::piecewise_inductor_segment_enabled()) {
             infinicore::context::syncDevice();
             barrier_->wait("piecewise_dry_run_eager_attn");
         }
-        // #region agent log
-        if (layer == 0) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:capture_bucket_",
-                "dry_run_post_eager_attn",
-                "H2",
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                    std::to_string(bucket) + ",\"layer\":0}");
-        }
-        // #endregion
-        // #region agent log
-        if (layer == 0) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:capture_bucket_",
-                "dry_run_pre_post_attn_cg",
-                "H6",
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                    std::to_string(bucket) + ",\"layer\":0}");
-        }
-        // #endregion
         model_->native_piecewise_post_attn_cg_layer(layer, graphs.input, hidden, residual);
         if (infinilm::global_state::piecewise_inductor_segment_enabled()) {
             infinicore::context::syncDevice();
             barrier_->wait("piecewise_dry_run_post_attn");
         }
-        // #region agent log
-        if (layer == 0) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:capture_bucket_",
-                "dry_run_post_post_attn_cg",
-                "H6",
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                    std::to_string(bucket) + ",\"layer\":0}");
-        }
-        // #endregion
         if (infinilm::global_state::piecewise_inductor_segment_enabled()) {
             infinicore::context::syncDevice();
         }
@@ -535,18 +413,6 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
         barrier_->wait("piecewise_capture_pre_attn");
         const bool capture_inductor = layer_capture_inductor_pre_attn(layer, bucket);
         piecewise.allow_inductor_pre_attn = capture_inductor;
-        // #region agent log
-        if (layer <= 1) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:capture_bucket_",
-                capture_inductor ? "graph_record_inductor_pre_attn" : "graph_record_pre_attn",
-                "H7",
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                    std::to_string(bucket) + ",\"layer\":" + std::to_string(layer) +
-                    ",\"capture_inductor\":" + (capture_inductor ? "true" : "false") + "}");
-        }
-        // #endregion
         infinicore::context::startGraphRecording();
         model_->native_piecewise_pre_attn_layer(layer, graphs.input, hidden, residual);
         graphs.pre_attn[layer] = infinicore::context::stopGraphRecording();
@@ -579,23 +445,6 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
     const size_t captured_segments = capture_layers * 2 + 1;
     spdlog::info("native piecewise CG: captured bucket={} layers={} segments={}",
                  bucket, capture_layers, captured_segments);
-    // #region agent log
-    infinilm::agent_debug::log(
-        "piecewise_prefill_compiler.cpp:capture_bucket_",
-        "capture_done",
-        "A",
-        "{\"bucket\":" + std::to_string(bucket) + ",\"layers\":" + std::to_string(capture_layers) + "}",
-        "repro");
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:capture_bucket_",
-            "capture_done",
-            "H5",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + ",\"layers\":" + std::to_string(capture_layers) + "}");
-    }
-    // #endregion
 }
 
 void PiecewisePrefillCompiler::warmup_inductor_segments_(size_t nblocks, size_t n_req) {
@@ -678,48 +527,17 @@ void PiecewisePrefillCompiler::compile() {
 
     const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
     const int tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
-    // #region agent log
-    infinilm::agent_debug::session_log(
-        "piecewise_prefill_compiler.cpp:compile",
-        "pre_aot_warmup_barrier",
-        "H1",
-        std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"tp_size\":" +
-            std::to_string(tp_size) + "}");
-    // #endregion
     if (tp_size > 1) {
         barrier_->wait("piecewise_inductor_aot_warmup", tp_rank);
     }
     verify_inductor_packages_(model_, capture_buckets_);
     warmup_inductor_segments_(nblocks, max_capture_req_);
-    // #region agent log
-    infinilm::agent_debug::session_log(
-        "piecewise_prefill_compiler.cpp:compile",
-        "post_aot_warmup_pre_done_barrier",
-        "H1",
-        std::string("{\"tp_rank\":") + std::to_string(tp_rank) + "}");
-    // #endregion
     if (tp_size > 1) {
         barrier_->wait("piecewise_inductor_aot_warmup_done", tp_rank);
     }
-    // #region agent log
-    infinilm::agent_debug::session_log(
-        "piecewise_prefill_compiler.cpp:compile",
-        "post_aot_warmup_done_barrier",
-        "H1",
-        std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"num_buckets\":" +
-            std::to_string(capture_buckets_.size()) + "}");
-    // #endregion
 
     compiled_.clear();
     for (size_t bucket : capture_buckets_) {
-        // #region agent log
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:compile",
-            "capture_bucket_enter",
-            "H3",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + "}");
-        // #endregion
         capture_bucket_(bucket);
         infinicore::context::syncDevice();
     }
@@ -732,19 +550,6 @@ void PiecewisePrefillCompiler::compile() {
     }
     spdlog::info("native piecewise CG: capture_buckets=[{}] max_seq={}",
                  oss.str(), max_seq_len_);
-    // #region agent log
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:compile",
-            "compile_complete",
-            "P",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"n_buckets\":" +
-                std::to_string(capture_buckets_.size()) + ",\"max_bucket\":" +
-                std::to_string(max_bucket) + "}",
-            "post-fix");
-    }
-    // #endregion
 }
 
 size_t PiecewisePrefillCompiler::padded_bucket_for(size_t seq_len) const {
@@ -764,30 +569,6 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
         ->narrow({{0, 0, valid_seq_len}})
         ->copy_from(runtime.position_ids.value());
 
-    // #region agent log
-    if (bucket == 4 && valid_seq_len > 0) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        const auto pos_slice = graph_input.position_ids.value()->narrow({{0, 0, valid_seq_len}});
-        std::ostringstream pos_json;
-        pos_json << "[";
-        const size_t trace_len = std::min(valid_seq_len, size_t{4});
-        for (size_t i = 0; i < trace_len; ++i) {
-            if (i > 0) {
-                pos_json << ",";
-            }
-            pos_json << infinilm::agent_debug::first_int64(pos_slice->narrow({{0, i, 1}}));
-        }
-        pos_json << "]";
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:copy_runtime_into_bucket_",
-            "b4_replay_positions",
-            "B4-POS",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"bucket\":" +
-                std::to_string(bucket) + ",\"valid_seq_len\":" + std::to_string(valid_seq_len) +
-                ",\"positions\":" + pos_json.str() + "}",
-            "b4-fix");
-    }
-    // #endregion
 
     const size_t runtime_n_req = runtime.block_tables.value()->size(0);
     const size_t compiled_n_req = graph_input.block_tables.value()->size(0);
@@ -853,25 +634,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const size_t graph_bucket = graph_replay_bucket_for_padded(padded);
     const size_t runtime_n_req = input.block_tables.has_value() ? input.block_tables.value()->size(0) : 1;
     const bool final_chunk = InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk);
-    int32_t prior_kv = 0;
-    if (input.past_sequence_lengths.has_value()) {
-        prior_kv = infinilm::agent_debug::first_int32(input.past_sequence_lengths.value());
-    }
-    // #region agent log
-    if (infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_dispatch_entry",
-            "H1",
-            std::string("{\"seq_len\":") + std::to_string(seq_len) + ",\"padded\":" +
-                std::to_string(padded) + ",\"graph_bucket\":" + std::to_string(graph_bucket) +
-                ",\"prior_kv\":" + std::to_string(prior_kv) + ",\"final_chunk\":" +
-                (final_chunk ? "true" : "false") + ",\"inductor_mode\":" +
-                (infinilm::global_state::piecewise_inductor_segment_enabled() ? "true" : "false") +
-                "}",
-            "g3-repro");
-    }
-    // #endregion
     if (profile) {
         spdlog::info(
             "rank_worker_profile: piecewise run_prefill begin seq_len={} padded={} graph_bucket={} "
@@ -890,67 +652,17 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     // Inductor AOT pre-attn runs outside captured CG graphs. Mid-chunks replay via
     // piecewise infiniop pre-attn (nullptr CG fallback) so KV matches Case A boundary.
     if (inductor_mode && !final_chunk && !repro_skip_midchunk_eager()) {
-        // #region agent log
-        if (infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:run_prefill",
-                "pw_inductor_midchunk_piecewise",
-                "H1",
-                std::string("{\"seq_len\":") + std::to_string(seq_len) + ",\"graph_bucket\":" +
-                    std::to_string(graph_bucket) + ",\"prior_kv\":" + std::to_string(prior_kv) +
-                    ",\"route\":\"piecewise_infiniop\"}",
-                "phase2-fix");
-        }
-        // #endregion
     }
     // Native-width buckets: replay only when seq_len matches the captured graph width.
     if (seq_len != graph_bucket) {
         ++prefill_misses_;
-        // #region agent log
-        if (infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-            infinilm::agent_debug::log(
-                "piecewise_prefill_compiler.cpp:run_prefill",
-                "pw_fallback_eager",
-                "Z1",
-                std::string("{\"seq_len\":") + std::to_string(seq_len) + ",\"graph_bucket\":" +
-                    std::to_string(graph_bucket) + ",\"inductor_mode\":" +
-                    (inductor_mode ? "true" : "false") + "}",
-                "post-fix");
-        }
-        // #endregion
         return std::nullopt;
     }
 
-    // #region agent log
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_replay_begin",
-            "P3",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"n_req\":"
-                + std::to_string(runtime_n_req) + ",\"seq_len\":" + std::to_string(seq_len)
-                + ",\"graph_bucket\":" + std::to_string(graph_bucket) + "}",
-            "repro");
-    }
-    // #endregion
     auto &bucket_graphs = compiled_.at(graph_bucket);
     const double t_copy0 = profile ? monotonic_ms() : 0.0;
     copy_runtime_into_bucket_(bucket_graphs, input, seq_len);
     set_attn_metadata_for_varlen_batch(bucket_graphs.input, input);
-    // #region agent log
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_replay_dims",
-            "W2",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"seq_len\":" +
-                std::to_string(seq_len) + ",\"padded\":" + std::to_string(padded) +
-                ",\"graph_bucket\":" + std::to_string(graph_bucket) + "}",
-            graph_bucket == 256 ? "bucket-256-smoke" : "meta-check");
-    }
-    // #endregion
     if (profile) {
         spdlog::info(
             "rank_worker_profile: piecewise copy_runtime+metadata_ms={:.3f}",
@@ -977,22 +689,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
-    // #region agent log
-    if (final_chunk && infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-        const auto hidden_slice = piecewise.hidden_states->narrow({{1, 0, seq_len}});
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_final_embed",
-            "P2",
-            std::string("{\"tp_rank\":0,\"seq_len\":") + std::to_string(seq_len) +
-                ",\"graph_bucket\":" + std::to_string(graph_bucket) + ",\"prior_kv\":" +
-                std::to_string(prior_kv) + ",\"hidden_checksum\":" +
-                std::to_string(infinilm::agent_debug::tensor_checksum_bf16(hidden_slice)) +
-                ",\"first_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(hidden_slice)) + "}",
-            "phase2-instrument");
-    }
-    // #endregion
 
     const size_t num_layers = bucket_graphs.pre_attn.size();
     // Mid-chunk skip_mid uses inductor pre-attn; replay post-attn eagerly so CG
@@ -1009,42 +705,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const size_t slot_len = input.slot_mapping.has_value()
                                 ? input.slot_mapping.value()->shape()[0]
                                 : 0;
-    // #region agent log
-    {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_replay_mode",
-            "H8",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"seq_len\":" +
-                std::to_string(seq_len) + ",\"graph_bucket\":" + std::to_string(graph_bucket) +
-                ",\"inductor_mode\":" + (inductor_mode ? "true" : "false") +
-                ",\"use_eager_pre_attn\":" + (use_eager_pre_attn_summary ? "true" : "false") +
-                ",\"use_eager_post\":" + (use_eager_post ? "true" : "false") +
-                ",\"prior_kv\":" + std::to_string(prior_kv) +
-                ",\"past_sequence_lengths\":" + std::to_string(prior_kv) +
-                ",\"slot_len\":" + std::to_string(slot_len) +
-                ",\"allow_inductor_pre_attn\":" +
-                (piecewise.allow_inductor_pre_attn ? "true" : "false") +
-                ",\"final_chunk\":" + (final_chunk ? "true" : "false") + "}",
-            "post-fix");
-    }
-    // #endregion
-    // #region agent log
-    if (infinilm::agent_debug::debug_enabled()) {
-        const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_replay_mode",
-            "Z5",
-            std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"seq_len\":" +
-                std::to_string(seq_len) + ",\"graph_bucket\":" + std::to_string(graph_bucket) +
-                ",\"use_eager_post\":" + (use_eager_post ? "true" : "false") +
-                ",\"use_eager_lm_head\":" + (use_eager_lm_head ? "true" : "false") +
-                ",\"segment_replays\":" + std::to_string(segment_replays_) + "}",
-            "post-fix");
-    }
-    // #endregion
     double layers_ms = 0.0;
     const double t_layers0 = profile ? monotonic_ms() : 0.0;
     for (size_t layer = 0; layer < num_layers; ++layer) {
@@ -1061,41 +721,9 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             bucket_graphs.pre_attn[layer]->run();
             ++segment_replays_;
         } else {
-            // #region agent log
-            if (layer == 0) {
-                const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-                infinilm::agent_debug::log(
-                    "piecewise_prefill_compiler.cpp:run_prefill",
-                    "pw_pre_attn_null_fallback",
-                    "H-NULL-PA",
-                    std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":"
-                        + std::to_string(layer) + ",\"seq_len\":" + std::to_string(seq_len)
-                        + ",\"graph_bucket\":" + std::to_string(graph_bucket) + "}",
-                    "post-fix");
-            }
-            // #endregion
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);
         }
-        // #region agent log
-        if (final_chunk && layer == 0
-            && infinilm::global_state::get_tensor_model_parallel_rank() == 0
-            && !piecewise.layer_staging.empty()) {
-            infinilm::agent_debug::session_log(
-                "piecewise_prefill_compiler.cpp:run_prefill",
-                "pw_final_post_pre_attn",
-                "P2",
-                std::string("{\"tp_rank\":0,\"seq_len\":") + std::to_string(seq_len) +
-                    ",\"graph_bucket\":" + std::to_string(graph_bucket) + ",\"prior_kv\":" +
-                    std::to_string(prior_kv) + ",\"k0_checksum\":" +
-                    std::to_string(infinilm::agent_debug::tensor_checksum_bf16(
-                        piecewise.layer_staging[0].k_rope->narrow({{1, 0, 1}}))) +
-                    ",\"v0_checksum\":" +
-                    std::to_string(infinilm::agent_debug::tensor_checksum_bf16(
-                        piecewise.layer_staging[0].v_rope->narrow({{1, 0, 1}}))) + "}",
-                "phase2-instrument");
-        }
-        // #endregion
         const double t_pre_attn = profile ? monotonic_ms() : 0.0;
         piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
         model_->native_piecewise_eager_attn_layer(layer, bucket_graphs.input);
@@ -1110,32 +738,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             ++segment_replays_;
             barrier_->wait("piecewise_replay_post_attn_sync");
         }
-        // #region agent log
-        if (layer <= 1 || layer + 1 == num_layers) {
-            const int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-            const auto hidden_slice = piecewise.hidden_states->narrow({{1, 0, seq_len}});
-            const auto last_pos = seq_len > 0 ? seq_len - 1 : 0;
-            infinilm::agent_debug::log(
-                "piecewise_prefill_compiler.cpp:run_prefill",
-                "pw_hidden_after_layer",
-                (layer + 1 == num_layers ? "ACCUM" : "Y2"),
-                std::string("{\"tp_rank\":") + std::to_string(tp_rank) + ",\"layer\":" +
-                    std::to_string(layer) + ",\"last_layer\":" +
-                    (layer + 1 == num_layers ? "true" : "false") + ",\"seq_len\":" +
-                    std::to_string(seq_len) + ",\"final_chunk\":" +
-                    (final_chunk ? "true" : "false") + ",\"use_eager_post\":" +
-                    (use_eager_post ? "true" : "false") + ",\"inductor_mode\":" +
-                    (inductor_mode ? "true" : "false") + ",\"first_bits\":" +
-                    std::to_string(infinilm::agent_debug::first_elem_bits(hidden_slice)) +
-                    ",\"last_pos_bits\":" +
-                    std::to_string(infinilm::agent_debug::first_elem_bits(
-                        piecewise.hidden_states->narrow({{1, last_pos, 1}}))) +
-                    ",\"hidden_checksum\":" +
-                    std::to_string(infinilm::agent_debug::tensor_checksum_bf16(hidden_slice)) +
-                    "}",
-                "accum-debug");
-        }
-        // #endregion
         if (profile) {
             spdlog::info(
                 "rank_worker_profile: piecewise layer={} pre_attn_ms={:.3f} eager_attn_ms={:.3f} "
@@ -1153,44 +755,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const bool emit_chunk1_boundary =
         !InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)
         && infinilm::global_state::get_tensor_model_parallel_rank() == 0;
-    // #region agent log
-    if (infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_chunk1_boundary_gate",
-            "H1",
-            std::string("{\"seq_len\":") + std::to_string(seq_len) + ",\"graph_bucket\":" +
-                std::to_string(graph_bucket) + ",\"prior_kv\":" + std::to_string(prior_kv) +
-                ",\"final_chunk\":" + (final_chunk ? "true" : "false") +
-                ",\"emit_boundary\":" + (emit_chunk1_boundary ? "true" : "false") +
-                ",\"layer_staging_empty\":" +
-                (piecewise.layer_staging.empty() ? "true" : "false") + "}",
-            "g3-repro");
-    }
-    if (emit_chunk1_boundary) {
-        infinilm::agent_debug::log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_chunk1_boundary",
-            "H9",
-            std::string("{\"tp_rank\":0,\"seq_len\":") + std::to_string(seq_len) +
-                ",\"graph_bucket\":" + std::to_string(graph_bucket) + ",\"prior_kv\":" +
-                std::to_string(prior_kv) + ",\"hidden_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(
-                    piecewise.hidden_states->narrow({{1, seq_len - 1, 1}}))) +
-                ",\"k0_checksum\":" +
-                (piecewise.layer_staging.empty()
-                     ? "0"
-                     : std::to_string(infinilm::agent_debug::tensor_checksum_bf16(
-                           piecewise.layer_staging[0].k_rope->narrow({{1, 0, 1}})))) +
-                ",\"v0_checksum\":" +
-                (piecewise.layer_staging.empty()
-                     ? "0"
-                     : std::to_string(infinilm::agent_debug::tensor_checksum_bf16(
-                           piecewise.layer_staging[0].v_rope->narrow({{1, 0, 1}})))) +
-                "}",
-            "g3-repro");
-    }
-    // #endregion
     if (InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         const double t_lm0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_lm_head");
@@ -1226,20 +790,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     if (!InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk)) {
         return std::nullopt;
     }
-    // #region agent log
-    if (infinilm::global_state::get_tensor_model_parallel_rank() == 0) {
-        infinilm::agent_debug::session_log(
-            "piecewise_prefill_compiler.cpp:run_prefill",
-            "pw_replay_logits",
-            "H8",
-            std::string("{\"seq_len\":") + std::to_string(seq_len) + ",\"graph_bucket\":" +
-                std::to_string(graph_bucket) + ",\"logits_bits\":" +
-                std::to_string(infinilm::agent_debug::first_elem_bits(
-                    bucket_graphs.logits_holder->narrow({{1, seq_len - 1, 1}}))) +
-                "}",
-            "post-fix");
-    }
-    // #endregion
     return bucket_graphs.logits_holder->narrow({{1, 0, seq_len}});
 }
 

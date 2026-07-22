@@ -4,6 +4,9 @@
 #include "../../utils.hpp"
 #include "attn_metadata_utils.hpp"
 
+#include "infinicore/context/context.hpp"
+#include "infinicore/graph/graph.hpp"
+
 #include <algorithm>
 #include <cstdlib>
 #include <string>
@@ -192,6 +195,11 @@ PagedCompiler::CompiledResult PagedCompiler::capture_forward_graph_(InfinilmMode
         !(is_decode_capture && rank_info.tp_size > 1 && decode_cg_tp_enabled());
     ctx.defer_row_parallel_allreduce = defer_ar;
 
+    // Phase-scoped FA/MoE host_break under INFINI_CUDAGRAPH_POLICY=full_and_piecewise.
+    const auto phase = is_decode_capture ? infinicore::context::InferencePhase::Decode
+                                         : infinicore::context::InferencePhase::Prefill;
+    infinicore::context::InferencePhaseGuard phase_guard(phase);
+
     barrier_->wait();
     infinicore::context::startGraphRecording();
     auto output = model_->forward(input);
@@ -342,9 +350,11 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             // RC-2 analog: refresh attn_metadata from graph_input narrowed to runtime shapes.
             attn_metadata_utils::set_attn_metadata_for_decode_batch(graph_input, input);
 
+
             auto graph = std::get<0>(result->second.compiled);
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
             attach_post_graph_allreduces(result->second);
+
 
             return std::make_tuple(graph, shared_output);
         }

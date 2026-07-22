@@ -16,16 +16,32 @@ namespace infinilm::models::minicpm5_moe {
 
 namespace {
 
+void ensure_same_shape_buf(infinicore::Tensor &buf, const infinicore::Tensor &like) {
+    if (!buf || buf->shape() != like->shape() || buf->dtype() != like->dtype()
+        || buf->device() != like->device()) {
+        buf = infinicore::Tensor::empty(like->shape(), like->dtype(), like->device());
+    }
+}
+
+void store_gate_score(infinicore::Tensor &gate_buf, const infinicore::Tensor &gate) {
+    auto g = gate->contiguous();
+    ensure_same_shape_buf(gate_buf, g);
+    gate_buf->copy_from(g);
+}
+
 infinicore::Tensor apply_gate_sigmoid_mul(const infinicore::Tensor &attn_output,
-                                          const infinicore::Tensor &gate_score) {
+                                          const infinicore::Tensor &gate_score,
+                                          infinicore::Tensor &gate_sigmoid_buf) {
     // Device sigmoid×mul (MetaX via InfiniCore). CPU path kept as last-resort fallback.
     auto gate_view = gate_score;
     if (attn_output->shape().size() == 3 && gate_score->shape().size() == 2 && attn_output->shape()[0] == 1) {
         gate_view = gate_score->view({1, gate_score->shape()[0], gate_score->shape()[1]});
     }
     try {
-        auto gate_sig = infinicore::op::sigmoid(gate_view->contiguous());
-        return infinicore::op::mul(attn_output->contiguous(), gate_sig);
+        auto gate_in = gate_view->contiguous();
+        ensure_same_shape_buf(gate_sigmoid_buf, gate_in);
+        infinicore::op::sigmoid_(gate_sigmoid_buf, gate_in);
+        return infinicore::op::mul(attn_output->contiguous(), gate_sigmoid_buf);
     } catch (const std::exception &) {
         auto a_cpu = attn_output->to(infinicore::Device::cpu())->contiguous();
         auto g_cpu = gate_view->to(infinicore::Device::cpu())->contiguous();
@@ -117,13 +133,15 @@ infinicore::Tensor MiniCPM5MoeAttention::forward(const infinicore::Tensor &posit
             auto qg_view = qg->view({batch_size, seq_len, num_attention_heads_, 2 * head_dim_});
             q = qg_view->narrow({{3, 0, head_dim_}})->contiguous();
             auto gate = qg_view->narrow({{3, head_dim_, head_dim_}})->contiguous();
-            gate_score_cache_ = gate->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+            store_gate_score(gate_score_cache_,
+                             gate->view({batch_size, seq_len, num_attention_heads_ * head_dim_}));
         } else {
             ASSERT_EQ(batch_size, 1);
             auto qg_view = qg->view({seq_len, num_attention_heads_, 2 * head_dim_});
             q = qg_view->narrow({{2, 0, head_dim_}})->contiguous();
             auto gate = qg_view->narrow({{2, head_dim_, head_dim_}})->contiguous();
-            gate_score_cache_ = gate->view({seq_len, num_attention_heads_ * head_dim_});
+            store_gate_score(gate_score_cache_,
+                             gate->view({seq_len, num_attention_heads_ * head_dim_}));
         }
     } else if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
         q = qg->view({batch_size, seq_len, num_attention_heads_, head_dim_});
@@ -164,9 +182,10 @@ infinicore::Tensor MiniCPM5MoeAttention::forward(const infinicore::Tensor &posit
     }
 
     if (use_gated_attention_) {
-        attn_output = apply_gate_sigmoid_mul(attn_output, gate_score_cache_);
+        attn_output = apply_gate_sigmoid_mul(attn_output, gate_score_cache_, gate_sigmoid_buf_);
     }
-    return o_proj_->forward(attn_output);
+    auto o = o_proj_->forward(attn_output);
+    return o;
 }
 
 void MiniCPM5MoeAttention::forward_pre_attn_piecewise(
@@ -188,7 +207,8 @@ void MiniCPM5MoeAttention::forward_pre_attn_piecewise(
         auto qg_view = qg->view({1, seq_len, num_attention_heads_, 2 * head_dim_});
         auto q = qg_view->narrow({{3, 0, head_dim_}})->contiguous();
         auto gate = qg_view->narrow({{3, head_dim_, head_dim_}})->contiguous();
-        gate_score_cache_ = gate->view({seq_len, num_attention_heads_ * head_dim_});
+        store_gate_score(gate_score_cache_,
+                         gate->view({seq_len, num_attention_heads_ * head_dim_}));
         q_heads = q->view({1, seq_len, num_attention_heads_, head_dim_});
     } else {
         q_heads = qg->view({1, seq_len, num_attention_heads_, head_dim_});
@@ -253,7 +273,7 @@ void MiniCPM5MoeAttention::forward_eager_attn_piecewise(
         if (gate->shape().size() == 2 && gate->shape()[0] >= valid_len) {
             gate = gate->narrow({{0, 0, valid_len}});
         }
-        attn_output = apply_gate_sigmoid_mul(attn_output, gate);
+        attn_output = apply_gate_sigmoid_mul(attn_output, gate, gate_sigmoid_buf_);
     }
 
     if (valid_len < seq_len) {

@@ -20,30 +20,6 @@ PARITY_ATOL = 0.2
 # Post-RoPE K staging reaches |k|~200+; inductor vs eager differs by ~1 bf16 ulp (≤2.0).
 PARITY_K_RTOL = 0.05
 PARITY_K_ATOL = 2.0
-_DEBUG_LOG_PATH = os.environ.get(
-    "INFINI_DEBUG_LOG",
-    "/opt/offline/infinilm-metax-20260622/.cursor/debug-52bf26.log",
-)
-_DEBUG_SESSION = "52bf26"
-
-
-def _debug_log(*, hypothesis_id: str, location: str, message: str, data: dict, run_id: str = "pre-fix") -> None:
-    # #region agent log
-    try:
-        payload = {
-            "sessionId": _DEBUG_SESSION,
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload) + "\n")
-    except OSError:
-        pass
-    # #endregion
 
 
 @dataclass
@@ -74,14 +50,6 @@ def _run_eager(
     inputs: Tuple[torch.Tensor, ...],
     device: torch.device,
 ) -> Tuple[Tuple[torch.Tensor, ...], float]:
-    # #region agent log
-    _debug_log(
-        hypothesis_id="H1",
-        location="piecewise_segment_parity.py:_run_eager",
-        message="eager_entry",
-        data={"n_inputs": len(inputs), "input_shapes": [list(t.shape) for t in inputs]},
-    )
-    # #endregion
     with torch.inference_mode():
         if device.type == "cuda":
             torch.cuda.synchronize()
@@ -92,14 +60,6 @@ def _run_eager(
         ms = (time.perf_counter() - t0) * 1000.0
     if not isinstance(out, (tuple, list)):
         out = (out,)
-    # #region agent log
-    _debug_log(
-        hypothesis_id="H2",
-        location="piecewise_segment_parity.py:_run_eager",
-        message="eager_exit",
-        data={"n_outputs": len(out), "output_shapes": [list(t.shape) for t in out]},
-    )
-    # #endregion
     return tuple(out), ms
 
 
@@ -223,29 +183,6 @@ def _compare_staging(
     token_match = int(fp_e.argmax().item()) == int(fp_a.argmax().item())
     passed = q_ok and k_ok and v_ok and token_match
 
-    # #region agent log
-    _debug_log(
-        hypothesis_id="H3",
-        location="piecewise_segment_parity.py:_compare_staging",
-        message="staging_allclose",
-        data={
-            "valid_len": valid_len,
-            "q_ok": q_ok,
-            "k_ok": k_ok,
-            "v_ok": v_ok,
-            "max_q": max_q,
-            "max_k": max_k,
-            "max_v": max_v,
-            "rel_q": rel_q,
-            "rel_k": rel_k,
-            "rel_v": rel_v,
-            "scale_k": scale_k,
-            "passed": passed,
-            "token_match": token_match,
-            "backend_note": "post-RoPE staging; K abs gate fails at O(200) bf16 without rtol",
-        },
-    )
-    # #endregion
 
     return SegmentParityResult(
         segment="pre_attn",
@@ -345,21 +282,6 @@ def run_segment_parity(
 
     try:
         segment_inputs = base_inputs if layer_agnostic and segment == "pre_attn" else base_inputs[:3]
-        # #region agent log
-        _debug_log(
-            hypothesis_id="H1",
-            location="piecewise_segment_parity.py:run_segment_parity",
-            message="inputs_built",
-            data={
-                "layer_agnostic": layer_agnostic,
-                "tp_size": tp_size,
-                "tp_rank": tp_rank,
-                "n_base_inputs": len(base_inputs),
-                "n_segment_inputs": len(segment_inputs),
-                "package_path": package_path,
-            },
-        )
-        # #endregion
         eager_inputs = tuple(t.clone() for t in segment_inputs)
         aot_inputs = _clone_inputs(segment_inputs)
         eager_out, eager_ms = _run_eager(segment_module, eager_inputs, device)
@@ -386,33 +308,12 @@ def run_segment_parity(
             compiled_fn=compiled_fn,
         )
         result = _compare_staging(eager_out, aot_out, valid_len=valid)
-        # #region agent log
-        _debug_log(
-            hypothesis_id="H2",
-            location="piecewise_segment_parity.py:run_segment_parity",
-            message="parity_done",
-            data={
-                "passed": result.passed,
-                "max_abs_diff": result.max_abs_diff,
-                "token_match": result.token_match,
-                "backend": backend_used,
-            },
-        )
-        # #endregion
         result.layer_idx = int(layer_idx)
         result.eager_ms = eager_ms
         result.aot_ms = aot_ms
         result.package_path = pkg if backend_used == "aot_inductor" else f"torch_compile:{backend_used}"
         return result
     except Exception as exc:  # noqa: BLE001
-        # #region agent log
-        _debug_log(
-            hypothesis_id="H1",
-            location="piecewise_segment_parity.py:run_segment_parity",
-            message="parity_exception",
-            data={"error": str(exc), "error_type": type(exc).__name__},
-        )
-        # #endregion
         return SegmentParityResult(
             segment=segment,
             layer_idx=int(layer_idx),
