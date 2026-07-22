@@ -1,6 +1,7 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/distributed/send_recv.hpp"
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -291,7 +292,7 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
-            if (enable_graph_compiling_) {
+            if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
 
@@ -419,7 +420,7 @@ void RankWorker::thread_loop() {
                         infinicore::Tensor hidden_states;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr) {
+                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
@@ -432,6 +433,35 @@ void RankWorker::thread_loop() {
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
+                        }
+
+                        if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
+                            infinicore::Tensor output_ids;
+                            if (rank_info_.pp_stage == 0 && rank_info_.tp_rank == 0) {
+                                // The last PP stage samples tokens. Return them
+                                // directly to stage-0/rank-0, which owns the
+                                // scheduler and user-facing request lifecycle.
+                                const size_t n_req = local_args.input_offsets.value()->size(0) - 1;
+                                const auto *input_offsets = reinterpret_cast<const int32_t *>(local_args.input_offsets.value()->data());
+                                const size_t n_out = local_args.sample_all_positions
+                                                       ? static_cast<size_t>(input_offsets[n_req])
+                                                       : n_req;
+                                output_ids = infinicore::op::distributed::recv(
+                                    {n_out},
+                                    infinicore::DataType::I64,
+                                    rank_info_.device,
+                                    (rank_info_.pp_size - 1) * rank_info_.tp_size,
+                                    rank_info_.world_comm);
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                                infinicore::context::syncStream();
+                            }
+                            output_ = Output{
+                                output_ids,
+                                logits,
+                                hidden_states};
+                            job_done_ = true;
+                            cv_.notify_all();
+                            continue;
                         }
 
                         // Random sampling (rank 0 only)
@@ -462,6 +492,13 @@ void RankWorker::thread_loop() {
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
+                            }
+
+                            if (rank_info_.pp_size > 1) {
+                                infinicore::op::distributed::send(
+                                    output_ids,
+                                    0,
+                                    rank_info_.world_comm);
                             }
 
                             output_ids = output_ids->to(infinicore::Device::cpu());

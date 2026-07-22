@@ -15,6 +15,10 @@ class EngineConfig:
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
+        pipeline_parallel_size: Number of pipeline stages.
+        pipeline_parallel_stage: Pipeline stage index for this engine.
+        master_addr: Address used to bootstrap distributed communication.
+        master_port: TCP port used to bootstrap distributed communication.
         moe_ep_backend: MoE expert-parallel backend.
         moe_ep_size: MoE expert-parallel size.
         cache_type: Cache type ('paged' or 'static').
@@ -40,6 +44,10 @@ class EngineConfig:
     device: str = "cuda"
     dtype: str = "float16"
     tensor_parallel_size: int = 1
+    pipeline_parallel_size: int = 1
+    pipeline_parallel_stage: int = 0
+    master_addr: str = "127.0.0.1"
+    master_port: int = 29500
     moe_ep_backend: str = "disabled"
     moe_ep_size: int = 1
     cache_type: str = "paged"  # "paged" or "static"
@@ -62,6 +70,14 @@ class EngineConfig:
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
+        if self.pipeline_parallel_size < 1:
+            raise ValueError("pipeline_parallel_size must be >= 1")
+        if not 0 <= self.pipeline_parallel_stage < self.pipeline_parallel_size:
+            raise ValueError(
+                "pipeline_parallel_stage must be in [0, pipeline_parallel_size)"
+            )
+        if not 1 <= self.master_port <= 65535:
+            raise ValueError("master_port must be in [1, 65535]")
 
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")

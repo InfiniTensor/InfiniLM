@@ -98,6 +98,10 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
+        pipeline_parallel_stage: int = 0,
+        master_addr: str = "127.0.0.1",
+        master_port: int = 29500,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         skip_legacy_moe: bool = False,
@@ -153,6 +157,10 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.pipeline_parallel_size = pipeline_parallel_size
+        self.pipeline_parallel_stage = pipeline_parallel_stage
+        self.master_addr = master_addr
+        self.master_port = master_port
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
         self.skip_legacy_moe = skip_legacy_moe
@@ -193,6 +201,10 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                pipeline_parallel_size=self.pipeline_parallel_size,
+                pipeline_parallel_stage=self.pipeline_parallel_stage,
+                master_addr=self.master_addr,
+                master_port=self.master_port,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
                 skip_legacy_moe=self.skip_legacy_moe,
@@ -587,6 +599,12 @@ def parse_kv_transfer_config(kv_transfer_config_str: str) -> KVTransferConfig:
 def main():
     cfg = BaseConfig()
     setup_logging(cfg.log_level)
+    if cfg.pp > 1 and cfg.node_rank > 0:
+        from infinilm.server.pipeline_worker import run_worker
+
+        run_worker(cfg)
+        return
+
     device = cfg.get_device_str(cfg.device)
 
     kv_transfer_config = None
@@ -609,6 +627,10 @@ def main():
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        pipeline_parallel_size=cfg.pp,
+        pipeline_parallel_stage=cfg.node_rank,
+        master_addr=cfg.master_addr,
+        master_port=cfg.master_port,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         skip_legacy_moe=cfg.skip_legacy_moe,

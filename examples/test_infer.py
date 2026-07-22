@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 
@@ -15,6 +16,10 @@ def test(
     max_new_tokens=100,
     device="cpu",
     tp=1,
+    pp=1,
+    pp_stage=0,
+    master_addr="127.0.0.1",
+    master_port=29500,
     moe_ep_backend="disabled",
     ep=1,
     enable_paged_attn=False,
@@ -46,6 +51,10 @@ def test(
         num_draft_tokens=num_draft_tokens,
         device=device,
         tensor_parallel_size=tp,
+        pipeline_parallel_size=pp,
+        pipeline_parallel_stage=pp_stage,
+        master_addr=master_addr,
+        master_port=master_port,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         cache_type="paged" if enable_paged_attn else "static",
@@ -83,9 +92,12 @@ def test(
     t1 = time.time()
     print("=================== start generate ====================")
 
-    outputs = model.chat(
-        messages=conversations,
-    )
+    try:
+        outputs = model.chat(
+            messages=conversations,
+        )
+    finally:
+        model.close()
     t2 = time.time()
 
     for i, output in enumerate(outputs):
@@ -103,6 +115,15 @@ def test(
 
 if __name__ == "__main__":
     cfg = BaseConfig()
+    logging.basicConfig(
+        level=getattr(logging, cfg.log_level.upper(), logging.INFO),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+    if cfg.pp > 1 and cfg.node_rank > 0:
+        from infinilm.server.pipeline_worker import run_worker
+
+        run_worker(cfg)
+        raise SystemExit(0)
 
     device_str = cfg.get_device_str(cfg.device)
 
@@ -133,6 +154,10 @@ if __name__ == "__main__":
         max_new_tokens=max_new_tokens,
         device=device_str,
         tp=tp,
+        pp=cfg.pp,
+        pp_stage=cfg.node_rank,
+        master_addr=cfg.master_addr,
+        master_port=cfg.master_port,
         moe_ep_backend=moe_ep_backend,
         ep=ep,
         enable_paged_attn=enable_paged_attn,

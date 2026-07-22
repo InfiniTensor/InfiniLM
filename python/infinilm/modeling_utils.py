@@ -192,6 +192,9 @@ def load_model_state_dict_by_file(
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
+    model_key_set = set(model_keys)
+    dist_config = getattr(model, "distributed_config", None)
+    is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
     scale_emb = _get_scale_emb(model_path)
 
     already_loaded_keys = []
@@ -230,8 +233,6 @@ def load_model_state_dict_by_file(
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
 
-            already_loaded_keys.extend(model_param.keys())
-
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
             # --------------------------------------------------------- #
@@ -241,6 +242,15 @@ def load_model_state_dict_by_file(
                     model_param["model.embed_tokens.weight"] = (
                         embed_tokens_torch_unscaled * float(scale_emb)
                     )
+
+            if is_pipeline_parallel:
+                model_param = {
+                    key: tensor
+                    for key, tensor in model_param.items()
+                    if key in model_key_set
+                }
+
+            already_loaded_keys.extend(model_param.keys())
 
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
@@ -282,6 +292,13 @@ def load_model_state_dict_by_file(
                 model_params["model.embed_tokens.weight"] = (
                     embed_tokens_torch_unscaled * float(scale_emb)
                 )
+
+        if is_pipeline_parallel:
+            model_params = {
+                key: tensor
+                for key, tensor in model_params.items()
+                if key in model_key_set
+            }
 
         model_param_infini = {}
         for key in model_params.keys():
@@ -332,6 +349,9 @@ def load_model_state_dict_by_tensor(
 
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
+    model_key_set = set(model_keys)
+    dist_config = getattr(model, "distributed_config", None)
+    is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
     scale_emb = _get_scale_emb(model_path)
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
@@ -350,6 +370,9 @@ def load_model_state_dict_by_tensor(
                         if scale_emb != 1.0:
                             tensor = tensor * float(scale_emb)
 
+                    if is_pipeline_parallel and name not in model_key_set:
+                        continue
+
                     weight_infini = infinicore.from_torch(tensor)
                     model.load_param(name, weight_infini)
                     already_loaded_keys.append(name)
@@ -365,6 +388,8 @@ def load_model_state_dict_by_tensor(
                 embed_tokens_torch_unscaled = tensor
                 if scale_emb != 1.0:
                     tensor = tensor * float(scale_emb)
+            if is_pipeline_parallel and key not in model_key_set:
+                continue
             weight_infini = infinicore.from_torch(tensor)
             model.load_param(key, weight_infini)
             already_loaded_keys.append(key)

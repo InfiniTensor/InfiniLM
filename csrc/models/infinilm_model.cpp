@@ -34,6 +34,11 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
     const auto &dtype = model_config_->get_kv_cache_dtype();
     const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");
+    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const size_t pp_size = static_cast<size_t>(rank_info.pp_size);
+    const size_t pp_stage = static_cast<size_t>(rank_info.pp_stage);
+    const size_t local_layer_begin = num_hidden_layers * pp_stage / pp_size;
+    const size_t local_layer_end = num_hidden_layers * (pp_stage + 1) / pp_size;
 
     std::vector<infinicore::Tensor> kv_cache_vec;
     switch (attention_backend) {
@@ -42,9 +47,9 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
         if (nullptr == static_kv_cache_config) {
             throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid static kv cache config type");
         }
-        kv_cache_vec.reserve(num_hidden_layers);
+        kv_cache_vec.resize(num_hidden_layers);
 
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
             auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
                 head_dim,
                 head_dim,
@@ -53,7 +58,7 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 max_position_embeddings,
                 dtype,
                 *static_kv_cache_config);
-            kv_cache_vec.push_back(kv_cache);
+            kv_cache_vec[layer_idx] = kv_cache;
         }
         break;
     }
@@ -66,9 +71,9 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
             throw std::runtime_error(
                 "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
         }
-        kv_cache_vec.reserve(num_hidden_layers);
+        kv_cache_vec.resize(num_hidden_layers);
 
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
             auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
                 head_dim,
                 head_dim,
@@ -76,7 +81,7 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 num_key_value_heads,
                 dtype,
                 *paged_kv_cache_config);
-            kv_cache_vec.push_back(kv_cache);
+            kv_cache_vec[layer_idx] = kv_cache;
         }
         infinicore::context::syncStream();
         break;

@@ -9,6 +9,10 @@ class DistConfig:
         tp_device_ids=None,
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        pp_size=1,
+        pp_stage=0,
+        master_addr="127.0.0.1",
+        master_port=29500,
     ):
         from infinilm.lib import _infinilm
 
@@ -23,6 +27,10 @@ class DistConfig:
             self._underlying = _infinilm.DistConfig()
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
+        self.pp_size = pp_size
+        self.pp_stage = pp_stage
+        self.master_addr = master_addr
+        self.master_port = master_port
 
     @property
     def tp_device_ids(self):
@@ -47,6 +55,38 @@ class DistConfig:
     @moe_ep_size.setter
     def moe_ep_size(self, value):
         self._underlying.moe_ep_size = int(value)
+
+    @property
+    def pp_size(self):
+        return self._underlying.pp_size
+
+    @pp_size.setter
+    def pp_size(self, value):
+        self._underlying.pp_size = int(value)
+
+    @property
+    def pp_stage(self):
+        return self._underlying.pp_stage
+
+    @pp_stage.setter
+    def pp_stage(self, value):
+        self._underlying.pp_stage = int(value)
+
+    @property
+    def master_addr(self):
+        return self._underlying.master_addr
+
+    @master_addr.setter
+    def master_addr(self, value):
+        self._underlying.master_addr = str(value)
+
+    @property
+    def master_port(self):
+        return self._underlying.master_port
+
+    @master_port.setter
+    def master_port(self, value):
+        self._underlying.master_port = int(value)
 
     def __repr__(self):
         return repr(self._underlying)

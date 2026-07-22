@@ -130,6 +130,7 @@ class InferEngine(_infinilm.InferEngine):
             device = infinicore.device()
         if distributed_config is None:
             distributed_config = DistConfig(1)
+        self.distributed_config = distributed_config
         if (
             moe_ep_backend != "disabled"
             or moe_ep_size != 1
