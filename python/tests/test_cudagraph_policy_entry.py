@@ -63,6 +63,7 @@ class TestCudagraphPolicyEnv(unittest.TestCase):
                 "INFINI_DECODE_CG_BATCHES",
                 "INFINI_NATIVE_CG_CAPTURE_BUCKETS",
                 "INFINI_MUL_HOST_BREAK",
+                "INFINI_MOE_FORCE_HOST_BREAK",
                 "INFINI_MOE_TRITON_CAPTURE",
             )
         }
@@ -99,6 +100,7 @@ class TestCudagraphPolicyEnv(unittest.TestCase):
         self.assertEqual(os.environ["INFINI_DECODE_CG_BATCHES"], "1,2,4")
         self.assertIn("2048", os.environ["INFINI_NATIVE_CG_CAPTURE_BUCKETS"])
         self.assertNotIn("INFINI_FA_FORCE_CAPTURE", os.environ)
+        self.assertNotIn("INFINI_MOE_FORCE_HOST_BREAK", os.environ)
         self.assertNotIn("INFINI_MOE_TRITON_CAPTURE", os.environ)
 
     def test_prefill_native_ignored_when_policy_set(self) -> None:
@@ -195,7 +197,7 @@ class TestEntryCudagraphPolicyCli(unittest.TestCase):
         self.assertIn("eager", text)
         self.assertIn("cudagraph-policy", text)
         self.assertIn("host-break", text)
-        self.assertIn("diagnose-only", text)
+        self.assertIn("Decode MoE", text)
         self.assertIn("MIXED", text)
 
 

@@ -16,9 +16,10 @@ Modes
   capture with aten index_select+bmm under stream capture; Triton on eager.
   Gate: ``has_device_exec=true``, ``replay_op_list_fallback=0``.
 
-* ``triton_capture``: ``INFINI_MOE_TRITON_CAPTURE=1`` — MoE enters device capture
-  with Triton ``fused_moe_routed`` (no aten). Gate: ``has_device_exec=true``,
-  path tag ``triton``, bf16 parity vs eager Triton max abs < 1e-2.
+* ``triton_capture``: Decode-phase MoE under ``full_and_piecewise`` — MoE
+  enters device capture with Triton ``fused_moe_routed`` (no aten). Gate:
+  ``has_device_exec=true``, path tag ``triton``, bf16 parity vs eager Triton
+  max abs < 1e-2. (``INFINI_MOE_TRITON_CAPTURE`` deprecated.)
 """
 
 from __future__ import annotations
@@ -93,16 +94,20 @@ def _setup_moe_env(
     os.environ["INFINI_PIECEWISE_VALID_LEN"] = str(int(valid_len))
     os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
     os.environ["INFINI_MOE_ALLOW_JIT"] = "0"
+    # Deprecated enable switch — never rely on it for capture.
+    os.environ.pop("INFINI_MOE_TRITON_CAPTURE", None)
     if triton_capture:
-        os.environ["INFINI_MOE_TRITON_CAPTURE"] = "1"
-        # Triton-capture must not fall through to aten CAPTURE_SAFE body.
+        # Phase-adaptive Decode MoE: non-eager policy + Decode TLS phase.
+        os.environ["INFINI_CUDAGRAPH_POLICY"] = "full_and_piecewise"
+        os.environ.pop("INFINI_MOE_FORCE_HOST_BREAK", None)
         os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     else:
-        os.environ.pop("INFINI_MOE_TRITON_CAPTURE", None)
         if capture_safe:
             os.environ["INFINI_MOE_CAPTURE_SAFE"] = "1"
+            os.environ.pop("INFINI_MOE_FORCE_HOST_BREAK", None)
         else:
-            # Ensure host-break modes are not polluted by a leftover flag.
+            # Host-break modes: force HB even if Decode phase is set elsewhere.
+            os.environ["INFINI_MOE_FORCE_HOST_BREAK"] = "1"
             os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     if moe_configs:
         os.environ["INFINI_MOE_CONFIGS"] = moe_configs
@@ -565,6 +570,9 @@ def run_triton_capture_spike(
     stream_match = True
 
     try:
+        # Phase-adaptive MoE: Decode TLS + non-eager policy (set in _setup_moe_env).
+        if hasattr(_ic, "set_inference_phase"):
+            _ic.set_inference_phase("decode")
         infinicore.start_graph_recording(device)
         _ic.inductor_moe_(
             hidden._underlying,
@@ -573,7 +581,14 @@ def run_triton_capture_spike(
             int(bucket),
         )
         graph = infinicore.stop_graph_recording()
+        if hasattr(_ic, "set_inference_phase"):
+            _ic.set_inference_phase("unknown")
     except Exception as exc:  # noqa: BLE001
+        if hasattr(_ic, "set_inference_phase"):
+            try:
+                _ic.set_inference_phase("unknown")
+            except Exception:  # noqa: BLE001
+                pass
         return MoeHcGraphSpikeResult(
             passed=False,
             mode="triton_capture",
@@ -605,8 +620,8 @@ def run_triton_capture_spike(
     # Soft VRAM gate for single-layer smoke (full 30-seg serve needs ~40 GiB free).
     vram_gate_bytes = int(os.environ.get("INFINI_CAPTURE_VRAM_GATE_BYTES", str(2 << 30)))
     note = (
-        "INFINI_MOE_TRITON_CAPTURE=1 — Triton fused_moe_routed under stream "
-        f"capture; IC CaptureArena bytes={arena_bytes} blocks={arena_blocks} "
+        "Decode-phase MoE (full_and_piecewise) — Triton fused_moe_routed under "
+        f"stream capture; IC CaptureArena bytes={arena_bytes} blocks={arena_blocks} "
         f"retained_torch={arena_torch}; peak_alloc={peak_bytes}"
     )
 
@@ -664,7 +679,8 @@ def run_triton_capture_spike(
         and (not used_mempool)
         and arena_ok
         and vram_ok
-        and os.environ.get("INFINI_MOE_TRITON_CAPTURE") == "1"
+        and os.environ.get("INFINI_CUDAGRAPH_POLICY") == "full_and_piecewise"
+        and not os.environ.get("INFINI_MOE_FORCE_HOST_BREAK")
         and not os.environ.get("INFINI_MOE_CAPTURE_SAFE")
     )
     err = None

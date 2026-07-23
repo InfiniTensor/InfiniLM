@@ -371,18 +371,36 @@ def _moe_capture_safe_enabled() -> bool:
 
 
 def _moe_triton_capture_enabled() -> bool:
-    """Triton fused_moe_routed under stream capture.
+    """Whether Triton fused_moe_routed may run under stream capture.
 
-    Explicit ``INFINI_MOE_TRITON_CAPTURE`` wins. Else
-    ``INFINI_CUDAGRAPH_POLICY=full_and_piecewise`` enables capture (phase-scoped
-    in C++; Python mirrors the policy bit for kernel-path gating). ``eager`` /
-    unset → off. Prefer policy over bare TRITON_CAPTURE in new paths.
+    Defers to InfiniCore ``moe_triton_capture_allowed`` (phase-adaptive:
+    non-eager + Decode). ``INFINI_MOE_FORCE_HOST_BREAK=1`` forces off.
+    ``INFINI_MOE_TRITON_CAPTURE`` is deprecated/ignored.
     """
-    raw = os.environ.get("INFINI_MOE_TRITON_CAPTURE", "").strip().lower()
-    if raw:
-        return raw in ("1", "true", "yes", "on")
+    raw_force = os.environ.get("INFINI_MOE_FORCE_HOST_BREAK", "").strip().lower()
+    if raw_force in ("1", "true", "yes", "on"):
+        return False
+    if os.environ.get("INFINI_MOE_TRITON_CAPTURE"):
+        import warnings
+
+        warnings.warn(
+            "INFINI_MOE_TRITON_CAPTURE is deprecated and ignored; MoE capture "
+            "follows cudagraph_policy + InferencePhase::Decode "
+            "(use INFINI_MOE_FORCE_HOST_BREAK=1 to force host-break)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    try:
+        from infinicore.lib import _infinicore as _ic
+
+        if hasattr(_ic, "moe_triton_capture_allowed"):
+            return bool(_ic.moe_triton_capture_allowed())
+    except Exception:  # noqa: BLE001
+        pass
+    # Fallback when C++ binding unavailable: non-eager policy only
+    # (phase is C++ TLS; under capture Decode guard is expected).
     policy = os.environ.get("INFINI_CUDAGRAPH_POLICY", "eager").strip().lower()
-    return policy == "full_and_piecewise"
+    return policy not in ("", "eager") and _under_device_stream_capture()
 
 
 def _under_device_stream_capture() -> bool:
@@ -945,8 +963,10 @@ def fused_moe_routed(
     x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
 
     Capture modes (under ``hcStreamBeginCapture``):
-    - ``INFINI_MOE_TRITON_CAPTURE=1``: Triton cubins (preferred; device align).
-    - ``INFINI_MOE_CAPTURE_SAFE=1`` (and no Triton-capture): aten index_select+bmm.
+    - Phase-adaptive Decode (non-eager policy): Triton cubins in-graph.
+    - ``INFINI_MOE_CAPTURE_SAFE=1`` (and MoE not Decode-capturable): aten
+      index_select+bmm.
+    - ``INFINI_MOE_FORCE_HOST_BREAK=1``: force host-break (bisect).
     Otherwise: Triton cubins (eager / host-break path).
     """
     assert_no_vllm()

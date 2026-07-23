@@ -15,8 +15,10 @@
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
 #include <c10/cuda/CUDAGuard.h>
 #endif
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <mutex>
 #include <spdlog/spdlog.h>
@@ -33,6 +35,76 @@ bool rank_worker_profile_enabled() {
         cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
     }
     return cached == 1;
+}
+
+/// Dispatcher mode histogram (FULL / PIECEWISE / NONE + NONE reason).
+struct DispatchHistCounters {
+    std::atomic<uint64_t> full{0};
+    std::atomic<uint64_t> piecewise{0};
+    std::atomic<uint64_t> none{0};
+    std::atomic<uint64_t> none_eager_policy{0};
+    std::atomic<uint64_t> none_mixed{0};
+    std::atomic<uint64_t> none_multi_req_prefill{0};
+    std::atomic<uint64_t> none_bucket_miss{0};
+    std::atomic<uint64_t> none_decode_bs_miss{0};
+    std::atomic<uint64_t> none_other{0};
+};
+
+DispatchHistCounters &dispatch_hist() {
+    static DispatchHistCounters c;
+    return c;
+}
+
+void record_dispatch_hist(CudaGraphRuntimeMode mode, const char *none_reason) {
+    auto &h = dispatch_hist();
+    switch (mode) {
+    case CudaGraphRuntimeMode::Full:
+        h.full.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case CudaGraphRuntimeMode::Piecewise:
+        h.piecewise.fetch_add(1, std::memory_order_relaxed);
+        break;
+    case CudaGraphRuntimeMode::None:
+    default:
+        h.none.fetch_add(1, std::memory_order_relaxed);
+        if (none_reason == nullptr) {
+            h.none_other.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "eager_policy") == 0) {
+            h.none_eager_policy.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "mixed") == 0) {
+            h.none_mixed.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "multi_req_prefill") == 0) {
+            h.none_multi_req_prefill.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "bucket_miss") == 0) {
+            h.none_bucket_miss.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "decode_bs_miss") == 0) {
+            h.none_decode_bs_miss.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            h.none_other.fetch_add(1, std::memory_order_relaxed);
+        }
+        break;
+    }
+}
+
+void log_dispatch_hist_if_enabled(const char *tag) {
+    if (!rank_worker_profile_enabled() && !global_state::hang_trace::enabled()) {
+        return;
+    }
+    const auto &h = dispatch_hist();
+    spdlog::info(
+        "{}: dispatch_hist FULL={} PIECEWISE={} NONE={} "
+        "none_reason[eager_policy={} mixed={} multi_req_prefill={} "
+        "bucket_miss={} decode_bs_miss={} other={}]",
+        tag,
+        h.full.load(std::memory_order_relaxed),
+        h.piecewise.load(std::memory_order_relaxed),
+        h.none.load(std::memory_order_relaxed),
+        h.none_eager_policy.load(std::memory_order_relaxed),
+        h.none_mixed.load(std::memory_order_relaxed),
+        h.none_multi_req_prefill.load(std::memory_order_relaxed),
+        h.none_bucket_miss.load(std::memory_order_relaxed),
+        h.none_decode_bs_miss.load(std::memory_order_relaxed),
+        h.none_other.load(std::memory_order_relaxed));
 }
 
 /// Derive BatchDescriptor from input shape (not scheduler phase).
@@ -700,17 +772,38 @@ void RankWorker::thread_loop() {
                                 is_mixed = true;
                             }
                         }
+                        const char *cg_none_reason = nullptr;
+                        if (cg_mode == CudaGraphRuntimeMode::None) {
+                            cg_none_reason =
+                                cudagraph_dispatcher_.none_reason(batch_desc, is_mixed);
+                        }
+                        if (rank_info_.tp_rank == 0) {
+                            record_dispatch_hist(cg_mode, cg_none_reason);
+                        }
                         if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
-                                "hang_trace: run_job_begin mode={} cg_mode={} n_req={} "
-                                "batch_size={} num_tokens={} uniform_decode={} is_mixed={}",
+                                "hang_trace: run_job_begin mode={} cg_mode={} none_reason={} "
+                                "n_req={} batch_size={} num_tokens={} uniform_decode={} "
+                                "is_mixed={}",
                                 mode_str,
                                 cudagraph_runtime_mode_cstr(cg_mode),
+                                cg_none_reason != nullptr ? cg_none_reason : "-",
                                 n_req,
                                 batch_size,
                                 batch_desc.num_tokens,
                                 batch_desc.uniform_decode,
                                 is_mixed);
+                            log_dispatch_hist_if_enabled("hang_trace");
+                        } else if (rank_worker_profile_enabled() && rank_info_.tp_rank == 0) {
+                            spdlog::info(
+                                "rank_worker_profile: dispatch cg_mode={} none_reason={} "
+                                "n_req={} num_tokens={} uniform_decode={}",
+                                cudagraph_runtime_mode_cstr(cg_mode),
+                                cg_none_reason != nullptr ? cg_none_reason : "-",
+                                batch_desc.num_reqs,
+                                batch_desc.num_tokens,
+                                batch_desc.uniform_decode);
+                            log_dispatch_hist_if_enabled("rank_worker_profile");
                         }
                         auto model_input = local_args.to_model_input(infinicore::Device::cpu());
                         if (compiler_ != nullptr && cg_mode != CudaGraphRuntimeMode::None) {
@@ -800,6 +893,18 @@ void RankWorker::thread_loop() {
                             if (cg_mode == CudaGraphRuntimeMode::Full && !logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
+                                    // First monolithic FULL hit: device_segment_count (MoE/FA HB splits).
+                                    if (rank_info_.tp_rank == 0) {
+                                        static bool logged_full_segs = false;
+                                        if (!logged_full_segs) {
+                                            logged_full_segs = true;
+                                            spdlog::info(
+                                                "rank_worker: first FULL decode get_compiled "
+                                                "device_segment_count={} "
+                                                "(MoE Decode-phase adaptive; FA host-break)",
+                                                graph->device_segment_count());
+                                        }
+                                    }
                                     const bool ar_profile = global_state::ar_profile::enabled();
                                     const size_t graph_batch_size =
                                         model_input.block_tables.has_value()
@@ -822,8 +927,8 @@ void RankWorker::thread_loop() {
                                         global_state::hang_trace::ScopedBracket graph_bracket(
                                             "decode_graph_run", rank_info_.tp_rank);
                                         const double t_graph0 = ar_profile ? monotonic_ms() : 0.0;
-                                        // FULL decode replay: FA host-break; MoE HB under
-                                        // full_and_piecewise unless INFINI_MOE_TRITON_CAPTURE=1.
+                                        // FULL decode replay: FA host-break; MoE in-graph under
+                                        // non-eager + InferencePhase::Decode (FORCE_HOST_BREAK escapes).
                                         infinicore::context::InferencePhaseGuard phase_guard(
                                             infinicore::context::InferencePhase::Decode);
                                         graph->run();

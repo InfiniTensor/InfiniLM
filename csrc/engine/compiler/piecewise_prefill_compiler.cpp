@@ -632,7 +632,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         return std::nullopt;
     }
     // Phase-scoped MoE: Prefill must not take Triton-in-graph path.
-    // Under full_and_piecewise MoE is host-break unless INFINI_MOE_TRITON_CAPTURE=1.
+    // Under full_and_piecewise MoE is host-break in Prefill (Decode-only adaptive).
     infinicore::context::InferencePhaseGuard phase_guard(
         infinicore::context::InferencePhase::Prefill);
     last_prefill_executed_ = false;

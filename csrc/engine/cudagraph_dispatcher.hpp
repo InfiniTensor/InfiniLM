@@ -138,6 +138,24 @@ public:
         return {CudaGraphRuntimeMode::None, desc};
     }
 
+    /// Classify why ``dispatch`` returned NONE (for profile / hang_trace histograms).
+    /// ``is_mixed`` is the scheduler MIXED / ragged flag from RankWorker.
+    const char *none_reason(const BatchDescriptor &desc, bool is_mixed) const {
+        if (std::strcmp(cudagraph_policy(), "eager") == 0) {
+            return "eager_policy";
+        }
+        if (is_mixed) {
+            return "mixed";
+        }
+        if (!desc.uniform_decode && desc.num_reqs > 1) {
+            return "multi_req_prefill";
+        }
+        if (desc.uniform_decode) {
+            return "decode_bs_miss";
+        }
+        return "bucket_miss";
+    }
+
 private:
     std::set<size_t> full_keys_;
     std::set<size_t> piecewise_keys_;

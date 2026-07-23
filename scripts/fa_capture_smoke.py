@@ -4,8 +4,9 @@
 
 Cells
 -----
-* ``moe_span`` (green expected): ``INFINI_MOE_TRITON_CAPTURE=1`` — record one
-  Triton MoE into a device graph (known good after Phase 5).
+* ``moe_span`` (green expected): Decode-phase MoE under ``full_and_piecewise`` —
+  record one Triton MoE into a device graph (known good after Phase 5).
+  (``INFINI_MOE_TRITON_CAPTURE`` deprecated.)
 
 * ``fa_hostbreak_sandwich`` (green expected): MoE | FA(host-break) | MoE —
   FA stays outside ``hcStreamBeginCapture``; two device segments + FA HostOp.
@@ -64,11 +65,13 @@ def _setup_common(
     os.environ["INFINI_PIECEWISE_VALID_LEN"] = "1"
     os.environ["INFINI_PIECEWISE_INDUCTOR_SEGMENT"] = "1"
     os.environ["INFINI_MOE_ALLOW_JIT"] = "0"
+    os.environ.pop("INFINI_MOE_TRITON_CAPTURE", None)
     if triton_capture:
-        os.environ["INFINI_MOE_TRITON_CAPTURE"] = "1"
+        os.environ["INFINI_CUDAGRAPH_POLICY"] = "full_and_piecewise"
+        os.environ.pop("INFINI_MOE_FORCE_HOST_BREAK", None)
         os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     else:
-        os.environ.pop("INFINI_MOE_TRITON_CAPTURE", None)
+        os.environ["INFINI_MOE_FORCE_HOST_BREAK"] = "1"
         os.environ.pop("INFINI_MOE_CAPTURE_SAFE", None)
     if force_fa:
         os.environ["INFINI_FA_FORCE_CAPTURE"] = "1"
@@ -244,6 +247,17 @@ def _finish(
     )
 
 
+def _set_decode_phase(_ic) -> None:
+    """Enable phase-adaptive MoE in-graph for smoke cells that need Triton capture."""
+    if hasattr(_ic, "set_inference_phase"):
+        _ic.set_inference_phase("decode")
+
+
+def _clear_phase(_ic) -> None:
+    if hasattr(_ic, "set_inference_phase"):
+        _ic.set_inference_phase("unknown")
+
+
 def run_moe_span(
     *,
     segment_pt2: str,
@@ -259,6 +273,7 @@ def run_moe_span(
         triton_capture=True,
         force_fa=False,
     )
+    _ic = None
     try:
         infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe(
             segment_pt2=segment_pt2,
@@ -273,19 +288,23 @@ def run_moe_span(
             run_moe()
         torch.cuda.synchronize(device_index)
         infinicore.sync_stream()
+        _set_decode_phase(_ic)
         infinicore.start_graph_recording(device)
         run_moe()
         graph = infinicore.stop_graph_recording()
+        _clear_phase(_ic)
         graph.run()
         infinicore.sync_stream()
         return _finish(
             cell="moe_span",
             expect="green",
             graph=graph,
-            note="Triton MoE under hcStreamBeginCapture (Phase 5 path)",
+            note="Decode-phase Triton MoE under hcStreamBeginCapture",
             triton=True,
         )
     except Exception as exc:  # noqa: BLE001
+        if _ic is not None:
+            _clear_phase(_ic)
         phase, msg = _classify_fault(exc)
         return FaCaptureCellResult(
             cell="moe_span",
@@ -315,6 +334,7 @@ def run_fa_hostbreak_sandwich(
         triton_capture=True,
         force_fa=False,
     )
+    _ic = None
     try:
         infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe(
             segment_pt2=segment_pt2,
@@ -332,11 +352,13 @@ def run_fa_hostbreak_sandwich(
         torch.cuda.synchronize(device_index)
         infinicore.sync_stream()
 
+        _set_decode_phase(_ic)
         infinicore.start_graph_recording(device)
         run_moe()
         infinicore.mha_kvcache(q, k, v, seqlens, bt, scale=scale)  # host-break
         run_moe()
         graph = infinicore.stop_graph_recording()
+        _clear_phase(_ic)
         graph.run()
         infinicore.sync_stream()
         nseg = int(graph.device_segment_count())
@@ -354,6 +376,8 @@ def run_fa_hostbreak_sandwich(
             result.fault = f"expected ≥2 device segments around FA host-break, got {nseg}"
         return result
     except Exception as exc:  # noqa: BLE001
+        if _ic is not None:
+            _clear_phase(_ic)
         phase, msg = _classify_fault(exc)
         return FaCaptureCellResult(
             cell="fa_hostbreak_sandwich",
@@ -569,6 +593,7 @@ def run_fa_force_sandwich(
         triton_capture=True,
         force_fa=True,
     )
+    _ic = None
     try:
         infinicore, torch, _ic, device, cuda_dev, dtype = _register_moe(
             segment_pt2=segment_pt2,
@@ -586,11 +611,13 @@ def run_fa_force_sandwich(
         torch.cuda.synchronize(device_index)
         infinicore.sync_stream()
 
+        _set_decode_phase(_ic)
         infinicore.start_graph_recording(device)
         run_moe()
         infinicore.mha_kvcache(q, k, v, seqlens, bt, scale=scale)
         run_moe()
         graph = infinicore.stop_graph_recording()
+        _clear_phase(_ic)
         try:
             graph.run()
             infinicore.sync_stream()
@@ -619,6 +646,8 @@ def run_fa_force_sandwich(
             triton=True,
         )
     except Exception as exc:  # noqa: BLE001
+        if _ic is not None:
+            _clear_phase(_ic)
         phase, msg = _classify_fault(exc)
         return FaCaptureCellResult(
             cell="fa_force_sandwich",

@@ -12,9 +12,10 @@ CUDA-graph policy (``--cudagraph-policy`` / ``INFINI_CUDAGRAPH_POLICY``):
   eager              — no decode/prefill CUDA-graph capture (default).
   full_and_piecewise — vLLM dual-mode: FULL uniform decode + PIECEWISE
                        homogeneous prefill (MIXED→eager until mixed
-                       PIECEWISE exists). MetaX: FA host-break + MoE
-                       host-break; ``INFINI_FA_FORCE_CAPTURE`` /
-                       ``INFINI_MOE_TRITON_CAPTURE`` diagnose-only.
+                       PIECEWISE exists). MetaX: FA host-break; MoE
+                       in-graph on Decode (Prefill HB);
+                       ``INFINI_FA_FORCE_CAPTURE`` diagnose-only;
+                       ``INFINI_MOE_FORCE_HOST_BREAK`` bisect escape.
 Policy applies to serve / all; compile-only phase ignores graph capture knobs
 (AOT packages do not need FA/MoE stream-capture policy).
 """
@@ -56,8 +57,9 @@ def _peel_entry_args(argv: Optional[Sequence[str]] = None):
         help=(
             "CUDA-graph policy (sets INFINI_CUDAGRAPH_POLICY; CLI wins over prior env). "
             "eager: no CG capture. full_and_piecewise: FULL uniform decode + "
-            "PIECEWISE homogeneous prefill (MIXED→eager); MetaX FA/MoE host-break. "
-            "FA_FORCE / MOE_TRITON_CAPTURE diagnose-only. Do not pass track_b."
+            "PIECEWISE homogeneous prefill (MIXED→eager); MetaX FA host-break + "
+            "Decode MoE in-graph. FA_FORCE diagnose-only; "
+            "MOE_FORCE_HOST_BREAK bisect. Do not pass track_b."
         ),
     )
     parser.add_argument(
@@ -146,9 +148,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 "\n"
                 "  --cudagraph-policy  eager (default; no CG) | full_and_piecewise\n"
                 "                      (FULL uniform decode + PIECEWISE prefill;\n"
-                "                      MIXED→eager; MetaX FA/MoE host-break).\n"
+                "                      MIXED→eager; MetaX FA host-break +\n"
+                "                      Decode MoE in-graph).\n"
                 "                      Sets INFINI_CUDAGRAPH_POLICY; CLI wins.\n"
-                "                      FA_FORCE / MOE_TRITON_CAPTURE diagnose-only.\n"
+                "                      FA_FORCE diagnose-only;\n"
+                "                      MOE_FORCE_HOST_BREAK bisect escape.\n"
                 "                      Ignored for graph capture during --phase compile.\n"
             )
             from infinilm.base_config import BaseConfig
@@ -173,14 +177,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "entry cudagraph_policy=%s prefill_native_cg=%s "
             "INFINI_DECODE_GRAPH_ONLY=%s INFINI_DECODE_CG_BATCHES=%s "
             "INFINI_NATIVE_CG_CAPTURE_BUCKETS=%s INFINI_FA_FORCE_CAPTURE=%s "
-            "INFINI_MOE_TRITON_CAPTURE=%s",
+            "INFINI_MOE_FORCE_HOST_BREAK=%s",
             applied,
             prefill_native_cg_enabled(),
             os.environ.get("INFINI_DECODE_GRAPH_ONLY", ""),
             os.environ.get("INFINI_DECODE_CG_BATCHES", ""),
             os.environ.get("INFINI_NATIVE_CG_CAPTURE_BUCKETS", ""),
             os.environ.get("INFINI_FA_FORCE_CAPTURE", "0"),
-            os.environ.get("INFINI_MOE_TRITON_CAPTURE", "unset"),
+            os.environ.get("INFINI_MOE_FORCE_HOST_BREAK", "0"),
         )
 
         phase = entry_args.phase

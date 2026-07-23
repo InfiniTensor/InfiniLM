@@ -17,7 +17,7 @@ Classification (for PR review):
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``),
     ``INFINI_FA_FORCE_CAPTURE`` (diagnose-only; prefer ``full_and_piecewise``).
-    ``INFINI_MOE_TRITON_CAPTURE`` (diagnose-only MoE-in-graph; MetaX default MoE HB).
+    ``INFINI_MOE_FORCE_HOST_BREAK`` (bisect: force MoE host-break even in Decode).
 
 When ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` is set, Inductor bootstrap and
 ``compile_buckets`` use that list only (no auto power-of-two through 8192).
@@ -96,8 +96,9 @@ def _warn_fa_force_with_policy() -> None:
     logger.warning(
         "INFINI_FA_FORCE_CAPTURE=1 is diagnose-only; prefer "
         "INFINI_CUDAGRAPH_POLICY=full_and_piecewise (FULL decode + FA "
-        "host-break + MoE host-break + native prefill on MetaX). FA_FORCE "
-        "remains a global override and does not restore production FA-in-graph."
+        "host-break + Decode-phase MoE in-graph + native prefill on MetaX). "
+        "FA_FORCE remains a global override and does not restore production "
+        "FA-in-graph. MoE bisect: INFINI_MOE_FORCE_HOST_BREAK=1."
     )
     _FA_FORCE_POLICY_WARNED = True
 
@@ -136,13 +137,12 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
       ``DECODE_PIECEWISE=0``). Native prefill off via policy.
     ``full_and_piecewise`` (MetaX contract; matches vLLM dual-mode)
       Decode monolithic FULL for uniform decode batches; FA **host-break**;
-      MoE Triton **host-break** (in-graph diagnose via
-      ``INFINI_MOE_TRITON_CAPTURE=1`` only — Gate C: native+MoE-in-graph
-      garbles). Prefill **native piecewise** for homogeneous bucket hits
-      (``16,64,512,1024,2048,4096``). MIXED batches → eager until ragged
-      mixed PIECEWISE exists. Does **not** set ``FA_FORCE`` /
-      ``MOE_TRITON_CAPTURE``. ``INFINI_PREFILL_NATIVE_CG`` is not written
-      and is ignored when set.
+      MoE Triton **in-graph on Decode** (Prefill / Unknown host-break;
+      bisect ``INFINI_MOE_FORCE_HOST_BREAK=1``). Prefill **native piecewise**
+      for homogeneous bucket hits (``16,64,512,1024,2048,4096``). MIXED
+      batches → eager until ragged mixed PIECEWISE exists. Does **not** set
+      ``FA_FORCE``. ``INFINI_PREFILL_NATIVE_CG`` is not written and is
+      ignored when set.
     """
     if policy is None:
         p = cudagraph_policy()
@@ -156,6 +156,12 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     os.environ["INFINI_CUDAGRAPH_POLICY"] = p
     _warn_fa_force_with_policy()
     _warn_prefill_native_with_policy()
+    if os.environ.get("INFINI_MOE_TRITON_CAPTURE"):
+        logger.warning(
+            "INFINI_MOE_TRITON_CAPTURE is deprecated and ignored; MoE capture "
+            "follows cudagraph_policy + InferencePhase::Decode. Use "
+            "INFINI_MOE_FORCE_HOST_BREAK=1 to force MoE host-break for bisect."
+        )
 
     if p == CUDAGRAPH_POLICY_EAGER:
         _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "1")
@@ -164,8 +170,8 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
         return p
 
     # full_and_piecewise
-    # Decode FULL: MoE + FA host-break on MetaX (MoE-in-graph diagnose-only via
-    # INFINI_MOE_TRITON_CAPTURE; FA-in-graph diagnose via INFINI_FA_FORCE_CAPTURE).
+    # Decode FULL: FA host-break; MoE phase-adaptive (Decode in-graph;
+    # Prefill HB). FA-in-graph diagnose via INFINI_FA_FORCE_CAPTURE.
     # Prefill: native piecewise always on (derived from policy, not PREFILL_NATIVE_CG).
     # MIXED → eager (dispatcher NONE) until mixed PIECEWISE exists.
     _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "0")
@@ -176,8 +182,8 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     _setdefault_env("INFINI_MUL_HOST_BREAK", "0")
     logger.info(
         "cudagraph_policy=full_and_piecewise "
-        "(FULL uniform decode + FA/MoE host-break; PIECEWISE homogeneous prefill; "
-        "MIXED→eager)"
+        "(FULL uniform decode + FA host-break + Decode MoE in-graph; "
+        "PIECEWISE homogeneous prefill; MIXED→eager)"
     )
     return p
 
