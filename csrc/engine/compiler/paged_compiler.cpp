@@ -195,7 +195,8 @@ PagedCompiler::CompiledResult PagedCompiler::capture_forward_graph_(InfinilmMode
         !(is_decode_capture && rank_info.tp_size > 1 && decode_cg_tp_enabled());
     ctx.defer_row_parallel_allreduce = defer_ar;
 
-    // Phase-scoped FA/MoE host_break under INFINI_CUDAGRAPH_POLICY=full_and_piecewise.
+    // Phase-scoped MoE host_break under INFINI_CUDAGRAPH_POLICY=full_and_piecewise.
+    // FA stays FORCE-only (faInGraphAllowed); phase does not fold FA in-graph.
     const auto phase = is_decode_capture ? infinicore::context::InferencePhase::Decode
                                          : infinicore::context::InferencePhase::Prefill;
     infinicore::context::InferencePhaseGuard phase_guard(phase);

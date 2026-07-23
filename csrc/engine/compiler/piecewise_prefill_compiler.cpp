@@ -662,11 +662,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     // assume final-chunk inductor staging; mid-chunk CG pre_attn SIGSEGVs at 2048
     // (Gate D). Use eager infiniop pre/post so KV matches Case A boundary.
     const bool mid_chunk = !final_chunk;
-    // Native-width buckets: replay only when seq_len matches the captured graph width.
-    if (seq_len != graph_bucket) {
-        ++prefill_misses_;
-        return std::nullopt;
-    }
+    // Pad-up (seq_len < graph_bucket): CG PlannedMeta bakes valid_len==bucket at
+    // capture; replaying that meta on a short chat SIGSEGVs. Use eager inductor
+    // with runtime piecewise.valid_seq_len instead (same AOT package).
+    const bool pad_up = seq_len != graph_bucket;
 
     auto &bucket_graphs = compiled_.at(graph_bucket);
     const double t_copy0 = profile ? monotonic_ms() : 0.0;
@@ -685,7 +684,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     piecewise.residual = bucket_graphs.residual;
     piecewise.ar_staging = bucket_graphs.ar_staging;
     piecewise.layer_staging = bucket_graphs.layer_staging;
-    if (final_chunk && seq_len == graph_bucket) {
+    if (final_chunk) {
+        // Exact-width and pad-up final chunks both use inductor when enabled.
         piecewise.allow_inductor_pre_attn = inductor_mode && !repro_skip_final_inductor();
     } else if (repro_skip_midchunk_eager() && mid_chunk) {
         piecewise.allow_inductor_pre_attn = inductor_mode;
@@ -702,13 +702,14 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const size_t num_layers = bucket_graphs.pre_attn.size();
     // Mid-chunk: always eager pre/post under inductor (do not replay CG segments).
     // Final-chunk inductor pre-attn needs the same eager post replay (B4 tail).
+    // Pad-up: eager inductor pre_attn (do not replay capture-time valid_len meta).
     const bool use_eager_post =
         inductor_mode
         && (mid_chunk || piecewise.allow_inductor_pre_attn);
     const bool use_eager_lm_head = inductor_mode && piecewise.allow_inductor_pre_attn;
     const bool use_eager_pre_attn_summary =
         inductor_mode
-        && (mid_chunk
+        && (mid_chunk || pad_up
             || (final_chunk && (bucket_graphs.pre_attn.empty() || !bucket_graphs.pre_attn[0])));
     const size_t slot_len = input.slot_mapping.has_value()
                                 ? input.slot_mapping.value()->shape()[0]
@@ -719,7 +720,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_pre_attn");
         const bool use_eager_pre_attn =
-            inductor_mode && (mid_chunk || !bucket_graphs.pre_attn[layer]);
+            inductor_mode && (mid_chunk || pad_up || !bucket_graphs.pre_attn[layer]);
         if (use_eager_pre_attn) {
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);

@@ -46,10 +46,10 @@ class TestCudagraphDispatcher(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def _disp(self, policy: str):
+    def _disp(self, policy: str, buckets: str = "16,64,512,1024,2048,4096"):
         os.environ["INFINI_CUDAGRAPH_POLICY"] = policy
         os.environ["INFINI_DECODE_CG_BATCHES"] = "1,2,4"
-        os.environ["INFINI_NATIVE_CG_CAPTURE_BUCKETS"] = "16,64,512,1024,2048,4096"
+        os.environ["INFINI_NATIVE_CG_CAPTURE_BUCKETS"] = buckets
         d = self.mod.CudagraphDispatcher()
         d.initialize_from_env()
         return d
@@ -76,18 +76,54 @@ class TestCudagraphDispatcher(unittest.TestCase):
         mode, _ = d.dispatch(BD(num_tokens=3, num_reqs=3, uniform_decode=True))
         self.assertEqual(mode, Mode.NONE)
 
-    def test_bucket_prefill_piecewise(self) -> None:
+    def test_bucket_prefill_piecewise_exact(self) -> None:
         d = self._disp("full_and_piecewise")
         BD = self.mod.BatchDescriptor
         Mode = self.mod.CudaGraphRuntimeMode
         mode, key = d.dispatch(BD(num_tokens=2048, num_reqs=1, uniform_decode=False))
         self.assertEqual(mode, Mode.PIECEWISE)
         self.assertEqual(key.num_tokens, 2048)
-        mode, _ = d.dispatch(BD(num_tokens=512, num_reqs=1, uniform_decode=False))
+        mode, key = d.dispatch(BD(num_tokens=512, num_reqs=1, uniform_decode=False))
         self.assertEqual(mode, Mode.PIECEWISE)
-        # Non-bucket seq → NONE
-        mode, _ = d.dispatch(BD(num_tokens=1000, num_reqs=1, uniform_decode=False))
+        self.assertEqual(key.num_tokens, 512)
+        mode, key = d.dispatch(BD(num_tokens=16, num_reqs=1, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 16)
+
+    def test_pad_up_prefill_piecewise(self) -> None:
+        """vLLM-style pad-up: 13 → bucket 16 under {16,64,512}."""
+        d = self._disp("full_and_piecewise", buckets="16,64,512")
+        BD = self.mod.BatchDescriptor
+        Mode = self.mod.CudaGraphRuntimeMode
+        mode, key = d.dispatch(BD(num_tokens=13, num_reqs=1, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 16)
+        mode, key = d.dispatch(BD(num_tokens=16, num_reqs=1, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 16)
+        # Mid-ladder pad-up
+        mode, key = d.dispatch(BD(num_tokens=1000, num_reqs=1, uniform_decode=False))
+        self.assertEqual(mode, Mode.NONE)  # 1000 > max 512
+        self.assertEqual(d.none_reason(BD(num_tokens=1000, num_reqs=1, uniform_decode=False), False), "over_max")
+
+    def test_pad_up_mid_ladder(self) -> None:
+        d = self._disp("full_and_piecewise")
+        BD = self.mod.BatchDescriptor
+        Mode = self.mod.CudaGraphRuntimeMode
+        mode, key = d.dispatch(BD(num_tokens=1000, num_reqs=1, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 1024)
+
+    def test_past_max_none(self) -> None:
+        d = self._disp("full_and_piecewise", buckets="16,64,512")
+        BD = self.mod.BatchDescriptor
+        Mode = self.mod.CudaGraphRuntimeMode
+        mode, _ = d.dispatch(BD(num_tokens=513, num_reqs=1, uniform_decode=False))
         self.assertEqual(mode, Mode.NONE)
+        self.assertEqual(
+            d.none_reason(BD(num_tokens=513, num_reqs=1, uniform_decode=False), False),
+            "over_max",
+        )
 
     def test_mixed_or_multi_req_none(self) -> None:
         d = self._disp("full_and_piecewise")

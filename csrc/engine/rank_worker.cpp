@@ -47,6 +47,7 @@ struct DispatchHistCounters {
     std::atomic<uint64_t> none_multi_req_prefill{0};
     std::atomic<uint64_t> none_bucket_miss{0};
     std::atomic<uint64_t> none_decode_bs_miss{0};
+    std::atomic<uint64_t> none_over_max{0};
     std::atomic<uint64_t> none_other{0};
 };
 
@@ -79,6 +80,8 @@ void record_dispatch_hist(CudaGraphRuntimeMode mode, const char *none_reason) {
             h.none_bucket_miss.fetch_add(1, std::memory_order_relaxed);
         } else if (std::strcmp(none_reason, "decode_bs_miss") == 0) {
             h.none_decode_bs_miss.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "over_max") == 0) {
+            h.none_over_max.fetch_add(1, std::memory_order_relaxed);
         } else {
             h.none_other.fetch_add(1, std::memory_order_relaxed);
         }
@@ -94,7 +97,7 @@ void log_dispatch_hist_if_enabled(const char *tag) {
     spdlog::info(
         "{}: dispatch_hist FULL={} PIECEWISE={} NONE={} "
         "none_reason[eager_policy={} mixed={} multi_req_prefill={} "
-        "bucket_miss={} decode_bs_miss={} other={}]",
+        "bucket_miss={} decode_bs_miss={} over_max={} other={}]",
         tag,
         h.full.load(std::memory_order_relaxed),
         h.piecewise.load(std::memory_order_relaxed),
@@ -104,6 +107,7 @@ void log_dispatch_hist_if_enabled(const char *tag) {
         h.none_multi_req_prefill.load(std::memory_order_relaxed),
         h.none_bucket_miss.load(std::memory_order_relaxed),
         h.none_decode_bs_miss.load(std::memory_order_relaxed),
+        h.none_over_max.load(std::memory_order_relaxed),
         h.none_other.load(std::memory_order_relaxed));
 }
 
@@ -783,25 +787,27 @@ void RankWorker::thread_loop() {
                         if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
                                 "hang_trace: run_job_begin mode={} cg_mode={} none_reason={} "
-                                "n_req={} batch_size={} num_tokens={} uniform_decode={} "
-                                "is_mixed={}",
+                                "n_req={} batch_size={} num_tokens={} key_tokens={} "
+                                "uniform_decode={} is_mixed={}",
                                 mode_str,
                                 cudagraph_runtime_mode_cstr(cg_mode),
                                 cg_none_reason != nullptr ? cg_none_reason : "-",
                                 n_req,
                                 batch_size,
                                 batch_desc.num_tokens,
+                                cg_key.num_tokens,
                                 batch_desc.uniform_decode,
                                 is_mixed);
                             log_dispatch_hist_if_enabled("hang_trace");
                         } else if (rank_worker_profile_enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
                                 "rank_worker_profile: dispatch cg_mode={} none_reason={} "
-                                "n_req={} num_tokens={} uniform_decode={}",
+                                "n_req={} num_tokens={} key_tokens={} uniform_decode={}",
                                 cudagraph_runtime_mode_cstr(cg_mode),
                                 cg_none_reason != nullptr ? cg_none_reason : "-",
                                 batch_desc.num_reqs,
                                 batch_desc.num_tokens,
+                                cg_key.num_tokens,
                                 batch_desc.uniform_decode);
                             log_dispatch_hist_if_enabled("rank_worker_profile");
                         }
@@ -901,7 +907,7 @@ void RankWorker::thread_loop() {
                                             spdlog::info(
                                                 "rank_worker: first FULL decode get_compiled "
                                                 "device_segment_count={} "
-                                                "(MoE Decode-phase adaptive; FA host-break)",
+                                                "(MoE host-break default; FA host-break)",
                                                 graph->device_segment_count());
                                         }
                                     }
