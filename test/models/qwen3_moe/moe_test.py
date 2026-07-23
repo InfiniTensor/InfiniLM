@@ -48,6 +48,11 @@ def get_args():
         help="Run metax test",
     )
     parser.add_argument(
+        "--mars",
+        action="store_true",
+        help="Run Mars test",
+    )
+    parser.add_argument(
         "--moore",
         action="store_true",
         help="Run moore test",
@@ -139,6 +144,8 @@ if __name__ == "__main__":
         device = "cuda"
     elif args.metax:
         device = "cuda"
+    elif args.mars:
+        device = "cuda"
     elif args.moore:
         device = "musa"
         import torch_musa
@@ -146,7 +153,7 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         print(
-            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
+            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --mars | --moore | --iluvatar] --model_path=<path/to/model_path>"
         )
         sys.exit(1)
 

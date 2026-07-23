@@ -38,7 +38,7 @@
   - 单次推理测试
     - llama示例
     ```bash
-    python examples/test_infer.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model_dir>
+    python examples/test_infer.py --device [cpu | nvidia | qy | metax | mars | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model_dir>
     ```
     - 例如：
     ```bash
@@ -59,7 +59,7 @@
   - 推理服务测试
     - 启动推理服务
       ```bash
-      python python/infinilm/server/inference_server.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model-dir> --max-new-tokens=MAX_TOKENS --max-batch-size=MAX_BATCH --tp=NDEV --temperature=TEMP --top-p=TOP_P --top-k=TOP_K --host=HOST --port=PORT
+      python python/infinilm/server/inference_server.py --device [cpu | nvidia | qy | metax | mars | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model-dir> --max-new-tokens=MAX_TOKENS --max-batch-size=MAX_BATCH --tp=NDEV --temperature=TEMP --top-p=TOP_P --top-k=TOP_K --host=HOST --port=PORT
       ```
     
     - 单卡示例：
@@ -90,7 +90,7 @@
   - 运行推理基准测试（C-Eval/MMLU）
 
     ```bash
-    python test/bench/test_benchmark.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--tp N] [--subject SUBJECT] [--num-samples N] [--max-new-tokens N] [--output-csv PATH] [--cache-dir PATH]
+    python test/bench/test_benchmark.py --device [cpu | nvidia | qy | metax | mars | moore | iluvatar | ali | cambricon | hygon] --model <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--tp N] [--subject SUBJECT] [--num-samples N] [--max-new-tokens N] [--output-csv PATH] [--cache-dir PATH]
     ```
 
     - 参数说明：
@@ -160,16 +160,20 @@
 xmake && xmake install
 ```
 
+使用独立安装的 InfiniRT 时设置 `INFINI_RT_ROOT`。该前缀必须包含
+`include/infini/rt.h`，并在 `lib` 或 `lib64` 下包含 `libinfinirt.so`；
+路径无效时配置会直接失败，避免链接到 `INFINI_ROOT` 中残留的旧版本。
+
 - 运行模型推理测试
 
 ```bash
-python scripts/jiuge.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] path/to/model_dir [n_device]
+python scripts/jiuge.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --mars | --moore | --iluvatar | --kunlun | --hygon | --ali] path/to/model_dir [n_device]
 ```
 
 - 部署模型推理服务
 
 ```bash
-python scripts/launch_server.py --model MODEL_PATH [-h] [--dev {cpu,nvidia,qy, cambricon,ascend,metax,moore,iluvatar,kunlun,hygon}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-new-tokens MAX_TOKENS]
+python scripts/launch_server.py --model MODEL_PATH [-h] [--dev {cpu,nvidia,qy,cambricon,ascend,metax,mars,moore,iluvatar,kunlun,hygon}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-new-tokens MAX_TOKENS]
 ```
 
 - 测试模型推理服务性能

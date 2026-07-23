@@ -334,7 +334,7 @@ class JiugeAWQForCausalLM:
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --mars | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
     model_path = sys.argv[2]
@@ -349,13 +349,15 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ASCEND
     elif sys.argv[1] == "--metax":
         device_type = DeviceType.DEVICE_TYPE_METAX
+    elif sys.argv[1] == "--mars":
+        device_type = DeviceType.DEVICE_TYPE_MARS
     elif sys.argv[1] == "--moore":
         device_type = DeviceType.DEVICE_TYPE_MOORE
     elif sys.argv[1] == "--iluvatar":
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
     else:
         print(
-            "Usage: python main_jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python main_jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --mars | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
 

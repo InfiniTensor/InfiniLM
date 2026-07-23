@@ -76,7 +76,7 @@ class JiugeForCeval(JiugeForCauslLM):
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python test_ceval.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
+            "Usage: python test_ceval.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --mars | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
 
@@ -117,6 +117,8 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ASCEND
     elif device_arg == "--metax":
         device_type = DeviceType.DEVICE_TYPE_METAX
+    elif device_arg == "--mars":
+        device_type = DeviceType.DEVICE_TYPE_MARS
     elif device_arg == "--moore":
         device_type = DeviceType.DEVICE_TYPE_MOORE
     elif device_arg == "--iluvatar":
@@ -127,7 +129,7 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_HYGON
     else:
         print(
-            "Usage: python test_ceval.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
+            "Usage: python test_ceval.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --mars | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
 

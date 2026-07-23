@@ -825,7 +825,7 @@ class JiugeForCauslLM:
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
+            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --mars | --moore | --iluvatar | --kunlun | --hygon] <path/to/model_dir> [n_device] [--verbose]"
         )
         sys.exit(1)
 
@@ -852,6 +852,8 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ASCEND
     elif sys.argv[1] == "--metax":
         device_type = DeviceType.DEVICE_TYPE_METAX
+    elif sys.argv[1] == "--mars":
+        device_type = DeviceType.DEVICE_TYPE_MARS
     elif sys.argv[1] == "--moore":
         device_type = DeviceType.DEVICE_TYPE_MOORE
     elif sys.argv[1] == "--iluvatar":
@@ -864,7 +866,7 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ALI
     else:
         print(
-            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> [n_device] [--verbose]"
+            "Usage: python jiuge.py [--cpu | --nvidia| --qy| --cambricon | --ascend | --metax | --mars | --moore | --iluvatar | --kunlun | --hygon | --ali] <path/to/model_dir> [n_device] [--verbose]"
         )
         sys.exit(1)
 

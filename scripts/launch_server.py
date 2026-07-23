@@ -1,5 +1,6 @@
 from jiuge import JiugeForCauslLM
 from jiuge_awq import JiugeAWQForCausalLM
+from jiuge_gptq import JiugeGPTQForCausalLM
 from libinfinicore_infer import DeviceType
 from infer_task import InferTask
 from kvcache_pool import KVCachePool
@@ -24,6 +25,7 @@ DEVICE_TYPE_MAP = {
     "cambricon": DeviceType.DEVICE_TYPE_CAMBRICON,
     "ascend": DeviceType.DEVICE_TYPE_ASCEND,
     "metax": DeviceType.DEVICE_TYPE_METAX,
+    "mars": DeviceType.DEVICE_TYPE_MARS,
     "moore": DeviceType.DEVICE_TYPE_MOORE,
     "iluvatar": DeviceType.DEVICE_TYPE_ILUVATAR,
     "kunlun": DeviceType.DEVICE_TYPE_KUNLUN,
