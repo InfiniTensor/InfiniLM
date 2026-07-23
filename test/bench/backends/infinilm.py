@@ -17,6 +17,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_paged_attn=False,
         enable_graph=False,
         attn_backend="default",
+        weight_load_mode="async",
     ):
         from infinilm import LLM
 
@@ -61,6 +62,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             block_size=256,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            weight_load_mode=weight_load_mode,
         )
         self.processor = self.model.engine.processor
         self.tokenizer = self.processor.get_tokenizer()

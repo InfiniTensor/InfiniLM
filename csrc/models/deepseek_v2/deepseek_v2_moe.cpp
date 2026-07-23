@@ -18,6 +18,7 @@ bool supports_fused_deepseek_moe(infinicore::Device::Type device_type) {
     case infinicore::Device::Type::HYGON:
     case infinicore::Device::Type::ILUVATAR:
     case infinicore::Device::Type::METAX:
+    case infinicore::Device::Type::MARS:
     case infinicore::Device::Type::MOORE:
         return true;
     default:
