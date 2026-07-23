@@ -35,8 +35,16 @@ infinicore::Tensor GlmVocabLMHead::forward(const infinicore::Tensor &x) const {
     if (world_ == 1) {
         return local;
     }
-    auto t = local->permute({2, 0, 1})->contiguous();
-    auto g = infinicore::op::distributed::allgather(t, world_, comm_);
-    return g->permute({1, 2, 0})->contiguous();
+
+    // Match vLLM GroupCoordinator::all_gather(dim=-1): gather the contiguous
+    // logits directly, expose the rank-major leading dimension, then move the
+    // rank dimension next to local_vocab and flatten them together. This
+    // removes the old pre-gather permute().contiguous() copy.
+    auto gathered = infinicore::op::distributed::allgather(local, world_, comm_);
+    auto rank_major = gathered->view(
+        {world_, local->size(0), local->size(1), local->size(2)});
+    auto vocab_major = rank_major->permute({1, 2, 0, 3})->contiguous();
+    return vocab_major->view(
+        {local->size(0), local->size(1), world_ * local->size(2)});
 }
 } // namespace infinilm::models::glm_moe_dsa

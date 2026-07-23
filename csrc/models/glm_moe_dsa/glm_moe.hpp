@@ -6,6 +6,7 @@
 #include "infinicore/tensor.hpp"
 #include <infiniccl.h>
 #include <memory>
+#include <optional>
 #include <tuple>
 #include <vector>
 namespace infinilm::models::glm_moe_dsa {
@@ -28,7 +29,10 @@ private:
 class GlmW4A8Experts final : public infinicore::nn::Module {
 public:
     GlmW4A8Experts(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
-    infinicore::Tensor forward(const infinicore::Tensor &, const infinicore::Tensor &, const infinicore::Tensor &) const;
+    infinicore::Tensor forward(const infinicore::Tensor &,
+                               const infinicore::Tensor &,
+                               const infinicore::Tensor &,
+                               std::optional<infinicore::Tensor> = std::nullopt) const;
 
 private:
     infinicore::Tensor w1_, s1_, w2_, s2_;

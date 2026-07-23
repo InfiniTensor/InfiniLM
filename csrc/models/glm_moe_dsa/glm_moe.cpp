@@ -67,12 +67,19 @@ GlmW4A8Experts::GlmW4A8Experts(std::shared_ptr<infinilm::config::ModelConfig> c,
         register_parameter(p + ".down_proj.weight_scale", infinicore::nn::Parameter(ds));
     }
 }
-infinicore::Tensor GlmW4A8Experts::forward(const infinicore::Tensor &x, const infinicore::Tensor &ids, const infinicore::Tensor &tw) const {
+infinicore::Tensor GlmW4A8Experts::forward(const infinicore::Tensor &x,
+                                           const infinicore::Tensor &ids,
+                                           const infinicore::Tensor &tw,
+                                           std::optional<infinicore::Tensor> shared_output) const {
     if (!w1_) {
         throw std::runtime_error("GlmW4A8Experts: weights not ready");
     }
     size_t m = x->size(0), total = m * topk_;
-    bool dec = m == 1;
+    auto &metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    if (!metadata.total_sequence_lengths.has_value()) {
+        throw std::runtime_error("GlmW4A8Experts: missing sequence metadata");
+    }
+    const bool dec = m == metadata.total_sequence_lengths.value()->numel();
     int64_t fmt = dec ? 2 : 1;
     auto cnt = infinicore::Tensor::empty({nexpert_}, infinicore::DataType::I32, x->device()), sorted = infinicore::Tensor::empty({total}, infinicore::DataType::I32, x->device()), inv = infinicore::Tensor::empty({total}, infinicore::DataType::I32, x->device());
     infinicore::op::moe_argsort_bincount_with_inv_pos_(cnt, sorted, inv, ids, nexpert_);
@@ -86,7 +93,8 @@ infinicore::Tensor GlmW4A8Experts::forward(const infinicore::Tensor &x, const in
     auto a3 = infinicore::Tensor::empty({total, hidden_}, x->dtype(), x->device());
     infinicore::op::w4a8_group_gemm_(a3, a2q, w2_, a2s, s2_, gc, sorted, std::nullopt, true, dec);
     auto out = infinicore::Tensor::empty({m, hidden_}, x->dtype(), x->device());
-    infinicore::op::moe_sum_vllm_(out, a3->view({m, topk_, hidden_}), tw);
+    infinicore::op::moe_sum_vllm_(
+        out, a3->view({m, topk_, hidden_}), tw, shared_output);
     if (tp_ > 1 && comm_) {
         infinicore::op::distributed::allreduce_(out, out, INFINICCL_SUM, comm_);
     }
@@ -100,6 +108,7 @@ GlmMoE::GlmMoE(std::shared_ptr<infinilm::config::ModelConfig> c, const infinicor
     if (shared_) {
         auto j = c->get_config_json();
         j["intermediate_size"] = c->get<size_t>("moe_intermediate_size") * n;
+        j["reduce_results"] = false;
         auto sc = std::make_shared<infinilm::config::ModelConfig>(j);
         INFINICORE_NN_MODULE_INIT(shared_experts, sc, d);
     }
@@ -108,10 +117,10 @@ infinicore::Tensor GlmMoE::forward(const infinicore::Tensor &x) const {
     auto s = x->shape();
     auto f = x->view({s[0] * s[1], s[2]});
     auto [w, i] = gate_->forward(f);
-    auto r = experts_->forward(f, i, w)->view(s);
-    if (!shared_) {
-        return r;
+    std::optional<infinicore::Tensor> shared_output;
+    if (shared_) {
+        shared_output = shared_experts_->forward(x)->view({s[0] * s[1], s[2]});
     }
-    return infinicore::op::add(r, shared_experts_->forward(x));
+    return experts_->forward(f, i, w, shared_output)->view(s);
 }
 } // namespace infinilm::models::glm_moe_dsa
