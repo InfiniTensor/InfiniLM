@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generator
 
 import infinicore
+
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
@@ -138,7 +139,7 @@ class ModelRunner:
 
     def _init_device(self):
         """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "musa", "npu"]
+        supported_devices = ["cpu", "cuda", "mlu", "musa", "npu", "metax", "mars"]
         device_str = self.config.device
         if device_str not in supported_devices:
             raise ValueError(

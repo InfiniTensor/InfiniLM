@@ -136,6 +136,7 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
             "kCambricon",
             "kAscend",
             "kMetax",
+            "kMars",
             "kMoore",
             "kIluvatar",
             "kHygon",
@@ -146,6 +147,12 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         self.assertIn("&Device::type", source)
         self.assertIn("&Device::index", source)
         self.assertIn("&Device::ToString", source)
+
+        python_device = read_source("python/infinicore/device.py")
+        self.assertIn(
+            '"metax": (_infinicore.Device.Type.METAX, "metax")', python_device
+        )
+        self.assertIn('"mars": (_infinicore.Device.Type.MARS, "mars")', python_device)
 
     def test_dtype_binding_matches_native_infini_rt_set(self) -> None:
         source = read_source("csrc/infinicore/src/pybind11/dtype.hpp")

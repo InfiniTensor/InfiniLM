@@ -505,7 +505,7 @@ class BaseConfig:
         return "cpu"
 
     def get_device_str(self, device):
-        """Convert device name to backend string (cuda/cpu/musa/mlu)"""
+        """Convert a platform name to the device string used by InfiniLM."""
         DEVICE_STR_MAP = {
             "cpu": "cpu",
             "cuda": "cuda",
@@ -515,8 +515,8 @@ class BaseConfig:
             "nvidia": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
-            "metax": "cuda",
-            "mars": "cuda",
+            "metax": "metax",
+            "mars": "mars",
             "moore": "musa",
             "iluvatar": "cuda",
             "hygon": "cuda",
