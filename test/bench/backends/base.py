@@ -2,18 +2,50 @@ import time
 from abc import ABC, abstractmethod
 
 
-def render_ceval(tokenizer, conversation):
-    return (
-        tokenizer.apply_chat_template(
+def _apply_chat_template_or_fallback(renderer, conversation, add_generation_prompt=True):
+    if hasattr(renderer, "apply_chat_template"):
+        try:
+            prompt = renderer.apply_chat_template(
+                conversation=conversation,
+                add_generation_prompt=add_generation_prompt,
+                tokenize=False,
+            )
+            if isinstance(prompt, str):
+                return prompt
+        except (ValueError, TypeError):
+            pass
+
+    tokenizer = getattr(renderer, "tokenizer", renderer)
+    if getattr(tokenizer, "chat_template", None):
+        return tokenizer.apply_chat_template(
             conversation=conversation,
-            add_generation_prompt=True,
+            add_generation_prompt=add_generation_prompt,
             tokenize=False,
         )
-        + "正确答案是"
-    )
+
+    parts = []
+    for message in conversation:
+        role = message.get("role", "user")
+        content = message.get("content", "")
+        if not content:
+            continue
+        if role == "system":
+            parts.append(content)
+        elif role == "user":
+            parts.append(content)
+        elif role == "assistant":
+            parts.append(content)
+    prompt = "\n".join(parts)
+    if add_generation_prompt:
+        prompt += "\n"
+    return prompt
 
 
-def render_mmlu(tokenizer, question, choices):
+def render_ceval(renderer, conversation):
+    return _apply_chat_template_or_fallback(renderer, conversation) + "答案："
+
+
+def render_mmlu(renderer, question, choices):
     choices_text = "\n".join(
         [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
     )
@@ -23,23 +55,14 @@ def render_mmlu(tokenizer, question, choices):
     )
     prompt = f"{instruction}\n\nQuestion: {question}\n{choices_text}\nAnswer:"
 
-    if hasattr(tokenizer, "apply_chat_template"):
-        conversation = [
-            {"role": "system", "content": instruction},
-            {"role": "user", "content": f"{question}\n{choices_text}\n"},
-        ]
-        try:
-            return (
-                tokenizer.apply_chat_template(
-                    conversation=conversation,
-                    add_generation_prompt=True,
-                    tokenize=False,
-                )
-                + "The answer is: "
-            )
-        except Exception:
-            pass
-    return prompt
+    conversation = [
+        {"role": "system", "content": instruction},
+        {"role": "user", "content": f"{question}\n{choices_text}\n"},
+    ]
+    try:
+        return _apply_chat_template_or_fallback(renderer, conversation) + "The answer is: "
+    except Exception:
+        return prompt
 
 
 class BaseBenchmark(ABC):

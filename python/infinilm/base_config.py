@@ -282,7 +282,7 @@ class BaseConfig:
             help="maximum number of new tokens to generate",
         )
         self.parser.add_argument(
-            "--prompt", type=str, default="How are you", help="default prompt text"
+            "--prompt", type=str, default="介绍下你自己", help="default prompt text"
         )
         self.parser.add_argument("--top-k", type=int, default=1)
         self.parser.add_argument("--top-p", type=float, default=1.0)

@@ -12,9 +12,18 @@ from infinilm.base_config import BaseConfig
 def extract_answer_ceval(output_content, answer):
     """Extract predicted answer from C-Eval output"""
     output_upper = output_content.upper().strip()
-    position = 0
-    ABCD = output_upper[position : position + 2]
-    return answer in ABCD
+    answer = str(answer).upper().strip()
+
+    patterns = [
+        r"(?:标准答案|正确答案|答案|选项|选择|我选|应该选)\s*[:：是为]?\s*([ABCD])",
+        r"^\s*([ABCD])(?:[\s\.。,:：，、]|$)",
+        r"\b([ABCD])\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, output_upper)
+        if match:
+            return match.group(1) == answer
+    return False
 
 
 def extract_answer_mmlu(output_content):
@@ -32,17 +41,110 @@ def extract_answer_mmlu(output_content):
     return None
 
 
-def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=None):
+def _evaluate_samples_batched(
+    model, samples, benchmark, max_new_tokens, subject_name, batch_size
+):
+    answers_list = []
+    for start in range(0, len(samples), batch_size):
+        chunk = samples[start : start + batch_size]
+        if benchmark == "ceval":
+            batch_args = []
+            for sample in chunk:
+                input_content = (
+                    "请回答以下单项选择题。只输出 A、B、C、D 中的一个字母，不要输出解释。\n\n"
+                    f"题目：{sample['question']}\n"
+                    f"A. {sample['A']}\n"
+                    f"B. {sample['B']}\n"
+                    f"C. {sample['C']}\n"
+                    f"D. {sample['D']}"
+                )
+                batch_args.append(([{"role": "user", "content": input_content}],))
+            outputs = model.generate_batch(
+                batch_args,
+                max_steps=max_new_tokens,
+                topp_=1.0,
+                topk_=1,
+                temperature_=1.0,
+            )
+            for offset, (sample, output_content) in enumerate(zip(chunk, outputs)):
+                answer = sample["answer"]
+                answers_list.append(
+                    {
+                        "id": sample.get("id", start + offset),
+                        "output_content": output_content,
+                        "answer": answer,
+                        "is_correct": extract_answer_ceval(output_content, answer),
+                        "subject": subject_name,
+                    }
+                )
+                print("标准答案：", answer)
+        elif benchmark == "mmlu":
+            batch_args = [(sample["question"], sample["choices"]) for sample in chunk]
+            outputs = model.generate_batch(
+                batch_args,
+                max_steps=max_new_tokens,
+                topp_=1.0,
+                topk_=1,
+                temperature_=1.0,
+            )
+            for offset, (sample, output_content) in enumerate(zip(chunk, outputs)):
+                predicted = extract_answer_mmlu(output_content)
+                answers_list.append(
+                    {
+                        "id": start + offset,
+                        "output_content": output_content,
+                        "answer": sample["answer"],
+                        "predicted": predicted,
+                        "subject": subject_name,
+                    }
+                )
+
+    true_num = 0
+    for cont in answers_list:
+        if benchmark == "ceval":
+            is_correct = cont["is_correct"]
+        else:
+            is_correct = cont["predicted"] == cont["answer"]
+        true_num += int(is_correct)
+        print(f"id {cont['id']}: {'正确' if is_correct else '错误'}")
+
+    total = len(answers_list)
+    accuracy = true_num / total if total else 0.0
+    print(f"Accuracy: {true_num}/{total} = {accuracy:.2%}")
+    return {
+        "subject": subject_name or "all",
+        "correct": true_num,
+        "total": total,
+        "accuracy": accuracy,
+        "answers_list": answers_list,
+    }
+
+
+def evaluate_samples(
+    model, samples, benchmark, max_new_tokens, subject_name=None, batch_size=1
+):
     """Evaluate samples for a single subject and return results"""
+    if batch_size > 1 and hasattr(model, "generate_batch"):
+        return _evaluate_samples_batched(
+            model,
+            samples,
+            benchmark,
+            max_new_tokens,
+            subject_name,
+            batch_size,
+        )
     answers_list = []
     for idx, sample in enumerate(samples):
         if benchmark == "ceval":
-            input_content = f"'question':{sample['question']},'A': {sample['A']}, 'B':{sample['B']}, 'C': {sample['C']},'D': {sample['D']}。"
+            input_content = (
+                "请回答以下单项选择题。只输出 A、B、C、D 中的一个字母，不要输出解释。\n\n"
+                f"题目：{sample['question']}\n"
+                f"A. {sample['A']}\n"
+                f"B. {sample['B']}\n"
+                f"C. {sample['C']}\n"
+                f"D. {sample['D']}"
+            )
             conversation = [
-                {
-                    "role": "system",
-                    "content": "请从question的A，B，C，D四个选项中选择正确的选项。例如，标准答案：A。",
-                },
                 {"role": "user", "content": input_content},
             ]
             answer = sample["answer"]
@@ -63,8 +165,7 @@ def evaluate_samples(model, samples, benchmark, max_new_tokens, subject_name=Non
                     "subject": subject_name,
                 }
             )
-            if benchmark == "ceval":
-                print("标准答案：", answer)
+            print("标准答案：", answer)
 
         elif benchmark == "mmlu":
             question = sample["question"]
@@ -630,7 +731,7 @@ def main():
 
         # Evaluate samples for this subject
         result = evaluate_samples(
-            model, samples, cfg.bench, cfg.max_new_tokens, subject_name
+            model, samples, cfg.bench, cfg.max_new_tokens, subject_name, cfg.batch_size
         )
         all_results.append(result)
         print(
