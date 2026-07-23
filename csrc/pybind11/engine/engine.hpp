@@ -11,12 +11,14 @@ namespace infinilm::engine::distributed {
 inline void bind_dist_config(py::module &m) {
     py::class_<DistConfig>(m, "DistConfig")
         .def(py::init<>(), "Default constructor, empty device list")
-        .def(py::init<int>(), py::arg("tp_size"),
-             "Constructor with tensor parallel size, auto-assigns device IDs 0..tp_size-1")
+        .def(py::init<int, int>(), py::arg("tp_size"), py::arg("pp_size") = 1,
+             "Constructor with tensor and pipeline parallel sizes")
         .def(py::init<const std::vector<int> &>(), py::arg("tp_device_ids"),
              "Constructor with explicit device IDs")
         .def_readwrite("tp_device_ids", &DistConfig::tp_device_ids,
-                       "List of device IDs used in tensor parallelism")
+                       "List of device IDs used by all distributed ranks")
+        .def_readwrite("tensor_parallel_size", &DistConfig::tensor_parallel_size)
+        .def_readwrite("pipeline_parallel_size", &DistConfig::pipeline_parallel_size)
         .def_readwrite("moe_ep_backend", &DistConfig::moe_ep_backend,
                        "MoE expert-parallel backend")
         .def_readwrite("moe_ep_size", &DistConfig::moe_ep_size,
@@ -137,6 +139,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinicore::Tensor> past_sequence_lengths,
                          std::optional<infinicore::Tensor> total_sequence_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
+                         std::optional<infinicore::Tensor> request_ids,
                          std::optional<infinicore::Tensor> cu_seqlens,
                          std::optional<infinicore::Tensor> block_tables,
                          std::optional<infinicore::Tensor> slot_mapping,
@@ -158,6 +161,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(past_sequence_lengths),
                     std::move(total_sequence_lengths),
                     std::move(input_offsets),
+                    std::move(request_ids),
                     std::move(cu_seqlens),
                     std::move(block_tables),
                     std::move(slot_mapping),
@@ -184,6 +188,10 @@ inline void bind_infer_engine(py::module &m) {
                     "temperature",
                     "top_p",
                     "top_k",
+                    "keep_output_device",
+                    "reuse_last_output",
+                    "allow_graph_replay",
+                    "is_mixed_batch",
                 };
 
                 for (auto &item : kwargs) {
@@ -200,6 +208,14 @@ inline void bind_infer_engine(py::module &m) {
                         input.top_p = py::cast<float>(item.second);
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
+                    } else if (key == "keep_output_device") {
+                        input.keep_output_device = py::cast<bool>(item.second);
+                    } else if (key == "reuse_last_output") {
+                        input.reuse_last_output = py::cast<bool>(item.second);
+                    } else if (key == "allow_graph_replay") {
+                        input.allow_graph_replay = py::cast<bool>(item.second);
+                    } else if (key == "is_mixed_batch") {
+                        input.is_mixed_batch = py::cast<bool>(item.second);
                     }
                 }
 
@@ -210,6 +226,7 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("past_sequence_lengths") = std::nullopt,
             py::arg("total_sequence_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
+            py::arg("request_ids") = std::nullopt,
             py::arg("cu_seqlens") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt,
@@ -229,6 +246,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
         .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
+        .def_readwrite("request_ids", &InferEngine::Input::request_ids)
         .def_readwrite("cu_seqlens", &InferEngine::Input::cu_seqlens)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
@@ -243,6 +261,10 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("max_context_len", &InferEngine::Input::max_context_len)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("keep_output_device", &InferEngine::Input::keep_output_device)
+        .def_readwrite("reuse_last_output", &InferEngine::Input::reuse_last_output)
+        .def_readwrite("allow_graph_replay", &InferEngine::Input::allow_graph_replay)
+        .def_readwrite("is_mixed_batch", &InferEngine::Input::is_mixed_batch)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);

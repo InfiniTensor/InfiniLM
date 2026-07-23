@@ -11,6 +11,8 @@ struct AttentionMetadata {
     std::optional<infinicore::Tensor> total_sequence_lengths;
     /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
     std::optional<infinicore::Tensor> input_offsets;
+    /// Request id for each flattened input token, of shape [num_tokens].
+    std::optional<infinicore::Tensor> request_ids;
     /// Cumulative total sequence lengths for each request, of shape `[num_requests + 1]`.
     std::optional<infinicore::Tensor> cu_seqlens;
     /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
@@ -19,26 +21,33 @@ struct AttentionMetadata {
     std::optional<infinicore::Tensor> slot_mapping;
     /// Maximum total sequence length in the current request batch.
     std::optional<int64_t> max_context_len;
+    /// True when the packed input combines decode and prefill requests.
+    bool is_mixed_batch{false};
 
     AttentionMetadata() = default;
 
     AttentionMetadata(std::optional<infinicore::Tensor> past_sequence_lengths,
                       std::optional<infinicore::Tensor> total_sequence_lengths,
                       std::optional<infinicore::Tensor> input_offsets,
+                      std::optional<infinicore::Tensor> request_ids,
                       std::optional<infinicore::Tensor> cu_seqlens,
                       std::optional<infinicore::Tensor> block_tables,
                       std::optional<infinicore::Tensor> slot_mapping,
-                      std::optional<int64_t> max_context_len = std::nullopt) : past_sequence_lengths(past_sequence_lengths),
-                                                                               total_sequence_lengths(total_sequence_lengths),
-                                                                               input_offsets(input_offsets),
-                                                                               cu_seqlens(cu_seqlens),
-                                                                               block_tables(block_tables),
-                                                                               slot_mapping(slot_mapping),
-                                                                               max_context_len(max_context_len) {}
+                      std::optional<int64_t> max_context_len = std::nullopt,
+                      bool is_mixed_batch = false) : past_sequence_lengths(past_sequence_lengths),
+                                                     total_sequence_lengths(total_sequence_lengths),
+                                                     input_offsets(input_offsets),
+                                                     request_ids(request_ids),
+                                                     cu_seqlens(cu_seqlens),
+                                                     block_tables(block_tables),
+                                                     slot_mapping(slot_mapping),
+                                                     max_context_len(max_context_len),
+                                                     is_mixed_batch(is_mixed_batch) {}
 
     AttentionMetadata(const infinilm::InfinilmModel::Input &input) : AttentionMetadata(input.past_sequence_lengths,
                                                                                        input.total_sequence_lengths,
                                                                                        input.input_offsets,
+                                                                                       input.request_ids,
                                                                                        input.cu_seqlens,
                                                                                        input.block_tables,
                                                                                        input.slot_mapping) {}
@@ -64,6 +73,9 @@ struct ForwardContext {
     MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
+    std::vector<infinicore::Tensor> mla_vendor_cache_vec;
+    std::vector<infinicore::Tensor> indexer_cache_vec;
+    std::optional<infinicore::Tensor> dsa_topk_indices;
     std::vector<infinicore::Tensor> conv_state_vec;
     std::vector<infinicore::Tensor> ssm_state_vec;
 };

@@ -18,7 +18,6 @@ import janus
 
 from infinilm.config.engine_config import EngineConfig
 from infinilm.config.kv_transfer import KVTransferConfig
-from infinilm.infer_engine import model_uses_mamba_cache, read_hf_config
 from infinilm.kv_connector import KVConnectorFactory, KVConnectorRole
 from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.request import (
@@ -40,15 +39,6 @@ class LLMEngine:
 
     def __init__(self, config: EngineConfig):
         self.config = config
-        hf_config = read_hf_config(config.model_path)
-        has_mamba_cache = model_uses_mamba_cache(hf_config)
-        if has_mamba_cache and config.enable_prefix_caching:
-            model_type = hf_config["model_type"]
-            raise RuntimeError(
-                "Prefix caching is not supported for Mamba-cache model "
-                f"{model_type!r} yet. Restart with "
-                "--disable-prefix-caching."
-            )
 
         self.model_runner = ModelRunner(config)
 
@@ -61,10 +51,7 @@ class LLMEngine:
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
-            self.scheduler = StaticScheduler(
-                max_cache_len=config.max_cache_len,
-                enable_prefix_caching=config.enable_prefix_caching,
-            )
+            self.scheduler = StaticScheduler(max_cache_len=config.max_cache_len)
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
             )
@@ -87,12 +74,30 @@ class LLMEngine:
             max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
+            layer_types = llm_config.get("layer_types") or []
+            has_mamba_cache = "linear_attention" in layer_types or (
+                "linear_conv_kernel_dim" in llm_config
+                and "linear_num_key_heads" in llm_config
+                and "linear_num_value_heads" in llm_config
+            )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
             max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+                os.getenv(
+                    "INFINILM_MAX_NUM_BATCHED_TOKENS",
+                    str(config.max_num_batched_tokens),
+                )
             )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            if max_num_batched_tokens < 1:
+                raise ValueError("max_num_batched_tokens must be positive")
+            max_num_mixed_prefill_tokens = int(
+                os.getenv(
+                    "INFINILM_MAX_NUM_MIXED_PREFILL_TOKENS",
+                    str(config.max_num_mixed_prefill_tokens),
+                )
+            )
+            if max_num_mixed_prefill_tokens < 1:
+                raise ValueError("max_num_mixed_prefill_tokens must be positive")
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
@@ -100,11 +105,25 @@ class LLMEngine:
                 block_size=config.block_size,
                 max_num_batched_tokens=max_num_batched_tokens,
                 connector=connector,
+                max_num_mixed_prefill_tokens=max_num_mixed_prefill_tokens,
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
-                enable_prefix_caching=config.enable_prefix_caching,
+                max_model_len=max_position_embeddings,
+                allow_mixed_batch=(
+                    getattr(self.processor, "supports_mixed_batch", False)
+                    and self.model_runner.speculative_runner is None
+                ),
             )
-            logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+            logger.info(
+                "Scheduler paged cache: num_blocks=%s, block_size=%s, "
+                "effective_max_model_len=%s, max_num_batched_tokens=%s, "
+                "max_num_mixed_prefill_tokens=%s",
+                config.num_blocks,
+                config.block_size,
+                self.scheduler.max_model_len,
+                max_num_batched_tokens,
+                max_num_mixed_prefill_tokens,
+            )
             if has_mamba_cache:
                 logger.info(
                     "Using Mamba cache with num_blocks=%s, zero_state_index=0",
@@ -130,6 +149,11 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
+    def should_coalesce_prefill(self) -> bool:
+        """Return whether the next step starts a new prefill wave."""
+        should_coalesce = getattr(self.scheduler, "should_coalesce_prefill", None)
+        return bool(should_coalesce and should_coalesce())
+
     def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
@@ -144,12 +168,16 @@ class LLMEngine:
         if scheduler_output is None:
             return False, []
 
+        # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
-        sampled_token_ids = runner_output.sampled_token_ids
+        sampled_tokens_list = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
+
+        # Update request status
         pending = self._update_requests(
+            scheduler_output.is_prefill,
             scheduler_output.scheduled_requests,
-            sampled_token_ids,
+            sampled_tokens_list,
         )
 
         # Return False (no immediate work) only when no requests were scheduled
@@ -167,22 +195,22 @@ class LLMEngine:
 
     def _update_requests(
         self,
+        is_prefill: bool,
         requests: List[InferenceRequest],
-        sampled_token_ids: list[int | list[int]],
+        sampled_tokens: List[int],
     ) -> List[tuple]:
-        """Apply sampled tokens and publish their target-model KV boundary."""
-        if len(requests) != len(sampled_token_ids):
-            raise RuntimeError(
-                "model output count does not match the scheduled request count: "
-                f"requests={len(requests)}, outputs={len(sampled_token_ids)}"
-            )
+        """Update request status after inference step."""
+        if is_prefill:
+            match self.cache_type:
+                case "paged":
+                    pass
+                case "static":
+                    self.scheduler.update_cache()
+                case _:
+                    raise ValueError(f"Unsupported cache_type: {self.cache_type}")
         pending = []
-        for req, token_ids in zip(requests, sampled_token_ids):
-            # The model successfully consumed the request's current logical tokens.
-            # Commit this boundary before observing a concurrent client abort.
-            pre_output_computed_tokens = req.get_total_length()
-            self.scheduler.commit_computed_tokens(req, pre_output_computed_tokens)
-
+        completed_step_requests = []
+        for req, token_ids in zip(requests, sampled_tokens):
             if req.is_aborted():
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
@@ -193,18 +221,30 @@ class LLMEngine:
                     req.mark_canceled()
                 continue
 
-            if isinstance(token_ids, list):
-                num_computed_output_tokens = max(len(token_ids) - 1, 0)
-            else:
-                num_computed_output_tokens = 0
+            chunk_end = req.prefill_chunk_end
+            if chunk_end is not None and chunk_end < req.get_prompt_length():
+                self.scheduler.requeue_prefill_chunk(req, chunk_end)
+                continue
+
+            if chunk_end is not None:
+                # Allocation for an intermediate chunk deliberately deferred
+                # hash registration until every prompt KV was materialized.
+                if self.cache_type == "paged":
+                    self.scheduler.cache_manager.commit_blocks_hash(
+                        req.block_table,
+                        req.get_input_tokens(),
+                        req.get_prompt_length(),
+                    )
+                req.prefill_chunk_end = None
+
+            completed_step_requests.append(req)
+            if not isinstance(token_ids, list):
                 token_ids = [token_ids]
 
-            num_appended_tokens = 0
             for token_id in token_ids:
                 if req.is_finished():
                     break
-                req.append_generated_token_id(token_id)
-                num_appended_tokens += 1
+                req.generated_token_ids.append(token_id)
                 pending_tokens = req.generated_token_ids[req._token_decode_offset :]
                 delta = self.tokenizer.decode(pending_tokens)
                 holds_back = bool(delta) and delta.endswith("\ufffd")
@@ -256,14 +296,7 @@ class LLMEngine:
                         continue
                     pending.append((req.output_queue.async_q, output))
 
-            post_output_computed_tokens = pre_output_computed_tokens + min(
-                num_appended_tokens,
-                num_computed_output_tokens,
-            )
-            if post_output_computed_tokens > pre_output_computed_tokens:
-                self.scheduler.commit_computed_tokens(req, post_output_computed_tokens)
-
-        self.scheduler.complete_requests(requests)
+        self.scheduler.complete_requests(completed_step_requests)
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
@@ -333,6 +366,7 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         cache_type: str = "paged",
@@ -349,8 +383,9 @@ class LLM:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
-        use_legacy_moe: bool = False,
-        enable_prefix_caching: bool = True,
+        skip_legacy_moe: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
+        max_num_mixed_prefill_tokens: Optional[int] = None,
     ):
         """Initialize LLM.
 
@@ -380,10 +415,13 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
+            max_num_batched_tokens=max_num_batched_tokens,
+            max_num_mixed_prefill_tokens=max_num_mixed_prefill_tokens,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -396,8 +434,7 @@ class LLM:
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
             skip_load=skip_load,
-            use_legacy_moe=use_legacy_moe,
-            enable_prefix_caching=enable_prefix_caching,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -441,7 +478,6 @@ class LLM:
             request_id = f"cmpl-{uuid.uuid4().hex}"
             processed_inputs = None
             mm_index_mappings = None
-            has_multimodal_inputs = False
             if apply_chat_template:
                 prompt = self.engine.apply_chat_template(
                     content, add_generation_prompt=True
@@ -449,9 +485,6 @@ class LLM:
 
                 mm_inputs = resolve_multimodal_inputs(content)
 
-                has_multimodal_inputs = any(
-                    mm_inputs[key] for key in ("images", "videos", "audios")
-                )
                 processed_inputs = self.engine.process(
                     prompt,
                     mm_inputs["images"],
@@ -477,7 +510,6 @@ class LLM:
                 prompt_token_ids=prompt_token_ids,
                 processed_inputs=processed_inputs,
                 mm_token_index_mappings=mm_index_mappings,
-                has_multimodal_inputs=has_multimodal_inputs,
                 sampling_params=sampling_params,
                 eos_token_ids=self.engine.eos_token_ids,
             )
@@ -547,6 +579,7 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         cache_type: str = "paged",
@@ -563,8 +596,10 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         weight_load_mode: str = "async",
-        use_legacy_moe: bool = False,
-        enable_prefix_caching: bool = True,
+        skip_legacy_moe: bool = False,
+        prefill_coalesce_ms: float = 0.0,
+        max_num_batched_tokens: Optional[int] = None,
+        max_num_mixed_prefill_tokens: Optional[int] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -589,6 +624,7 @@ class AsyncLLMEngine:
             kv_connector_extra_config: Extra config dict for KV connector.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            prefill_coalesce_ms: Idle-to-prefill admission window in milliseconds.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -597,10 +633,13 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
+            max_num_batched_tokens=max_num_batched_tokens,
+            max_num_mixed_prefill_tokens=max_num_mixed_prefill_tokens,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -613,8 +652,7 @@ class AsyncLLMEngine:
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
-            use_legacy_moe=use_legacy_moe,
-            enable_prefix_caching=enable_prefix_caching,
+            skip_legacy_moe=skip_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -624,6 +662,9 @@ class AsyncLLMEngine:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
         self._abort_queue: Optional[janus.Queue] = None
+        if prefill_coalesce_ms < 0:
+            raise ValueError("prefill_coalesce_ms must be non-negative")
+        self._prefill_coalesce_seconds = prefill_coalesce_ms / 1000.0
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -714,6 +755,11 @@ class AsyncLLMEngine:
         while self._running:
             try:
                 self._drain_abort_queue()
+                if (
+                    self._prefill_coalesce_seconds > 0
+                    and self.engine.should_coalesce_prefill()
+                ):
+                    time.sleep(self._prefill_coalesce_seconds)
                 did_work, pending = self.engine.step()
                 if not did_work:
                     time.sleep(0.003)
@@ -744,6 +790,7 @@ class AsyncLLMEngine:
         prompt: Optional[str] = None,
         prompt_token_ids: Optional[List[int]] = None,
         sampling_params: Optional[SamplingParams] = None,
+        chat_template_kwargs: Optional[dict] = None,
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
@@ -785,7 +832,6 @@ class AsyncLLMEngine:
 
         mm_index_mappings = None
         processed_inputs = None
-        has_multimodal_inputs = False
 
         if prompt_token_ids is not None:
             prompt = self.engine.detokenize(prompt_token_ids)
@@ -801,14 +847,13 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs,
             )
 
             mm_inputs = resolve_multimodal_inputs(messages)
 
-            has_multimodal_inputs = any(
-                mm_inputs[key] for key in ("images", "videos", "audios")
-            )
             processed_inputs = self.engine.process(
                 prompt,
                 mm_inputs["images"],
@@ -837,7 +882,6 @@ class AsyncLLMEngine:
             prompt_token_ids=prompt_token_ids,
             processed_inputs=processed_inputs,
             mm_token_index_mappings=mm_index_mappings,
-            has_multimodal_inputs=has_multimodal_inputs,
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
@@ -860,6 +904,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -878,6 +923,7 @@ class AsyncLLMEngine:
             messages=messages,
             apply_chat_template=True,
             add_generation_prompt=add_generation_prompt,
+            chat_template_kwargs=chat_template_kwargs,
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,

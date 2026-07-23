@@ -170,6 +170,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
+        to_device(request_ids),
         to_device(cu_seqlens),
         to_device(block_tables),
         to_device(slot_mapping),
@@ -181,16 +182,19 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states)};
+        to_device(target_hidden_states),
+        sample_all_positions};
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
+        input.request_ids,
         input.cu_seqlens,
         input.block_tables,
         input.slot_mapping,
-        max_context_len};
+        max_context_len,
+        is_mixed_batch};
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
@@ -214,7 +218,7 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
         worker->wait();
     }
 
-    return workers_[0]->get_output();
+    return workers_[communication_group_.get_output_rank()]->get_output();
 }
 
 void InferEngine::compile() {

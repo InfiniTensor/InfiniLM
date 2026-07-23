@@ -46,6 +46,8 @@ public:
         std::optional<infinicore::Tensor> total_sequence_lengths;
         /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> input_offsets;
+        /// Request id for each flattened input token, of shape [num_tokens].
+        std::optional<infinicore::Tensor> request_ids;
         /// Cumulative total sequence lengths for each request, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> cu_seqlens;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
@@ -74,6 +76,14 @@ public:
         bool sample_all_positions{false};
         /// Maximum total sequence length in the current request batch.
         std::optional<int64_t> max_context_len;
+        /// Keep sampled token IDs on each rank's device for generation.
+        bool keep_output_device{false};
+        /// Reuse the previous sampled token IDs as this rank's model input.
+        bool reuse_last_output{false};
+        /// Permit the graph compiler to replay this input; false forces eager mode.
+        bool allow_graph_replay{true};
+        /// Whether this forward combines decode and prefill requests.
+        bool is_mixed_batch{false};
 
         float temperature{1};
 
@@ -174,6 +184,7 @@ private:
 
     // Output (protected by mutex)
     Output output_;
+    infinicore::Tensor last_output_ids_;
 
     // Thread sync
     std::thread thread_;

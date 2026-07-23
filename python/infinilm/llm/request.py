@@ -206,6 +206,9 @@ class InferenceRequest:
         # Number of leading full blocks published to the prefix-cache index.
         self.num_cache_indexed_blocks: int = 0
 
+        # Exclusive prompt offset for the prefill chunk scheduled this step.
+        self.prefill_chunk_end: Optional[int] = None
+
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
 
