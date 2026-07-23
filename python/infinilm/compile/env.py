@@ -17,6 +17,7 @@ Classification (for PR review):
     ``prefill_cg_debug_ptrs_enabled``, ``prefill_cg_baseline_none``,
     ``return_logits_enabled``, ``INFINI_PREFILL_MEM_PROFILE`` (see ``mem_profile.py``),
     ``INFINI_FA_FORCE_CAPTURE`` (diagnose-only; prefer ``full_and_piecewise``).
+    ``INFINI_MOE_TRITON_CAPTURE`` (diagnose-only MoE-in-graph; MetaX default MoE HB).
 
 When ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` is set, Inductor bootstrap and
 ``compile_buckets`` use that list only (no auto power-of-two through 8192).
@@ -36,6 +37,7 @@ logger = logging.getLogger(__name__)
 _PREFILL_COMPILE_WARNED = False
 _SCHEDULE_HOMOGENEOUS_WARNED = False
 _FA_FORCE_POLICY_WARNED = False
+_PREFILL_NATIVE_POLICY_WARNED = False
 
 # CUDA-graph master policy (entry CLI / INFINI_CUDAGRAPH_POLICY).
 # ``track_b`` and other unknowns are rejected.
@@ -93,10 +95,30 @@ def _warn_fa_force_with_policy() -> None:
         return
     logger.warning(
         "INFINI_FA_FORCE_CAPTURE=1 is diagnose-only; prefer "
-        "INFINI_CUDAGRAPH_POLICY=full_and_piecewise (phase-scoped FA in-graph "
-        "on decode). FA_FORCE remains a global override."
+        "INFINI_CUDAGRAPH_POLICY=full_and_piecewise (FULL decode + FA "
+        "host-break + MoE host-break + native prefill on MetaX). FA_FORCE "
+        "remains a global override and does not restore production FA-in-graph."
     )
     _FA_FORCE_POLICY_WARNED = True
+
+
+def _warn_prefill_native_with_policy() -> None:
+    """``INFINI_PREFILL_NATIVE_CG`` is ignored when a known policy is set."""
+    global _PREFILL_NATIVE_POLICY_WARNED
+    if os.environ.get("INFINI_PREFILL_NATIVE_CG") is None:
+        return
+    raw = os.environ.get("INFINI_CUDAGRAPH_POLICY", "").strip().lower()
+    if raw not in _CUDAGRAPH_POLICIES:
+        return
+    if _PREFILL_NATIVE_POLICY_WARNED:
+        return
+    logger.warning(
+        "INFINI_PREFILL_NATIVE_CG is ignored when INFINI_CUDAGRAPH_POLICY is set; "
+        "native prefill follows policy "
+        "(full_and_piecewise=on, eager=off). Unset PREFILL_NATIVE_CG or migrate "
+        "legacy scripts to --cudagraph-policy / INFINI_CUDAGRAPH_POLICY."
+    )
+    _PREFILL_NATIVE_POLICY_WARNED = True
 
 
 def _setdefault_env(name: str, value: str) -> None:
@@ -110,13 +132,17 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     """Write ``INFINI_CUDAGRAPH_POLICY`` and expand companion knobs when unset.
 
     ``eager``
-      No CG capture for decode/prefill (``PREFILL_NATIVE_CG=0``,
-      ``DECODE_GRAPH_ONLY=1``, ``DECODE_PIECEWISE=0``).
-    ``full_and_piecewise``
-      Decode monolithic CG with MoE Triton in-graph; FA stays host-break on
-      MetaX (FA-in-graph poisons later InfiniLM FA). Prefill native piecewise
-      buckets ``16,64,512,1024,2048,4096``. Does **not** set ``FA_FORCE`` /
-      ``MOE_TRITON_CAPTURE`` (phase-scoped MoE in C++).
+      No CG capture for decode/prefill (``DECODE_GRAPH_ONLY=1``,
+      ``DECODE_PIECEWISE=0``). Native prefill off via policy.
+    ``full_and_piecewise`` (MetaX contract; matches vLLM dual-mode)
+      Decode monolithic FULL for uniform decode batches; FA **host-break**;
+      MoE Triton **host-break** (in-graph diagnose via
+      ``INFINI_MOE_TRITON_CAPTURE=1`` only — Gate C: native+MoE-in-graph
+      garbles). Prefill **native piecewise** for homogeneous bucket hits
+      (``16,64,512,1024,2048,4096``). MIXED batches → eager until ragged
+      mixed PIECEWISE exists. Does **not** set ``FA_FORCE`` /
+      ``MOE_TRITON_CAPTURE``. ``INFINI_PREFILL_NATIVE_CG`` is not written
+      and is ignored when set.
     """
     if policy is None:
         p = cudagraph_policy()
@@ -129,19 +155,19 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
             )
     os.environ["INFINI_CUDAGRAPH_POLICY"] = p
     _warn_fa_force_with_policy()
+    _warn_prefill_native_with_policy()
 
     if p == CUDAGRAPH_POLICY_EAGER:
-        _setdefault_env("INFINI_PREFILL_NATIVE_CG", "0")
         _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "1")
         _setdefault_env("INFINI_DECODE_PIECEWISE", "0")
         logger.info("cudagraph_policy=eager (no decode/prefill CUDA-graph capture)")
         return p
 
     # full_and_piecewise
-    # Decode: MoE Triton in-graph (C++ phase-scoped); FA stays host-break on MetaX
-    # (FA-in-graph decode capture poisons later InfiniLM FA — see faInGraphAllowed).
-    # Prefill: native piecewise with FA host-break.
-    _setdefault_env("INFINI_PREFILL_NATIVE_CG", "1")
+    # Decode FULL: MoE + FA host-break on MetaX (MoE-in-graph diagnose-only via
+    # INFINI_MOE_TRITON_CAPTURE; FA-in-graph diagnose via INFINI_FA_FORCE_CAPTURE).
+    # Prefill: native piecewise always on (derived from policy, not PREFILL_NATIVE_CG).
+    # MIXED → eager (dispatcher NONE) until mixed PIECEWISE exists.
     _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "0")
     _setdefault_env("INFINI_SKIP_MONOLITHIC_DECODE_CG", "0")
     _setdefault_env("INFINI_DECODE_PIECEWISE", "0")
@@ -150,26 +176,43 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     _setdefault_env("INFINI_MUL_HOST_BREAK", "0")
     logger.info(
         "cudagraph_policy=full_and_piecewise "
-        "(decode MoE in-graph + FA host-break; prefill native piecewise FA host-break)"
+        "(FULL uniform decode + FA/MoE host-break; PIECEWISE homogeneous prefill; "
+        "MIXED→eager)"
     )
     return p
 
 
 def prefill_compile_enabled() -> bool:
-    """Deprecated PRD-02 torch.compile prefill path (removed). Use INFINI_PREFILL_NATIVE_CG=1."""
+    """Deprecated PRD-02 torch.compile prefill path (removed).
+
+    Use ``INFINI_CUDAGRAPH_POLICY=full_and_piecewise`` (or legacy
+    ``INFINI_PREFILL_NATIVE_CG=1`` when policy is unset).
+    """
     global _PREFILL_COMPILE_WARNED
     if _truthy("INFINI_PREFILL_COMPILE", "0"):
         if not _PREFILL_COMPILE_WARNED:
             logger.warning(
                 "INFINI_PREFILL_COMPILE is deprecated and ignored; "
-                "use INFINI_PREFILL_NATIVE_CG=1 for native C++ piecewise CG"
+                "use INFINI_CUDAGRAPH_POLICY=full_and_piecewise for native "
+                "C++ piecewise CG (or legacy INFINI_PREFILL_NATIVE_CG=1 "
+                "when policy is unset)"
             )
             _PREFILL_COMPILE_WARNED = True
     return False
 
 
 def prefill_native_cg_enabled() -> bool:
-    """Native C++ piecewise CUDAGraph prefill (HPCC v1; no torch.compile)."""
+    """Native C++ piecewise CUDAGraph prefill (HPCC v1; no torch.compile).
+
+    When ``INFINI_CUDAGRAPH_POLICY`` is a known value, derived solely from
+    policy (``full_and_piecewise`` → on; ``eager`` → off); any
+    ``INFINI_PREFILL_NATIVE_CG`` is warned and ignored. When policy is unset
+    (legacy Track-B scripts), still reads ``INFINI_PREFILL_NATIVE_CG``.
+    """
+    raw = os.environ.get("INFINI_CUDAGRAPH_POLICY", "").strip().lower()
+    if raw in _CUDAGRAPH_POLICIES:
+        _warn_prefill_native_with_policy()
+        return raw == CUDAGRAPH_POLICY_FULL_AND_PIECEWISE
     return _truthy("INFINI_PREFILL_NATIVE_CG", "0")
 
 
@@ -351,8 +394,10 @@ def check_torch_compile_mutual_exclusion() -> None:
     if torch_compile_enabled() and prefill_native_cg_enabled():
         if not _TORCH_COMPILE_MUTEX_WARNED:
             logger.error(
-                "INFINI_TORCH_COMPILE=1 and INFINI_PREFILL_NATIVE_CG=1 are mutually "
-                "exclusive; undefined dispatch if both are set at server init"
+                "INFINI_TORCH_COMPILE=1 and native piecewise prefill are mutually "
+                "exclusive; undefined dispatch if both are set at server init "
+                "(native follows INFINI_CUDAGRAPH_POLICY=full_and_piecewise or "
+                "legacy INFINI_PREFILL_NATIVE_CG=1)"
             )
             _TORCH_COMPILE_MUTEX_WARNED = True
 

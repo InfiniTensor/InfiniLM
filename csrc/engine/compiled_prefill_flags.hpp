@@ -35,7 +35,9 @@ inline const char *cudagraph_policy() {
 }
 
 /// When true, C++ ``PagedCompiler`` must not capture or replay monolithic prefill CUDA graphs
-/// (torch compiled prefill owns the prefill path).
+/// (torch compiled prefill owns the prefill path). Under ``full_and_piecewise``, native
+/// piecewise owns prefill (``native_piecewise_prefill_enabled``); monolithic is skipped
+/// via that check in ``PagedCompiler`` even when this returns false.
 inline bool skip_cpp_prefill_graph() {
     if (std::strcmp(cudagraph_policy(), "eager") == 0) {
         return true;
@@ -43,17 +45,6 @@ inline bool skip_cpp_prefill_graph() {
     const char *v = std::getenv("INFINI_PREFILL_COMPILE");
     if (v != nullptr && v[0] != '\0' && std::string(v) != "0") {
         return true;
-    }
-    // full_and_piecewise + PREFILL_NATIVE_CG=0: decode FULL only (no monolithic
-    // prefill — MetaX HTC risk). Prefill native piecewise is handled separately.
-    if (std::strcmp(cudagraph_policy(), "full_and_piecewise") == 0) {
-        const char *native = std::getenv("INFINI_PREFILL_NATIVE_CG");
-        const bool native_on =
-            native != nullptr && native[0] != '\0' && std::string(native) != "0";
-        // Unset defaults on under full_and_piecewise; explicit 0 → skip monolithic.
-        if (native != nullptr && !native_on) {
-            return true;
-        }
     }
     // Decode-only CG for MiniCPM5 MoE: skip monolithic prefill (HTC mem risk).
     return env_is_one_("INFINI_DECODE_GRAPH_ONLY");
@@ -97,17 +88,19 @@ inline bool native_piecewise_decode_enabled() {
 }
 
 /// When true, use native C++ ``PiecewisePrefillCompiler`` for prefill (HPCC v1 path).
-/// ``full_and_piecewise`` defaults on; ``eager`` forces off; unset policy uses
+/// Policy set: ``eager`` → off; ``full_and_piecewise`` → on (ignores
+/// ``INFINI_PREFILL_NATIVE_CG``). Unset policy (legacy Track-B scripts): read
 /// ``INFINI_PREFILL_NATIVE_CG`` only.
 inline bool native_piecewise_prefill_enabled() {
     if (std::strcmp(cudagraph_policy(), "eager") == 0) {
         return false;
     }
-    const char *v = std::getenv("INFINI_PREFILL_NATIVE_CG");
-    if (v != nullptr) {
-        return v[0] != '\0' && std::string(v) != "0";
+    if (std::strcmp(cudagraph_policy(), "full_and_piecewise") == 0) {
+        return true;
     }
-    return std::strcmp(cudagraph_policy(), "full_and_piecewise") == 0;
+    // Legacy: no known INFINI_CUDAGRAPH_POLICY → env flag until launchers migrate.
+    const char *v = std::getenv("INFINI_PREFILL_NATIVE_CG");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
 }
 
 /// When true, allow paged decode CUDAGraph capture/replay under tensor parallel (tp>1).

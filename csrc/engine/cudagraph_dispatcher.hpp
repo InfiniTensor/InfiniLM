@@ -1,0 +1,146 @@
+#pragma once
+
+/// vLLM-shaped CUDA-graph runtime dispatch (thin InfiniLM mirror).
+///
+/// Selects FULL / PIECEWISE / NONE from a BatchDescriptor derived from input
+/// shape (not scheduler PREFILL/DECODE/MIXED). MIXED → NONE until ragged
+/// mixed piecewise exists. Under ``full_and_piecewise``:
+///   - uniform decode batches in ``INFINI_DECODE_CG_BATCHES`` → FULL
+///   - homogeneous single-req prefill with ``seq_len`` in
+///     ``INFINI_NATIVE_CG_CAPTURE_BUCKETS`` → PIECEWISE
+///   - else → NONE (eager)
+/// ``eager`` policy → always NONE.
+
+#include "compiled_prefill_flags.hpp"
+
+#include <algorithm>
+#include <cstdlib>
+#include <cstring>
+#include <set>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace infinilm::engine {
+
+enum class CudaGraphRuntimeMode {
+    None = 0,
+    Piecewise = 1,
+    Full = 2,
+};
+
+inline const char *cudagraph_runtime_mode_cstr(CudaGraphRuntimeMode mode) {
+    switch (mode) {
+    case CudaGraphRuntimeMode::Full:
+        return "FULL";
+    case CudaGraphRuntimeMode::Piecewise:
+        return "PIECEWISE";
+    case CudaGraphRuntimeMode::None:
+    default:
+        return "NONE";
+    }
+}
+
+struct BatchDescriptor {
+    size_t num_tokens{0};
+    size_t num_reqs{0};
+    /// True when block_tables.batch == input_ids.width and every row schedules
+    /// exactly one new token (decode-shaped).
+    bool uniform_decode{false};
+};
+
+inline bool operator==(const BatchDescriptor &a, const BatchDescriptor &b) {
+    return a.num_tokens == b.num_tokens && a.num_reqs == b.num_reqs
+           && a.uniform_decode == b.uniform_decode;
+}
+
+namespace detail {
+
+inline std::vector<size_t> parse_csv_sizes_(const char *raw) {
+    std::vector<size_t> out;
+    if (raw == nullptr || raw[0] == '\0') {
+        return out;
+    }
+    std::string spec(raw);
+    size_t start = 0;
+    while (start < spec.size()) {
+        const size_t comma = spec.find(',', start);
+        const std::string token =
+            spec.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        if (!token.empty()) {
+            out.push_back(static_cast<size_t>(std::stoul(token)));
+        }
+        if (comma == std::string::npos) {
+            break;
+        }
+        start = comma + 1;
+    }
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+} // namespace detail
+
+class CudagraphDispatcher {
+public:
+    CudagraphDispatcher() = default;
+
+    /// Load FULL / PIECEWISE key sets from env for the active cudagraph policy.
+    void initialize_from_env() {
+        full_keys_.clear();
+        piecewise_keys_.clear();
+        const char *policy = cudagraph_policy();
+        if (std::strcmp(policy, "eager") == 0) {
+            // No capture keys — dispatch always NONE.
+            return;
+        }
+        if (std::strcmp(policy, "full_and_piecewise") != 0 && policy[0] != '\0') {
+            // Unknown policy string already normalized to "" by cudagraph_policy().
+            return;
+        }
+        // full_and_piecewise or legacy (empty policy with companion envs).
+        if (std::strcmp(policy, "full_and_piecewise") == 0
+            || std::strcmp(policy, "") == 0) {
+            for (size_t b : detail::parse_csv_sizes_(std::getenv("INFINI_DECODE_CG_BATCHES"))) {
+                full_keys_.insert(b);
+            }
+            for (size_t b :
+                 detail::parse_csv_sizes_(std::getenv("INFINI_NATIVE_CG_CAPTURE_BUCKETS"))) {
+                piecewise_keys_.insert(b);
+            }
+        }
+    }
+
+    void add_full_key(size_t num_tokens) { full_keys_.insert(num_tokens); }
+    void add_piecewise_key(size_t num_tokens) { piecewise_keys_.insert(num_tokens); }
+
+    const std::set<size_t> &full_keys() const { return full_keys_; }
+    const std::set<size_t> &piecewise_keys() const { return piecewise_keys_; }
+
+    /// Priority FULL > PIECEWISE > NONE. Returns (mode, padded key descriptor).
+    /// InfiniLM prefill requires exact bucket hit (no pad-up); padded_desc keeps
+    /// the same num_tokens on hit.
+    std::pair<CudaGraphRuntimeMode, BatchDescriptor> dispatch(const BatchDescriptor &desc) const {
+        if (std::strcmp(cudagraph_policy(), "eager") == 0) {
+            return {CudaGraphRuntimeMode::None, desc};
+        }
+        if (desc.uniform_decode && full_keys_.count(desc.num_tokens) > 0) {
+            BatchDescriptor key = desc;
+            key.num_reqs = desc.num_tokens; // uniform decode: 1 token / req
+            return {CudaGraphRuntimeMode::Full, key};
+        }
+        // Homogeneous single-req prefill bucket hit only (MIXED / multi-req → NONE).
+        if (!desc.uniform_decode && desc.num_reqs == 1
+            && piecewise_keys_.count(desc.num_tokens) > 0) {
+            return {CudaGraphRuntimeMode::Piecewise, desc};
+        }
+        return {CudaGraphRuntimeMode::None, desc};
+    }
+
+private:
+    std::set<size_t> full_keys_;
+    std::set<size_t> piecewise_keys_;
+};
+
+} // namespace infinilm::engine

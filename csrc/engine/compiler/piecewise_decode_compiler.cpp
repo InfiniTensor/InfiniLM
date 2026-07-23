@@ -520,6 +520,8 @@ PiecewiseDecodeCompiler::run_decode(const InfinilmModel::Input &input) {
         ++decode_misses_;
         return std::nullopt;
     }
+    infinicore::context::InferencePhaseGuard phase_guard(
+        infinicore::context::InferencePhase::Decode);
     if (!input.block_tables.has_value() || !input.input_ids.has_value()) {
         ++decode_misses_;
         return std::nullopt;

@@ -35,6 +35,54 @@ bool rank_worker_profile_enabled() {
     return cached == 1;
 }
 
+/// Derive BatchDescriptor from input shape (not scheduler phase).
+/// uniform_decode: block_tables.batch == input_ids.width and every row has 1 token.
+BatchDescriptor make_batch_descriptor(const RankWorker::Input &args) {
+    BatchDescriptor desc;
+    if (!args.block_tables.has_value() || !args.input_ids.has_value()) {
+        return desc;
+    }
+    const size_t batch = args.block_tables.value()->size(0);
+    const size_t input_width = args.input_ids.value()->size(1);
+    desc.num_reqs = batch;
+    desc.num_tokens = input_width;
+
+    bool all_one_token = true;
+    bool has_multi_token = false;
+    if (args.input_offsets.has_value()) {
+        const auto &offsets = args.input_offsets.value();
+        const size_t n = offsets->size(0);
+        if (n >= 2) {
+            desc.num_reqs = n - 1;
+            const auto *data = reinterpret_cast<const int32_t *>(offsets->data());
+            desc.num_tokens = static_cast<size_t>(data[n - 1] - data[0]);
+            for (size_t i = 0; i + 1 < n; ++i) {
+                const int32_t row_tok = data[i + 1] - data[i];
+                if (row_tok != 1) {
+                    all_one_token = false;
+                }
+                if (row_tok > 1) {
+                    has_multi_token = true;
+                }
+            }
+        }
+    } else {
+        // No offsets: decode-shaped when batch == width (each req one token).
+        all_one_token = (batch == input_width);
+        has_multi_token = (batch != input_width);
+    }
+
+    // MIXED (decode rows + prefill rows): not uniform_decode; multi-req keeps
+    // PIECEWISE off (dispatcher requires num_reqs==1 for prefill keys).
+    const bool decode_shaped = (batch == input_width) && all_one_token && !has_multi_token;
+    desc.uniform_decode = decode_shaped;
+    if (decode_shaped) {
+        desc.num_tokens = batch;
+        desc.num_reqs = batch;
+    }
+    return desc;
+}
+
 size_t inductor_tp_rank_resolver() {
     return infinilm::global_state::get_tensor_model_parallel_rank();
 }
@@ -489,6 +537,7 @@ void RankWorker::thread_loop() {
             kv_cache_snapshot_ = global_state::get_forward_context().kv_cache_vec;
             if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
+                cudagraph_dispatcher_.initialize_from_env();
             }
 
             init_done_ = true;
@@ -602,6 +651,8 @@ void RankWorker::thread_loop() {
                         size_t n_req = 1;
                         size_t batch_size = 0;
                         const char *mode_str = "unknown";
+                        // scheduling_mode is logging / Python row updates only;
+                        // CG path uses BatchDescriptor dispatch below.
                         if (local_args.scheduling_mode.has_value()) {
                             switch (*local_args.scheduling_mode) {
                             case SchedulingMode::PREFILL:
@@ -632,53 +683,52 @@ void RankWorker::thread_loop() {
                         if (local_args.input_offsets.has_value()) {
                             n_req = local_args.input_offsets.value()->size(0) - 1;
                         }
+                        const BatchDescriptor batch_desc = make_batch_descriptor(local_args);
+                        const auto [cg_mode, cg_key] = cudagraph_dispatcher_.dispatch(batch_desc);
+                        // Align phase flags with dispatch when scheduler mode unset.
+                        if (!local_args.scheduling_mode.has_value()) {
+                            if (cg_mode == CudaGraphRuntimeMode::Piecewise) {
+                                is_prefill = true;
+                                is_mixed = false;
+                            } else if (cg_mode == CudaGraphRuntimeMode::Full) {
+                                is_prefill = false;
+                                is_mixed = false;
+                            } else if (batch_desc.uniform_decode) {
+                                is_prefill = false;
+                            } else if (batch_desc.num_reqs > 1 && !batch_desc.uniform_decode) {
+                                // Ragged / mixed → eager (NONE).
+                                is_mixed = true;
+                            }
+                        }
                         if (global_state::hang_trace::enabled() && rank_info_.tp_rank == 0) {
                             spdlog::info(
-                                "hang_trace: run_job_begin mode={} n_req={} batch_size={} is_mixed={}",
+                                "hang_trace: run_job_begin mode={} cg_mode={} n_req={} "
+                                "batch_size={} num_tokens={} uniform_decode={} is_mixed={}",
                                 mode_str,
+                                cudagraph_runtime_mode_cstr(cg_mode),
                                 n_req,
                                 batch_size,
+                                batch_desc.num_tokens,
+                                batch_desc.uniform_decode,
                                 is_mixed);
                         }
                         auto model_input = local_args.to_model_input(infinicore::Device::cpu());
-                        if (compiler_ != nullptr && !is_mixed) {
+                        if (compiler_ != nullptr && cg_mode != CudaGraphRuntimeMode::None) {
                             auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
-                            if (is_prefill && general_compiler != nullptr
+                            if (cg_mode == CudaGraphRuntimeMode::Piecewise && general_compiler != nullptr
                                 && general_compiler->native_piecewise_enabled()) {
+                                // run_prefill = piecewise backend replay (not scheduler phase).
                                 const bool profile = rank_worker_profile_enabled();
                                 const double t_pw0 = profile ? monotonic_ms() : 0.0;
                                 global_state::hang_trace::ScopedBracket pw_bracket(
                                     "native_piecewise", rank_info_.tp_rank);
                                 if (profile) {
-                                    size_t n_req = 1;
-                                    size_t input_width = 0;
-                                    if (local_args.block_tables.has_value()) {
-                                        n_req = local_args.block_tables.value()->size(0);
-                                    }
-                                    if (local_args.input_ids.has_value()) {
-                                        input_width = local_args.input_ids.value()->size(1);
-                                    }
-                                    const char *mode_str = "unknown";
-                                    if (local_args.scheduling_mode.has_value()) {
-                                        switch (*local_args.scheduling_mode) {
-                                        case SchedulingMode::PREFILL:
-                                            mode_str = "PREFILL";
-                                            break;
-                                        case SchedulingMode::DECODE:
-                                            mode_str = "DECODE";
-                                            break;
-                                        case SchedulingMode::MIXED:
-                                            mode_str = "MIXED";
-                                            break;
-                                        }
-                                    }
                                     spdlog::info(
-                                        "rank_worker_profile: RUN native_piecewise begin mode={} n_req={} "
-                                        "input_width={} is_mixed={}",
-                                        mode_str,
-                                        n_req,
-                                        input_width,
-                                        is_mixed);
+                                        "rank_worker_profile: RUN native_piecewise begin "
+                                        "cg_mode=PIECEWISE n_req={} num_tokens={} key_tokens={}",
+                                        batch_desc.num_reqs,
+                                        batch_desc.num_tokens,
+                                        cg_key.num_tokens);
                                 }
                                 if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input)) {
                                     logits = *pw_logits;
@@ -697,7 +747,7 @@ void RankWorker::thread_loop() {
                                         skip_sampling,
                                         monotonic_ms() - t_pw0);
                                 }
-                            } else if (!is_prefill && general_compiler != nullptr
+                            } else if (cg_mode == CudaGraphRuntimeMode::Full && general_compiler != nullptr
                                        && general_compiler->native_piecewise_decode_enabled()) {
                                 const bool profile = rank_worker_profile_enabled();
                                 const bool decode_prof =
@@ -747,7 +797,7 @@ void RankWorker::thread_loop() {
                                         stats.piecewise_segment_replays);
                                 }
                             }
-                            if (!logits && !piecewise_ran) {
+                            if (cg_mode == CudaGraphRuntimeMode::Full && !logits && !piecewise_ran) {
                                 auto [graph, output] = compiler_->get_compiled(model_input);
                                 if (graph != nullptr && output != nullptr) {
                                     const bool ar_profile = global_state::ar_profile::enabled();
@@ -772,6 +822,10 @@ void RankWorker::thread_loop() {
                                         global_state::hang_trace::ScopedBracket graph_bracket(
                                             "decode_graph_run", rank_info_.tp_rank);
                                         const double t_graph0 = ar_profile ? monotonic_ms() : 0.0;
+                                        // FULL decode replay: FA host-break; MoE HB under
+                                        // full_and_piecewise unless INFINI_MOE_TRITON_CAPTURE=1.
+                                        infinicore::context::InferencePhaseGuard phase_guard(
+                                            infinicore::context::InferencePhase::Decode);
                                         graph->run();
                                         if (ar_profile) {
                                             graph_run_ms = monotonic_ms() - t_graph0;
@@ -809,13 +863,14 @@ void RankWorker::thread_loop() {
                                     }
                                     logits = output->logits;
                                     if (general_compiler != nullptr) {
-                                        general_compiler->record_graph_hit(is_prefill);
+                                        general_compiler->record_graph_hit(/*is_prefill=*/false);
                                     }
                                 } else if (general_compiler != nullptr) {
-                                    general_compiler->record_graph_miss(is_prefill);
+                                    general_compiler->record_graph_miss(/*is_prefill=*/false);
                                 }
                             }
-                            if (general_compiler != nullptr && is_prefill) {
+                            if (general_compiler != nullptr
+                                && cg_mode == CudaGraphRuntimeMode::Piecewise) {
                                 const auto stats = general_compiler->graph_stats();
                                 spdlog::debug(
                                     "[{}] prefill_graph_hit={} prefill_graph_miss={} "
@@ -831,7 +886,7 @@ void RankWorker::thread_loop() {
                                     stats.decode_graph_misses);
                             }
                         }
-                        // Fall back to eager mode
+                        // Fall back to eager mode (NONE, or PIECEWISE/FULL miss)
                         if (!logits && !piecewise_ran) {
                             global_state::hang_trace::ScopedBracket eager_bracket(
                                 "eager_forward", rank_info_.tp_rank);

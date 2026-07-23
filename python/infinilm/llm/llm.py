@@ -205,8 +205,8 @@ class LLMEngine:
 
                 if prefill_native_cg_enabled():
                     logger.info(
-                        "native piecewise CG enabled (INFINI_PREFILL_NATIVE_CG=1); "
-                        "prefill graphs captured in C++ at init"
+                        "native piecewise CG enabled (cudagraph_policy / legacy "
+                        "INFINI_PREFILL_NATIVE_CG); prefill graphs captured in C++ at init"
                     )
             except ImportError:
                 pass

@@ -70,6 +70,7 @@ class TestCudagraphPolicyEnv(unittest.TestCase):
             os.environ.pop(k, None)
         self.env = _load_env_module()
         self.env._FA_FORCE_POLICY_WARNED = False
+        self.env._PREFILL_NATIVE_POLICY_WARNED = False
 
     def tearDown(self) -> None:
         for k, v in self._env_backup.items():
@@ -90,7 +91,9 @@ class TestCudagraphPolicyEnv(unittest.TestCase):
         p = self.env.apply_cudagraph_policy_env("full_and_piecewise")
         self.assertEqual(p, "full_and_piecewise")
         self.assertEqual(os.environ["INFINI_CUDAGRAPH_POLICY"], "full_and_piecewise")
-        self.assertEqual(os.environ["INFINI_PREFILL_NATIVE_CG"], "1")
+        # Policy alone enables native; does not write PREFILL_NATIVE_CG.
+        self.assertNotIn("INFINI_PREFILL_NATIVE_CG", os.environ)
+        self.assertTrue(self.env.prefill_native_cg_enabled())
         self.assertEqual(os.environ["INFINI_DECODE_GRAPH_ONLY"], "0")
         self.assertEqual(os.environ["INFINI_DECODE_PIECEWISE"], "0")
         self.assertEqual(os.environ["INFINI_DECODE_CG_BATCHES"], "1,2,4")
@@ -98,16 +101,25 @@ class TestCudagraphPolicyEnv(unittest.TestCase):
         self.assertNotIn("INFINI_FA_FORCE_CAPTURE", os.environ)
         self.assertNotIn("INFINI_MOE_TRITON_CAPTURE", os.environ)
 
-    def test_apply_respects_prefill_native_override(self) -> None:
+    def test_prefill_native_ignored_when_policy_set(self) -> None:
         os.environ["INFINI_PREFILL_NATIVE_CG"] = "0"
         self.env.apply_cudagraph_policy_env("full_and_piecewise")
-        self.assertEqual(os.environ["INFINI_PREFILL_NATIVE_CG"], "0")
+        # Env may remain set, but policy wins (native on).
+        self.assertEqual(os.environ.get("INFINI_PREFILL_NATIVE_CG"), "0")
+        self.assertTrue(self.env.prefill_native_cg_enabled())
 
-    def test_apply_eager_disables_cg(self) -> None:
+    def test_apply_eager_disables_native(self) -> None:
         self.env.apply_cudagraph_policy_env("eager")
-        self.assertEqual(os.environ["INFINI_PREFILL_NATIVE_CG"], "0")
+        self.assertFalse(self.env.prefill_native_cg_enabled())
         self.assertEqual(os.environ["INFINI_DECODE_GRAPH_ONLY"], "1")
         self.assertEqual(os.environ["INFINI_DECODE_PIECEWISE"], "0")
+
+    def test_legacy_unset_policy_reads_prefill_native(self) -> None:
+        os.environ.pop("INFINI_CUDAGRAPH_POLICY", None)
+        os.environ["INFINI_PREFILL_NATIVE_CG"] = "1"
+        self.assertTrue(self.env.prefill_native_cg_enabled())
+        os.environ["INFINI_PREFILL_NATIVE_CG"] = "0"
+        self.assertFalse(self.env.prefill_native_cg_enabled())
 
 
 class TestEntryCudagraphPolicyCli(unittest.TestCase):
@@ -142,6 +154,9 @@ class TestEntryCudagraphPolicyCli(unittest.TestCase):
         self.entry._apply_entry_cudagraph_policy(args.cudagraph_policy)
         self.assertEqual(os.environ["INFINI_CUDAGRAPH_POLICY"], "full_and_piecewise")
         self.assertEqual(os.environ["INFINI_DECODE_CG_BATCHES"], "1,2,4")
+        from infinilm.compile.env import prefill_native_cg_enabled
+
+        self.assertTrue(prefill_native_cg_enabled())
 
     def test_cli_wins_over_prior_env(self) -> None:
         os.environ["INFINI_CUDAGRAPH_POLICY"] = "eager"
@@ -179,6 +194,9 @@ class TestEntryCudagraphPolicyCli(unittest.TestCase):
         self.assertIn("full_and_piecewise", text)
         self.assertIn("eager", text)
         self.assertIn("cudagraph-policy", text)
+        self.assertIn("host-break", text)
+        self.assertIn("diagnose-only", text)
+        self.assertIn("MIXED", text)
 
 
 if __name__ == "__main__":

@@ -513,7 +513,12 @@ void PiecewisePrefillCompiler::compile() {
     const auto *paged_config =
         dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
     const size_t nblocks = paged_config->num_blocks();
-    max_capture_req_ = std::max<size_t>(1, paged_config->max_batch_size());
+    // Capture n_req=1 by default: CudagraphDispatcher only selects PIECEWISE for
+    // homogeneous single-req prefill (MIXED / multi-req → NONE). Capturing with
+    // max_batch_size (e.g. 4) records FA varlen shapes for split rows and SIGSEGVs
+    // on MC=1 bucket replay under serve (Gate D). Opt into wider capture via
+    // INFINI_MAX_PREFILL_BATCH when multi-req piecewise exists.
+    max_capture_req_ = 1;
     if (const char *raw = std::getenv("INFINI_MAX_PREFILL_BATCH")) {
         max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
     }
@@ -626,6 +631,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     if (!enabled_) {
         return std::nullopt;
     }
+    // Phase-scoped MoE: Prefill must not take Triton-in-graph path.
+    // Under full_and_piecewise MoE is host-break unless INFINI_MOE_TRITON_CAPTURE=1.
+    infinicore::context::InferencePhaseGuard phase_guard(
+        infinicore::context::InferencePhase::Prefill);
     last_prefill_executed_ = false;
     const bool profile = rank_worker_profile_enabled();
     const double t_total0 = profile ? monotonic_ms() : 0.0;
@@ -649,10 +658,10 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         return std::nullopt;
     }
     const bool inductor_mode = infinilm::global_state::piecewise_inductor_segment_enabled();
-    // Inductor AOT pre-attn runs outside captured CG graphs. Mid-chunks replay via
-    // piecewise infiniop pre-attn (nullptr CG fallback) so KV matches Case A boundary.
-    if (inductor_mode && !final_chunk && !repro_skip_midchunk_eager()) {
-    }
+    // Mid-chunks must not replay CG pre/post under inductor: capture dry-run shapes
+    // assume final-chunk inductor staging; mid-chunk CG pre_attn SIGSEGVs at 2048
+    // (Gate D). Use eager infiniop pre/post so KV matches Case A boundary.
+    const bool mid_chunk = !final_chunk;
     // Native-width buckets: replay only when seq_len matches the captured graph width.
     if (seq_len != graph_bucket) {
         ++prefill_misses_;
@@ -678,7 +687,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     piecewise.layer_staging = bucket_graphs.layer_staging;
     if (final_chunk && seq_len == graph_bucket) {
         piecewise.allow_inductor_pre_attn = inductor_mode && !repro_skip_final_inductor();
-    } else if (repro_skip_midchunk_eager() && !final_chunk) {
+    } else if (repro_skip_midchunk_eager() && mid_chunk) {
         piecewise.allow_inductor_pre_attn = inductor_mode;
     } else {
         piecewise.allow_inductor_pre_attn = false;
@@ -691,16 +700,15 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
 
     const size_t num_layers = bucket_graphs.pre_attn.size();
-    // Mid-chunk skip_mid uses inductor pre-attn; replay post-attn eagerly so CG
-    // captured after inductor dry-run cannot drift from live inductor staging.
+    // Mid-chunk: always eager pre/post under inductor (do not replay CG segments).
     // Final-chunk inductor pre-attn needs the same eager post replay (B4 tail).
     const bool use_eager_post =
         inductor_mode
-        && ((repro_skip_midchunk_eager() && !final_chunk) || piecewise.allow_inductor_pre_attn);
+        && (mid_chunk || piecewise.allow_inductor_pre_attn);
     const bool use_eager_lm_head = inductor_mode && piecewise.allow_inductor_pre_attn;
     const bool use_eager_pre_attn_summary =
         inductor_mode
-        && ((repro_skip_midchunk_eager() && !final_chunk)
+        && (mid_chunk
             || (final_chunk && (bucket_graphs.pre_attn.empty() || !bucket_graphs.pre_attn[0])));
     const size_t slot_len = input.slot_mapping.has_value()
                                 ? input.slot_mapping.value()->shape()[0]
@@ -711,9 +719,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait("piecewise_replay_pre_attn");
         const bool use_eager_pre_attn =
-            inductor_mode
-            && ((repro_skip_midchunk_eager() && !final_chunk)
-                || !bucket_graphs.pre_attn[layer]);
+            inductor_mode && (mid_chunk || !bucket_graphs.pre_attn[layer]);
         if (use_eager_pre_attn) {
             model_->native_piecewise_pre_attn_layer(
                 layer, bucket_graphs.input, piecewise.hidden_states, piecewise.residual);

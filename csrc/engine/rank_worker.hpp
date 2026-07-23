@@ -6,6 +6,7 @@
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
+#include "cudagraph_dispatcher.hpp"
 #include "distributed/distributed.hpp"
 #include "rank_barrier.hpp"
 
@@ -157,6 +158,8 @@ private:
     // Graph Compiling
     bool enable_graph_compiling_;
     std::unique_ptr<GraphCompiler> compiler_;
+    /// vLLM-shaped FULL / PIECEWISE / NONE selector (keys from env at init).
+    CudagraphDispatcher cudagraph_dispatcher_;
 
     // Command for the pending job (protected by mutex_)
     Command job_cmd_;
