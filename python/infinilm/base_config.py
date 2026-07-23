@@ -305,10 +305,22 @@ class BaseConfig:
             help="maximum batch size for server",
         )
         self.parser.add_argument(
-            "--input-len", type=parse_list, default=10, help="input sequence length"
+            "--input-len",
+            type=parse_list,
+            default=10,
+            help=(
+                "input sequence length; examples/bench.py pairs comma-separated "
+                "input/output values by position and broadcasts a single value"
+            ),
         )
         self.parser.add_argument(
-            "--output-len", type=parse_list, default=20, help="output sequence length"
+            "--output-len",
+            type=parse_list,
+            default=20,
+            help=(
+                "output sequence length; examples/bench.py pairs comma-separated "
+                "input/output values by position and broadcasts a single value"
+            ),
         )
         self.parser.add_argument(
             "--max-new-tokens",

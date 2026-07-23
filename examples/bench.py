@@ -89,6 +89,65 @@ def _normalize_config(config, model_type):
 # OUTPUT_LENS = [256, 1024, 4096]
 
 
+def pair_sequence_lengths(
+    input_len_list: list[int], output_len_list: list[int]
+) -> list[tuple[int, int]]:
+    """Return positional input/output length pairs.
+
+    Lists with equal lengths are paired by position, not expanded as a
+    Cartesian product. If either side contains one value, that value is
+    broadcast across the other side.
+    """
+    if not input_len_list or not output_len_list:
+        raise ValueError("input_len and output_len must not be empty")
+    if any(length <= 0 for length in input_len_list):
+        raise ValueError(f"input_len values must be positive: {input_len_list}")
+    if any(length <= 0 for length in output_len_list):
+        raise ValueError(f"output_len values must be positive: {output_len_list}")
+
+    if len(input_len_list) == len(output_len_list):
+        return list(zip(input_len_list, output_len_list))
+    if len(input_len_list) == 1:
+        return [(input_len_list[0], output_len) for output_len in output_len_list]
+    if len(output_len_list) == 1:
+        return [(input_len, output_len_list[0]) for input_len in input_len_list]
+    raise ValueError(
+        "input_len and output_len must have the same number of values, "
+        "or one side must contain a single value for broadcasting: "
+        f"input_len={input_len_list}, output_len={output_len_list}"
+    )
+
+
+def get_paged_kv_cache_num_blocks(cases, block_size: int) -> int:
+    """Return the shared paged-cache capacity required by sequential cases."""
+    if block_size <= 0:
+        raise ValueError(f"block_size must be positive: {block_size}")
+
+    case_list = list(cases)
+    if not case_list:
+        raise ValueError("at least one benchmark case is required")
+
+    return max(
+        (
+            (case["input_len"] + case["output_len"] + block_size - 1)
+            // block_size
+        )
+        * case["batch_size"]
+        for case in case_list
+    )
+
+
+def get_warmup_shapes(cases) -> OrderedDict:
+    """Map each prefill shape to the largest output capacity it needs."""
+    warmup_shapes = OrderedDict()
+    for case in cases:
+        shape = (case["batch_size"], case["input_len"])
+        warmup_shapes[shape] = max(
+            warmup_shapes.get(shape, 0), case["output_len"]
+        )
+    return warmup_shapes
+
+
 def read_json_file(file_path):
     """Load and return JSON content from file_path."""
     with open(file_path, "r") as file:
@@ -102,9 +161,19 @@ def get_test_cases(
     output_len_list: list[int],
     use_mla: bool = False,
 ):
+    """Generate cases from batch sizes and positional length pairs.
+
+    Batch sizes are combined with each input/output pair. The two length lists
+    themselves are paired by position (or single-value broadcast), never as a
+    Cartesian product. Returned cases are ordered by ascending KV-cache usage.
+    """
     model_path = os.path.expanduser(model_path)
 
-    """Generate cases ordered by ascending KV cache memory usage."""
+    if not batch_size_list or any(
+        batch_size <= 0 for batch_size in batch_size_list
+    ):
+        raise ValueError(f"batch_size values must be positive: {batch_size_list}")
+
     # Load model config to derive attention dimensions
     config = read_json_file(os.path.join(model_path, "config.json"))
     model_type = config.get("model_type", "")
@@ -125,32 +194,34 @@ def get_test_cases(
         num_key_value_heads = config.get("num_key_value_heads")
     num_hidden_layers = config.get("num_hidden_layers")
 
-    # Enumerate all batch/input/output combinations and compute KV cache size
+    length_pairs = pair_sequence_lengths(input_len_list, output_len_list)
+
+    # Each input/output list position is one case. A one-element list is
+    # broadcast so one input length can still be tested with many output lengths.
     case_list = []
     for batch_size in batch_size_list:
-        for input_len in input_len_list:
-            for output_len in output_len_list:
-                for data_type in ["bfloat16"]:
-                    data_type_bytes = DATA_TYPE_BYTES[data_type]
+        for input_len, output_len in length_pairs:
+            for data_type in ["bfloat16"]:
+                data_type_bytes = DATA_TYPE_BYTES[data_type]
 
-                    total_seq_len = input_len + output_len
-                    kvcache_memory_bytes = (
-                        data_type_bytes
-                        * (batch_size * total_seq_len * num_key_value_heads * head_dim)
-                        * num_hidden_layers
-                    )
-                    kvcache_memory_gb = kvcache_memory_bytes / (1024 * 1024 * 1024)
+                total_seq_len = input_len + output_len
+                kvcache_memory_bytes = (
+                    data_type_bytes
+                    * (batch_size * total_seq_len * num_key_value_heads * head_dim)
+                    * num_hidden_layers
+                )
+                kvcache_memory_gb = kvcache_memory_bytes / (1024 * 1024 * 1024)
 
-                    case_list.append(
-                        {
-                            "idx": len(case_list),
-                            "batch_size": batch_size,
-                            "input_len": input_len,
-                            "output_len": output_len,
-                            "data_type": data_type,
-                            "kvcache_memory": round(kvcache_memory_gb, 3),
-                        }
-                    )
+                case_list.append(
+                    {
+                        "idx": len(case_list),
+                        "batch_size": batch_size,
+                        "input_len": input_len,
+                        "output_len": output_len,
+                        "data_type": data_type,
+                        "kvcache_memory": round(kvcache_memory_gb, 3),
+                    }
+                )
 
     # Sort by KV cache size and wrap in OrderedDict with index keys
     case_dict = OrderedDict(
@@ -414,15 +485,11 @@ if __name__ == "__main__":
     # -------------------------------------------------------- #
     if enable_paged_attn:
         paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
-        max_num_blocks = max(
-            [
-                (
-                    (c_["input_len"] + c_["output_len"] + (paged_kv_block_size - 1))
-                    // paged_kv_block_size
-                )
-                * c_["batch_size"]
-                for _, c_ in cases_dict.items()
-            ]
+        # Cases run sequentially and each generate call rebuilds block tables
+        # from block zero, so the shared cache needs the largest case capacity,
+        # not the sum of all case capacities.
+        max_num_blocks = get_paged_kv_cache_num_blocks(
+            cases_dict.values(), paged_kv_block_size
         )
         cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
     else:
@@ -454,57 +521,49 @@ if __name__ == "__main__":
     if cfg.warmup:
         warmup_steps = 1
 
-        # warmup cache capacity
-        warmup_case = next(iter(cases_dict.values()))
-        warmup_batch = warmup_case["batch_size"]
-        warmup_input_len = warmup_case["input_len"]
-        warmup_decode_len = 5
+        # Warm every distinct prefill shape once. Repeated benchmark cases keep
+        # a single warmup, while mixed input lengths do not include first-use
+        # graph/kernel setup in their measured run.
+        warmup_shapes = get_warmup_shapes(cases_dict.values())
 
-        if enable_paged_attn:
-            warmup_num_blocks = (
-                (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
-                // paged_kv_block_size
-            ) * warmup_batch
-            warmup_cache_config = PagedKVCacheConfig(
-                warmup_num_blocks, paged_kv_block_size
-            )
-        else:
-            warmup_cache_config = StaticKVCacheConfig(
-                max_batch_size=warmup_batch,
-                max_cache_len=warmup_input_len + warmup_decode_len,
-            )
+        for warmup_idx, ((warmup_batch, warmup_input_len), max_output_len) in enumerate(
+            warmup_shapes.items(), start=1
+        ):
+            warmup_decode_len = min(5, max_output_len)
+            if not enable_paged_attn:
+                # Reserve the largest complete case for this prefill shape,
+                # even though warmup itself only runs a few decode steps.
+                warmup_cache_config = StaticKVCacheConfig(
+                    max_batch_size=warmup_batch,
+                    max_cache_len=warmup_input_len + max_output_len,
+                )
+                test.model.reset_cache(warmup_cache_config)
 
-        test.model.reset_cache(warmup_cache_config)
-
-        warmup_prompt_ids = repeat_prompt(test.input_ids_list[0], warmup_input_len)
-        warmup_ids = [warmup_prompt_ids] * warmup_batch
-
-        input_ids_infini = infinicore.from_list(warmup_ids, dtype=infinicore.int64)
-
-        print(
-            f"\033[93m[warmup] batch={warmup_batch}, input_len={warmup_input_len}, "
-            f"will prefill + {warmup_decode_len} decode steps\033[0m"
-        )
-        print("=================== warmup start ===================")
-
-        for _ in range(warmup_steps):
-            _ = test.model.generate(
-                input_ids_infini,
-                GenerationConfig(
-                    max_new_tokens=warmup_decode_len,  # decode kernel warmup
-                    temperature=cfg.temperature,
-                    top_k=cfg.top_k,
-                    top_p=cfg.top_p,
-                    stop_on_eos=False,
-                ),
-                _measure_and_log_time=False,
+            warmup_prompt_ids = repeat_prompt(test.input_ids_list[0], warmup_input_len)
+            warmup_ids = [warmup_prompt_ids] * warmup_batch
+            input_ids_infini = infinicore.from_list(
+                warmup_ids, dtype=infinicore.int64
             )
 
-        print("=================== warmup done ====================")
-
-        # reset cache back to benchmark config
-        if cache_config is not None:
-            test.model.reset_cache(cache_config)
+            print(
+                f"\033[93m[warmup {warmup_idx}/{len(warmup_shapes)}] "
+                f"batch={warmup_batch}, input_len={warmup_input_len}, "
+                f"will prefill + {warmup_decode_len} decode steps\033[0m"
+            )
+            print("=================== warmup start ===================")
+            for _ in range(warmup_steps):
+                _ = test.model.generate(
+                    input_ids_infini,
+                    GenerationConfig(
+                        max_new_tokens=warmup_decode_len,
+                        temperature=cfg.temperature,
+                        top_k=cfg.top_k,
+                        top_p=cfg.top_p,
+                        stop_on_eos=False,
+                    ),
+                    _measure_and_log_time=False,
+                )
+            print("=================== warmup done ====================")
 
     # ---------------------------------------------------------------------------- #
     #                                Warmup done
@@ -518,7 +577,7 @@ if __name__ == "__main__":
         output_len = case["output_len"]
 
         if not enable_paged_attn:
-            # reset cache if static kvcache is used
+            # Each static-cache case gets its exact full generation capacity.
             initial_capacity = input_len + output_len
             test.model.reset_cache(
                 StaticKVCacheConfig(
