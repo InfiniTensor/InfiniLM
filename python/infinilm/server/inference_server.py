@@ -9,7 +9,9 @@ import os
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import Optional
 
 import uvicorn
@@ -18,6 +20,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
+from infinilm.llm.scheduler import RequestCapacityError
 from infinilm.moe_config import configure_moe_ep_backend
 
 logger = logging.getLogger(__name__)
@@ -98,6 +101,7 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         cache_type: str = "paged",
@@ -117,6 +121,10 @@ class InferenceServer:
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
+        admission_workers: int = 4,
+        prefill_coalesce_ms: float = 2.0,
+        max_num_batched_tokens: Optional[int] = None,
+        max_num_mixed_prefill_tokens: Optional[int] = None,
     ):
         """Initialize inference server.
 
@@ -130,6 +138,8 @@ class InferenceServer:
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
+            max_num_batched_tokens: Maximum tokens scheduled in one model step.
+            max_num_mixed_prefill_tokens: Maximum prefill tokens beside decodes.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
@@ -144,6 +154,8 @@ class InferenceServer:
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            admission_workers: Number of API request preprocessing workers.
+            prefill_coalesce_ms: Idle-to-prefill admission window in milliseconds.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -151,11 +163,14 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.pipeline_parallel_size = pipeline_parallel_size
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
+        self.max_num_batched_tokens = max_num_batched_tokens
+        self.max_num_mixed_prefill_tokens = max_num_mixed_prefill_tokens
         self.num_blocks = num_blocks
         self.block_size = block_size
         self.max_cache_len = max_cache_len
@@ -170,8 +185,17 @@ class InferenceServer:
         self.weight_load_mode = weight_load_mode
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
+        if admission_workers < 1:
+            raise ValueError("admission_workers must be positive")
+        if prefill_coalesce_ms < 0:
+            raise ValueError("prefill_coalesce_ms must be non-negative")
+        self.admission_workers = admission_workers
+        self.prefill_coalesce_ms = prefill_coalesce_ms
 
         self.engine: AsyncLLMEngine = None
+        self._admission_executor: Optional[ThreadPoolExecutor] = None
+        self._profiler = None
+        self._profile_dir = None
 
     def start(self):
         """Start the HTTP server."""
@@ -185,33 +209,55 @@ class InferenceServer:
 
         @asynccontextmanager
         async def lifespan(app: FastAPI):
-            self.engine = AsyncLLMEngine(
-                model_path=self.model_path,
-                device=self.device,
-                dtype=self.dtype,
-                tensor_parallel_size=self.tensor_parallel_size,
-                moe_ep_backend=self.moe_ep_backend,
-                moe_ep_size=self.moe_ep_size,
-                cache_type=self.cache_type,
-                max_batch_size=self.max_batch_size,
-                max_tokens=self.max_tokens,
-                num_blocks=self.num_blocks,
-                block_size=self.block_size,
-                max_cache_len=self.max_cache_len,
-                temperature=self.temperature,
-                top_p=self.top_p,
-                top_k=self.top_k,
-                enable_graph=self.enable_graph,
-                attn_backend=self.attn_backend,
-                use_mla=self.use_mla,
-                weight_load_mode=self.weight_load_mode,
-                kv_transfer_config=self.kv_transfer_config,
+            self._admission_executor = ThreadPoolExecutor(
+                max_workers=self.admission_workers,
+                thread_name_prefix="InfiniLMAdmission",
             )
-            self.engine.start()
-            logger.info(f"Engine initialized with model at {self.model_path}")
-            logger.info(f"  enable_graph: {self.enable_graph}")
-            yield
-            self.engine.stop()
+            try:
+                self.engine = AsyncLLMEngine(
+                    model_path=self.model_path,
+                    device=self.device,
+                    dtype=self.dtype,
+                    tensor_parallel_size=self.tensor_parallel_size,
+                    pipeline_parallel_size=self.pipeline_parallel_size,
+                    moe_ep_backend=self.moe_ep_backend,
+                    moe_ep_size=self.moe_ep_size,
+                    cache_type=self.cache_type,
+                    max_batch_size=self.max_batch_size,
+                    max_num_batched_tokens=self.max_num_batched_tokens,
+                    max_num_mixed_prefill_tokens=(self.max_num_mixed_prefill_tokens),
+                    max_tokens=self.max_tokens,
+                    num_blocks=self.num_blocks,
+                    block_size=self.block_size,
+                    max_cache_len=self.max_cache_len,
+                    temperature=self.temperature,
+                    top_p=self.top_p,
+                    top_k=self.top_k,
+                    enable_graph=self.enable_graph,
+                    attn_backend=self.attn_backend,
+                    use_mla=self.use_mla,
+                    weight_load_mode=self.weight_load_mode,
+                    kv_transfer_config=self.kv_transfer_config,
+                    prefill_coalesce_ms=self.prefill_coalesce_ms,
+                )
+                self.engine.start()
+                logger.info(f"Engine initialized with model at {self.model_path}")
+                logger.info(f"  enable_graph: {self.enable_graph}")
+                logger.info(
+                    "  admission_workers: %s, prefill_coalesce_ms: %.3f, "
+                    "max_num_batched_tokens: %s, "
+                    "max_num_mixed_prefill_tokens: %s",
+                    self.admission_workers,
+                    self.prefill_coalesce_ms,
+                    self.engine.config.max_num_batched_tokens,
+                    self.engine.config.max_num_mixed_prefill_tokens,
+                )
+                yield
+            finally:
+                if self.engine is not None:
+                    self.engine.stop()
+                self._admission_executor.shutdown(wait=True, cancel_futures=True)
+                self._admission_executor = None
 
         app = FastAPI(lifespan=lifespan)
         self._register_routes(app)
@@ -246,13 +292,37 @@ class InferenceServer:
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
+            try:
+                req, sampling_params = await self._prepare_chat_request(
+                    request_id, data
+                )
+            except RequestCapacityError as e:
+                return JSONResponse(
+                    content={
+                        "error": {
+                            "message": str(e),
+                            "type": "invalid_request_error",
+                            "param": None,
+                            "code": None,
+                        }
+                    },
+                    status_code=400,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to prepare request {request_id}: {e}", exc_info=True
+                )
+                return JSONResponse(content={"error": str(e)}, status_code=500)
+
             if stream:
                 return StreamingResponse(
-                    self._stream_chat(request_id, data, request),
+                    self._stream_chat(request_id, data, request, req, sampling_params),
                     media_type="text/event-stream",
                 )
             else:
-                response = await self._chat(request_id, data, request)
+                response = await self._chat(
+                    request_id, data, request, req, sampling_params
+                )
                 if isinstance(response, JSONResponse):
                     return response
                 return JSONResponse(content=response)
@@ -267,6 +337,58 @@ class InferenceServer:
             ):
                 return JSONResponse(content={"status": "unhealthy"}, status_code=503)
             return {"status": "healthy"}
+
+        @app.post("/start_profile")
+        async def start_profile():
+            profile_root = os.getenv("INFINILM_TORCH_PROFILE_DIR")
+            if not profile_root:
+                return JSONResponse(
+                    content={"error": "INFINILM_TORCH_PROFILE_DIR is not set"},
+                    status_code=404,
+                )
+            if self._profiler is not None:
+                return JSONResponse(
+                    content={"error": "Profiler is already running"}, status_code=409
+                )
+
+            import torch
+
+            profile_dir = os.path.join(
+                os.path.abspath(profile_root),
+                f"infinilm_{int(time.time())}_{os.getpid()}",
+            )
+            os.makedirs(profile_dir, exist_ok=False)
+            self._profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(profile_dir),
+                record_shapes=False,
+                profile_memory=False,
+                with_stack=False,
+                with_flops=False,
+                with_modules=False,
+            )
+            self._profile_dir = profile_dir
+            self._profiler.start()
+            logger.info("Profiler started: %s", profile_dir)
+            return {"status": "started", "profile_dir": profile_dir}
+
+        @app.post("/stop_profile")
+        async def stop_profile():
+            if self._profiler is None:
+                return JSONResponse(
+                    content={"error": "Profiler is not running"}, status_code=409
+                )
+
+            profiler = self._profiler
+            profile_dir = self._profile_dir
+            self._profiler = None
+            self._profile_dir = None
+            profiler.stop()
+            logger.info("Profiler stopped: %s", profile_dir)
+            return {"status": "stopped", "profile_dir": profile_dir}
 
         def _models_payload():
             return {
@@ -341,10 +463,20 @@ class InferenceServer:
             return default
 
         # Accept common alias
-        max_tokens = pick("max_tokens", self.max_tokens)
-        if max_tokens is None:
-            # Some clients use max_new_tokens
-            max_tokens = pick("max_new_tokens", self.max_tokens)
+        if data.get("max_tokens") is not None:
+            max_tokens = data["max_tokens"]
+        elif data.get("max_completion_tokens") is not None:
+            max_tokens = data["max_completion_tokens"]
+        elif sp.get("max_tokens") is not None:
+            max_tokens = sp["max_tokens"]
+        elif sp.get("max_completion_tokens") is not None:
+            max_tokens = sp["max_completion_tokens"]
+        elif data.get("max_new_tokens") is not None:
+            max_tokens = data["max_new_tokens"]
+        elif sp.get("max_new_tokens") is not None:
+            max_tokens = sp["max_new_tokens"]
+        else:
+            max_tokens = self.max_tokens
 
         stop = pick("stop", None)
         if isinstance(stop, str):
@@ -356,27 +488,50 @@ class InferenceServer:
             top_k=int(pick("top_k", self.top_k)),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
-            ignore_eos=self.ignore_eos,
+            ignore_eos=bool(pick("ignore_eos", self.ignore_eos)),
         )
 
-    async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
+    async def _prepare_chat_request(self, request_id: str, data: dict):
+        if self._admission_executor is None:
+            raise RuntimeError("Admission executor is not running")
+        loop = asyncio.get_running_loop()
+        started = time.perf_counter()
+        result = await loop.run_in_executor(
+            self._admission_executor,
+            partial(self._prepare_chat_request_sync, request_id, data),
+        )
+        logger.debug(
+            "Prepared request %s in %.3f ms",
+            request_id,
+            (time.perf_counter() - started) * 1000.0,
+        )
+        return result
+
+    def _prepare_chat_request_sync(self, request_id: str, data: dict):
+        messages = data.get("messages", [])
+        sampling_params = self._build_sampling_params(data)
+        req = self.engine.add_chat_request(
+            messages=messages,
+            sampling_params=sampling_params,
+            request_id=request_id,
+            request_data=data,
+            add_generation_prompt=bool(data.get("add_generation_prompt", True)),
+            chat_template_kwargs=data.get("chat_template_kwargs") or {},
+        )
+        return req, sampling_params
+
+    async def _stream_chat(
+        self,
+        request_id: str,
+        data: dict,
+        http_request: Request,
+        req,
+        sampling_params: SamplingParams,
+    ):
         """Handle streaming chat request."""
-        req = None
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
-            sampling_params = self._build_sampling_params(data)
-
-            req = self.engine.add_chat_request(
-                messages=messages,
-                sampling_params=sampling_params,
-                request_id=request_id,
-                request_data=data,
-                add_generation_prompt=bool(data.get("add_generation_prompt", True)),
-                chat_template_kwargs=data.get("chat_template_kwargs") or {},
-            )
-
             async for token_output in self.engine.stream_request(
                 req,
                 timeout=DEFAULT_STREAM_TIMEOUT,
@@ -464,24 +619,18 @@ class InferenceServer:
                 self.engine.add_aborted_req(req, _abort_reason)
         yield "data: [DONE]\n\n"
 
-    async def _chat(self, request_id: str, data: dict, http_request: Request):
+    async def _chat(
+        self,
+        request_id: str,
+        data: dict,
+        http_request: Request,
+        req,
+        sampling_params: SamplingParams,
+    ):
         """Handle non-streaming chat request."""
-        req = None
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
-            sampling_params = self._build_sampling_params(data)
-
-            req = self.engine.add_chat_request(
-                messages=messages,
-                sampling_params=sampling_params,
-                request_id=request_id,
-                request_data=data,
-                add_generation_prompt=bool(data.get("add_generation_prompt", True)),
-                chat_template_kwargs=data.get("chat_template_kwargs") or {},
-            )
-
             # Collect all generated tokens
             output_text = ""
             async for token_output in self.engine.stream_request(
@@ -510,7 +659,6 @@ class InferenceServer:
                 if token_output.finished:
                     break
 
-            output_text = output_text.strip()
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
             response = completion_json(
@@ -593,9 +741,10 @@ def main():
         cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
     )
     logger.info(
-        "MoE EP backend: %s  TP=%s  DP=%s  EP=%s",
+        "MoE EP backend: %s  TP=%s  PP=%s  DP=%s  EP=%s",
         moe_ep_backend,
         cfg.tp,
+        cfg.pp,
         cfg.dp,
         ep,
     )
@@ -605,11 +754,14 @@ def main():
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        pipeline_parallel_size=cfg.pp,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,
+        max_num_batched_tokens=cfg.max_num_batched_tokens,
+        max_num_mixed_prefill_tokens=cfg.max_num_mixed_prefill_tokens,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
         max_cache_len=cfg.max_cache_len,
@@ -624,6 +776,8 @@ def main():
         weight_load_mode=cfg.weight_load_mode,
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
+        admission_workers=cfg.admission_workers,
+        prefill_coalesce_ms=cfg.prefill_coalesce_ms,
     )
     server.start()
 

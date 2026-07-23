@@ -6,6 +6,7 @@ class DistConfig:
     def __init__(
         self,
         tp_size=None,
+        pp_size=1,
         tp_device_ids=None,
         moe_ep_backend="disabled",
         moe_ep_size=1,
@@ -16,8 +17,10 @@ class DistConfig:
             raise ValueError("Provide either tp_size OR tp_device_ids, not both")
 
         if tp_size is not None:
-            self._underlying = _infinilm.DistConfig(tp_size)
+            self._underlying = _infinilm.DistConfig(tp_size, pp_size)
         elif tp_device_ids is not None:
+            if pp_size != 1:
+                raise ValueError("pp_size with explicit device IDs is not supported")
             self._underlying = _infinilm.DistConfig(tp_device_ids)
         else:
             self._underlying = _infinilm.DistConfig()
@@ -47,6 +50,10 @@ class DistConfig:
     @moe_ep_size.setter
     def moe_ep_size(self, value):
         self._underlying.moe_ep_size = int(value)
+
+    @property
+    def pipeline_parallel_size(self):
+        return self._underlying.pipeline_parallel_size
 
     def __repr__(self):
         return repr(self._underlying)

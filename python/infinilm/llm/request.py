@@ -162,6 +162,9 @@ class InferenceRequest:
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
 
+        # Exclusive prompt offset for the prefill chunk scheduled this step.
+        self.prefill_chunk_end: Optional[int] = None
+
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
 

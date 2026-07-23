@@ -8,6 +8,8 @@ from .processor import InfinilmProcessor, register_processor
 
 @register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
+    supports_mixed_batch = True
+
     def __init__(self, model_dir_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
@@ -148,6 +150,9 @@ class BasicLLMProcessor(InfinilmProcessor):
             "input_offsets": infinicore.from_list(
                 input_offsets, dtype=infinicore.int32
             ),
+            "request_ids": infinicore.from_list(
+                [0] * len(input_ids[0]), dtype=infinicore.int32
+            ),
             "cu_seqlens": infinicore.from_list(
                 [0, total_kv_len], dtype=infinicore.int32
             ),
@@ -198,21 +203,25 @@ class BasicLLMProcessor(InfinilmProcessor):
         position_ids = []
         cu_seqlens = [0]
 
-        max_block_table_len = max(
-            len(req.block_table) for req in scheduler_output.scheduled_requests
+        cache_block_size_factor = getattr(self, "cache_block_size_factor", 1)
+        max_block_table_len = (
+            max(len(req.block_table) for req in scheduler_output.scheduled_requests)
+            * cache_block_size_factor
         )
         current_offset = 0
 
         for req in scheduler_output.scheduled_requests:
+            request_is_prefill = scheduler_output.is_prefill_request(req)
             num_cached = req.num_local_cached_tokens
-            if scheduler_output.is_prefill:
+            if request_is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                chunk_end = req.prefill_chunk_end or len(req_tokens)
+                tokens_to_compute = req_tokens[num_cached:chunk_end]
                 tokens.extend(tokens_to_compute)
 
                 compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
+                seq_len = chunk_end
                 seq_lens.append(seq_len)
 
                 current_offset += compute_len
@@ -241,11 +250,18 @@ class BasicLLMProcessor(InfinilmProcessor):
                 position_ids.append(seq_len - 1)
 
             # Pad block_table to same length
-            padded_block_table = req.block_table + [-1] * (
-                max_block_table_len - len(req.block_table)
+            kernel_block_table = self.expand_block_table_for_kernel(req.block_table)
+            padded_block_table = kernel_block_table + [-1] * (
+                max_block_table_len - len(kernel_block_table)
             )
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
+
+        request_ids = [
+            request_idx
+            for request_idx in range(len(seq_offsets) - 1)
+            for _ in range(seq_offsets[request_idx + 1] - seq_offsets[request_idx])
+        ]
 
         return {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
@@ -255,10 +271,13 @@ class BasicLLMProcessor(InfinilmProcessor):
             ),
             "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
             "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
+            "request_ids": infinicore.from_list(request_ids, dtype=infinicore.int32),
             "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
             "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
             "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
             "max_context_len": max(seq_lens),
+            "allow_graph_replay": scheduler_output.is_decode_only,
+            "is_mixed_batch": scheduler_output.is_mixed,
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,

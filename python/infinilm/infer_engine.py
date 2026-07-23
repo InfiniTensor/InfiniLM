@@ -217,6 +217,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
+        request_ids=None,
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
@@ -231,6 +232,10 @@ class InferEngine(_infinilm.InferEngine):
         target_hidden_states=None,
         sample_all_positions=False,
         max_context_len=None,
+        keep_output_device=False,
+        reuse_last_output=False,
+        allow_graph_replay=True,
+        is_mixed_batch=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -245,6 +250,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths = unwrap_tensor(past_kv_lengths)
         total_kv_lengths = unwrap_tensor(total_kv_lengths)
         input_offsets = unwrap_tensor(input_offsets)
+        request_ids = unwrap_tensor(request_ids)
         block_tables = unwrap_tensor(block_tables)
         cu_seqlens = unwrap_tensor(cu_seqlens)
         slot_mapping = unwrap_tensor(slot_mapping)
@@ -276,6 +282,7 @@ class InferEngine(_infinilm.InferEngine):
             past_sequence_lengths=past_kv_lengths,
             total_sequence_lengths=total_kv_lengths,
             input_offsets=input_offsets,
+            request_ids=request_ids,
             cu_seqlens=cu_seqlens,
             block_tables=block_tables,
             slot_mapping=slot_mapping,
@@ -290,6 +297,10 @@ class InferEngine(_infinilm.InferEngine):
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
             max_context_len=max_context_len,
+            keep_output_device=keep_output_device,
+            reuse_last_output=reuse_last_output,
+            allow_graph_replay=allow_graph_replay,
+            is_mixed_batch=is_mixed_batch,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
@@ -303,6 +314,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
+        request_ids=None,
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
@@ -315,6 +327,10 @@ class InferEngine(_infinilm.InferEngine):
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
+        keep_output_device=False,
+        reuse_last_output=False,
+        allow_graph_replay=True,
+        is_mixed_batch=False,
         max_context_len=None,
         temperature=None,
         top_k=None,
@@ -335,6 +351,7 @@ class InferEngine(_infinilm.InferEngine):
             input_offsets = (
                 input_offsets._underlying if input_offsets is not None else None
             )
+            request_ids = request_ids._underlying if request_ids is not None else None
             block_tables = (
                 block_tables._underlying if block_tables is not None else None
             )
@@ -376,6 +393,7 @@ class InferEngine(_infinilm.InferEngine):
                         past_kv_lengths=past_kv_lengths,
                         total_kv_lengths=total_kv_lengths,
                         input_offsets=input_offsets,
+                        request_ids=request_ids,
                         cu_seqlens=cu_seqlens,
                         block_tables=block_tables,
                         slot_mapping=slot_mapping,
@@ -388,6 +406,10 @@ class InferEngine(_infinilm.InferEngine):
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         target_hidden_states=target_hidden_states,
+                        keep_output_device=keep_output_device,
+                        reuse_last_output=reuse_last_output,
+                        allow_graph_replay=allow_graph_replay,
+                        is_mixed_batch=is_mixed_batch,
                         max_context_len=max_context_len,
                         temperature=temperature,
                         top_k=top_k,
@@ -408,6 +430,7 @@ class InferEngine(_infinilm.InferEngine):
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
+        request_ids=None,
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
@@ -431,6 +454,7 @@ class InferEngine(_infinilm.InferEngine):
                     past_kv_lengths=past_kv_lengths,
                     total_kv_lengths=total_kv_lengths,
                     input_offsets=input_offsets,
+                    request_ids=request_ids,
                     cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
@@ -474,6 +498,8 @@ class InferEngine(_infinilm.InferEngine):
         seq_len = initial_seqlen
         batch_size = initial_batch_size
 
+        keep_output_device = initial_batch_size > 1 or not generation_config.stop_on_eos
+
         if batch_size != 1 and generation_config.max_new_tokens is None:
             raise ValueError(
                 "When `batch_size > 1`, `max_new_tokens` must be specified."
@@ -481,6 +507,7 @@ class InferEngine(_infinilm.InferEngine):
 
         if _measure_and_log_time:
             time_measurements = []
+            decode_start_time = None
 
         block_tables = None
         max_blocks_per_batch = 0
@@ -576,6 +603,14 @@ class InferEngine(_infinilm.InferEngine):
             input_offsets = infinicore.from_list(
                 [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
             )
+            request_ids = infinicore.from_list(
+                [
+                    request_id
+                    for request_id in range(batch_size)
+                    for _ in range(seq_len)
+                ],
+                dtype=infinicore.int32,
+            )
 
             mamba_init_state_indices = None
             mamba_final_state_indices = None
@@ -596,6 +631,7 @@ class InferEngine(_infinilm.InferEngine):
                 past_kv_lengths=past_kv_lengths,
                 total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
+                request_ids=request_ids,
                 cu_seqlens=cu_seqlens,
                 block_tables=block_tables,
                 slot_mapping=slot_mapping,
@@ -605,6 +641,8 @@ class InferEngine(_infinilm.InferEngine):
                 image_bound=image_bound if iter == 0 else None,
                 tgt_sizes=tgt_sizes if iter == 0 else None,
                 temperature=generation_config.temperature,
+                keep_output_device=keep_output_device,
+                reuse_last_output=keep_output_device and iter > 0,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
             )
@@ -625,9 +663,24 @@ class InferEngine(_infinilm.InferEngine):
             past_seq_len = past_seq_len + seq_len
 
             if _measure_and_log_time:
-                end_time = time.perf_counter()
+                if keep_output_device:
+                    if iter == 0:
+                        infinicore.sync_device()
+                        end_time = time.perf_counter()
+                        time_measurements.append(end_time - start_time)
+                        decode_start_time = end_time
+                    elif iter == generation_config.max_new_tokens - 1:
+                        infinicore.sync_device()
+                        end_time = time.perf_counter()
+                        decode_steps = generation_config.max_new_tokens - 1
+                        avg_decode_time = (end_time - decode_start_time) / decode_steps
+                        time_measurements.extend([avg_decode_time] * decode_steps)
+                else:
+                    end_time = time.perf_counter()
+                    time_measurements.append(end_time - start_time)
 
-                time_measurements.append((end_time - start_time))
+        if keep_output_device and not _measure_and_log_time:
+            infinicore.sync_device()
 
         if _measure_and_log_time:
             print(

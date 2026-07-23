@@ -23,6 +23,7 @@ void StaticBatchingCompiler::compile() {
             input.past_sequence_lengths,
             input.total_sequence_lengths,
             input.input_offsets,
+            input.request_ids,
             input.cu_seqlens,
             input.block_tables,
             input.slot_mapping,

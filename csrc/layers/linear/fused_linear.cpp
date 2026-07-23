@@ -3,6 +3,78 @@
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers::linear {
+namespace {
+
+size_t merged_output_size(const std::vector<size_t> &output_sizes) {
+    size_t total = 0;
+    for (const auto size : output_sizes) {
+        total += size;
+    }
+    return total;
+}
+
+} // namespace
+
+// ---------------------------------------------------------
+// Merged Replicated Linear
+// ---------------------------------------------------------
+MergedReplicatedLinear::MergedReplicatedLinear(
+    size_t input_size,
+    const std::vector<size_t> &output_sizes,
+    const std::vector<std::string> &param_names,
+    RegisterParamFn register_fn,
+    std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+    bool bias,
+    const infinicore::DataType &dtype,
+    const infinicore::Device &device)
+    : infinilm::nn::Linear(
+        input_size,
+        merged_output_size(output_sizes),
+        quantization == nullptr
+            ? std::make_shared<infinilm::quantization::NoneQuantization>()
+            : quantization,
+        bias,
+        dtype,
+        device),
+      output_sizes_(output_sizes),
+      register_fn_(std::move(register_fn)) {
+    if (output_sizes_.empty() || output_sizes_.size() != param_names.size()) {
+        throw std::runtime_error(
+            "MergedReplicatedLinear expects non-empty, equally sized output_sizes and param_names");
+    }
+    size_t offset = 0;
+    for (size_t i = 0; i < output_sizes_.size(); ++i) {
+        split_infos_.push_back({param_names[i], offset, output_sizes_[i]});
+        offset += output_sizes_[i];
+    }
+    auto params = this->split_params(split_infos_, 0, 1, -1);
+    for (auto &sp : params) {
+        register_fn_(sp.full_name, std::move(sp.param));
+    }
+}
+
+std::vector<infinicore::Tensor>
+MergedReplicatedLinear::forward_split(infinicore::Tensor &input) const {
+    auto output = this->forward(input);
+    const size_t dim = output->ndim() - 1;
+    std::vector<infinicore::Tensor> result;
+    result.reserve(output_sizes_.size());
+    size_t offset = 0;
+    for (const auto size : output_sizes_) {
+        result.push_back(output->narrow({{dim, offset, size}}));
+        offset += size;
+    }
+    return result;
+}
+
+void MergedReplicatedLinear::process_weights_after_loading() {
+    BaseLinear::process_weights_after_loading();
+    auto params = this->split_params(split_infos_, 0, 1, -1);
+    for (auto &sp : params) {
+        register_fn_(sp.full_name, std::move(sp.param));
+    }
+}
+
 // ---------------------------------------------------------
 // QKV Parallel Linear
 // ---------------------------------------------------------

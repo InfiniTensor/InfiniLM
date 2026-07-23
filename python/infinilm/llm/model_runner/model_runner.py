@@ -59,9 +59,18 @@ class ModelRunner:
             )
         elif config.cache_type == "paged":
             cache_config = PagedKVCacheConfig(
-                num_blocks=config.num_blocks, block_size=config.block_size
+                num_blocks=config.num_kernel_blocks,
+                block_size=config.kernel_block_size,
             )
-            logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+            logger.info(
+                "Using Paged KV Cache: manager_blocks=%s, manager_block_size=%s, "
+                "kernel_blocks=%s, kernel_block_size=%s, token_capacity=%s",
+                config.num_blocks,
+                config.block_size,
+                config.num_kernel_blocks,
+                config.kernel_block_size,
+                config.max_cache_tokens,
+            )
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
@@ -71,6 +80,7 @@ class ModelRunner:
             device=self.device,
             distributed_config=DistConfig(
                 config.tensor_parallel_size,
+                pp_size=config.pipeline_parallel_size,
                 moe_ep_backend=config.moe_ep_backend,
                 moe_ep_size=config.moe_ep_size,
             ),
@@ -103,6 +113,10 @@ class ModelRunner:
 
         # Initialize processor
         self.processor = AutoInfinilmProcessor.from_pretrained(config.model_path)
+        if config.cache_type == "paged":
+            self.processor.configure_paged_cache(
+                config.block_size, config.kernel_block_size
+            )
 
         # Initialize KV connector
         self.kv_connector = None
@@ -115,7 +129,9 @@ class ModelRunner:
             )
 
             kv_cache_list = self.model_engine.get_kv_cache()
-            assert len(kv_cache_list) == self.config.tensor_parallel_size
+            assert len(kv_cache_list) == (
+                self.config.tensor_parallel_size * self.config.pipeline_parallel_size
+            )
 
             kv_caches = {}
             for rank_idx, kv_cache_vec in enumerate(kv_cache_list):

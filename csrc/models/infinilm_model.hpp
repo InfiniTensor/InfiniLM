@@ -28,6 +28,8 @@ public:
         std::optional<infinicore::Tensor> total_sequence_lengths;
         /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> input_offsets;
+        /// Request id for each flattened input token, of shape [num_tokens].
+        std::optional<infinicore::Tensor> request_ids;
         /// Cumulative total sequence lengths for each request, of shape `[num_requests + 1]`.
         std::optional<infinicore::Tensor> cu_seqlens;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
@@ -55,6 +57,8 @@ public:
         std::optional<std::vector<size_t>> visual_token_ranges;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
+        /// Keep logits for every packed input position (e.g. raw/MTP calls).
+        bool sample_all_positions{false};
     };
 
     struct Output {
@@ -69,6 +73,12 @@ public:
     virtual void reset_cache(const cache::CacheConfig *cache_config);
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();
+    }
+    virtual size_t max_decode_graph_batch_size() const {
+        return 512;
+    }
+    virtual size_t decode_graph_batch_size(size_t batch_size) const {
+        return batch_size;
     }
 
     void process_weights_after_loading();

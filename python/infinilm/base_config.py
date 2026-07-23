@@ -63,6 +63,7 @@ class BaseConfig:
         self.num_draft_tokens = self.args.num_draft_tokens
         self.device = self.args.device
         self.tp = self.args.tp
+        self.pp = self.args.pp
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
@@ -81,6 +82,8 @@ class BaseConfig:
 
         self.batch_size = self.args.batch_size
         self.max_batch_size = self.args.max_batch_size
+        self.max_num_batched_tokens = self.args.max_num_batched_tokens
+        self.max_num_mixed_prefill_tokens = self.args.max_num_mixed_prefill_tokens
         self.input_len = self.args.input_len
         self.output_len = self.args.output_len
         self.max_new_tokens = self.args.max_new_tokens
@@ -112,6 +115,8 @@ class BaseConfig:
         self.port = self.args.port
         self.endpoint = self.args.endpoint
         self.ignore_eos = self.args.ignore_eos
+        self.admission_workers = self.args.admission_workers
+        self.prefill_coalesce_ms = self.args.prefill_coalesce_ms
         # PD separation (KV transfer)
         self.kv_transfer_config = self.args.kv_transfer_config
 
@@ -199,6 +204,9 @@ class BaseConfig:
             ),
         )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
+        self.parser.add_argument(
+            "--pp", "--pipeline-parallel-size", type=int, default=1
+        )
         self.parser.add_argument("--dp", "--data-parallel-size", type=int, default=1)
         self.parser.add_argument(
             "--ep", "--expert-parallel-size", type=int, default=None
@@ -268,6 +276,24 @@ class BaseConfig:
             type=int,
             default=8,
             help="maximum batch size for server",
+        )
+        self.parser.add_argument(
+            "--max-num-batched-tokens",
+            type=int,
+            default=None,
+            help=(
+                "maximum tokens scheduled in one model step; "
+                "defaults are selected by model type"
+            ),
+        )
+        self.parser.add_argument(
+            "--max-num-mixed-prefill-tokens",
+            type=int,
+            default=None,
+            help=(
+                "maximum prefill tokens allowed beside active decodes; "
+                "defaults are selected by model type"
+            ),
         )
         self.parser.add_argument(
             "--input-len", type=parse_list, default=10, help="input sequence length"
@@ -366,6 +392,20 @@ class BaseConfig:
         self.parser.add_argument("--port", type=int, default=8000, help="server port")
         self.parser.add_argument(
             "--endpoint", type=str, default="/completions", help="API endpoint"
+        )
+        self.parser.add_argument(
+            "--admission-workers",
+            type=int,
+            default=4,
+            help="number of request preprocessing workers used by the API server",
+        )
+        self.parser.add_argument(
+            "--prefill-coalesce-ms",
+            type=float,
+            default=2.0,
+            help=(
+                "idle-to-prefill admission window in milliseconds; set to 0 to disable"
+            ),
         )
 
         self.parser.add_argument(

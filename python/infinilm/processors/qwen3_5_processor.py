@@ -12,6 +12,8 @@ from .processor import register_processor
 
 @register_processor("qwen3_5")
 class Qwen35Processor(BasicLLMProcessor):
+    supports_mixed_batch = False
+
     def __init__(self, model_dir_path: str):
         self.pixel_values_dtype = None
         config_path = os.path.join(model_dir_path, "config.json")
