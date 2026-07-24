@@ -5,6 +5,8 @@
 #include "infinicore/ops/mha_kvcache.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
 
+#include <limits>
+
 namespace infinilm::layers::attention::backends {
 
 FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
@@ -50,6 +52,12 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     // 2. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
+        const auto cache_block_size = kv_cache->shape()[2];
+        const auto max_cache_seqlen = block_tables.value()->shape()[1] * cache_block_size;
+        if (seq_len > static_cast<size_t>(std::numeric_limits<int>::max())
+            || max_cache_seqlen > static_cast<size_t>(std::numeric_limits<int>::max())) {
+            throw std::runtime_error("FlashAttention sequence length exceeds int range");
+        }
         infinicore::op::mha_varlen_(
             attn_output,
             query,
@@ -58,8 +66,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             input_offsets.value(),
             cu_seqlens.value(),
             block_tables.value(),
-            max_position_embeddings_,
-            max_position_embeddings_,
+            static_cast<int>(seq_len),
+            static_cast<int>(max_cache_seqlen),
             std::nullopt,
             scale_);
     } else {
@@ -89,6 +97,29 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
                                                                                           const infinicore::Tensor slot_mapping) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    const auto &cache_shape = k_cache_layer->shape();
+    const bool use_hygon_paged_attention =
+        key->device().getType() == infinicore::Device::Type::HYGON
+        && cache_shape.size() == 4
+        && cache_shape[1] == 64;
+    if (use_hygon_paged_attention) {
+        const auto num_blocks = cache_shape[0];
+        const auto block_size = cache_shape[1];
+        const auto num_kv_heads = cache_shape[2];
+        const auto head_dim = cache_shape[3];
+        auto k_cache_vllm = k_cache_layer->view(
+            {num_blocks, num_kv_heads, block_size, head_dim});
+        auto v_cache_vllm = v_cache_layer->view(
+            {num_blocks, num_kv_heads, head_dim, block_size});
+        infinicore::op::paged_caching_(
+            k_cache_vllm,
+            v_cache_vllm,
+            key,
+            value,
+            slot_mapping);
+        return {k_cache_vllm, v_cache_vllm};
+    }
+
     infinicore::op::paged_caching_(
         k_cache_layer->permute({0, 2, 1, 3}), // permute to BHSD for paged_caching_
         v_cache_layer->permute({0, 2, 1, 3}),
