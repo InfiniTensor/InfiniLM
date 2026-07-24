@@ -10,6 +10,8 @@ Usage:
         --image test/assets/demo.jpg \
         --video test/assets/demo.mp4
 
+The default paged KV cache and flash-attn backend match the submitted report.
+
 The HF reference path is gated behind --with-reference (needs the model loadable
 by transformers). Without it, the script just runs InfiniLM and prints outputs.
 Per the task rules, transformers is used ONLY as a test reference here; the
@@ -17,62 +19,49 @@ adapted model/processor code does not depend on it for inference.
 """
 
 import argparse
-import ctypes
 import os
 
 
-def _disable_maca_device_heap():
-    """Set MACA device malloc heap size to 0 before any GPU allocation.
-
-    On MetaX C500 (64 GB), the model weights consume nearly all VRAM, leaving
-    too little for MACA to create its default 8 MB kernel-side heap.  Setting
-    the limit to 0 disables the heap entirely; model inference does not use
-    device-side malloc so this is safe.
-    """
-    for libname in ("libmcruntime.so", "libhcruntime.so"):
-        try:
-            lib = ctypes.CDLL(libname)
-            # mcLimitMallocHeapSize / hcLimitMallocHeapSize = 2 (same as cudaLimitMallocHeapSize)
-            ret = lib.mcDeviceSetLimit(2, ctypes.c_size_t(0))
-            if ret == 0:
-                print(f"[INFO] {libname}: mcDeviceSetLimit(MallocHeapSize, 0) OK")
-                return
-            # fallback: try hc variant
-            ret2 = lib.hcDeviceSetLimit(2, ctypes.c_size_t(0))
-            if ret2 == 0:
-                print(f"[INFO] {libname}: hcDeviceSetLimit(MallocHeapSize, 0) OK")
-                return
-        except OSError:
-            continue
-    print("[WARN] could not set device malloc heap size to 0 (library not found)")
-
-
-_disable_maca_device_heap()
-
-
 def build_conversation(text, image=None, video=None):
-    # InfiniLM framework format: resolve_multimodal_inputs expects type=="image"
-    # with image_url holding the file path. The HF reference path may need its own
-    # message format — adapt in run_reference if the installed processor differs.
     content = []
     if image is not None:
-        content.append({"type": "image", "image_url": image})
+        content.append({"type": "image_url", "image_url": {"url": image}})
     if video is not None:
-        content.append({"type": "video", "video_url": video})
+        from infinilm.processors.videonsa_processor import decode_video_frames
+
+        content.append(
+            {
+                "type": "video_url",
+                "video_url": {"url": decode_video_frames(video, 8)},
+                "source_path": video,
+            }
+        )
     content.append({"type": "text", "text": text})
     return [{"role": "user", "content": content}]
 
 
-def run_infinilm(model_path, device, conversation, max_new_tokens, ignore_eos=False, tp=1,
-                 max_cache_len=1024):
+def run_infinilm(
+    model_path,
+    device,
+    conversation,
+    max_new_tokens,
+    ignore_eos=False,
+    tp=1,
+    max_cache_len=1024,
+    cache_type="paged",
+    attn_backend="flash-attn",
+    num_blocks=64,
+    block_size=256,
+):
     from infinilm.llm.llm import LLM
     from infinilm.llm.sampling_params import SamplingParams
 
+    device = "cuda" if device == "nvidia" else device
     model = LLM(
         model_path=os.path.expanduser(model_path),
         device=device,
         tensor_parallel_size=tp,
-        cache_type="static",
+        cache_type=cache_type,
         max_batch_size=1,
         max_tokens=max_new_tokens,
         # A video expands to thousands of vision tokens (min_frames=16 -> >=2400
@@ -80,9 +69,12 @@ def run_infinilm(model_path, device, conversation, max_new_tokens, ignore_eos=Fa
         # default; raise --max-cache-len for video. default 4096 (224 MB) exceeds
         # free VRAM on C500.
         max_cache_len=max_cache_len,
+        num_blocks=num_blocks,
+        block_size=block_size,
         temperature=1.0,
         top_k=1,  # greedy
         top_p=1.0,
+        attn_backend=attn_backend,
     )
 
     sp = SamplingParams(
@@ -94,6 +86,27 @@ def run_infinilm(model_path, device, conversation, max_new_tokens, ignore_eos=Fa
     )
     outputs = model.chat(messages=[conversation], sampling_params=sp)
     return outputs
+
+
+def _reference_conversation(conversation):
+    """Translate shared OpenAI-style media items to the checkpoint format."""
+    normalized = []
+    for message in conversation:
+        content = []
+        for item in message["content"]:
+            if item["type"] == "image_url":
+                content.append({"type": "image", "image_url": item["image_url"]["url"]})
+            elif item["type"] == "video_url":
+                content.append(
+                    {
+                        "type": "video",
+                        "video_url": item.get("source_path", item["video_url"]["url"]),
+                    }
+                )
+            else:
+                content.append(item)
+        normalized.append({"role": message["role"], "content": content})
+    return normalized
 
 
 def run_reference(model_path, conversation, max_new_tokens):
@@ -123,13 +136,15 @@ def run_reference(model_path, conversation, max_new_tokens):
     model.eval()
 
     inputs = processor.apply_chat_template(
-        conversation,
+        _reference_conversation(conversation),
         add_generation_prompt=True,
         tokenize=True,
         return_dict=True,
         return_tensors="pt",
     )
-    inputs = {k: (v.to(model.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
+    inputs = {
+        k: (v.to(model.device) if hasattr(v, "to") else v) for k, v in inputs.items()
+    }
 
     prompt_len = inputs["input_ids"].shape[1]
     with torch.no_grad():
@@ -146,13 +161,20 @@ def run_reference(model_path, conversation, max_new_tokens):
 
 def _infinilm_text(infinilm_out):
     """Best-effort extraction of decoded text from LLM.chat output."""
-    o = infinilm_out[0] if isinstance(infinilm_out, (list, tuple)) and infinilm_out else infinilm_out
+    o = (
+        infinilm_out[0]
+        if isinstance(infinilm_out, (list, tuple)) and infinilm_out
+        else infinilm_out
+    )
     if isinstance(o, str):
         return o
-    for attr in ("text", "generated_text", "outputs"):
+    for attr in ("text", "generated_text"):
         val = getattr(o, attr, None)
         if isinstance(val, str):
             return val
+    candidates = getattr(o, "outputs", None)
+    if candidates and isinstance(getattr(candidates[0], "text", None), str):
+        return candidates[0].text
     return str(o)
 
 
@@ -174,7 +196,7 @@ def compare(infinilm_out, reference_ids, reference_text):
 
 
 CASES = [
-    ("text",  dict(text="用一句话介绍你自己。")),
+    ("text", dict(text="用一句话介绍你自己。")),
     ("image", dict(text="描述这张图片。", image="IMAGE_PATH")),
     ("video", dict(text="描述这段视频的内容。", video="VIDEO_PATH")),
 ]
@@ -183,20 +205,54 @@ CASES = [
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
-    ap.add_argument("--device", default="cuda")
+    ap.add_argument("--device", default="nvidia")
     ap.add_argument("--image", default=None)
     ap.add_argument("--video", default=None)
     ap.add_argument("--max-new-tokens", type=int, default=128)
-    ap.add_argument("--max-cache-len", type=int, default=1024,
-                    help="KV cache length; raise for video (>=3072) since a clip "
-                         "expands to thousands of vision tokens.")
+    ap.add_argument(
+        "--max-cache-len",
+        type=int,
+        default=1024,
+        help="KV cache length; raise for video (>=3072) since a clip "
+        "expands to thousands of vision tokens.",
+    )
+    ap.add_argument(
+        "--cache-type",
+        choices=("paged", "static"),
+        default="paged",
+        help="KV cache implementation. The validated report configuration uses paged.",
+    )
+    ap.add_argument(
+        "--attn",
+        default="flash-attn",
+        help="Attention backend. The validated report configuration uses flash-attn.",
+    )
+    ap.add_argument(
+        "--num-blocks",
+        type=int,
+        default=64,
+        help="Number of paged KV-cache blocks.",
+    )
+    ap.add_argument(
+        "--block-size",
+        type=int,
+        default=256,
+        help="Token capacity of each paged KV-cache block.",
+    )
     ap.add_argument("--with-reference", action="store_true")
     ap.add_argument("--cases", default="text,image,video")
-    ap.add_argument("--tp", type=int, default=1,
-                    help="Tensor-parallel size. Use 2 on MetaX C500 ×2 (the 59GB "
-                         "weights do not fit one 64GB card alongside activations/KV).")
-    ap.add_argument("--ignore-eos", action="store_true",
-                    help="Ignore EOS during generation to see what tokens follow (debug mode).")
+    ap.add_argument(
+        "--tp",
+        type=int,
+        default=1,
+        help="Tensor-parallel size. Use 2 on MetaX C500 ×2 (the 59GB "
+        "weights do not fit one 64GB card alongside activations/KV).",
+    )
+    ap.add_argument(
+        "--ignore-eos",
+        action="store_true",
+        help="Ignore EOS during generation to see what tokens follow (debug mode).",
+    )
     args = ap.parse_args()
 
     selected = set(args.cases.split(","))
@@ -217,13 +273,24 @@ def main():
         print(f"\n===== case: {name} =====")
         conversation = build_conversation(**kw)
         infinilm_out = run_infinilm(
-            args.model, args.device, conversation, args.max_new_tokens,
-            ignore_eos=args.ignore_eos, tp=args.tp, max_cache_len=args.max_cache_len,
+            args.model,
+            args.device,
+            conversation,
+            args.max_new_tokens,
+            ignore_eos=args.ignore_eos,
+            tp=args.tp,
+            max_cache_len=args.max_cache_len,
+            cache_type=args.cache_type,
+            attn_backend=args.attn,
+            num_blocks=args.num_blocks,
+            block_size=args.block_size,
         )
         print(f"[InfiniLM] {infinilm_out}")
 
         if args.with_reference:
-            ref_ids, ref_text = run_reference(args.model, conversation, args.max_new_tokens)
+            ref_ids, ref_text = run_reference(
+                args.model, conversation, args.max_new_tokens
+            )
             print(f"[Reference] {ref_text}")
             compare(infinilm_out, ref_ids, ref_text)
 
