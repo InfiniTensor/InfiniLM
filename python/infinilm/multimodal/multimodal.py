@@ -1,4 +1,5 @@
 from typing import List, Union
+
 from PIL import Image
 
 
@@ -52,8 +53,14 @@ def resolve_multimodal_inputs(messages: Union[List[dict], dict]):
                     video_urls.append(
                         f"predecoded_video:{len(video_urls)}:{len(video)}"
                     )
+            elif item.get("type") == "video":
+                # Pass the source path through; the processor decodes, samples
+                # frames, burns timestamps, and patchifies (see
+                # Ernie4_5_VLMoeProcessor._decode_and_sample_frames).
+                videos.append(item["video_url"])
+
             else:  # TODO support audio
-                raise NotImplementedError("Only image/video input is supported for now")
+                raise NotImplementedError("Only image and video inputs are supported")
 
     return {
         "images": images,
