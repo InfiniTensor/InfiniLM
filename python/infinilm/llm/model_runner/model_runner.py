@@ -77,6 +77,7 @@ class ModelRunner:
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
+            kv_cache_dtype=config.kv_cache_dtype,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
             skip_legacy_moe=config.skip_legacy_moe,

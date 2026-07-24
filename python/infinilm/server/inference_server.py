@@ -22,8 +22,8 @@ from infinilm.moe_config import configure_moe_ep_backend
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+DEFAULT_STREAM_TIMEOUT = 3600.0
+DEFAULT_REQUEST_TIMEOUT = 3600.0
 
 
 def chunk_json(
@@ -106,6 +106,7 @@ class InferenceServer:
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
+        kv_cache_dtype: Optional[str] = None,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -117,6 +118,7 @@ class InferenceServer:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
+        stream_interval: int = 1,
         kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize inference server.
@@ -161,6 +163,7 @@ class InferenceServer:
         self.max_batch_size = max_batch_size
         self.num_blocks = num_blocks
         self.block_size = block_size
+        self.kv_cache_dtype = kv_cache_dtype
         self.max_cache_len = max_cache_len
         self.temperature = temperature
         self.top_p = top_p
@@ -172,6 +175,7 @@ class InferenceServer:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.ignore_eos = ignore_eos
+        self.stream_interval = max(1, stream_interval)
         self.kv_transfer_config = kv_transfer_config
 
         self.engine: AsyncLLMEngine = None
@@ -201,6 +205,7 @@ class InferenceServer:
                 max_tokens=self.max_tokens,
                 num_blocks=self.num_blocks,
                 block_size=self.block_size,
+                kv_cache_dtype=self.kv_cache_dtype,
                 max_cache_len=self.max_cache_len,
                 temperature=self.temperature,
                 top_p=self.top_p,
@@ -345,10 +350,21 @@ class InferenceServer:
             return default
 
         # Accept common alias
-        max_tokens = pick("max_tokens", self.max_tokens)
-        if max_tokens is None:
-            # Some clients use max_new_tokens
-            max_tokens = pick("max_new_tokens", self.max_tokens)
+        # OpenAI clients increasingly use max_completion_tokens. Keep legacy
+        # aliases for compatibility, with explicit top-level values winning.
+        if data.get("max_tokens") is not None:
+            max_tokens = data["max_tokens"]
+        elif data.get("max_completion_tokens") is not None:
+            max_tokens = data["max_completion_tokens"]
+        elif data.get("max_new_tokens") is not None:
+            max_tokens = data["max_new_tokens"]
+        else:
+            max_tokens = sp.get(
+                "max_tokens",
+                sp.get(
+                    "max_completion_tokens", sp.get("max_new_tokens", self.max_tokens)
+                ),
+            )
 
         stop = pick("stop", None)
         if isinstance(stop, str):
@@ -367,6 +383,7 @@ class InferenceServer:
         """Handle streaming chat request."""
         req = None
         _abort_reason = FinishReason.CANCELED
+        data.setdefault("stream_interval", self.stream_interval)
 
         try:
             messages = data.get("messages", [])
@@ -439,6 +456,24 @@ class InferenceServer:
                         ensure_ascii=False,
                     )
                     yield f"data: {chunk}\n\n"
+                    stream_options = data.get("stream_options") or {}
+                    if stream_options.get("include_usage"):
+                        usage_chunk = json.dumps(
+                            {
+                                "id": request_id,
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": self.model_id,
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": req.get_prompt_length(),
+                                    "completion_tokens": req.get_num_generated_tokens(),
+                                    "total_tokens": req.get_total_length(),
+                                },
+                            },
+                            ensure_ascii=False,
+                        )
+                        yield f"data: {usage_chunk}\n\n"
                     break
 
         except asyncio.CancelledError:
@@ -484,37 +519,23 @@ class InferenceServer:
                 request_data=data,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
+                init_output_queue=False,
             )
+            req.bind_completion_event(asyncio.get_running_loop())
 
-            # Collect all generated tokens
-            output_text = ""
-            async for token_output in self.engine.stream_request(
-                req,
-                timeout=DEFAULT_STREAM_TIMEOUT,
-                request_timeout=DEFAULT_REQUEST_TIMEOUT,
-            ):
-                # Check client disconnect
+            start_time = time.time()
+            while not req.is_finished():
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
                     break
-
-                # Request-level timeout is handled inside stream_request.
-                if token_output.finish_reason == FinishReason.TIMEOUT:
+                if time.time() - start_time > DEFAULT_REQUEST_TIMEOUT:
                     logger.warning(f"Request {request_id} timed out")
+                    self.engine.add_aborted_req(req, FinishReason.TIMEOUT)
                     break
+                remaining = DEFAULT_REQUEST_TIMEOUT - (time.time() - start_time)
+                await req.wait_finished(timeout=min(0.1, max(0.0, remaining)))
 
-                # Skip EOS token text for OpenAI API compatibility
-                # Check if this token is an EOS token by comparing token_id with eos_token_ids
-                eos_token_ids = self.engine.engine.eos_token_ids
-                is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
-
-                if not is_eos_token and token_output.token_text:
-                    output_text += token_output.token_text
-
-                if token_output.finished:
-                    break
-
-            output_text = output_text.strip()
+            output_text = req.generated_text.strip()
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
             response = completion_json(
@@ -617,6 +638,7 @@ def main():
         max_batch_size=cfg.max_batch_size,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
+        kv_cache_dtype=cfg.kv_cache_dtype,
         max_cache_len=cfg.max_cache_len,
         temperature=cfg.temperature,
         top_p=cfg.top_p,
@@ -628,6 +650,7 @@ def main():
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         ignore_eos=cfg.ignore_eos,
+        stream_interval=cfg.stream_interval,
         kv_transfer_config=kv_transfer_config,
     )
     server.start()

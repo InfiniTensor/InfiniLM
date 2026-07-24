@@ -47,6 +47,7 @@ class EngineConfig:
     max_tokens: int = 4096
     num_blocks: int = 512
     block_size: int = 256
+    kv_cache_dtype: Optional[str] = None
     max_cache_len: int = 4096
     temperature: float = 1.0
     top_p: float = 0.8
