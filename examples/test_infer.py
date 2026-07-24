@@ -6,6 +6,8 @@ from infinilm.llm.llm import LLM
 from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.processors.videonsa_processor import decode_video_frames
 
+DEFAULT_VIDEO_NUM_FRAMES = 8
+
 
 def test(
     prompts: list[str],
@@ -69,7 +71,9 @@ def test(
         for prompt in prompts
     ]
     if video_path is not None:
-        video_payload = decode_video_frames(video_path, video_num_frames)
+        video_payload = decode_video_frames(
+            video_path, video_num_frames or DEFAULT_VIDEO_NUM_FRAMES
+        )
         for conversation in conversations:
             conversation[0]["content"] = [
                 {"type": "video_url", "video_url": {"url": video_payload}}

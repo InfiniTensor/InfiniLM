@@ -2,6 +2,7 @@ import gc
 import glob
 import json
 import os
+import re
 import time
 from typing import Dict, List, Optional, Union
 
@@ -756,6 +757,137 @@ def _remap_qwen3_5(state_dict, config):
     return state_dict
 
 
+def _remap_ernie4_5_moe_vl(state_dict, config=None):
+    """Apply ERNIE 4.5 VL load-time weight fixes.
+
+    ERNIE checkpoints store router gate weights in fp32. They also store each
+    expert as separate gate/up/down projections; InfiniLM uses InfiniCore's
+    fused MoE op, so fuse the text expert weights before loading.
+    """
+    target_dtype = torch.bfloat16
+    hf_config = config or {}
+    for key in ("torch_dtype", "dtype"):
+        dtype_name = hf_config.get(key)
+        if dtype_name in ("float16", "float32", "bfloat16"):
+            target_dtype = {
+                "float16": torch.float16,
+                "float32": torch.float32,
+                "bfloat16": torch.bfloat16,
+            }[dtype_name]
+            break
+
+    text_expert_count = hf_config.get("num_experts")
+    moe_num_experts = hf_config.get("moe_num_experts")
+    if isinstance(moe_num_experts, list) and len(moe_num_experts) > 0:
+        text_expert_count = int(moe_num_experts[0])
+    elif text_expert_count is not None:
+        text_expert_count = int(text_expert_count)
+
+    expert_re = re.compile(
+        r"^(?P<prefix>model\.layers\.\d+\.mlp\.experts)\."
+        r"(?P<expert>\d+)\."
+        r"(?P<proj>gate_proj|up_proj|down_proj)\."
+        r"(?P<kind>weight|bias)$"
+    )
+    expert_parts = {}
+    remapped = {}
+
+    for key, tensor in state_dict.items():
+        match = expert_re.match(key)
+        if match is not None:
+            prefix = match.group("prefix")
+            expert = int(match.group("expert"))
+            proj = match.group("proj")
+            kind = match.group("kind")
+            expert_parts.setdefault(prefix, {}).setdefault(expert, {})[(proj, kind)] = (
+                tensor
+            )
+            continue
+
+        if (
+            key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1"))
+            and tensor.is_floating_point()
+        ):
+            remapped[key] = tensor.to(dtype=target_dtype).contiguous()
+        else:
+            remapped[key] = tensor
+
+    for prefix, experts in expert_parts.items():
+        text_ids = sorted(
+            expert_id
+            for expert_id in experts
+            if text_expert_count is None or expert_id < text_expert_count
+        )
+        vision_ids = []
+        if text_expert_count is not None:
+            vision_ids = sorted(
+                expert_id for expert_id in experts if expert_id >= text_expert_count
+            )
+        if not text_ids:
+            continue
+
+        def fuse_expert_group(expert_ids):
+            w1_tensors = []
+            w2_tensors = []
+            b1_tensors = []
+            b2_tensors = []
+            has_all_bias = True
+            for expert_id in expert_ids:
+                parts = experts[expert_id]
+                gate = parts.get(("gate_proj", "weight"))
+                up = parts.get(("up_proj", "weight"))
+                down = parts.get(("down_proj", "weight"))
+                if gate is None or up is None or down is None:
+                    raise KeyError(
+                        f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}"
+                    )
+                w1_tensors.append(torch.cat([gate, up], dim=0))
+                w2_tensors.append(down)
+
+                gate_bias = parts.get(("gate_proj", "bias"))
+                up_bias = parts.get(("up_proj", "bias"))
+                down_bias = parts.get(("down_proj", "bias"))
+                if gate_bias is None or up_bias is None or down_bias is None:
+                    has_all_bias = False
+                else:
+                    b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
+                    b2_tensors.append(down_bias)
+
+            fused = {
+                "w1": torch.stack(w1_tensors, dim=0)
+                .to(dtype=target_dtype)
+                .contiguous(),
+                "w2": torch.stack(w2_tensors, dim=0)
+                .to(dtype=target_dtype)
+                .contiguous(),
+            }
+            if has_all_bias:
+                fused["b1"] = (
+                    torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
+                )
+                fused["b2"] = (
+                    torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
+                )
+            return fused
+
+        text_fused = fuse_expert_group(text_ids)
+        remapped[f"{prefix}.w1"] = text_fused["w1"]
+        remapped[f"{prefix}.w2"] = text_fused["w2"]
+        if "b1" in text_fused:
+            remapped[f"{prefix}.b1"] = text_fused["b1"]
+            remapped[f"{prefix}.b2"] = text_fused["b2"]
+
+        if vision_ids:
+            vision_fused = fuse_expert_group(vision_ids)
+            remapped[f"{prefix}.w1_1"] = vision_fused["w1"]
+            remapped[f"{prefix}.w2_1"] = vision_fused["w2"]
+            if "b1" in vision_fused:
+                remapped[f"{prefix}.b1_1"] = vision_fused["b1"]
+                remapped[f"{prefix}.b2_1"] = vision_fused["b2"]
+
+    return remapped
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -764,4 +896,5 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
 }
