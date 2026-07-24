@@ -50,6 +50,11 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto past_sequence_lengths = attn_metadata.past_sequence_lengths;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
 
+    if (infinicore::context::isGraphRecording()) {
+        ASSERT(this->kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE);
+        return forward_graph_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata);
+    }
+
     // update static kv cache
     // k_total:  [bs, n_kv_head, max_seq_len, head_dim]
     // v_total : [bs, n_kv_head, max_seq_len, head_dim]
@@ -88,6 +93,41 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
         ->permute({0, 2, 1, 3})
         ->contiguous()
         ->view({batch_size, seq_len, num_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+}
+
+infinicore::Tensor StaticAttentionImpl::forward_graph_(
+    const infinicore::Tensor &query,
+    const infinicore::Tensor &key,
+    const infinicore::Tensor &value,
+    infinicore::Tensor &kv_cache,
+    const infinilm::global_state::AttentionMetadata &attn_metadata) const {
+    ASSERT_EQ(query->size(2), 1);
+    ASSERT(attn_metadata.block_tables.has_value());
+    ASSERT(attn_metadata.past_sequence_lengths.has_value());
+    ASSERT(attn_metadata.total_sequence_lengths.has_value());
+
+    auto k_cache = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
+    auto v_cache = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    infinicore::op::kv_caching_(
+        k_cache,
+        v_cache,
+        key,
+        value,
+        attn_metadata.past_sequence_lengths.value());
+
+    auto q_decode = query->contiguous()->view({query->size(0), query->size(1), query->size(3)});
+    auto output = infinicore::Tensor::empty(q_decode->shape(), q_decode->dtype(), q_decode->device());
+    infinicore::op::paged_attention_(
+        output,
+        q_decode,
+        k_cache,
+        v_cache,
+        attn_metadata.block_tables.value(),
+        attn_metadata.total_sequence_lengths.value(),
+        std::nullopt,
+        scale_);
+
+    return output->view({query->size(0), 1, num_heads_ * head_dim_});
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,

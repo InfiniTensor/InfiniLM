@@ -1,6 +1,35 @@
 #include "static_batching_compiler.hpp"
 #include "../../cache/cache.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../utils.hpp"
+
+#include <algorithm>
+
+namespace {
+bool supports_static_graph_kv_cache(const infinicore::Tensor &kv_cache) {
+    if (kv_cache.empty() || kv_cache->ndim() != 5 || kv_cache->size(0) != 2 || !kv_cache->is_contiguous()) {
+        return false;
+    }
+
+    const auto dtype = kv_cache->dtype();
+    const auto head_dim = kv_cache->size(4);
+    return (dtype == infinicore::DataType::kFloat16 || dtype == infinicore::DataType::kBFloat16)
+        && (head_dim == 64 || head_dim == 128);
+}
+
+bool supports_static_graph_attention() {
+    const auto &config = infinilm::global_state::get_infinilm_config();
+    if (!config.model_config
+        || infinicore::context::getDevice().type() != infinicore::Device::Type::kNvidia
+        || config.model_config->get_kv_quant_scheme() != infinilm::quantization::KVQuantAlgo::NONE) {
+        return false;
+    }
+
+    const auto &kv_cache_vec = infinilm::global_state::get_forward_context().kv_cache_vec;
+    return !kv_cache_vec.empty()
+        && std::all_of(kv_cache_vec.begin(), kv_cache_vec.end(), supports_static_graph_kv_cache);
+}
+} // namespace
 
 namespace infinilm::engine {
 StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -8,15 +37,29 @@ StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmMod
 }
 
 void StaticBatchingCompiler::compile() {
+    compiled_map_.clear();
+    if (!supports_static_graph_attention()) {
+        return;
+    }
+
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
         size_t b = dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())->max_batch_size();
         InfinilmModel::Input input;
         input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
         input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
-        input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt64, infinicore::context::getDevice());
-        input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt64, infinicore::context::getDevice());
-        std::vector<int64_t> total_sequence_lengths_vec(b, 1);
-        infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
+        input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt32, infinicore::context::getDevice());
+        input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::kInt32, infinicore::context::getDevice());
+        set_zeros(input.input_ids.value());
+        set_zeros(input.position_ids.value());
+        set_zeros(input.past_sequence_lengths.value());
+        std::vector<int32_t> total_sequence_lengths_vec(b, 1);
+        infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t), false);
+        input.block_tables = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt32, infinicore::context::getDevice());
+        std::vector<int32_t> block_tables_vec(b);
+        for (size_t i = 0; i < b; ++i) {
+            block_tables_vec[i] = static_cast<int32_t>(i);
+        }
+        infinicore::context::memcpyH2D(input.block_tables.value()->data(), block_tables_vec.data(), b * sizeof(int32_t), false);
 
         // Attention reads attn_metadata from thread-local forward context.
         infinilm::global_state::get_forward_context().attn_metadata = {
