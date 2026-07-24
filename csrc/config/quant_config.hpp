@@ -1,9 +1,9 @@
 #pragma once
-#include "../utils.hpp"
 #include "../layers/quantization/quantization.hpp"
+#include "../utils.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
-#include <spdlog/spdlog.h>
+#include <stdexcept>
 
 namespace infinilm::config {
 
@@ -25,23 +25,9 @@ public:
     }
 
     void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
-        try {
-            this->kv_cache_dtype_ = std::make_optional(kv_cache_dtype);
-            switch (kv_cache_dtype) {
-            case infinicore::DataType::I8: {
-                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
-                break;
-            }
-            default: {
-                spdlog::warn("Unsupported kv_cache_dtype: '{}', fallback to NONE", infinicore::toString(kv_cache_dtype));
-                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
-                break;
-            }
-            }
-        } catch (const std::exception &e) {
-            spdlog::error("Failed to parse kv_cache_dtype '{}': {}", infinicore::toString(kv_cache_dtype), e.what());
-            this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
-        }
+        throw std::runtime_error(
+            "KV cache INT8 quantization is unsupported until its kernels are available in InfiniOps; requested dtype `"
+            + infinicore::toString(kv_cache_dtype) + "`.");
     }
 
     infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {

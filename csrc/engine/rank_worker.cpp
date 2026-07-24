@@ -420,7 +420,7 @@ void RankWorker::thread_loop() {
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device{infinicore::Device::Type::kCpu}));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
@@ -450,7 +450,7 @@ void RankWorker::thread_loop() {
 
                             const bool sample_all_positions = local_args.sample_all_positions;
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::kInt64, rank_info_.device)};
 
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
@@ -464,7 +464,7 @@ void RankWorker::thread_loop() {
                                     out, score, random_val, top_p, top_k, temperature);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
+                            output_ids = output_ids->to(infinicore::Device{infinicore::Device::Type::kCpu});
 
                             infinicore::context::syncStream();
 

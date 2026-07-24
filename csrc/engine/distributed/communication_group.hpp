@@ -2,10 +2,11 @@
 
 #include "dist_config.hpp"
 
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 #include <infinicore/context/context.hpp>
 
 #include <sstream>
+#include <utility>
 #include <vector>
 
 namespace infinilm::engine::distributed {
@@ -21,12 +22,12 @@ struct RankInfo {
     // Communicator handle
     infinicclComm_t comm;
 
-    RankInfo(infinicore::Device _device = infinicore::context::getDevice())
-        : tp_size(1), tp_rank(0), device(_device), comm(nullptr){};
+    explicit RankInfo(infinicore::Device device = infinicore::context::getDevice())
+        : device(std::move(device)), tp_size(1), tp_rank(0), comm(nullptr) {}
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "RankInfo: device=" << device.toString() << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank;
+        ss << "RankInfo: device=" << device.ToString() << ", tp_size=" << tp_size << ", tp_rank=" << tp_rank;
         return ss.str();
     }
 };
@@ -35,6 +36,10 @@ struct RankInfo {
 class CommunicationGroup {
 public:
     explicit CommunicationGroup(const DistConfig &dist_config, infinicore::Device::Type device_type);
+    CommunicationGroup(const CommunicationGroup &) = delete;
+    CommunicationGroup &operator=(const CommunicationGroup &) = delete;
+    CommunicationGroup(CommunicationGroup &&) = delete;
+    CommunicationGroup &operator=(CommunicationGroup &&) = delete;
 
     const DistConfig &get_dist_config() const;
 

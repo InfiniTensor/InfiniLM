@@ -12,14 +12,14 @@ namespace infinilm::models::qwen3_5 {
 namespace {
 
 std::vector<int32_t> tensor_to_i32_vector(const infinicore::Tensor &tensor) {
-    auto cpu_tensor = tensor->to(infinicore::Device::cpu());
+    auto cpu_tensor = tensor->to(infinicore::Device{infinicore::Device::Type::kCpu});
     std::vector<int32_t> values(cpu_tensor->numel());
-    if (cpu_tensor->dtype() == infinicore::DataType::I32) {
+    if (cpu_tensor->dtype() == infinicore::DataType::kInt32) {
         const auto *ptr = reinterpret_cast<const int32_t *>(cpu_tensor->data());
         values.assign(ptr, ptr + cpu_tensor->numel());
         return values;
     }
-    if (cpu_tensor->dtype() == infinicore::DataType::I64) {
+    if (cpu_tensor->dtype() == infinicore::DataType::kInt64) {
         const auto *ptr = reinterpret_cast<const int64_t *>(cpu_tensor->data());
         for (size_t i = 0; i < cpu_tensor->numel(); ++i) {
             values[i] = static_cast<int32_t>(ptr[i]);

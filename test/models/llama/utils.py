@@ -5,7 +5,8 @@ This module provides shared utility functions for tensor conversion,
 parameter name normalization, and tensor comparison.
 """
 
-from typing import Tuple, Dict, Callable, Optional, Any, List
+from typing import Any, Callable, Dict, Optional, Tuple
+
 import torch
 
 try:
@@ -103,24 +104,22 @@ def to_torch_dtype(infini_dtype):
         underlying = infini_dtype
 
     # Compare underlying enum values
-    if underlying == _infinicore.DataType.F32:
+    if underlying == _infinicore.DataType.FLOAT32:
         return torch.float32
-    elif underlying == _infinicore.DataType.F16:
+    elif underlying == _infinicore.DataType.FLOAT16:
         return torch.float16
-    elif underlying == _infinicore.DataType.BF16:
+    elif underlying == _infinicore.DataType.BFLOAT16:
         return torch.bfloat16
-    elif underlying == _infinicore.DataType.I8:
+    elif underlying == _infinicore.DataType.INT8:
         return torch.int8
-    elif underlying == _infinicore.DataType.I16:
+    elif underlying == _infinicore.DataType.INT16:
         return torch.int16
-    elif underlying == _infinicore.DataType.I32:
+    elif underlying == _infinicore.DataType.INT32:
         return torch.int32
-    elif underlying == _infinicore.DataType.I64:
+    elif underlying == _infinicore.DataType.INT64:
         return torch.int64
-    elif underlying == _infinicore.DataType.U8:
+    elif underlying == _infinicore.DataType.UINT8:
         return torch.uint8
-    elif underlying == _infinicore.DataType.BOOL:
-        return torch.bool
     else:
         raise ValueError(
             f"Unsupported infinicore dtype: {infini_dtype} (underlying enum: {underlying})"
@@ -182,7 +181,7 @@ def infinicore_to_torch_tensor(infini_tensor, torch_reference):
                     infini_tensor = infini_tensor.to(target_infini_device)
             if not infini_tensor.is_contiguous():
                 infini_tensor = infini_tensor.contiguous()
-    except Exception as e:
+    except Exception:
         # If device operations fail, try to ensure contiguous at least
         if (
             hasattr(infini_tensor, "is_contiguous")
@@ -202,22 +201,10 @@ def infinicore_to_torch_tensor(infini_tensor, torch_reference):
     if ref_device.type == "cpu":
         # Check if source tensor is on CUDA - if so, we need pinned memory
         source_is_cuda = False
-        source_cuda_device = None
         if hasattr(infini_tensor, "device"):
             source_device = infini_tensor.device
             source_device_str = str(source_device)
             source_is_cuda = source_device_str.startswith("cuda")
-            if source_is_cuda:
-                # Extract CUDA device index from device string (e.g., "cuda:0")
-                try:
-                    cuda_index = (
-                        int(source_device_str.split(":")[1])
-                        if ":" in source_device_str
-                        else 0
-                    )
-                    source_cuda_device = infinicore.device("cuda", cuda_index)
-                except:
-                    source_cuda_device = infinicore.device("cuda", 0)
 
         # If source is on CUDA, we need to ensure the intermediate CPU tensor
         # uses pinned memory. The copy_from function will handle setting the
@@ -239,7 +226,7 @@ def infinicore_to_torch_tensor(infini_tensor, torch_reference):
             # Create temp tensor from PyTorch and copy from the CPU tensor
             temp_tensor = torch_to_infinicore_tensor(torch_result, target_infini_device)
             temp_tensor.copy_(cpu_tensor)
-        except Exception as e:
+        except Exception:
             # Fallback: create intermediate tensor and copy through it
             # Create an intermediate contiguous tensor on CPU
             # Use pin_memory=True if source is CUDA to ensure proper D2H copy
@@ -431,7 +418,7 @@ def validate_infinicore_component(
 
         # Test 1: Call InfiniCore ops with InfiniCore input (current behavior)
         if verbose:
-            print(f"\n   Test 1: InfiniCore ops with InfiniCore input...")
+            print("\n   Test 1: InfiniCore ops with InfiniCore input...")
 
         # Prepare arguments for the op
         # For ops that take multiple inputs, we need to handle them
@@ -449,16 +436,16 @@ def validate_infinicore_component(
 
         if verbose:
             if test1_match:
-                print(f"      ✓ Test 1: InfiniCore ops matches InfiniLM output")
+                print("      ✓ Test 1: InfiniCore ops matches InfiniLM output")
             else:
-                print(f"      ⚠ Test 1: InfiniCore ops differs from InfiniLM output")
+                print("      ⚠ Test 1: InfiniCore ops differs from InfiniLM output")
                 print(f"         Max abs diff: {test1_stats['max_abs_diff']:.15f}")
                 print(f"         Mean abs diff: {test1_stats['mean_abs_diff']:.15f}")
 
         # Test 2: Call InfiniCore ops with Transformers input (to eliminate input diff)
         if verbose:
             print(
-                f"\n   Test 2: InfiniCore ops with Transformers input (eliminating input diff)..."
+                "\n   Test 2: InfiniCore ops with Transformers input (eliminating input diff)..."
             )
 
         test2_inputs = [trans_input_tensor]
@@ -470,7 +457,7 @@ def validate_infinicore_component(
         # Compare Test 2 (InfiniCore ops with Transformers input) vs Transformers output
         if verbose:
             print(
-                f"\n   Test 2 Results: InfiniCore ops (Transformers input) vs Transformers output:"
+                "\n   Test 2 Results: InfiniCore ops (Transformers input) vs Transformers output:"
             )
 
         test2_match, test2_stats = tensor_all_close(
@@ -487,11 +474,11 @@ def validate_infinicore_component(
 
             if test2_match:
                 print(
-                    f"      ✓ InfiniCore ops matches Transformers when using same input!"
+                    "      ✓ InfiniCore ops matches Transformers when using same input!"
                 )
             else:
                 print(
-                    f"      ⚠ InfiniCore ops still differs from Transformers even with same input"
+                    "      ⚠ InfiniCore ops still differs from Transformers even with same input"
                 )
                 print(
                     f"         This suggests the {op_name} computation itself differs"
@@ -513,7 +500,7 @@ def validate_infinicore_component(
 
         # Compare Test 1 vs Test 2 to see impact of input difference
         if verbose:
-            print(f"\n   Comparing Test 1 vs Test 2 (impact of input difference):")
+            print("\n   Comparing Test 1 vs Test 2 (impact of input difference):")
 
         test1_vs_test2_diff = (test1_output_torch - test2_output_torch).abs()
         test1_vs_test2_max = test1_vs_test2_diff.max().item()
@@ -531,15 +518,15 @@ def validate_infinicore_component(
         if test1_vs_test2_max > tolerance:
             results["input_impact"] = "significant"
             if verbose:
-                print(f"      ⚠ Input difference causes significant output difference")
+                print("      ⚠ Input difference causes significant output difference")
         else:
             results["input_impact"] = "minimal"
             if verbose:
-                print(f"      ✓ Input difference has minimal impact on output")
+                print("      ✓ Input difference has minimal impact on output")
 
         # Compare input data between Transformers and InfiniCore
         if verbose:
-            print(f"\n   Comparing input data (Transformers vs InfiniCore):")
+            print("\n   Comparing input data (Transformers vs InfiniCore):")
 
         input_diff = (transformers_input - infinicore_input).abs()
         input_diff_max = input_diff.max().item()
@@ -568,7 +555,7 @@ def validate_infinicore_component(
                 )
                 print(f"      Difference: {input_diff[max_input_diff_pos].item():.15f}")
             else:
-                print(f"   ✓ Input data matches (within tolerance)")
+                print("   ✓ Input data matches (within tolerance)")
 
         # Call debug callback if provided
         if debug_callback is not None:
@@ -587,7 +574,7 @@ def validate_infinicore_component(
 
         # Summary
         if verbose:
-            print(f"\n   Summary:")
+            print("\n   Summary:")
             print(
                 f"      Test 1 (InfiniCore input): {'✓ PASS' if test1_match else '✗ FAIL'}"
             )
