@@ -402,6 +402,101 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             graph_manager.index("std::lock_guard"), graph_manager.index("graph.reset()")
         )
 
+    def test_static_graph_input_dtypes_match_scheduler_inputs(self) -> None:
+        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
+        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
+
+        expected_dtypes = {
+            "input_ids": "kInt64",
+            "position_ids": "kInt64",
+            "past_sequence_lengths": "kInt32",
+            "total_sequence_lengths": "kInt32",
+        }
+        for field, dtype in expected_dtypes.items():
+            with self.subTest(field=field):
+                self.assertRegex(
+                    compile_body,
+                    re.compile(
+                        rf"input\.{field}\s*=\s*infinicore::Tensor::empty"
+                        rf"\([^;]*DataType::{dtype},"
+                    ),
+                )
+
+        self.assertIn("std::vector<int32_t> total_sequence_lengths_vec", compile_body)
+        self.assertIn("b * sizeof(int32_t)", compile_body)
+
+    def test_static_graph_compile_inputs_are_deterministic(self) -> None:
+        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
+        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
+
+        for field in ("input_ids", "position_ids", "past_sequence_lengths"):
+            with self.subTest(field=field):
+                self.assertIn(f"set_zeros(input.{field}.value())", compile_body)
+
+        self.assertRegex(
+            compile_body,
+            re.compile(
+                r"input\.block_tables\s*=\s*infinicore::Tensor::empty"
+                r"\(\{b, 1\}, infinicore::DataType::kInt32,"
+            ),
+        )
+        self.assertIn("block_tables_vec[i] = static_cast<int32_t>(i)", compile_body)
+        self.assertIn("input.block_tables.value()->data()", compile_body)
+
+    def test_static_graph_keeps_dynamic_cache_metadata_on_device(self) -> None:
+        source = read_source("csrc/layers/attention/backends/static_attn.cpp")
+        forward = function_body(
+            source,
+            "infinicore::Tensor StaticAttentionImpl::forward(",
+        )
+
+        self.assertIn("context::isGraphRecording()", forward)
+        self.assertIn("return forward_graph_(", forward)
+        self.assertIn("StaticAttentionImpl::forward_graph_", source)
+
+        graph_forward = function_body(
+            source,
+            "infinicore::Tensor StaticAttentionImpl::forward_graph_(",
+        )
+        self.assertIn("infinicore::op::kv_caching_", graph_forward)
+        self.assertIn("infinicore::op::paged_attention_", graph_forward)
+        self.assertNotIn("Device::Type::kCpu", graph_forward)
+
+    def test_static_graph_falls_back_for_unsupported_attention_configs(self) -> None:
+        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
+        self.assertIn("bool supports_static_graph_kv_cache(", source)
+        self.assertIn("bool supports_static_graph_attention()", source)
+        cache_check = function_body(
+            source, "bool supports_static_graph_kv_cache("
+        )
+        capability = function_body(source, "bool supports_static_graph_attention()")
+        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
+
+        self.assertIn("Device::Type::kNvidia", capability)
+        self.assertIn("get_forward_context().kv_cache_vec", capability)
+        self.assertIn("kv_cache_vec.empty()", capability)
+        self.assertIn("std::all_of(", capability)
+        self.assertNotIn("kv_cache_vec.front()", capability)
+        self.assertNotIn("kv_cache_vec[0]", capability)
+        self.assertIn("kv_cache.empty()", cache_check)
+        self.assertIn("kv_cache->ndim() != 5", cache_check)
+        self.assertIn("kv_cache->size(0) != 2", cache_check)
+        self.assertIn("kv_cache->dtype()", cache_check)
+        self.assertIn("kv_cache->size(4)", cache_check)
+        self.assertIn("DataType::kFloat16", cache_check)
+        self.assertIn("DataType::kBFloat16", cache_check)
+        self.assertIn("head_dim == 64", cache_check)
+        self.assertIn("head_dim == 128", cache_check)
+        self.assertIn("KVQuantAlgo::NONE", capability)
+        for forbidden in ("get_dtype()", "get_kv_cache_dtype()", "get_head_dim()"):
+            self.assertNotIn(forbidden, capability)
+        self.assertIn("compiled_map_.clear()", compile_body)
+        self.assertIn("if (!supports_static_graph_attention())", compile_body)
+        self.assertLess(
+            compile_body.index("if (!supports_static_graph_attention())"),
+            compile_body.index("GraphRecordingGuard recording"),
+        )
+
     def test_foreign_capture_rejects_operator_dispatch(self) -> None:
         manager_header = read_source("csrc/infinicore/src/graph/graph_manager.hpp")
         graph_header = read_source("csrc/infinicore/include/infinicore/graph/graph.hpp")
