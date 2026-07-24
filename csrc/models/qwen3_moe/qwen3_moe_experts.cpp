@@ -3,6 +3,7 @@
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/distributed/allreduce.hpp"
 
 #include <optional>
 #include <string>
@@ -14,7 +15,8 @@ Qwen3MoeExperts::Qwen3MoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
     const auto &dtype = model_config->get_dtype();
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const int tp_rank = rank_info.tp_rank;
-    const int tp_size = rank_info.tp_size;
+    tp_size_ = rank_info.tp_size;
+    communicator_ = rank_info.comm;
 
     num_experts_ = model_config->get<size_t>("num_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
@@ -22,8 +24,8 @@ Qwen3MoeExperts::Qwen3MoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
     const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
 
     ASSERT((num_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts_));
-    ASSERT(intermediate_size % static_cast<size_t>(tp_size) == 0);
-    intermediate_size_per_partition_ = intermediate_size / static_cast<size_t>(tp_size);
+    ASSERT(intermediate_size % static_cast<size_t>(tp_size_) == 0);
+    intermediate_size_per_partition_ = intermediate_size / static_cast<size_t>(tp_size_);
 
     INFINICORE_NN_PARAMETER_INIT(w1, ({num_experts_, 2 * intermediate_size_per_partition_, hidden_size_}, dtype, device));
     INFINICORE_NN_PARAMETER_INIT(w2, ({num_experts_, hidden_size_, intermediate_size_per_partition_}, dtype, device));
@@ -42,13 +44,13 @@ Qwen3MoeExperts::Qwen3MoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
         const std::string prefix = std::to_string(expert) + ".";
         this->register_parameter(
             prefix + "gate_proj.weight",
-            infinicore::nn::Parameter(gate_weight, 0, tp_rank, tp_size));
+            infinicore::nn::Parameter(gate_weight, 0, tp_rank, tp_size_));
         this->register_parameter(
             prefix + "up_proj.weight",
-            infinicore::nn::Parameter(up_weight, 0, tp_rank, tp_size));
+            infinicore::nn::Parameter(up_weight, 0, tp_rank, tp_size_));
         this->register_parameter(
             prefix + "down_proj.weight",
-            infinicore::nn::Parameter(down_weight, 1, tp_rank, tp_size));
+            infinicore::nn::Parameter(down_weight, 1, tp_rank, tp_size_));
     }
 }
 
@@ -58,8 +60,12 @@ infinicore::Tensor Qwen3MoeExperts::forward(const infinicore::Tensor &hidden_sta
     ASSERT(hidden_states->ndim() == 2);
     ASSERT(top_k_index->ndim() == 2 && top_k_weights->ndim() == 2);
 
-    return infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1_, w2_, std::nullopt, std::nullopt,
-                                     infinicore::op::FusedMoeActivation::Swiglu);
+    auto output = infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1_, w2_, std::nullopt, std::nullopt,
+                                            infinicore::op::FusedMoeActivation::Swiglu);
+    if (tp_size_ > 1 && communicator_ != nullptr) {
+        infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
+    }
+    return output;
 }
 
 } // namespace infinilm::models::qwen3_moe

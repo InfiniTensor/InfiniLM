@@ -1,5 +1,7 @@
 #pragma once
 
+#include <infiniccl.h>
+
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/parameter.hpp"
 #include "infinicore/tensor.hpp"
@@ -30,6 +32,8 @@ protected:
     size_t num_experts_{0};
     size_t hidden_size_{0};
     size_t intermediate_size_per_partition_{0};
+    int tp_size_{1};
+    infinicclComm_t communicator_{nullptr};
 };
 
 } // namespace infinilm::models::qwen3_moe
