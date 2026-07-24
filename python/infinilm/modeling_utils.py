@@ -120,7 +120,12 @@ def load_state_dict(
             )
 
         for k in f.keys():
-            state_dict[k] = f.get_tensor(k).to(device=device)
+            tensor = f.get_tensor(k)
+            if tensor.is_floating_point():
+                tensor = tensor.to(device=device, dtype=dtype)
+            else:
+                tensor = tensor.to(device=device)
+            state_dict[k] = tensor
 
     return state_dict
 
@@ -739,6 +744,14 @@ def _remap_qwen3_5(state_dict, config):
 
     state_dict = drop_keys(state_dict, to_drop)
     state_dict.update(to_add)
+
+    embed_tokens_key = "model.language_model.embed_tokens.weight"
+    if (
+        config.get("tie_word_embeddings", False)
+        and embed_tokens_key in state_dict
+        and "lm_head.weight" not in state_dict
+    ):
+        state_dict["lm_head.weight"] = state_dict[embed_tokens_key]
 
     return state_dict
 
