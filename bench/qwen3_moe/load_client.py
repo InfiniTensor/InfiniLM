@@ -19,6 +19,7 @@ Input length is approximated by repeating a CJK filler char (~1 token each);
 this is fine for relative base-vs-this comparison. Pass --tokenizer to count
 prompt tokens exactly if `transformers` is available.
 """
+
 import argparse
 import json
 import os
@@ -42,17 +43,22 @@ def build_prompt(input_len, tokenizer=None):
 
 def one_request(base_url, model, prompt, output_len, timeout):
     """Send one non-streaming chat request; return (ok, latency_s, completion_tokens)."""
-    payload = json.dumps({
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": output_len,
-        "ignore_eos": True,
-        "stream": False,
-        "temperature": 1.0,
-    }).encode("utf-8")
+    payload = json.dumps(
+        {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": output_len,
+            "ignore_eos": True,
+            "stream": False,
+            "temperature": 1.0,
+        }
+    ).encode("utf-8")
     req = urllib.request.Request(
         base_url.rstrip("/") + "/v1/chat/completions",
-        data=payload, headers={"Content-Type": "application/json"}, method="POST")
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
     t0 = time.perf_counter()
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -63,7 +69,10 @@ def one_request(base_url, model, prompt, output_len, timeout):
     # Prefer server-reported usage; fall back to nominal output_len.
     comp = output_len
     usage = body.get("usage") or {}
-    if isinstance(usage.get("completion_tokens"), int) and usage["completion_tokens"] > 0:
+    if (
+        isinstance(usage.get("completion_tokens"), int)
+        and usage["completion_tokens"] > 0
+    ):
         comp = usage["completion_tokens"]
     return True, lat, comp, None
 
@@ -76,8 +85,10 @@ def run_config(base_url, model, bs, il, ol, repeat, timeout, tokenizer):
 
     t_start = time.perf_counter()
     with ThreadPoolExecutor(max_workers=bs) as pool:
-        futs = [pool.submit(one_request, base_url, model, prompt, ol, timeout)
-                for _ in range(num_prompts)]
+        futs = [
+            pool.submit(one_request, base_url, model, prompt, ol, timeout)
+            for _ in range(num_prompts)
+        ]
         for f in as_completed(futs):
             ok, lat, comp, err = f.result()
             results.append((ok, lat, comp))
@@ -126,8 +137,9 @@ def parse_list(s):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--base-url", default="http://127.0.0.1:8102")
     ap.add_argument("--model", default="Qwen3-30B-A3B-Thinking-2507")
     ap.add_argument("--tag", default="this", help="result subdir under --outdir-root")
@@ -135,17 +147,25 @@ def main():
     ap.add_argument("--batch-sizes", type=parse_list, default=[1, 8, 32])
     ap.add_argument("--input-lens", type=parse_list, default=[32, 256, 2048])
     ap.add_argument("--output-lens", type=parse_list, default=[256, 1024])
-    ap.add_argument("--repeat", type=int, default=3,
-                    help="requests per config = concurrency * repeat")
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=3,
+        help="requests per config = concurrency * repeat",
+    )
     ap.add_argument("--timeout", type=float, default=1200.0)
-    ap.add_argument("--tokenizer", default=None,
-                    help="optional HF tokenizer path for exact prompt token counts")
+    ap.add_argument(
+        "--tokenizer",
+        default=None,
+        help="optional HF tokenizer path for exact prompt token counts",
+    )
     args = ap.parse_args()
 
     tok = None
     if args.tokenizer:
         try:
             from transformers import AutoTokenizer
+
             tok = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
         except Exception as e:  # noqa: BLE001
             print(f"(tokenizer load failed, using approximate prompt: {e})")
@@ -153,23 +173,37 @@ def main():
     outdir = os.path.join(args.outdir_root, args.tag)
     os.makedirs(outdir, exist_ok=True)
     print(f">>> tag={args.tag} url={args.base_url} model={args.model} -> {outdir}")
-    print(f">>> concurrency={args.batch_sizes} input={args.input_lens} output={args.output_lens}")
+    print(
+        f">>> concurrency={args.batch_sizes} input={args.input_lens} output={args.output_lens}"
+    )
 
     for bs in args.batch_sizes:
         for il in args.input_lens:
             for ol in args.output_lens:
                 path = os.path.join(outdir, f"bs{bs}_in{il}_out{ol}.txt")
                 print(f">>> bs={bs} in={il} out={ol} ...", end="", flush=True)
-                m = run_config(args.base_url, args.model, bs, il, ol,
-                               args.repeat, args.timeout, tok)
+                m = run_config(
+                    args.base_url,
+                    args.model,
+                    bs,
+                    il,
+                    ol,
+                    args.repeat,
+                    args.timeout,
+                    tok,
+                )
                 write_result(path, bs, il, ol, m)
                 if m["successful"] == 0:
                     print(f" FAIL ({m['err_sample']})")
                 else:
-                    print(f" ok  out={m['out_tok_s']:.1f} tok/s  total={m['total_tok_s']:.1f} tok/s"
-                          f"  ({m['successful']}/{m['num_prompts']})")
+                    print(
+                        f" ok  out={m['out_tok_s']:.1f} tok/s  total={m['total_tok_s']:.1f} tok/s"
+                        f"  ({m['successful']}/{m['num_prompts']})"
+                    )
 
-    print(f">>> done. 汇总: python3 {os.path.join(os.path.dirname(__file__), 'summarize.py')} {outdir}")
+    print(
+        f">>> done. 汇总: python3 {os.path.join(os.path.dirname(__file__), 'summarize.py')} {outdir}"
+    )
 
 
 if __name__ == "__main__":

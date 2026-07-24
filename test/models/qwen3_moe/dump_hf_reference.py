@@ -16,6 +16,7 @@ Usage:
     # CPU (needs ~60GB RAM for bf16; slow but avoids GPU contention):
     python3 dump_hf_reference.py --model /path/... --device cpu
 """
+
 import argparse
 import json
 
@@ -33,8 +34,9 @@ DEFAULT_PROMPTS = [
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--model", required=True)
     ap.add_argument("--out", default="qwen3_moe_prefill_reference.json")
     ap.add_argument("--device", default="cuda", choices=["cuda", "cpu"])
@@ -70,19 +72,25 @@ def main():
             attn = attn.to(model.device) if attn is not None else None
         with torch.no_grad():
             out = model.generate(
-                input_ids, attention_mask=attn,
-                max_new_tokens=args.max_new_tokens, do_sample=False,
+                input_ids,
+                attention_mask=attn,
+                max_new_tokens=args.max_new_tokens,
+                do_sample=False,
             )
-        gen_ids = out[0, input_ids.shape[1]:].tolist()
-        entries.append({
-            "messages": messages,
-            "prompt_token_ids": input_ids[0].tolist(),
-            "gen_token_ids": gen_ids,
-            "gen_text": tok.decode(gen_ids),
-        })
+        gen_ids = out[0, input_ids.shape[1] :].tolist()
+        entries.append(
+            {
+                "messages": messages,
+                "prompt_token_ids": input_ids[0].tolist(),
+                "gen_token_ids": gen_ids,
+                "gen_text": tok.decode(gen_ids),
+            }
+        )
         first = gen_ids[0] if gen_ids else None
-        print(f"[hf] {messages[0]['content'][:20]!r} -> first_tok={first} "
-              f"{tok.decode(gen_ids[:1])!r}")
+        print(
+            f"[hf] {messages[0]['content'][:20]!r} -> first_tok={first} "
+            f"{tok.decode(gen_ids[:1])!r}"
+        )
 
     payload = {
         "model": args.model,

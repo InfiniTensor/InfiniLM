@@ -20,6 +20,7 @@ Usage:
     python3 check_prefill_logits.py --model /path/Qwen3-30B-A3B-Thinking-2507 \
         --device metax --tp 2 --ref qwen3_moe_prefill_reference.json
 """
+
 import argparse
 import json
 import os
@@ -32,25 +33,46 @@ from infinilm.llm.llm import LLM  # noqa: E402
 # Same mapping as BaseConfig.get_device_str: the LLM engine only accepts backend
 # strings (cpu/cuda/mlu/musa/...), so e.g. "metax"/"iluvatar" must map to "cuda".
 _DEVICE_STR_MAP = {
-    "cpu": "cpu", "nvidia": "cuda", "qy": "cuda", "cambricon": "mlu",
-    "ascend": "ascend", "metax": "cuda", "moore": "musa", "iluvatar": "cuda",
-    "kunlun": "kunlun", "hygon": "cuda", "ali": "cuda",
+    "cpu": "cpu",
+    "nvidia": "cuda",
+    "qy": "cuda",
+    "cambricon": "mlu",
+    "ascend": "ascend",
+    "metax": "cuda",
+    "moore": "musa",
+    "iluvatar": "cuda",
+    "kunlun": "kunlun",
+    "hygon": "cuda",
+    "ali": "cuda",
     # already-backend strings pass through:
-    "cuda": "cuda", "mlu": "mlu", "musa": "musa",
+    "cuda": "cuda",
+    "mlu": "mlu",
+    "musa": "musa",
 }
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("--model", required=True)
-    ap.add_argument("--ref", required=True, help="reference json from dump_hf_reference.py")
+    ap.add_argument(
+        "--ref", required=True, help="reference json from dump_hf_reference.py"
+    )
     ap.add_argument("--device", default="metax")
     ap.add_argument("--tp", type=int, default=2)
-    ap.add_argument("--prefix-threshold", type=int, default=1,
-                    help="min matching leading tokens required per prompt to PASS (default 1)")
-    ap.add_argument("--cache-type", default="static", choices=["static", "paged"],
-                    help="KV cache type; static matches examples/test_infer.py's proven path")
+    ap.add_argument(
+        "--prefix-threshold",
+        type=int,
+        default=1,
+        help="min matching leading tokens required per prompt to PASS (default 1)",
+    )
+    ap.add_argument(
+        "--cache-type",
+        default="static",
+        choices=["static", "paged"],
+        help="KV cache type; static matches examples/test_infer.py's proven path",
+    )
     args = ap.parse_args()
 
     with open(args.ref, encoding="utf-8") as f:
@@ -69,7 +91,7 @@ def main():
         max_batch_size=len(entries),
         max_tokens=max_new,
         temperature=1.0,
-        top_k=1,   # greedy
+        top_k=1,  # greedy
         top_p=1.0,
         enable_graph=False,
         attn_backend="default",
@@ -96,22 +118,32 @@ def main():
                 break
         first_match = bool(ref_gen and this_gen and ref_gen[0] == this_gen[0])
 
-        ok = first_match and prefix >= args.prefix_threshold and (prompt_match is not False)
+        ok = (
+            first_match
+            and prefix >= args.prefix_threshold
+            and (prompt_match is not False)
+        )
         all_pass &= ok
 
         rt = ref_gen[0] if ref_gen else None
         tt = this_gen[0] if this_gen else None
         pm = {True: "ok", False: "MISMATCH", None: "n/a"}[prompt_match]
-        print(f"{'PASS' if ok else 'FAIL':6} | {pm:10} | {str(rt):>7} {'==' if first_match else '!='} "
-              f"{str(tt):<7} | {prefix:>2}/{min(len(ref_gen), len(this_gen))} | "
-              f"{e['messages'][0]['content'][:24]!r}")
+        print(
+            f"{'PASS' if ok else 'FAIL':6} | {pm:10} | {str(rt):>7} {'==' if first_match else '!='} "
+            f"{str(tt):<7} | {prefix:>2}/{min(len(ref_gen), len(this_gen))} | "
+            f"{e['messages'][0]['content'][:24]!r}"
+        )
 
     print("-" * 90)
-    print(f"=== OVERALL: {'PASS' if all_pass else 'FAIL'} "
-          f"({sum(1 for _ in entries)} prompts) ===")
+    print(
+        f"=== OVERALL: {'PASS' if all_pass else 'FAIL'} "
+        f"({sum(1 for _ in entries)} prompts) ==="
+    )
     if not all_pass:
-        print("提示：若仅个别 prefix 早停而 first_tok 全 ==，通常是非确定性/近似平票，非适配错误；"
-              "若 first_tok 或 prompt_tok 不一致，才是真 bug（权重加载 / chat template / 路由）。")
+        print(
+            "提示：若仅个别 prefix 早停而 first_tok 全 ==，通常是非确定性/近似平票，非适配错误；"
+            "若 first_tok 或 prompt_tok 不一致，才是真 bug（权重加载 / chat template / 路由）。"
+        )
     sys.exit(0 if all_pass else 1)
 
 

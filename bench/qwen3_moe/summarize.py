@@ -10,10 +10,11 @@ Usage:
     python3 summarize.py bench_results/this
     python3 summarize.py bench_results/base bench_results/this
 """
+
+import glob
 import os
 import re
 import sys
-import glob
 
 # Label -> canonical metric. vllm 各版本标签略有差异，用宽松正则匹配数值。
 _METRICS = {
@@ -61,8 +62,16 @@ def print_single(d):
     print("  ".join(h.rjust(10) for h in hdr))
     for cfg in sorted(data):
         r = data[cfg]
-        cols = [str(cfg[0]), str(cfg[1]), str(cfg[2]),
-                r["out_tok_s"], r["total_tok_s"], r["req_s"], r["ttft_ms"], r["tpot_ms"]]
+        cols = [
+            str(cfg[0]),
+            str(cfg[1]),
+            str(cfg[2]),
+            r["out_tok_s"],
+            r["total_tok_s"],
+            r["req_s"],
+            r["ttft_ms"],
+            r["tpot_ms"],
+        ]
         print("  ".join(c.rjust(10) if isinstance(c, str) else fmt(c) for c in cols))
 
 
@@ -74,7 +83,17 @@ def print_compare(base_dir, this_dir):
         return
     print(f"\n=== base={base_dir}  vs  this={this_dir} ===")
     print("列: out_tok/s (base -> this, Δ%) | total_tok/s (base -> this, Δ%)")
-    hdr = ["bs", "in", "out", "out_base", "out_this", "out_Δ%", "tot_base", "tot_this", "tot_Δ%"]
+    hdr = [
+        "bs",
+        "in",
+        "out",
+        "out_base",
+        "out_this",
+        "out_Δ%",
+        "tot_base",
+        "tot_this",
+        "tot_Δ%",
+    ]
     print("  ".join(h.rjust(10) for h in hdr))
     for cfg in keys:
         b, t = base.get(cfg, {}), this.get(cfg, {})
@@ -84,9 +103,17 @@ def print_compare(base_dir, this_dir):
                 return (tv - bv) / bv * 100.0
             return None
 
-        cols = [str(cfg[0]), str(cfg[1]), str(cfg[2]),
-                b.get("out_tok_s"), t.get("out_tok_s"), delta(b.get("out_tok_s"), t.get("out_tok_s")),
-                b.get("total_tok_s"), t.get("total_tok_s"), delta(b.get("total_tok_s"), t.get("total_tok_s"))]
+        cols = [
+            str(cfg[0]),
+            str(cfg[1]),
+            str(cfg[2]),
+            b.get("out_tok_s"),
+            t.get("out_tok_s"),
+            delta(b.get("out_tok_s"), t.get("out_tok_s")),
+            b.get("total_tok_s"),
+            t.get("total_tok_s"),
+            delta(b.get("total_tok_s"), t.get("total_tok_s")),
+        ]
         print("  ".join(c.rjust(10) if isinstance(c, str) else fmt(c) for c in cols))
 
 
