@@ -29,7 +29,9 @@ infinicore::Tensor Ernie4_5_VisionPatchEmbed::forward(const infinicore::Tensor &
     // [num_patches, C, pH, pW] -> [num_patches, C*pH*pW] -> [num_patches, embed_dim]
     size_t num_patches = pixel_values->shape()[0];
     size_t flat_size = 1;
-    for (size_t i = 1; i < pixel_values->ndim(); ++i) flat_size *= pixel_values->shape()[i];
+    for (size_t i = 1; i < pixel_values->ndim(); ++i) {
+        flat_size *= pixel_values->shape()[i];
+    }
     auto flat = const_cast<infinicore::Tensor &>(pixel_values)->view({num_patches, flat_size});
     return proj_->forward(flat);
 }
@@ -62,7 +64,7 @@ infinicore::Tensor Ernie4_5_VisionAttention::forward(const infinicore::Tensor &h
     auto qkv_out = qkv_->forward(const_cast<infinicore::Tensor &>(hidden_states));
     auto qkv_view = qkv_out->view({num_patches, 3, num_heads_, head_dim_});
 
-    auto q = qkv_view->narrow({{1, 0, 1}})->squeeze(1)->contiguous();  // [N, H, D]
+    auto q = qkv_view->narrow({{1, 0, 1}})->squeeze(1)->contiguous(); // [N, H, D]
     auto k = qkv_view->narrow({{1, 1, 1}})->squeeze(1)->contiguous();
     auto v = qkv_view->narrow({{1, 2, 1}})->squeeze(1)->contiguous();
 
@@ -82,15 +84,15 @@ infinicore::Tensor Ernie4_5_VisionAttention::forward(const infinicore::Tensor &h
             continue;
         }
         size_t n = e - s;
-        auto qs = q->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous();  // [H, n, D]
-        auto ks = k->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous();  // [H, n, D]
-        auto vs = v->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous();  // [H, n, D]
-        auto ks_t = ks->permute({0, 2, 1});                                  // [H, D, n]
+        auto qs = q->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous(); // [H, n, D]
+        auto ks = k->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous(); // [H, n, D]
+        auto vs = v->narrow({{0, s, n}})->permute({1, 0, 2})->contiguous(); // [H, n, D]
+        auto ks_t = ks->permute({0, 2, 1});                                 // [H, D, n]
 
-        auto scores = infinicore::op::matmul(qs, ks_t, scale_);              // [H, n, n]
-        auto probs = infinicore::op::softmax(scores, -1);                    // [H, n, n]
-        auto out_seg = infinicore::op::matmul(probs, vs);                    // [H, n, D]
-        out_seg = out_seg->permute({1, 0, 2})->contiguous();                 // [n, H, D]
+        auto scores = infinicore::op::matmul(qs, ks_t, scale_); // [H, n, n]
+        auto probs = infinicore::op::softmax(scores, -1);       // [H, n, n]
+        auto out_seg = infinicore::op::matmul(probs, vs);       // [H, n, D]
+        out_seg = out_seg->permute({1, 0, 2})->contiguous();    // [n, H, D]
         out->narrow({{0, s, n}})->copy_from(out_seg);
     }
 
@@ -221,8 +223,7 @@ Ernie4_5_VisionTransformer::build_rope_(const infinicore::Tensor &grid_thw,
     std::vector<float> cos_f(num_patches * cache_dim);
     for (size_t k = 0; k < half; ++k) {
         // VisionRotaryEmbedding inv_freq over dim=cache_dim: theta^(-2k/cache_dim).
-        float inv_freq = 1.0f / std::pow(static_cast<float>(rope_theta_vision_),
-                                         2.0f * static_cast<float>(k) / static_cast<float>(cache_dim));
+        float inv_freq = 1.0f / std::pow(static_cast<float>(rope_theta_vision_), 2.0f * static_cast<float>(k) / static_cast<float>(cache_dim));
         for (size_t i = 0; i < num_patches; ++i) {
             float ah = static_cast<float>(hpos[i]) * inv_freq; // first half: height
             float aw = static_cast<float>(wpos[i]) * inv_freq; // second half: width

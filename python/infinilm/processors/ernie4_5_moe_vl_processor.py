@@ -209,7 +209,11 @@ class Ernie4_5_VLMoeProcessor(BasicLLMProcessor):
         images = list(images or [])
         videos = list(videos or [])
         pattern = re.compile(
-            "(" + re.escape(self.IMAGE_SENTINEL) + "|" + re.escape(self.VIDEO_SENTINEL) + ")"
+            "("
+            + re.escape(self.IMAGE_SENTINEL)
+            + "|"
+            + re.escape(self.VIDEO_SENTINEL)
+            + ")"
         )
         ids = []
         pixel_list = []
@@ -350,9 +354,7 @@ class Ernie4_5_VLMoeProcessor(BasicLLMProcessor):
         arr = (arr - mean) / std
         return arr.transpose(2, 0, 1)  # HWC -> CHW
 
-    _FONT_URL = (
-        "https://paddlenlp.bj.bcebos.com/vision-language-models/materials/Roboto-Regular.ttf"
-    )
+    _FONT_URL = "https://paddlenlp.bj.bcebos.com/vision-language-models/materials/Roboto-Regular.ttf"
 
     def _font_path(self):
         """Path to Roboto-Regular.ttf (the font HF burns timestamps with). Cached
@@ -401,7 +403,9 @@ class Ernie4_5_VLMoeProcessor(BasicLLMProcessor):
         if target_frames > 0:
             acc = min(target_frames, vlen)
             intervals = np.linspace(0, vlen, acc + 1).astype(int)
-            return [int(intervals[i]) for i in range(acc)]  # leading = interval left edge
+            return [
+                int(intervals[i]) for i in range(acc)
+            ]  # leading = interval left edge
         delta = 1.0 / target_fps
         duration = float(vlen) / input_fps
         frame_seconds = np.arange(0, duration, delta)
@@ -459,7 +463,9 @@ class Ernie4_5_VLMoeProcessor(BasicLLMProcessor):
         t = len(frames)
         w0, h0 = frames[0].size  # PIL size is (W, H)
         factor = self.patch_size * self.spatial_merge_size
-        rh, rw = smart_resize(h0, w0, factor, self.video_min_pixels, self.video_max_pixels)
+        rh, rw = smart_resize(
+            h0, w0, factor, self.video_min_pixels, self.video_max_pixels
+        )
         ph, pw = rh // self.patch_size, rw // self.patch_size
 
         patch_list = []
@@ -555,9 +561,15 @@ class Ernie4_5_VLMoeProcessor(BasicLLMProcessor):
             # from_numpy (not from_list(.tolist())): a video has ~19200*588 = 11.3M
             # elements, and materializing that as a nested Python list is slow and
             # memory-heavy for no benefit (from_list just rebuilds a numpy array).
-            pv2d = np.ascontiguousarray(pi["pixel_values"]).reshape(pi["pixel_values"].shape[0], -1)
-            base["pixel_values"] = infinicore.from_numpy(pv2d, dtype=self._infini_dtype())
-            base["tgt_sizes"] = infinicore.from_list(grid_thw.tolist(), dtype=infinicore.int64)
+            pv2d = np.ascontiguousarray(pi["pixel_values"]).reshape(
+                pi["pixel_values"].shape[0], -1
+            )
+            base["pixel_values"] = infinicore.from_numpy(
+                pv2d, dtype=self._infini_dtype()
+            )
+            base["tgt_sizes"] = infinicore.from_list(
+                grid_thw.tolist(), dtype=infinicore.int64
+            )
         else:
             pos = req.get_total_length() - 1
             pos_slice = [[row[pos]] for row in pos3d]

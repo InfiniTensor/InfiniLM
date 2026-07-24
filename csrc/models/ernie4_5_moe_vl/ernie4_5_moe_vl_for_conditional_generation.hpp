@@ -3,8 +3,8 @@
 #include "ernie4_5_moe_vl_text_model.hpp"
 #include "ernie4_5_moe_vl_vision.hpp"
 
-#include "../infinilm_model.hpp"
 #include "../../layers/linear/linear.hpp"
+#include "../infinilm_model.hpp"
 
 namespace infinilm::models::ernie4_5_moe_vl {
 

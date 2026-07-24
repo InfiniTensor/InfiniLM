@@ -12,15 +12,15 @@ Ernie4_5_VLResampler::Ernie4_5_VLResampler(std::shared_ptr<infinilm::config::Mod
                                            const infinicore::Device &device) {
     const auto &dtype{model_config->get_dtype()};
 
-    pixel_hidden_size_ = model_config->get<size_t>("pixel_hidden_size");      // 1280
-    text_hidden_size_ = model_config->get<size_t>("hidden_size");             // 2560
+    pixel_hidden_size_ = model_config->get<size_t>("pixel_hidden_size"); // 1280
+    text_hidden_size_ = model_config->get<size_t>("hidden_size");        // 2560
     spatial_conv_size_ = model_config->get_or<size_t>("spatial_conv_size", 2);
     temporal_conv_size_ = model_config->get_or<size_t>("temporal_conv_size", 2);
 
-    size_t spatial_dim = pixel_hidden_size_ * spatial_conv_size_ * spatial_conv_size_;  // 5120
-    size_t temporal_dim = spatial_dim * temporal_conv_size_;                            // 10240
-    double layer_norm_eps = 1e-6;   // spatial/temporal Sequential LayerNorms
-    double after_norm_eps = 1e-5;   // HF after_norm RMSNorm uses eps=1e-5
+    size_t spatial_dim = pixel_hidden_size_ * spatial_conv_size_ * spatial_conv_size_; // 5120
+    size_t temporal_dim = spatial_dim * temporal_conv_size_;                           // 10240
+    double layer_norm_eps = 1e-6;                                                      // spatial/temporal Sequential LayerNorms
+    double after_norm_eps = 1e-5;                                                      // HF after_norm RMSNorm uses eps=1e-5
 
     // spatial_linear: Linear(5120,5120) -> act -> Linear(5120,5120) -> LayerNorm(5120)
     spatial_linear_0_ = this->register_module<infinicore::nn::Linear>(
@@ -62,7 +62,7 @@ infinicore::Tensor Ernie4_5_VLResampler::forward(const infinicore::Tensor &x,
     h = infinicore::op::gelu(h);
     h = spatial_linear_2_->forward(h);
     h = spatial_linear_3_->forward(h);
-    auto x_spatial = h;  // [num_spatial_merged, spatial_dim]
+    auto x_spatial = h; // [num_spatial_merged, spatial_dim]
 
     // Temporal merge. ERNIE applies temporal_linear for BOTH images and video
     // (use_temporal_conv=true) -- HF fwd_placeholder gathers two interleaved
@@ -82,7 +82,7 @@ infinicore::Tensor Ernie4_5_VLResampler::forward(const infinicore::Tensor &x,
         int64_t t = g[i * 3 + 0];
         int64_t hh = g[i * 3 + 1];
         int64_t ww = g[i * 3 + 2];
-        size_t ss = static_cast<size_t>(hh * ww) / spatial_block;  // spatial tokens / frame
+        size_t ss = static_cast<size_t>(hh * ww) / spatial_block; // spatial tokens / frame
         for (int64_t to = 0; to < t; to += 2) {
             for (size_t s = 0; s < ss; ++s) {
                 idx1.push_back(base + static_cast<size_t>(to) * ss + s);
@@ -97,12 +97,12 @@ infinicore::Tensor Ernie4_5_VLResampler::forward(const infinicore::Tensor &x,
     }
     ASSERT_EQ(idx1.size(), idx2.size());
     size_t n_out = idx1.size();
-    size_t temporal_dim = spatial_dim * temporal_conv_size_;  // 10240
+    size_t temporal_dim = spatial_dim * temporal_conv_size_; // 10240
 
     auto x_temporal_in = infinicore::Tensor::empty(
         {n_out, temporal_dim}, x_spatial->dtype(), x_spatial->device());
     for (size_t r = 0; r < n_out; ++r) {
-        auto dst = x_temporal_in->narrow({{0, r, 1}});  // [1, temporal_dim]
+        auto dst = x_temporal_in->narrow({{0, r, 1}}); // [1, temporal_dim]
         dst->narrow({{1, 0, spatial_dim}})->copy_from(x_spatial->narrow({{0, idx1[r], 1}}));
         dst->narrow({{1, spatial_dim, spatial_dim}})->copy_from(x_spatial->narrow({{0, idx2[r], 1}}));
     }
@@ -113,8 +113,8 @@ infinicore::Tensor Ernie4_5_VLResampler::forward(const infinicore::Tensor &x,
     tt = temporal_linear_2_->forward(tt);
     tt = temporal_linear_3_->forward(tt);
 
-    auto projected = mlp_->forward(tt);  // -> [num_merged_tokens, text_hidden_size]
-    return after_norm_->forward(projected);  // RMSNorm (HF uses RMSNorm here)
+    auto projected = mlp_->forward(tt);     // -> [num_merged_tokens, text_hidden_size]
+    return after_norm_->forward(projected); // RMSNorm (HF uses RMSNorm here)
 }
 
 } // namespace infinilm::models::ernie4_5_moe_vl

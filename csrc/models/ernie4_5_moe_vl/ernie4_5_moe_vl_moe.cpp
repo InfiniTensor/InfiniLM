@@ -88,7 +88,7 @@ Ernie4_5_VLMoeGate::forward(const infinicore::Tensor &hidden_states,
     ASSERT(hidden_states->ndim() == 2);
     size_t ntoken = hidden_states->shape()[0];
 
-    auto gate_weight = (modality == 0) ? weight_ : weight_1_;  // [num_experts, hidden]
+    auto gate_weight = (modality == 0) ? weight_ : weight_1_; // [num_experts, hidden]
     auto router_logits = infinicore::op::linear(
         const_cast<infinicore::Tensor &>(hidden_states), gate_weight, std::nullopt, 1.0f);
     size_t num_experts = router_logits->shape()[1];
@@ -175,13 +175,13 @@ Ernie4_5_VLMoeGate::forward(const infinicore::Tensor &hidden_states,
 // Ernie4_5_VLMoeExpertList
 // ---------------------------------------------------------------------------
 Ernie4_5_VLMoeExpertList::Ernie4_5_VLMoeExpertList(size_t num_experts_text,
-                                                    size_t num_experts_vision,
-                                                    size_t hidden_size,
-                                                    size_t inter_text,
-                                                    size_t inter_vision,
-                                                    bool use_bias,
-                                                    const infinicore::DataType &dtype,
-                                                    const infinicore::Device &device) {
+                                                   size_t num_experts_vision,
+                                                   size_t hidden_size,
+                                                   size_t inter_text,
+                                                   size_t inter_vision,
+                                                   bool use_bias,
+                                                   const infinicore::DataType &dtype,
+                                                   const infinicore::Device &device) {
     // Text experts: indices [0, num_experts_text) -> weight paths experts.0.*, experts.1.*, ...
     for (size_t i = 0; i < num_experts_text; ++i) {
         experts.push_back(this->register_module<Ernie4_5_VLMoeMLP>(
@@ -203,8 +203,8 @@ Ernie4_5_VLMoeSparseMoeBlock::Ernie4_5_VLMoeSparseMoeBlock(std::shared_ptr<infin
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     bool use_bias = model_config->get_or<bool>("use_bias", false);
 
-    const auto &num_experts = model_config->get_ref("moe_num_experts");          // [64, 64]
-    const auto &intermediate = model_config->get_ref("moe_intermediate_size");    // [1536, 512]
+    const auto &num_experts = model_config->get_ref("moe_num_experts");        // [64, 64]
+    const auto &intermediate = model_config->get_ref("moe_intermediate_size"); // [1536, 512]
     num_experts_text_ = num_experts[0].get<size_t>();
     num_experts_vision_ = num_experts[1].get<size_t>();
     size_t inter_text = intermediate[0].get<size_t>();
@@ -228,7 +228,7 @@ Ernie4_5_VLMoeSparseMoeBlock::Ernie4_5_VLMoeSparseMoeBlock(std::shared_ptr<infin
 infinicore::Tensor Ernie4_5_VLMoeSparseMoeBlock::forward(const infinicore::Tensor &hidden_states,
                                                          const infinicore::Tensor &token_type_ids) const {
     ASSERT(hidden_states->ndim() == 3);
-    auto shape = hidden_states->shape();  // [batch, seq, hidden]
+    auto shape = hidden_states->shape(); // [batch, seq, hidden]
     size_t hidden = shape[2];
     size_t ntoken = shape[0] * shape[1];
     auto flat = hidden_states->view({ntoken, hidden});
@@ -257,8 +257,8 @@ infinicore::Tensor Ernie4_5_VLMoeSparseMoeBlock::forward(const infinicore::Tenso
 
     // 3) Per-modality batch gate + per-token expert dispatch.
     auto dispatch_modality = [&](const std::vector<size_t> &idxs,
-                                  size_t modality,
-                                  size_t expert_offset) {
+                                 size_t modality,
+                                 size_t expert_offset) {
         if (idxs.empty()) {
             return;
         }
@@ -281,7 +281,7 @@ infinicore::Tensor Ernie4_5_VLMoeSparseMoeBlock::forward(const infinicore::Tenso
         const auto *i_ptr = reinterpret_cast<const int32_t *>(i_cpu->data());
 
         for (size_t i = 0; i < n; ++i) {
-            auto token = gathered->narrow({{0, i, 1}});  // [1, hidden]
+            auto token = gathered->narrow({{0, i, 1}}); // [1, hidden]
             infinicore::Tensor expert_sum;
             for (size_t k = 0; k < moe_k_; ++k) {
                 size_t local_idx = static_cast<size_t>(i_ptr[i * moe_k_ + k]);
@@ -300,8 +300,8 @@ infinicore::Tensor Ernie4_5_VLMoeSparseMoeBlock::forward(const infinicore::Tenso
         }
     };
 
-    dispatch_modality(text_idxs, 0, 0);                          // text experts [0 .. num_experts_text_)
-    dispatch_modality(vision_idxs, 1, num_experts_text_);        // vision experts [num_experts_text_ .. total)
+    dispatch_modality(text_idxs, 0, 0);                   // text experts [0 .. num_experts_text_)
+    dispatch_modality(vision_idxs, 1, num_experts_text_); // vision experts [num_experts_text_ .. total)
 
     return final_states->view(shape);
 }

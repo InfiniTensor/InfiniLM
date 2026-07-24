@@ -1,4 +1,5 @@
 from typing import List, Union
+
 from PIL import Image
 
 

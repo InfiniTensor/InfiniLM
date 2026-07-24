@@ -111,8 +111,7 @@ Ernie4_5_VLMoeAttention::build_mrope_(const infinicore::Tensor &position_ids,
     std::vector<float> sin_f(seq * cache_dim);
     std::vector<float> cos_f(seq * cache_dim);
     for (size_t j = 0; j < cache_dim; ++j) {
-        float inv_freq = 1.0f / std::pow(static_cast<float>(rope_theta_),
-                                         2.0f * static_cast<float>(j) / static_cast<float>(head_dim_));
+        float inv_freq = 1.0f / std::pow(static_cast<float>(rope_theta_), 2.0f * static_cast<float>(j) / static_cast<float>(head_dim_));
         size_t ax = axis_of[j];
         for (size_t i = 0; i < seq; ++i) {
             float p = static_cast<float>(pp[ax * seq + i]);
@@ -195,12 +194,12 @@ infinicore::Tensor Ernie4_5_VLMoeAttention::forward_static_(const infinicore::Te
     bool use_mrope = (pos_shape.size() == 2) && (pos_shape[0] == 3) && !mrope_section_.empty();
 
     auto q_rope = infinicore::Tensor::empty(
-        {batch_size, num_attention_heads_, seq_len, head_dim_},
-        q_reshaped->dtype(), q_reshaped->device())->permute({0, 2, 1, 3});
+                      {batch_size, num_attention_heads_, seq_len, head_dim_},
+                      q_reshaped->dtype(), q_reshaped->device())
+                      ->permute({0, 2, 1, 3});
 
     if (use_mrope) {
-        auto [sin_tbl, cos_tbl, pos_index] =
-            build_mrope_(position_ids, q_reshaped->dtype(), q_reshaped->device());
+        auto [sin_tbl, cos_tbl, pos_index] = build_mrope_(position_ids, q_reshaped->dtype(), q_reshaped->device());
         infinicore::op::rope_(q_rope, q_reshaped, pos_index, sin_tbl, cos_tbl, rope_algo_);
         infinicore::op::rope_(k_reshaped, k_reshaped, pos_index, sin_tbl, cos_tbl, rope_algo_);
     } else {
@@ -244,8 +243,7 @@ infinicore::Tensor Ernie4_5_VLMoeAttention::forward_paged_(const infinicore::Ten
     auto pos_shape = position_ids->shape();
     bool use_mrope = (pos_shape.size() == 2) && (pos_shape[0] == 3) && !mrope_section_.empty();
     if (use_mrope) {
-        auto [sin_tbl, cos_tbl, pos_index] =
-            build_mrope_(position_ids, q_reshaped->dtype(), q_reshaped->device());
+        auto [sin_tbl, cos_tbl, pos_index] = build_mrope_(position_ids, q_reshaped->dtype(), q_reshaped->device());
         infinicore::op::rope_(q_reshaped, q_reshaped, pos_index, sin_tbl, cos_tbl, rope_algo_);
         infinicore::op::rope_(k_reshaped, k_reshaped, pos_index, sin_tbl, cos_tbl, rope_algo_);
     } else {

@@ -77,8 +77,8 @@ public:
             const std::optional<infinicore::Tensor> &correction_bias) const;
 
 protected:
-    INFINICORE_NN_PARAMETER(weight);    // text gate   (mlp.gate.weight)
-    INFINICORE_NN_PARAMETER(weight_1);  // vision gate (mlp.gate.weight_1)
+    INFINICORE_NN_PARAMETER(weight);   // text gate   (mlp.gate.weight)
+    INFINICORE_NN_PARAMETER(weight_1); // vision gate (mlp.gate.weight_1)
 
     size_t moe_k_{0};
 };
@@ -90,13 +90,13 @@ protected:
 class Ernie4_5_VLMoeExpertList : public infinicore::nn::Module {
 public:
     Ernie4_5_VLMoeExpertList(size_t num_experts_text,
-                              size_t num_experts_vision,
-                              size_t hidden_size,
-                              size_t inter_text,
-                              size_t inter_vision,
-                              bool use_bias,
-                              const infinicore::DataType &dtype,
-                              const infinicore::Device &device);
+                             size_t num_experts_vision,
+                             size_t hidden_size,
+                             size_t inter_text,
+                             size_t inter_vision,
+                             bool use_bias,
+                             const infinicore::DataType &dtype,
+                             const infinicore::Device &device);
 
     // Direct access for dispatch in SparseMoeBlock.
     std::vector<std::shared_ptr<Ernie4_5_VLMoeMLP>> experts;

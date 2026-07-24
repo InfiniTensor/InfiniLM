@@ -63,8 +63,15 @@ def build_conversation(text, image=None, video=None):
     return [{"role": "user", "content": content}]
 
 
-def run_infinilm(model_path, device, conversation, max_new_tokens, ignore_eos=False, tp=1,
-                 max_cache_len=1024):
+def run_infinilm(
+    model_path,
+    device,
+    conversation,
+    max_new_tokens,
+    ignore_eos=False,
+    tp=1,
+    max_cache_len=1024,
+):
     from infinilm.llm.llm import LLM
     from infinilm.llm.sampling_params import SamplingParams
 
@@ -129,7 +136,9 @@ def run_reference(model_path, conversation, max_new_tokens):
         return_dict=True,
         return_tensors="pt",
     )
-    inputs = {k: (v.to(model.device) if hasattr(v, "to") else v) for k, v in inputs.items()}
+    inputs = {
+        k: (v.to(model.device) if hasattr(v, "to") else v) for k, v in inputs.items()
+    }
 
     prompt_len = inputs["input_ids"].shape[1]
     with torch.no_grad():
@@ -146,7 +155,11 @@ def run_reference(model_path, conversation, max_new_tokens):
 
 def _infinilm_text(infinilm_out):
     """Best-effort extraction of decoded text from LLM.chat output."""
-    o = infinilm_out[0] if isinstance(infinilm_out, (list, tuple)) and infinilm_out else infinilm_out
+    o = (
+        infinilm_out[0]
+        if isinstance(infinilm_out, (list, tuple)) and infinilm_out
+        else infinilm_out
+    )
     if isinstance(o, str):
         return o
     for attr in ("text", "generated_text", "outputs"):
@@ -174,7 +187,7 @@ def compare(infinilm_out, reference_ids, reference_text):
 
 
 CASES = [
-    ("text",  dict(text="用一句话介绍你自己。")),
+    ("text", dict(text="用一句话介绍你自己。")),
     ("image", dict(text="描述这张图片。", image="IMAGE_PATH")),
     ("video", dict(text="描述这段视频的内容。", video="VIDEO_PATH")),
 ]
@@ -187,16 +200,27 @@ def main():
     ap.add_argument("--image", default=None)
     ap.add_argument("--video", default=None)
     ap.add_argument("--max-new-tokens", type=int, default=128)
-    ap.add_argument("--max-cache-len", type=int, default=1024,
-                    help="KV cache length; raise for video (>=3072) since a clip "
-                         "expands to thousands of vision tokens.")
+    ap.add_argument(
+        "--max-cache-len",
+        type=int,
+        default=1024,
+        help="KV cache length; raise for video (>=3072) since a clip "
+        "expands to thousands of vision tokens.",
+    )
     ap.add_argument("--with-reference", action="store_true")
     ap.add_argument("--cases", default="text,image,video")
-    ap.add_argument("--tp", type=int, default=1,
-                    help="Tensor-parallel size. Use 2 on MetaX C500 ×2 (the 59GB "
-                         "weights do not fit one 64GB card alongside activations/KV).")
-    ap.add_argument("--ignore-eos", action="store_true",
-                    help="Ignore EOS during generation to see what tokens follow (debug mode).")
+    ap.add_argument(
+        "--tp",
+        type=int,
+        default=1,
+        help="Tensor-parallel size. Use 2 on MetaX C500 ×2 (the 59GB "
+        "weights do not fit one 64GB card alongside activations/KV).",
+    )
+    ap.add_argument(
+        "--ignore-eos",
+        action="store_true",
+        help="Ignore EOS during generation to see what tokens follow (debug mode).",
+    )
     args = ap.parse_args()
 
     selected = set(args.cases.split(","))
@@ -217,13 +241,20 @@ def main():
         print(f"\n===== case: {name} =====")
         conversation = build_conversation(**kw)
         infinilm_out = run_infinilm(
-            args.model, args.device, conversation, args.max_new_tokens,
-            ignore_eos=args.ignore_eos, tp=args.tp, max_cache_len=args.max_cache_len,
+            args.model,
+            args.device,
+            conversation,
+            args.max_new_tokens,
+            ignore_eos=args.ignore_eos,
+            tp=args.tp,
+            max_cache_len=args.max_cache_len,
         )
         print(f"[InfiniLM] {infinilm_out}")
 
         if args.with_reference:
-            ref_ids, ref_text = run_reference(args.model, conversation, args.max_new_tokens)
+            ref_ids, ref_text = run_reference(
+                args.model, conversation, args.max_new_tokens
+            )
             print(f"[Reference] {ref_text}")
             compare(infinilm_out, ref_ids, ref_text)
 
