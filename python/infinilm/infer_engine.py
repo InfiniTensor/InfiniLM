@@ -10,6 +10,7 @@ from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
 from .exception_utils import handle_oom_and_exit
+from .generation.utils import infini_to_numpy  # noqa: F401 - registers Tensor.to_numpy
 from .modeling_utils import parse_dtype
 
 _MODEL_DEFAULTS = {
@@ -214,6 +215,7 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         *,
         position_ids=None,
+        token_type_ids=None,
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
@@ -223,9 +225,12 @@ class InferEngine(_infinilm.InferEngine):
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
         pixel_values=None,
+        images=None,
         image_bound=None,
         tgt_sizes=None,
         image_grid_thw=None,
+        grid_thw=None,
+        image_type_ids=None,
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
@@ -241,6 +246,7 @@ class InferEngine(_infinilm.InferEngine):
 
         input_ids = unwrap_tensor(input_ids)
         position_ids = unwrap_tensor(position_ids)
+        token_type_ids = unwrap_tensor(token_type_ids)
         past_kv_lengths = unwrap_tensor(past_kv_lengths)
         total_kv_lengths = unwrap_tensor(total_kv_lengths)
         input_offsets = unwrap_tensor(input_offsets)
@@ -260,10 +266,14 @@ class InferEngine(_infinilm.InferEngine):
                 return None
             return [unwrap_tensor(tensor) for tensor in tensor_list_]
 
+        if pixel_values is None and images is not None:
+            pixel_values = images
         pixel_values = convert_tensor_list(pixel_values)
         image_bound = convert_tensor_list(image_bound)
         tgt_sizes = convert_tensor_list(tgt_sizes)
         image_grid_thw = convert_tensor_list(image_grid_thw)
+        grid_thw = convert_tensor_list(grid_thw)
+        image_type_ids = convert_tensor_list(image_type_ids)
 
         temperature = 1.0 if temperature is None else temperature
         top_k = 1 if top_k is None else top_k
@@ -272,6 +282,7 @@ class InferEngine(_infinilm.InferEngine):
         return super().Input(
             input_ids,
             position_ids=position_ids,
+            token_type_ids=token_type_ids,
             past_sequence_lengths=past_kv_lengths,
             total_sequence_lengths=total_kv_lengths,
             input_offsets=input_offsets,
@@ -284,6 +295,8 @@ class InferEngine(_infinilm.InferEngine):
             image_bound=image_bound,
             tgt_sizes=tgt_sizes,
             image_grid_thw=image_grid_thw,
+            grid_thw=grid_thw,
+            image_type_ids=image_type_ids,
             image_req_ids=image_req_ids,
             visual_token_ranges=visual_token_ranges,
             target_hidden_states=target_hidden_states,
@@ -298,6 +311,7 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         *,
         position_ids=None,
+        token_type_ids=None,
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
@@ -307,9 +321,12 @@ class InferEngine(_infinilm.InferEngine):
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
         pixel_values=None,
+        images=None,
         image_bound=None,
         tgt_sizes=None,
         image_grid_thw=None,
+        grid_thw=None,
+        image_type_ids=None,
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
@@ -322,6 +339,9 @@ class InferEngine(_infinilm.InferEngine):
             input_ids = input_ids._underlying if input_ids is not None else None
             position_ids = (
                 position_ids._underlying if position_ids is not None else None
+            )
+            token_type_ids = (
+                token_type_ids._underlying if token_type_ids is not None else None
             )
             past_kv_lengths = (
                 past_kv_lengths._underlying if past_kv_lengths is not None else None
@@ -359,10 +379,14 @@ class InferEngine(_infinilm.InferEngine):
                     return None
                 return [tensor._underlying for tensor in tensor_list_]
 
+            if pixel_values is None and images is not None:
+                pixel_values = images
             pixel_values = convert_tensor_list(pixel_values)
             image_bound = convert_tensor_list(image_bound)
             tgt_sizes = convert_tensor_list(tgt_sizes)
             image_grid_thw = convert_tensor_list(image_grid_thw)
+            grid_thw = convert_tensor_list(grid_thw)
+            image_type_ids = convert_tensor_list(image_type_ids)
 
             return infinicore.Tensor(
                 super()
@@ -370,6 +394,7 @@ class InferEngine(_infinilm.InferEngine):
                     self._build_input(
                         input_ids,
                         position_ids=position_ids,
+                        token_type_ids=token_type_ids,
                         past_kv_lengths=past_kv_lengths,
                         total_kv_lengths=total_kv_lengths,
                         input_offsets=input_offsets,
@@ -382,6 +407,8 @@ class InferEngine(_infinilm.InferEngine):
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,
                         image_grid_thw=image_grid_thw,
+                        grid_thw=grid_thw,
+                        image_type_ids=image_type_ids,
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         target_hidden_states=target_hidden_states,
@@ -401,6 +428,7 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         *,
         position_ids=None,
+        token_type_ids=None,
         past_kv_lengths=None,
         total_kv_lengths=None,
         input_offsets=None,
@@ -408,8 +436,12 @@ class InferEngine(_infinilm.InferEngine):
         block_tables=None,
         slot_mapping=None,
         pixel_values=None,
+        images=None,
         image_bound=None,
         tgt_sizes=None,
+        image_grid_thw=None,
+        grid_thw=None,
+        image_type_ids=None,
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
@@ -423,6 +455,7 @@ class InferEngine(_infinilm.InferEngine):
                 self._build_input(
                     input_ids,
                     position_ids=position_ids,
+                    token_type_ids=token_type_ids,
                     past_kv_lengths=past_kv_lengths,
                     total_kv_lengths=total_kv_lengths,
                     input_offsets=input_offsets,
@@ -430,8 +463,12 @@ class InferEngine(_infinilm.InferEngine):
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
                     pixel_values=pixel_values,
+                    images=images,
                     image_bound=image_bound,
                     tgt_sizes=tgt_sizes,
+                    image_grid_thw=image_grid_thw,
+                    grid_thw=grid_thw,
+                    image_type_ids=image_type_ids,
                     image_req_ids=image_req_ids,
                     visual_token_ranges=visual_token_ranges,
                     target_hidden_states=target_hidden_states,
@@ -455,9 +492,15 @@ class InferEngine(_infinilm.InferEngine):
         input_ids,
         generation_config,
         *,
+        position_ids=None,
+        token_type_ids=None,
         pixel_values=None,
+        images=None,
         image_bound=None,
         tgt_sizes=None,
+        image_grid_thw=None,
+        grid_thw=None,
+        image_type_ids=None,
         _measure_and_log_time=False,
     ):
         eos_token_id = self.eos_token_id
@@ -472,6 +515,33 @@ class InferEngine(_infinilm.InferEngine):
             raise ValueError(
                 "When `batch_size > 1`, `max_new_tokens` must be specified."
             )
+
+        if self.get_cache_config() is None:
+            raise ValueError(
+                "InferEngine.generate requires a KV cache config. "
+                "Pass StaticKVCacheConfig or PagedKVCacheConfig when constructing "
+                "InferEngine, or call reset_cache before generate()."
+            )
+
+        external_position_ids = position_ids
+        external_token_type_ids = token_type_ids
+        generated_position_ids = None
+        if external_position_ids is not None:
+            position_ids_np = external_position_ids.to_numpy()
+            if len(position_ids_np.shape) == 3:
+                max_positions = position_ids_np.max(axis=1, keepdims=True)
+                generated_position_ids = (max_positions + 1).tolist()
+            elif len(position_ids_np.shape) == 2:
+                generated_position_ids = (position_ids_np[:, -1:] + 1).tolist()
+            else:
+                generated_position_ids = [[int(position_ids_np.reshape([-1])[-1]) + 1]]
+        generated_token_type_ids = None
+        if external_token_type_ids is not None:
+            token_type_ids_np = external_token_type_ids.to_numpy()
+            batch_for_token_types = (
+                token_type_ids_np.shape[0] if len(token_type_ids_np.shape) >= 2 else 1
+            )
+            generated_token_type_ids = [[0] for _ in range(batch_for_token_types)]
 
         if _measure_and_log_time:
             time_measurements = []
@@ -508,6 +578,14 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=infinicore.int32,
             )
 
+        def position_ids_from_list(position_ids_list):
+            try:
+                return infinicore.from_list(position_ids_list, dtype=infinicore.int64)
+            except ValueError:
+                return infinicore.from_list_by_numpy(
+                    position_ids_list, dtype=infinicore.int64
+                )
+
         for iter in range(0, generation_config.max_new_tokens):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
@@ -516,10 +594,17 @@ class InferEngine(_infinilm.InferEngine):
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
-                position_ids = infinicore.from_list(
-                    list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
-                    dtype=infinicore.int64,
-                )
+                if external_position_ids is None:
+                    iter_position_ids = infinicore.from_list(
+                        list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
+                        dtype=infinicore.int64,
+                    )
+                else:
+                    iter_position_ids = (
+                        external_position_ids
+                        if iter == 0
+                        else position_ids_from_list(generated_position_ids)
+                    )
 
                 if iter == 0:
                     slot_mapping_list = []
@@ -547,13 +632,20 @@ class InferEngine(_infinilm.InferEngine):
                     dtype=infinicore.int64,
                 )
             else:
-                position_ids = infinicore.from_list(
-                    [
-                        list(range(past_seq_len, past_seq_len + seq_len))
-                        for _ in range(batch_size)
-                    ],
-                    dtype=infinicore.int64,
-                )
+                if external_position_ids is None:
+                    iter_position_ids = infinicore.from_list(
+                        [
+                            list(range(past_seq_len, past_seq_len + seq_len))
+                            for _ in range(batch_size)
+                        ],
+                        dtype=infinicore.int64,
+                    )
+                else:
+                    iter_position_ids = (
+                        external_position_ids
+                        if iter == 0
+                        else position_ids_from_list(generated_position_ids)
+                    )
 
                 slot_mapping = None
 
@@ -586,7 +678,19 @@ class InferEngine(_infinilm.InferEngine):
             output_id = self(
                 input_ids=input_ids,
                 pixel_values=pixel_values if iter == 0 else None,
-                position_ids=position_ids,
+                images=images if iter == 0 else None,
+                position_ids=iter_position_ids,
+                token_type_ids=(
+                    external_token_type_ids
+                    if iter == 0
+                    else (
+                        infinicore.from_list(
+                            generated_token_type_ids, dtype=infinicore.int64
+                        )
+                        if generated_token_type_ids is not None
+                        else None
+                    )
+                ),
                 past_kv_lengths=past_kv_lengths,
                 total_kv_lengths=total_kv_lengths,
                 input_offsets=input_offsets,
@@ -597,6 +701,9 @@ class InferEngine(_infinilm.InferEngine):
                 mamba_final_state_indices=mamba_final_state_indices,
                 image_bound=image_bound if iter == 0 else None,
                 tgt_sizes=tgt_sizes if iter == 0 else None,
+                image_grid_thw=image_grid_thw if iter == 0 else None,
+                grid_thw=grid_thw if iter == 0 else None,
+                image_type_ids=image_type_ids if iter == 0 else None,
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
@@ -616,6 +723,16 @@ class InferEngine(_infinilm.InferEngine):
             input_ids = output_id.view([batch_size, 1])
 
             past_seq_len = past_seq_len + seq_len
+            if generated_position_ids is not None:
+                if isinstance(generated_position_ids[0][0], list):
+                    generated_position_ids = [
+                        [[value + 1 for value in generated_position_ids[b][0]]]
+                        for b in range(len(generated_position_ids))
+                    ]
+                else:
+                    generated_position_ids = [
+                        [row[0] + 1] for row in generated_position_ids
+                    ]
 
             if _measure_and_log_time:
                 end_time = time.perf_counter()

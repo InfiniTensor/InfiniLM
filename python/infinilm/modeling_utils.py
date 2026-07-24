@@ -237,6 +237,13 @@ def load_model_state_dict_by_file(
 
             already_loaded_keys.extend(model_param.keys())
 
+            if os.getenv("INFINILM_ERNIE_GPU_ROUTER"):
+                for key in list(model_param.keys()):
+                    if key.endswith(".mlp.gate.weight") or key.endswith(
+                        ".mlp.gate.weight_1"
+                    ):
+                        model_param[key] = model_param[key].to(dtype=torch.bfloat16)
+
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
             # --------------------------------------------------------- #
@@ -349,6 +356,11 @@ def load_model_state_dict_by_tensor(
             with safe_open(file_path, "pt", "cpu") as f:
                 for name in f.keys():
                     tensor = f.get_tensor(name).to(dtype=torch_dtype)
+                    if os.getenv("INFINILM_ERNIE_GPU_ROUTER") and (
+                        name.endswith(".mlp.gate.weight")
+                        or name.endswith(".mlp.gate.weight_1")
+                    ):
+                        tensor = tensor.to(dtype=torch.bfloat16)
 
                     if name == "model.embed_tokens.weight":
                         embed_tokens_torch_unscaled = tensor
@@ -366,6 +378,10 @@ def load_model_state_dict_by_tensor(
 
         for key in model_params.keys():
             tensor = model_params[key].to(dtype=torch_dtype)
+            if os.getenv("INFINILM_ERNIE_GPU_ROUTER") and (
+                key.endswith(".mlp.gate.weight") or key.endswith(".mlp.gate.weight_1")
+            ):
+                tensor = tensor.to(dtype=torch.bfloat16)
             if key == "model.embed_tokens.weight":
                 embed_tokens_torch_unscaled = tensor
                 if scale_emb != 1.0:
@@ -710,6 +726,16 @@ def _remap_videonsa(state_dict, config=None):
     return state_dict
 
 
+def _remap_ernie4_5_moe_vl(state_dict, config=None):
+    """Remap ERNIE text, multimodal MoE, vision tower, and VL resampler weights."""
+    result = {}
+    for key, tensor in state_dict.items():
+        if key.endswith(".mlp.gate.weight") or key.endswith(".mlp.gate.weight_1"):
+            tensor = tensor.t().contiguous()
+        result[key] = tensor
+    return result
+
+
 # Model type → remap function mapping
 def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
@@ -764,4 +790,5 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
 }
