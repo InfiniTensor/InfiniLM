@@ -59,8 +59,11 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     # InfiniLM registers packed MoE parameters internally. HF checkpoints
     # provide per-expert gate/up/down weights instead, so these packed tensors
     # are expected missing keys during non-strict checkpoint loading.
-    return key.endswith(".mlp.experts.w13_weight") or key.endswith(
-        ".mlp.experts.w2_weight"
+    return (
+        key.endswith(".mlp.experts.w13_weight")
+        or key.endswith(".mlp.experts.w2_weight")
+        or key.endswith(".mlp.experts.w1")
+        or key.endswith(".mlp.experts.w2")
     )
 
 
