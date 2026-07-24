@@ -122,7 +122,9 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            if tensor.is_floating_point():
+            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
+            preserve_fp32 = k.endswith(".e_score_correction_bias")
+            if tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
