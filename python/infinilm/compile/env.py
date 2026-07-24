@@ -157,11 +157,18 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     _warn_fa_force_with_policy()
     _warn_prefill_native_with_policy()
     if os.environ.get("INFINI_MOE_TRITON_CAPTURE"):
+        # Jul21 Band C recipe used TRITON_CAPTURE=1. Map to FORCE_CAPTURE for
+        # Decode-only fold; MetaX still requires METAX_CAPTURE_UNSAFE (default
+        # ban — MoE-in-capture garbles on this stack).
         logger.warning(
-            "INFINI_MOE_TRITON_CAPTURE is deprecated and ignored; MoE capture "
-            "follows cudagraph_policy + InferencePhase::Decode. Use "
-            "INFINI_MOE_FORCE_HOST_BREAK=1 to force MoE host-break for bisect."
+            "INFINI_MOE_TRITON_CAPTURE is deprecated; mapping truthy values to "
+            "INFINI_MOE_FORCE_CAPTURE=1 (Decode-only). On MetaX also set "
+            "INFINI_MOE_METAX_CAPTURE_UNSAFE=1 to opt into MoE-in-graph "
+            "(known garble under hcGraph — Step1: FORCE and CAPTURE_SAFE both "
+            "GARBLE; FORCE_OP_LIST OK; default remains MoE host-break segs≈28)."
         )
+        if _truthy("INFINI_MOE_TRITON_CAPTURE", "0"):
+            _setdefault_env("INFINI_MOE_FORCE_CAPTURE", "1")
 
     if p == CUDAGRAPH_POLICY_EAGER:
         _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "1")
@@ -170,8 +177,8 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
         return p
 
     # full_and_piecewise
-    # Decode FULL: FA host-break; MoE phase-adaptive (Decode in-graph;
-    # Prefill HB). FA-in-graph diagnose via INFINI_FA_FORCE_CAPTURE.
+    # Decode FULL: FA host-break by default; MoE host-break on MetaX (FORCE +
+    # METAX_CAPTURE_UNSAFE diagnose-only). FA-in-graph via INFINI_FA_FORCE_CAPTURE.
     # Prefill: native piecewise always on (derived from policy, not PREFILL_NATIVE_CG).
     # MIXED → eager (dispatcher NONE) until mixed PIECEWISE exists.
     _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "0")
@@ -182,7 +189,7 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     _setdefault_env("INFINI_MUL_HOST_BREAK", "0")
     logger.info(
         "cudagraph_policy=full_and_piecewise "
-        "(FULL uniform decode + FA host-break + Decode MoE in-graph; "
+        "(FULL uniform decode + FA host-break + MetaX MoE host-break; "
         "PIECEWISE homogeneous prefill; MIXED→eager)"
     )
     return p

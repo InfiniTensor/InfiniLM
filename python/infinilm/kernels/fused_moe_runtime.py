@@ -291,6 +291,35 @@ def _phase_marker(name: str) -> None:
         print(f"=== PHASE {name} ===", flush=True)
 
 
+# #region agent log
+_DEBUG_LOG_PATH = "/opt/offline/infinilm-metax-20260622/.cursor/debug-e5aec6.log"
+_DEBUG_STATE = {"calls": 0}
+
+
+def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    """NDJSON debug log for MoE host-break vs in-graph parity bisect."""
+    try:
+        import json
+        import time
+
+        payload = {
+            "sessionId": "e5aec6",
+            "runId": os.environ.get("INFINI_DEBUG_RUN_ID", "pre-fix"),
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+        }
+        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(payload, default=str) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# #endregion
+
+
 def _host_split_enabled() -> bool:
     return os.environ.get("INFINI_MOE_HOST_SPLIT", "").strip().lower() in (
         "1",
@@ -373,9 +402,9 @@ def _moe_capture_safe_enabled() -> bool:
 def _moe_triton_capture_enabled() -> bool:
     """Whether Triton fused_moe_routed may run under stream capture.
 
-    Defers to InfiniCore ``moe_triton_capture_allowed`` (phase-adaptive:
-    non-eager + Decode). ``INFINI_MOE_FORCE_HOST_BREAK=1`` forces off.
-    ``INFINI_MOE_TRITON_CAPTURE`` is deprecated/ignored.
+    Defers to InfiniCore ``moe_triton_capture_allowed`` (FORCE_CAPTURE /
+    deprecated TRITON_CAPTURE alias + Decode; MetaX needs METAX_CAPTURE_UNSAFE).
+    ``INFINI_MOE_FORCE_HOST_BREAK=1`` forces off.
     """
     raw_force = os.environ.get("INFINI_MOE_FORCE_HOST_BREAK", "").strip().lower()
     if raw_force in ("1", "true", "yes", "on"):
@@ -384,12 +413,19 @@ def _moe_triton_capture_enabled() -> bool:
         import warnings
 
         warnings.warn(
-            "INFINI_MOE_TRITON_CAPTURE is deprecated and ignored; MoE capture "
-            "follows cudagraph_policy + InferencePhase::Decode "
-            "(use INFINI_MOE_FORCE_HOST_BREAK=1 to force host-break)",
+            "INFINI_MOE_TRITON_CAPTURE is deprecated; treat truthy as "
+            "INFINI_MOE_FORCE_CAPTURE (Decode-only). MetaX also needs "
+            "INFINI_MOE_METAX_CAPTURE_UNSAFE=1 (MoE-in-graph garbles by default)",
             DeprecationWarning,
             stacklevel=2,
         )
+        if os.environ.get("INFINI_MOE_TRITON_CAPTURE", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            os.environ.setdefault("INFINI_MOE_FORCE_CAPTURE", "1")
     try:
         from infinicore.lib import _infinicore as _ic
 
@@ -404,12 +440,32 @@ def _moe_triton_capture_enabled() -> bool:
 
 
 def _under_device_stream_capture() -> bool:
+    """True while InfiniCore is inside hcStreamBeginCapture..EndCapture.
+
+    Prefer the pybind TLS flag; also read ``INFINI_DEVICE_STREAM_CAPTURING`` via
+    libc ``getenv`` (not ``os.environ``) — C++ ``setenv`` bridges duplicate-TLS /
+    separate-DSO cases (same pattern as Infiniop), and ``os.environ`` can miss it.
+    """
     try:
         from infinicore.lib import _infinicore as _ic
 
-        return bool(_ic.is_device_stream_capturing())
+        if bool(_ic.is_device_stream_capturing()):
+            return True
     except Exception:  # noqa: BLE001
-        return False
+        pass
+    try:
+        import ctypes
+
+        getenv = ctypes.CDLL(None).getenv
+        getenv.argtypes = [ctypes.c_char_p]
+        getenv.restype = ctypes.c_char_p
+        raw = getenv(b"INFINI_DEVICE_STREAM_CAPTURING")
+        if raw:
+            v = raw.decode("utf-8", "replace").strip().lower()
+            return v in ("1", "true", "yes", "on")
+    except Exception:  # noqa: BLE001
+        pass
+    return False
 
 
 def _empty_capture(numel: int, *, dtype, device) -> torch.Tensor:
@@ -496,6 +552,107 @@ def _retain_capture(*tensors) -> None:
         return
 
 
+# Persistent decode-sized aten workspaces: same device addresses every call so
+# MetaX FULL capture can record MoE even when Python TLS/env miss capturing
+# (duplicate libinfinicore TLS → CaptureArena invisible to Python).
+_ATEN_STATIC_WS: Dict[tuple, dict] = {}
+
+
+def _zero_device_buffer(t: torch.Tensor) -> None:
+    """Zero a device tensor via hcMemsetAsync when possible (capture-safe)."""
+    if t is None or not isinstance(t, torch.Tensor) or t.numel() == 0:
+        return
+    if not t.is_cuda:
+        t.zero_()
+        return
+    try:
+        import ctypes
+
+        lib = ctypes.CDLL("libhcrt.so")
+        lib.hcMemsetAsync.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_size_t,
+            ctypes.c_void_p,
+        ]
+        lib.hcMemsetAsync.restype = ctypes.c_int
+        stream = torch.cuda.current_stream().cuda_stream
+        nbytes = int(t.numel() * t.element_size())
+        st = lib.hcMemsetAsync(
+            ctypes.c_void_p(t.data_ptr()), 0, nbytes, ctypes.c_void_p(stream)
+        )
+        if st == 0:
+            return
+    except Exception:  # noqa: BLE001
+        pass
+    t.zero_()
+
+
+def _routed_experts_aten_static(
+    x: torch.Tensor,
+    topk_weights: torch.Tensor,
+    topk_ids: torch.Tensor,
+    w_gate_up: torch.Tensor,
+    w_down: torch.Tensor,
+) -> torch.Tensor:
+    """Decode-sized aten MoE into process-lifetime buffers (CG address stability)."""
+    top_k = int(topk_ids.shape[1])
+    t_tokens = int(x.size(0))
+    hidden = int(x.size(1))
+    n2 = int(w_gate_up.size(1))
+    key = (str(x.device), str(x.dtype), t_tokens, hidden, top_k, n2)
+    ws = _ATEN_STATIC_WS.get(key)
+    if ws is None:
+        ws = {
+            "acc": torch.empty((t_tokens, hidden), dtype=x.dtype, device=x.device),
+            "gu": torch.empty((t_tokens, n2), dtype=x.dtype, device=x.device),
+            "h": torch.empty((t_tokens, n2 // 2), dtype=x.dtype, device=x.device),
+            "y": torch.empty((t_tokens, hidden), dtype=x.dtype, device=x.device),
+            "w": torch.empty((t_tokens, 1), dtype=x.dtype, device=x.device),
+            "x3": torch.empty((t_tokens, hidden, 1), dtype=x.dtype, device=x.device),
+            "h3": torch.empty((t_tokens, n2 // 2, 1), dtype=x.dtype, device=x.device),
+        }
+        _ATEN_STATIC_WS[key] = ws
+        # #region agent log
+        _agent_log(
+            "H8",
+            "fused_moe_runtime.py:_routed_experts_aten_static",
+            "aten_static_ws_alloc",
+            {"key": list(key), "top_k": top_k},
+        )
+        # #endregion
+    acc = ws["acc"]
+    _zero_device_buffer(acc)
+    # Keep a stable view of x for bmm without per-call unsqueeze alloc when possible.
+    x3 = ws["x3"]
+    x3.copy_(x.unsqueeze(-1))
+    for k in range(top_k):
+        idx = topk_ids[:, k]
+        w_gu = w_gate_up.index_select(0, idx)
+        w_d = w_down.index_select(0, idx)
+        gu = ws["gu"]
+        gu3 = gu.view(t_tokens, n2, 1)
+        torch.bmm(w_gu, x3, out=gu3)
+        gate, up = gu.chunk(2, dim=-1)
+        # Fresh silu each expert; mul into static h (avoid ephemeral silu*up).
+        silu_g = F.silu(gate)
+        h = ws["h"]
+        torch.mul(silu_g, up, out=h)
+        h3 = ws["h3"]
+        h3.copy_(h.unsqueeze(-1))
+        y = ws["y"]
+        y3 = y.view(t_tokens, hidden, 1)
+        torch.bmm(w_d, h3, out=y3)
+        w = ws["w"]
+        wk = topk_weights[:, k].unsqueeze(-1)
+        if wk.dtype != x.dtype:
+            w.copy_(wk.to(dtype=x.dtype))
+        else:
+            w.copy_(wk)
+        acc.add_(y * w)
+    return acc
+
+
 def _routed_experts_aten(
     x: torch.Tensor,
     topk_weights: torch.Tensor,
@@ -503,24 +660,69 @@ def _routed_experts_aten(
     w_gate_up: torch.Tensor,
     w_down: torch.Tensor,
 ) -> torch.Tensor:
-    """Capture-safe routed experts via index_select + bmm (no Triton).
+    """Routed experts via index_select + bmm (no Triton).
 
-    Same shapes as ``fused_moe_routed``. Used only under ``hcStreamBeginCapture``
-    when ``INFINI_MOE_CAPTURE_SAFE=1``; eager serve keeps the Triton path.
+    Same shapes as ``fused_moe_routed``. Under capture, retain Torch temps so
+    MetaX replay does not dangle (parity with host-break freshness).
+
+    When ``INFINI_MOE_FORCE_CAPTURE`` + decode-sized T and Python cannot see
+    CaptureArena (TLS split), use process-static buffers (H8) so CG replay
+    keeps stable addresses — ``torch.zeros_like`` under a live capture garbles.
     """
-    t_tokens, _hidden = x.shape
-    del t_tokens, _hidden
     top_k = int(topk_ids.shape[1])
-    acc = torch.zeros_like(x)
+    capturing = _under_device_stream_capture()
+    force_cap = os.environ.get("INFINI_MOE_FORCE_CAPTURE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    decode_sized = int(x.size(0)) <= 16
+    # Prefer arena when TLS works; else static workspaces under FORCE_CAPTURE.
+    if force_cap and decode_sized and not capturing:
+        return _routed_experts_aten_static(
+            x, topk_weights, topk_ids, w_gate_up, w_down
+        )
+    if capturing:
+        try:
+            acc = _empty_capture(int(x.numel()), dtype=x.dtype, device=x.device).view(
+                x.shape
+            )
+            _zero_capture(acc)
+        except Exception:  # noqa: BLE001
+            return _routed_experts_aten_static(
+                x, topk_weights, topk_ids, w_gate_up, w_down
+            )
+    else:
+        acc = torch.zeros_like(x)
+    retained: list = []
     for k in range(top_k):
         idx = topk_ids[:, k]
         w_gu = w_gate_up.index_select(0, idx)
         w_d = w_down.index_select(0, idx)
         gu = torch.bmm(w_gu, x.unsqueeze(-1)).squeeze(-1)
         gate, up = gu.chunk(2, dim=-1)
-        h = F.silu(gate) * up
+        silu_g = F.silu(gate)
+        if capturing:
+            h = _empty_capture(
+                int(gate.numel()), dtype=gate.dtype, device=gate.device
+            ).view_as(gate)
+            torch.mul(silu_g, up, out=h)
+            retained.extend((w_gu, w_d, gu, silu_g, h))
+        else:
+            h = silu_g * up
         y = torch.bmm(w_d, h.unsqueeze(-1)).squeeze(-1)
-        acc = acc + y * topk_weights[:, k].unsqueeze(-1).to(dtype=x.dtype)
+        w = topk_weights[:, k].unsqueeze(-1)
+        if w.dtype != x.dtype:
+            w = _capture_safe_to_dtype(w, x.dtype) if capturing else w.to(dtype=x.dtype)
+        if capturing:
+            contrib = y * w
+            retained.extend((y, contrib, w))
+            acc.add_(contrib)
+        else:
+            acc = acc + y * w
+    if capturing:
+        _retain_capture(acc, *retained)
     return acc
 
 
@@ -727,6 +929,22 @@ def moe_align_block_size(
         _HOST_SPLIT.begin("align_capture")
         out = _moe_align_block_size_capture(topk_ids, block_size, num_experts)
         _HOST_SPLIT.end("align_capture")
+        # #region agent log
+        if _DEBUG_STATE["calls"] < 8:
+            _agent_log(
+                "H1",
+                "fused_moe_runtime.py:moe_align_block_size",
+                "align_path",
+                {
+                    "path": "align_capture",
+                    "numel": numel,
+                    "block_size": int(block_size),
+                    "num_experts": int(num_experts),
+                    "sorted_len": int(out[0].numel()),
+                    "expert_len": int(out[1].numel()),
+                },
+            )
+        # #endregion
         return out
     # Decode-sized (e.g. M=1,TOP_K=16 → 16 ids): host path wins on MetaX.
     # Keep larger prefill-like aligns on-device (avoid big D2H).
@@ -734,6 +952,22 @@ def moe_align_block_size(
         _HOST_SPLIT.begin("align_host_small")
         out = _moe_align_block_size_host(topk_ids, block_size, num_experts)
         _HOST_SPLIT.end("align_host_small")
+        # #region agent log
+        if _DEBUG_STATE["calls"] < 8:
+            _agent_log(
+                "H1",
+                "fused_moe_runtime.py:moe_align_block_size",
+                "align_path",
+                {
+                    "path": "align_host_small",
+                    "numel": numel,
+                    "block_size": int(block_size),
+                    "num_experts": int(num_experts),
+                    "sorted_len": int(out[0].numel()),
+                    "expert_len": int(out[1].numel()),
+                },
+            )
+        # #endregion
         return out
 
     flat = topk_ids.reshape(-1).to(torch.int64)
@@ -828,6 +1062,24 @@ def _invoke_kernel(
             sorted_token_ids.size(0),
             A.size(0) * top_k * config["BLOCK_SIZE_M"],
         )
+    # #region agent log
+    if _DEBUG_STATE["calls"] <= 6:
+        _agent_log(
+            "H1",
+            "fused_moe_runtime.py:_invoke_kernel",
+            "triton_grid",
+            {
+                "call": _DEBUG_STATE["calls"],
+                "capturing": _under_device_stream_capture(),
+                "EM": int(EM),
+                "sorted_len": int(sorted_token_ids.size(0)),
+                "A0": int(A.size(0)),
+                "top_k": int(top_k),
+                "BLOCK_M": int(config["BLOCK_SIZE_M"]),
+                "mul_routed": bool(mul_routed_weight),
+            },
+        )
+    # #endregion
     grid = lambda META: (  # noqa: E731
         triton.cdiv(EM, META["BLOCK_SIZE_M"])
         * triton.cdiv(B.size(1), META["BLOCK_SIZE_N"]),
@@ -963,11 +1215,13 @@ def fused_moe_routed(
     x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
 
     Capture modes (under ``hcStreamBeginCapture``):
-    - Phase-adaptive Decode (non-eager policy): Triton cubins in-graph.
-    - ``INFINI_MOE_CAPTURE_SAFE=1`` (and MoE not Decode-capturable): aten
-      index_select+bmm.
+    - Decode-sized (``T<=16``) + capture allowed: aten index_select+bmm —
+      parity with host-break numerics / fresh buffers (Triton-under-capture still
+      garbles Gate C Cell B). Bucket/prefill capture (``T>16``) keeps Triton +
+      ``align_capture`` (aten OOMs on T=512).
+    - ``INFINI_MOE_CAPTURE_SAFE=1`` (any T, Triton-capture off): aten.
     - ``INFINI_MOE_FORCE_HOST_BREAK=1``: force host-break (bisect).
-    Otherwise: Triton cubins (eager / host-break path).
+    Otherwise (eager / host-break): Triton + host_align for small numel.
     """
     assert_no_vllm()
     if not x.is_cuda:
@@ -977,12 +1231,83 @@ def fused_moe_routed(
     assert w_gate_up.dim() == 3 and w_down.dim() == 3
     assert x.size(1) == w_gate_up.size(2) == w_down.size(1)
 
-    # Aten body only when CAPTURE_SAFE and not Triton-capture (Triton wins).
-    if (
-        _under_device_stream_capture()
-        and _moe_capture_safe_enabled()
-        and not _moe_triton_capture_enabled()
-    ):
+    _capturing = _under_device_stream_capture()
+    _triton_cap = _moe_triton_capture_enabled()
+    _safe = _moe_capture_safe_enabled()
+    _t_tokens = int(x.size(0))
+    # Host-break parity for decode-sized MoE body (aten index_select+bmm).
+    # Do NOT rely solely on pybind ``moe_triton_capture_allowed`` / TLS phase:
+    # InfiniLM C++ may set InferencePhase::Decode on a different libinfinicore
+    # TLS than the Python extension, so Gate C logs showed triton_cap=False
+    # while C++ still folded MoE in-graph (segs=1) → Triton-under-capture garble.
+    _force_hb = os.environ.get("INFINI_MOE_FORCE_HOST_BREAK", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    _force_cap = os.environ.get("INFINI_MOE_FORCE_CAPTURE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    _decode_sized = _t_tokens <= 16
+    # Aten body only under live capture / CAPTURE_SAFE / C++ triton_cap.
+    # Do NOT key off FORCE_CAPTURE alone: on MetaX MoE stays host-break unless
+    # METAX_CAPTURE_UNSAFE, and FORCE_CAPTURE+aten during HB skipped host-topk
+    # D2H sync → race (post-fix19 all-118 garble).
+    _use_aten_capture = (not _force_hb) and (
+        (_capturing and _safe and not _triton_cap)
+        or (_triton_cap and _decode_sized)
+        or (_capturing and _decode_sized)
+    )
+    # #region agent log
+    _DEBUG_STATE["calls"] = int(_DEBUG_STATE["calls"]) + 1
+    _call_n = int(_DEBUG_STATE["calls"])
+    _env_cap = None
+    try:
+        import ctypes
+
+        _g = ctypes.CDLL(None).getenv
+        _g.argtypes = [ctypes.c_char_p]
+        _g.restype = ctypes.c_char_p
+        _raw = _g(b"INFINI_DEVICE_STREAM_CAPTURING")
+        _env_cap = _raw.decode() if _raw else ""
+    except Exception:  # noqa: BLE001
+        _env_cap = "err"
+    _env_cap_on = str(_env_cap).strip().lower() in ("1", "true", "yes", "on")
+    # Separate budgets: eager noise vs capture/force_capture (critical path).
+    _crit = bool(_capturing or _env_cap_on or _force_cap)
+    _log_budget_key = "logged_crit" if _crit else "logged"
+    _log_limit = 128 if _crit else 48
+    _log_this = _crit or _call_n <= 8 or (_decode_sized and _call_n <= 64)
+    if _log_this and int(_DEBUG_STATE.get(_log_budget_key, 0)) < _log_limit:
+        _DEBUG_STATE[_log_budget_key] = int(_DEBUG_STATE.get(_log_budget_key, 0)) + 1
+        body = (
+            "aten_parity_decode"
+            if _use_aten_capture
+            else ("triton_capture" if (_capturing or _env_cap_on) else "triton_eager_or_hb")
+        )
+        _agent_log(
+            "H6",
+            "fused_moe_runtime.py:fused_moe_routed",
+            "moe_body_path",
+            {
+                "call": _call_n,
+                "capturing": _capturing,
+                "env_DEVICE_STREAM_CAPTURING": _env_cap,
+                "triton_capture_allowed": _triton_cap,
+                "force_capture_env": _force_cap,
+                "capture_safe": _safe,
+                "body": body,
+                "T": _t_tokens,
+                "K": int(topk_ids.size(1)),
+                "E": int(w_gate_up.size(0)),
+            },
+        )
+    # #endregion
+    if _use_aten_capture:
         return _routed_experts_aten(x, topk_w, topk_ids, w_gate_up, w_down)
 
     num_tokens = x.size(0)
@@ -1046,6 +1371,20 @@ def fused_moe_routed(
     _phase_marker("silu")
     _HOST_SPLIT.begin("opaque_silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
+    # #region agent log
+    if _DEBUG_STATE["calls"] <= 4 and _under_device_stream_capture():
+        _agent_log(
+            "H3",
+            "fused_moe_runtime.py:opaque_silu",
+            "silu_mul_under_capture",
+            {
+                "call": _DEBUG_STATE["calls"],
+                "gate_numel": int(gate.numel()),
+                "cache2_data_ptr": int(intermediate_cache2.data_ptr()),
+                "gate_data_ptr": int(gate.data_ptr()),
+            },
+        )
+    # #endregion
     # Write silu*up into workspace cache2 (avoid extra temporary + copy_).
     torch.mul(F.silu(gate), up, out=intermediate_cache2)
     _HOST_SPLIT.end("opaque_silu")
