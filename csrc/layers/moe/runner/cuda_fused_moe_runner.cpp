@@ -371,10 +371,16 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             {1}, infinicore::DataType::I32, device);
     }
 
+    // Prefill grows the reusable workspace. Limit decode views to the current
+    // shape so fused routing kernels do not initialize the oversized buffer.
+    auto sorted_token_ids = workspace.sorted_token_ids->narrow(
+        {{0, 0, sorted_token_ids_capacity}});
+    auto expert_ids = workspace.expert_ids->narrow({{0, 0, max_num_blocks}});
+
     if (dispatch_output.expert_map) {
         infinicore::op::moe_align_with_expert_map_(
-            workspace.sorted_token_ids,
-            workspace.expert_ids,
+            sorted_token_ids,
+            expert_ids,
             workspace.num_tokens_post_padded,
             topk_ids,
             dispatch_output.expert_map,
@@ -383,8 +389,8 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
             true);
     } else {
         infinicore::op::moe_align_(
-            workspace.sorted_token_ids,
-            workspace.expert_ids,
+            sorted_token_ids,
+            expert_ids,
             workspace.num_tokens_post_padded,
             topk_ids,
             num_local_experts_,
@@ -395,8 +401,8 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
         dispatch_output.hidden_states,
         dispatch_output.topk_output,
         MoeRoutingMetadata{
-            workspace.sorted_token_ids,
-            workspace.expert_ids,
+            sorted_token_ids,
+            expert_ids,
             workspace.num_tokens_post_padded,
         },
     };
