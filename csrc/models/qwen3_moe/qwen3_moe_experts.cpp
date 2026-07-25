@@ -24,8 +24,8 @@ infinicore::Tensor Qwen3MoeExperts::forward(const infinicore::Tensor &hidden_sta
                                             const infinicore::Tensor &top_k_weights) const {
     ASSERT(hidden_states->ndim() == 2);
 
-    auto top_k_weights_cpu = top_k_weights->to(infinicore::Device::Type::CPU);
-    auto top_k_index_cpu = top_k_index->to(infinicore::Device::Type::CPU);
+    auto top_k_weights_cpu = top_k_weights->to(infinicore::Device::Type::kCpu);
+    auto top_k_index_cpu = top_k_index->to(infinicore::Device::Type::kCpu);
 
     int *top_k_index_ptr = reinterpret_cast<int *>(top_k_index_cpu->data());
     float *top_k_weights_ptr = reinterpret_cast<float *>(top_k_weights_cpu->data());

@@ -85,7 +85,7 @@ inline void bind_infer_engine(py::module &m) {
              }),
              py::arg("config_str") = "",
              py::arg("distributed_config") = distributed::DistConfig(),
-             py::arg("device_type") = infinicore::context::getDevice().getType(),
+             py::arg("device_type") = infinicore::context::getDevice().type(),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",

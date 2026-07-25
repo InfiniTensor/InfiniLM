@@ -30,14 +30,14 @@ size_t get_size_or_first(const nlohmann::json &config, const char *key, size_t d
 }
 
 std::vector<int64_t> tensor_to_i64_vector(const infinicore::Tensor &tensor) {
-    auto cpu_tensor = tensor->to(infinicore::Device::cpu());
+    auto cpu_tensor = tensor->to(infinicore::Device{infinicore::Device::Type::kCpu});
     std::vector<int64_t> values(cpu_tensor->numel());
-    if (cpu_tensor->dtype() == infinicore::DataType::I64) {
+    if (cpu_tensor->dtype() == infinicore::DataType::kInt64) {
         const auto *ptr = reinterpret_cast<const int64_t *>(cpu_tensor->data());
         values.assign(ptr, ptr + cpu_tensor->numel());
         return values;
     }
-    if (cpu_tensor->dtype() == infinicore::DataType::I32) {
+    if (cpu_tensor->dtype() == infinicore::DataType::kInt32) {
         const auto *ptr = reinterpret_cast<const int32_t *>(cpu_tensor->data());
         for (size_t i = 0; i < cpu_tensor->numel(); ++i) {
             values[i] = static_cast<int64_t>(ptr[i]);
@@ -271,7 +271,7 @@ infinicore::Tensor Qwen35VisionModel::build_rotary_position_ids(const infinicore
         total_tokens += static_cast<size_t>(grid[i]) * static_cast<size_t>(grid[i + 1]) * static_cast<size_t>(grid[i + 2]);
     }
 
-    auto position_ids_cpu = infinicore::Tensor::empty({2, total_tokens}, infinicore::DataType::I64, infinicore::Device::cpu());
+    auto position_ids_cpu = infinicore::Tensor::empty({2, total_tokens}, infinicore::DataType::kInt64, infinicore::Device{infinicore::Device::Type::kCpu});
     auto *position_ids = reinterpret_cast<int64_t *>(position_ids_cpu->data());
 
     size_t out_token = 0;

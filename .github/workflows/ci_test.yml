@@ -43,9 +43,9 @@ jobs:
   ci:
     if: github.event_name == 'workflow_dispatch'
     needs: check-format
-    uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@infiniCore_ci
+    uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@refactor/adopt-modern-infini-stack
     with:
-      config_path: .github/ci_config.yaml
-      ci_ref: infiniCore_ci
+      config_path: .github/ci_config_nvidia.yaml
+      ci_ref: refactor/adopt-modern-infini-stack
       infinicore_branch: ${{ github.event.inputs.infinicore_branch || 'main' }}
     secrets: inherit

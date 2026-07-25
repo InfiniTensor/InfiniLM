@@ -1,185 +1,93 @@
 # InfiniLM
 
-![star](https://atomgit.com/InfiniTensor/InfiniLM/star/badge.svg)
+InfiniLM is the high-level inference engine in the InfiniTensor stack. It owns
+model execution, runtime management, tensor abstractions, and the Python API.
+The lower-level runtime, operator, and collective APIs are provided by
+[InfiniRT](https://github.com/InfiniTensor/InfiniRT),
+[InfiniOps](https://github.com/InfiniTensor/InfiniOps), and
+[InfiniCCL](https://github.com/InfiniTensor/InfiniCCL), respectively.
 
-本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
+[InfiniCore](https://github.com/InfiniTensor/InfiniCore) pins those three
+projects as submodules. InfiniLM no longer consumes runtime or Python-package
+artifacts built by that separate repository; it builds and packages its own
+`infinicore` Python module.
 
-## 使用方式
-#### 一、编译并安装 `InfiniCore`
-编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
+## Build
 
-- 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
-- 根据硬件平台，选择 xmake 构建配置
-- 编译安装InfiniCore
-- 安装 C++ 库
-- 安装 Python 包
+Clone both repositories with their submodules:
 
-
-#### 二、编译并安装  `InfiniLM`
-  - 克隆项目
-
-    由于仓库中含有子模块，所以在克隆时请添加 `--recursive` 或 `--recurse-submodules`，如：
-
-    ```shell
-    git clone --recursive https://github.com/InfiniTensor/InfiniLM.git
-    ```
-
-    或者在普通克隆后进行更新：
-
-    ```shell
-    git submodule update --init --recursive
-    ```
-
-  - 安装 InfiniLM Python 包
-    ```bash
-      pip install -e .
-    ```
-
-  - 单次推理测试
-    - llama示例
-    ```bash
-    python examples/test_infer.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model_dir>
-    ```
-    - 例如：
-    ```bash
-    python examples/test_infer.py --device=nvidia --model=/models/TinyLlama-1.1B-Chat-v1.0
-    ```
-  - 分布式推理测试
-      - 9g示例
-      ```bash
-    python examples/test_infer.py [-- device nvidia] --model=<path/to/model> --backend=cpp --tp=NDEV --batch-size=MAX_BATCH
-    ```
-
-    - 例如： 9G7B模型，cpp后端，batch_size为16，4卡分布式
-    ```bash
-    python examples/test_infer.py --device nvidia --model=/models/9G7B_MHA/ --backend=cpp --tp=4 --batch-size=16
-    ```
-
-
-  - 推理服务测试
-    - 启动推理服务
-      ```bash
-      python python/infinilm/server/inference_server.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model=<path/to/model-dir> --max-new-tokens=MAX_TOKENS --max-batch-size=MAX_BATCH --tp=NDEV --temperature=TEMP --top-p=TOP_P --top-k=TOP_K --host=HOST --port=PORT
-      ```
-    
-    - 单卡示例：
-      ```bash
-      CUDA_VISIBLE_DEVICES=0 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --max-new-tokens=100 --max-batch-size=32 --tp=1 --temperature=1.0 --top-p=0.8 --top-k=1
-      ```
-    
-    - 多卡分布式示例：
-      ```bash
-      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --max-new-tokens=100 --max-batch-size=32 --tp=4 --temperature=1.0 --top-p=0.8 --top-k=1
-      ```
-    
-    - 使用paged attention, flash attention后端，cuda graph等功能：
-      ```bash
-      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-attn --enable-graph
-      ```
-    
-    - 测试推理服务性能：
-      ```bash
-      python scripts/test_perf.py --verbose
-      ```
-
-    - 单请求推理服务测试
-      ```bash
-      python test/service/request.py --content="text:Image 1:" --content="image_url:xxx.jpg" --content="text:Image 2:" --content="image_url:xxxx.jpg" --content="text:Compare the 2 images."
-      ```
-
-  - 运行推理基准测试（C-Eval/MMLU）
-
-    ```bash
-    python test/bench/test_benchmark.py --device [cpu | nvidia | qy | metax | moore | iluvatar | ali | cambricon | hygon] --model <path/to/model_dir> --bench {ceval|mmlu} [--backend cpp] [--tp N] [--subject SUBJECT] [--num-samples N] [--max-new-tokens N] [--output-csv PATH] [--cache-dir PATH]
-    ```
-
-    - 参数说明：
-      - `--subject`: 指定科目，支持单个科目、多个科目（逗号分隔）或 `all`（默认值，加载全部科目）
-      - `--output-csv`: 可选，指定CSV输出文件路径。如未指定则不生成CSV文件。CSV包含每个科目的结果和总体结果
-      - `--cache-dir`: 可选，指定数据集缓存目录的父目录。应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录（例如 `~/.cache/huggingface/datasets/`）。设置后脚本优先使用本地 CSV（`pandas.read_csv`）离线加载数据，避免 `load_dataset` 的网络请求
-
-    - C-Eval示例：
-      - 单个科目：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --num-samples 100 --backend cpp --tp 1
-        ```
-      - 多个科目（逗号分隔）：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics,high_school_physics --backend cpp --tp 1 --output-csv results.csv
-        ```
-      - 全部科目并输出CSV：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench ceval --subject all --backend cpp --tp 1 --output-csv results.csv
-        ```
-      - 使用缓存目录加速加载：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench ceval --subject middle_school_mathematics --backend cpp --tp 1 --cache-dir ~/.cache/huggingface/datasets/
-        ```
-        > 注意：`--cache-dir` 应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录，而不是直接指向这些子目录
-
-    - MMLU示例：
-      - 单个科目：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --tp 1
-        ```
-      - 多个科目（逗号分隔）：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra,anatomy,astronomy --backend cpp --tp 1 --output-csv results.csv
-        ```
-      - 使用缓存目录加速加载：
-        ```bash
-        python test/bench/test_benchmark.py --device nvidia /models/9G7B_MHA --bench mmlu --subject abstract_algebra --backend cpp --tp 1 --cache-dir ~/.cache/huggingface/datasets/
-        ```
-        > 注意：`--cache-dir` 应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录，而不是直接指向这些子目录
-
-  - 试验中功能
-    - Warm Up
-      ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --warmup
-      ```
-    - Paged Attention
-      ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn
-      ```
-    - CUDA Graph
-      ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn --enable-graph
-      ```
-    - 选择attention后端 (使用flash attention后端需要先在InfiniCore完成相关配置和编译)
-      ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn [--attn=default | --attn=flash-attn]
-      ```
-
-## 使用方式(旧版)
-
-- 编译并安装 `InfiniCore` 。注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）。
-
-- 编译并安装 `InfiniLM`
-
-```bash
-xmake && xmake install
+```shell
+git clone --recurse-submodules https://github.com/InfiniTensor/InfiniCore.git
+git clone --recurse-submodules https://github.com/InfiniTensor/InfiniLM.git
 ```
 
-- 运行模型推理测试
+From InfiniLM, build the NVIDIA dependency stack pinned by the InfiniCore
+checkout. The default operator set is the set required by InfiniLM:
 
-```bash
-python scripts/jiuge.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore | --iluvatar | --kunlun | --hygon | --ali] path/to/model_dir [n_device]
+```shell
+cd InfiniLM
+python3 scripts/build_infini_stack.py \
+  --infinicore-root ../InfiniCore \
+  --cuda-arch sm_80 \
+  --jobs 16 \
+  --test
+export INFINI_ROOT="$PWD/build/integration/nvidia/prefix"
+export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 ```
 
-- 部署模型推理服务
+Then build and install InfiniLM:
 
-```bash
-python scripts/launch_server.py --model MODEL_PATH [-h] [--dev {cpu,nvidia,qy, cambricon,ascend,metax,moore,iluvatar,kunlun,hygon}] [--ndev NDEV] [--max-batch MAX_BATCH] [--max-new-tokens MAX_TOKENS]
+```shell
+python3 -m pip install . --no-build-isolation
 ```
 
-- 测试模型推理服务性能
+Automated migration coverage is limited to NVIDIA, dense non-quantized Qwen3,
+and the default static attention implementation. Other platforms and
+configurations remain gated for later validation.
 
-```bash
-python scripts/test_perf.py
+The modern operator closure currently supports `qwen3` within that boundary.
+
+## Inference
+
+Run a single-model smoke test:
+
+```shell
+python examples/test_infer.py --device nvidia --model=/path/to/model
 ```
 
-- 使用推理服务测试模型困惑度（Perplexity）
+For tensor-parallel inference:
 
-```bash
-python scripts/test_ppl.py --model MODEL_PATH [--ndev NDEV] [--max-batch MAX_BATCH] [--max-new-tokens MAX_TOKENS]
+```shell
+python examples/test_infer.py --device nvidia --model=/path/to/model --tp=4 --batch-size=16
 ```
+
+Start the OpenAI-compatible server:
+
+```shell
+python python/infinilm/server/inference_server.py --device nvidia --model=/path/to/model --tp=1
+```
+
+Paged attention and graph execution are selected by InfiniLM arguments and are
+built as part of InfiniLM:
+
+```shell
+python examples/bench.py --device nvidia --model=/path/to/model --enable-paged-attn --enable-graph
+```
+
+## Development
+
+Format staged files with the repository formatter:
+
+```shell
+python scripts/format.py --staged
+```
+
+Run the static migration contracts with:
+
+```shell
+python -m unittest discover -s test/static -p "test_*.py"
+```
+
+## License
+
+InfiniLM is licensed under the MIT License. See [LICENSE](LICENSE).

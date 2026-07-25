@@ -1,59 +1,108 @@
 add_requires("pybind11")
 
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
+local CUDA_ROOT = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
 
 set_toolchains("gcc")
 
--- Add spdlog from third_party directory
 add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
+if os.isdir(CUDA_ROOT .. "/include") then
+    add_includedirs(CUDA_ROOT .. "/include")
+end
 
-target("infinicore_infer")
+target("infinicore_runtime")
+    set_default(false)
+    set_kind("shared")
+    set_languages("cxx17")
+    add_defines("ENABLE_INFINIOPS_API", "USE_INFINIRT_GRAPH")
+
+    if not is_plat("windows") then
+        add_cxflags("-fPIC")
+    end
+
+    add_includedirs("csrc/infinicore/include", { public = true })
+    add_includedirs("csrc/infinicore/src")
+    add_includedirs("csrc/infinicore/utils")
+    add_includedirs(INFINI_ROOT .. "/include", { public = true })
+    add_includedirs(INFINI_ROOT .. "/include/infiniccl", { public = true })
+
+    add_linkdirs(INFINI_ROOT .. "/lib", INFINI_ROOT .. "/lib64", { public = true })
+    if is_plat("linux") then
+        add_rpathdirs("$ORIGIN")
+    elseif is_plat("macosx") then
+        add_rpathdirs("@loader_path")
+    end
+    add_links("infiniops", "infiniccl", "infinirt", { public = true })
+
+    add_files("csrc/infinicore/src/*.cc")
+    add_files("csrc/infinicore/src/context/*.cc")
+    add_files("csrc/infinicore/src/context/*/*.cc")
+    add_files("csrc/infinicore/src/graph/*.cc")
+    add_files("csrc/infinicore/src/nn/*.cc")
+    add_files("csrc/infinicore/src/ops/*/*.cc")
+    add_files("csrc/infinicore/src/ops/dequant/*/*.cc")
+    add_files("csrc/infinicore/src/ops/quant/*/*.cc")
+    add_files("csrc/infinicore/src/tensor/*.cc")
+    add_files("csrc/infinicore/utils/*.cc")
+
+    remove_files("csrc/infinicore/src/ops/*/*_cpu.cc")
+    remove_files("csrc/infinicore/src/ops/*/*_flashattn.cc")
+    remove_files("csrc/infinicore/src/ops/*/*_hygon.cc")
+    remove_files("csrc/infinicore/src/ops/*/*_moore.cc")
+
+    set_installdir("python/infinicore")
+target_end()
+
+target("_infinicore")
+    add_packages("pybind11")
+    set_default(false)
+    add_rules("python.module", { soabi = true })
+    set_languages("cxx17")
     set_kind("shared")
 
-    add_includedirs("include", { public = false })
-    add_includedirs(INFINI_ROOT.."/include", { public = true })
+    add_deps("infinicore_runtime")
 
-    add_linkdirs(INFINI_ROOT.."/lib")
-    add_links("infiniop", "infinirt", "infiniccl")
+    if is_plat("linux") then
+        add_rpathdirs("$ORIGIN")
+    elseif is_plat("macosx") then
+        add_rpathdirs("@loader_path")
+    end
 
-    set_languages("cxx17")
-    set_warnings("all", "error")
+    add_includedirs("csrc/infinicore/include")
+    add_includedirs("csrc/infinicore/src")
+    add_includedirs("csrc/infinicore/utils")
+    add_includedirs(INFINI_ROOT .. "/include")
 
-    add_files("src/models/*.cpp")
-    add_files("src/models/*/*.cpp")
-    add_files("src/tensor/*.cpp")
-    add_files("src/allocator/*.cpp")
-    add_files("src/dataloader/*.cpp")
-    add_files("src/cache_manager/*.cpp")
-    add_includedirs("include")
+    add_files("csrc/infinicore/src/pybind11/infinicore.cc")
+    add_files("csrc/infinicore/src/pybind11/from_list.cc")
 
-    set_installdir(INFINI_ROOT)
-    add_installfiles("include/infinicore_infer.h", {prefixdir = "include"})
-    add_installfiles("include/infinicore_infer/models/*.h", {prefixdir = "include/infinicore_infer/models"})
+    set_installdir("python/infinicore")
 target_end()
 
 target("_infinilm")
     add_packages("pybind11")
     set_default(false)
-    add_rules("python.module", {soabi = true})
+    add_rules("python.module", { soabi = true })
     set_languages("cxx17")
     set_kind("shared")
 
-    local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
+    add_deps("infinicore_runtime")
 
-    -- add_includedirs("csrc", { public = false })
-    -- add_includedirs("csrc/pybind11", { public = false })
-    add_includedirs(INFINI_ROOT.."/include", { public = true })
-    add_includedirs("include", { public = false })
-    -- spdlog is already included globally via add_includedirs at the top
+    if is_plat("linux") then
+        add_rpathdirs("$ORIGIN/../../infinicore/lib")
+    elseif is_plat("macosx") then
+        add_rpathdirs("@loader_path/../../infinicore/lib")
+    end
 
-    add_linkdirs(INFINI_ROOT.."/lib")
-    add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
+    add_includedirs("csrc/infinicore/include")
+    add_includedirs(INFINI_ROOT .. "/include")
+    add_includedirs(INFINI_ROOT .. "/include/infiniccl")
 
-    -- Add src files
     add_files("csrc/**.cpp")
     add_files("csrc/**.cc")
+    remove_files("csrc/infinicore/**.cpp")
+    remove_files("csrc/infinicore/**.cc")
 
     set_installdir("python/infinilm")
 target_end()
