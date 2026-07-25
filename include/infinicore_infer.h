@@ -6,6 +6,7 @@
 
 
 #include "infinicore_infer/models/deepseek.h"
+#include "infinicore_infer/models/deepseek_ocr.h"
 #include "infinicore_infer/models/jiuge.h"
 #include "infinicore_infer/models/jiuge_awq.h"
 #include "infinicore_infer/models/qwen3vl.h"

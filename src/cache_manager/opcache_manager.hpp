@@ -156,6 +156,9 @@ public:
     DECLARE_OP_CACHE(Conv)
     DECLARE_OP_CACHE(Mul)
     DECLARE_OP_CACHE(RMSNorm)
+    DECLARE_OP_CACHE(LayerNorm)
+    DECLARE_OP_CACHE(GELU)
+    DECLARE_OP_CACHE(Conv2d)
     DECLARE_OP_CACHE(Gemm)
     DECLARE_OP_CACHE(RoPE)
     DECLARE_OP_CACHE(Rearrange)
@@ -172,6 +175,9 @@ public:
           Conv_cache(capacity, DESTROY_FUNC(Conv)),
           Mul_cache(capacity, DESTROY_FUNC(Mul)),
           RMSNorm_cache(capacity, DESTROY_FUNC(RMSNorm)),
+          LayerNorm_cache(capacity, DESTROY_FUNC(LayerNorm)),
+          GELU_cache(capacity, DESTROY_FUNC(GELU)),
+          Conv2d_cache(capacity, DESTROY_FUNC(Conv2d)),
           Gemm_cache(capacity, DESTROY_FUNC(Gemm)),
           RoPE_cache(capacity, DESTROY_FUNC(RoPE)),
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
