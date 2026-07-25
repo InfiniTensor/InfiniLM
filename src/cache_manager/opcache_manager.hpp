@@ -160,6 +160,7 @@ public:
     DECLARE_OP_CACHE(RoPE)
     DECLARE_OP_CACHE(Rearrange)
     DECLARE_OP_CACHE(CausalSoftmax)
+    DECLARE_OP_CACHE(LogSoftmax)
     DECLARE_OP_CACHE(Topkrouter)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(Silu)
@@ -176,6 +177,7 @@ public:
           RoPE_cache(capacity, DESTROY_FUNC(RoPE)),
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
+          LogSoftmax_cache(capacity, DESTROY_FUNC(LogSoftmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           Silu_cache(capacity, DESTROY_FUNC(Silu)),

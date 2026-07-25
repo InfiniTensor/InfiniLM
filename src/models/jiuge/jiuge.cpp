@@ -280,8 +280,12 @@ void inferDeviceBatch(const JiugeMeta &meta, JiugeDeviceResource &rsrc,
             rmsnorm(logits_out, logits_in, rsrc.w_out_norm, meta.epsilon);
             auto last_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
             linear(last_logits_buf, logits_out, rsrc.w_out_embd, 1.0, 0.0, nullptr, nullptr);
+            
+            auto log_logits_buf = Tensor::buffer(dt_logits, {ntok, dvoc}, rsrc.memory_pool);
+            logSoftmax(log_logits_buf, last_logits_buf);
+            
             RUN_INFINI(infinirtStreamSynchronize(stream));
-            RUN_INFINI(infinirtMemcpy(last_logits, last_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
+            RUN_INFINI(infinirtMemcpy(last_logits, log_logits_buf->data(), dsize(dt_logits) * ntok * dvoc, INFINIRT_MEMCPY_D2H));
         }
         if (output != nullptr) {
             size_t token_offset = 0;
