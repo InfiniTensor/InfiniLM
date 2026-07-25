@@ -590,7 +590,17 @@ class DeepSeekV3ForCauslLM:
             self.meta = DeepSeekV3Meta(
                 config, max_tokens=max_tokens, dtype=torch.float16
             )
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_path)
+            # Try loading tokenizer, fall back to DeepSeek-V3 official tokenizer if local fails
+            try:
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    model_dir_path, trust_remote_code=True
+                )
+            except Exception as e:
+                print(f"Warning: Failed to load tokenizer from {model_dir_path}: {e}")
+                print("Falling back to deepseek-ai/DeepSeek-V3 tokenizer...")
+                self.tokenizer = transformers.AutoTokenizer.from_pretrained(
+                    "deepseek-ai/DeepSeek-V3", trust_remote_code=True
+                )
         else:
             raise ValueError("Unsupported model architecture")
 
