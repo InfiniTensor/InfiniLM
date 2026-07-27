@@ -27,10 +27,5 @@ private:
         size_t, // num_requests
         CompiledResult>
         compiled_map_decode_;
-
-    std::unordered_map<
-        size_t, // num_requests
-        CompiledResult>
-        compiled_map_decode_mrope_;
 };
 } // namespace infinilm::engine
