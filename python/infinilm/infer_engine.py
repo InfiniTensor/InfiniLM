@@ -120,11 +120,11 @@ class InferEngine(_infinilm.InferEngine):
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
-        skip_legacy_moe=False,
+        use_legacy_moe=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
-        self.hf_config["skip_legacy_moe"] = bool(skip_legacy_moe)
+        self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
 
         if device is None:
             device = infinicore.device()

@@ -33,7 +33,7 @@ def test(
     video_num_frames=None,
     skip_load=False,
     weight_load_mode="async",
-    skip_legacy_moe=False,
+    use_legacy_moe=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -63,7 +63,7 @@ def test(
         use_mla=use_mla,
         skip_load=skip_load,
         weight_load_mode=weight_load_mode,
-        skip_legacy_moe=skip_legacy_moe,
+        use_legacy_moe=use_legacy_moe,
     )
 
     conversations = [
@@ -122,12 +122,12 @@ if __name__ == "__main__":
 
     enable_graph = cfg.enable_graph
 
-    if cfg.skip_legacy_moe:
+    if cfg.use_legacy_moe:
+        moe_ep_backend, ep = "disabled", 1
+    else:
         moe_ep_backend, ep = configure_moe_ep_backend(
             cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
         )
-    else:
-        moe_ep_backend, ep = "disabled", 1
 
     test(
         prompts,
@@ -153,5 +153,5 @@ if __name__ == "__main__":
         video_num_frames=cfg.video_num_frames,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
-        skip_legacy_moe=cfg.skip_legacy_moe,
+        use_legacy_moe=cfg.use_legacy_moe,
     )

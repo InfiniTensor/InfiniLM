@@ -13,7 +13,7 @@ Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config:
                                                size_t layer_idx,
                                                const infinicore::Device &device)
     : use_legacy_moe_(
-        model_config->get_or<std::string>("model_type", "") == "qwen3_moe" && !model_config->get_or<bool>("skip_legacy_moe", false)) {
+        model_config->get_or<std::string>("model_type", "") == "qwen3_moe" && model_config->get_or<bool>("use_legacy_moe", false)) {
     if (use_legacy_moe_) {
         legacy_gate_ = this->register_module<Qwen3MoeTopKRouter>("gate", model_config, device);
         legacy_experts_ = this->register_module<Qwen3MoeExperts>("experts", model_config, device);

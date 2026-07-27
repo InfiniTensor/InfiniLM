@@ -100,7 +100,7 @@ class InferenceServer:
         tensor_parallel_size: int = 1,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
-        skip_legacy_moe: bool = False,
+        use_legacy_moe: bool = False,
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
@@ -128,7 +128,7 @@ class InferenceServer:
             tensor_parallel_size: Number of devices for tensor parallelism.
             moe_ep_backend: MoE expert-parallel backend.
             moe_ep_size: MoE expert-parallel size.
-            skip_legacy_moe: Whether to use the fused Qwen3 MoE implementation.
+            use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
@@ -155,7 +155,7 @@ class InferenceServer:
         self.tensor_parallel_size = tensor_parallel_size
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
-        self.skip_legacy_moe = skip_legacy_moe
+        self.use_legacy_moe = use_legacy_moe
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
@@ -195,7 +195,7 @@ class InferenceServer:
                 tensor_parallel_size=self.tensor_parallel_size,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
-                skip_legacy_moe=self.skip_legacy_moe,
+                use_legacy_moe=self.use_legacy_moe,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
@@ -593,9 +593,12 @@ def main():
     if cfg.kv_transfer_config:
         kv_transfer_config = parse_kv_transfer_config(cfg.kv_transfer_config)
 
-    moe_ep_backend, ep = configure_moe_ep_backend(
-        cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
-    )
+    if cfg.use_legacy_moe:
+        moe_ep_backend, ep = "disabled", 1
+    else:
+        moe_ep_backend, ep = configure_moe_ep_backend(
+            cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+        )
     logger.info(
         "MoE EP backend: %s  TP=%s  DP=%s  EP=%s",
         moe_ep_backend,
@@ -611,7 +614,7 @@ def main():
         tensor_parallel_size=cfg.tp,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
-        skip_legacy_moe=cfg.skip_legacy_moe,
+        use_legacy_moe=cfg.use_legacy_moe,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,
