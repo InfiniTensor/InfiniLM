@@ -212,6 +212,7 @@ class Ernie45VLProcessor(BasicLLMProcessor):
             model_inputs = self._build_model_input_from_static_scheduler_output(
                 scheduler_output, temperature, top_p, top_k
             )
+            self._append_ernie_mm_inputs(model_inputs, scheduler_output)
             self._append_ernie_position_ids(model_inputs, scheduler_output)
         elif isinstance(scheduler_output, SchedulerOutput):
             model_inputs = self._build_model_input_from_batch_scheduler_output(
@@ -319,7 +320,9 @@ class Ernie45VLProcessor(BasicLLMProcessor):
         return (image_rows - mean) / std
 
     def _append_ernie_mm_inputs(
-        self, model_inputs: dict, scheduler_output: SchedulerOutput
+        self,
+        model_inputs: dict,
+        scheduler_output: SchedulerOutput | StaticSchedulerOutput,
     ) -> None:
         import infinicore
         import torch
@@ -368,7 +371,11 @@ class Ernie45VLProcessor(BasicLLMProcessor):
             if bounds.shape[0] != grids.shape[0]:
                 raise RuntimeError("ERNIE 4.5 VL media bounds and grids count mismatch")
 
-            num_cached = req.num_local_cached_tokens
+            num_cached = (
+                scheduler_output.prefix_hit_len
+                if isinstance(scheduler_output, StaticSchedulerOutput)
+                else req.num_local_cached_tokens
+            )
             partial_cached = (bounds[:, 0] < num_cached) & (bounds[:, 1] > num_cached)
             if partial_cached.any().item():
                 raise RuntimeError(
