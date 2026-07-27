@@ -79,7 +79,7 @@ class ModelRunner:
             attention_backend=config.attn_backend,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
-            skip_legacy_moe=config.skip_legacy_moe,
+            use_legacy_moe=config.use_legacy_moe,
         )
 
         if self.model_engine.model_type == "minicpm_eagle":

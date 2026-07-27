@@ -332,7 +332,7 @@ class LLM:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
-        skip_legacy_moe: bool = False,
+        use_legacy_moe: bool = False,
     ):
         """Initialize LLM.
 
@@ -378,7 +378,7 @@ class LLM:
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
             skip_load=skip_load,
-            skip_legacy_moe=skip_legacy_moe,
+            use_legacy_moe=use_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -539,7 +539,7 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         weight_load_mode: str = "async",
-        skip_legacy_moe: bool = False,
+        use_legacy_moe: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -588,7 +588,7 @@ class AsyncLLMEngine:
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
-            skip_legacy_moe=skip_legacy_moe,
+            use_legacy_moe=use_legacy_moe,
         )
         self.engine = LLMEngine(config)
         self.config = config
