@@ -24,7 +24,7 @@ def _iter_exception_chain(
 
 def is_oom_exception(e: BaseException) -> bool:
     """
-    Conservative OOM detector for MetaX allocator failures and CUDA/PyTorch OOMs.
+    Conservative OOM detector for MetaX/Mars allocator failures and CUDA/PyTorch OOMs.
     Checks exception type (when available) and message substrings across chained exceptions.
     """
     # PyTorch OOM exception type (only if torch is present in this environment)
@@ -42,7 +42,7 @@ def is_oom_exception(e: BaseException) -> bool:
     # Common patterns observed for allocator failures.
     # Keep this allowlist small to avoid hard-exiting on unrelated errors.
     patterns = (
-        # MetaX allocator
+        # MetaX/Mars and InfiniRT allocators
         "hcmalloc",
         "out of memory",
         # CUDA / driver / runtime alloc failures

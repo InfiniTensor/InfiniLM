@@ -466,9 +466,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
         self.assertIn("bool supports_static_graph_kv_cache(", source)
         self.assertIn("bool supports_static_graph_attention()", source)
-        cache_check = function_body(
-            source, "bool supports_static_graph_kv_cache("
-        )
+        cache_check = function_body(source, "bool supports_static_graph_kv_cache(")
         capability = function_body(source, "bool supports_static_graph_attention()")
         compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
 
@@ -583,6 +581,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "kCambricon",
             "kAscend",
             "kMetax",
+            "kMars",
             "kMoore",
             "kIluvatar",
             "kHygon",
