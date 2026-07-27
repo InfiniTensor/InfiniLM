@@ -393,10 +393,27 @@ def host_split_report(label: str = "host_split") -> Dict[str, float]:
     return _HOST_SPLIT.report(label)
 
 
-def _moe_capture_safe_enabled() -> bool:
-    """INFINI_MOE_CAPTURE_SAFE=1: aten MoE under stream capture; Triton eager."""
+def _moe_capture_safe_deprecated_warn() -> bool:
+    """INFINI_MOE_CAPTURE_SAFE is deprecated (Phase 1 — aten body removed).
+
+    Returns True if the env is truthy (so callers can log), but never selects
+    an aten MoE body. Emits a one-shot warning.
+    """
     raw = os.environ.get("INFINI_MOE_CAPTURE_SAFE", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    if raw not in ("1", "true", "yes", "on"):
+        return False
+    if not getattr(_moe_capture_safe_deprecated_warn, "_warned", False):
+        import warnings
+
+        warnings.warn(
+            "INFINI_MOE_CAPTURE_SAFE is deprecated: aten index_select+bmm MoE "
+            "capture escape removed (Phase 1). Use FORCE_CAPTURE + Triton "
+            "fused_moe_routed, or host-break. Ignoring.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        _moe_capture_safe_deprecated_warn._warned = True  # type: ignore[attr-defined]
+    return True
 
 
 def _moe_triton_capture_enabled() -> bool:
@@ -552,178 +569,26 @@ def _retain_capture(*tensors) -> None:
         return
 
 
-# Persistent decode-sized aten workspaces: same device addresses every call so
-# MetaX FULL capture can record MoE even when Python TLS/env miss capturing
-# (duplicate libinfinicore TLS → CaptureArena invisible to Python).
-_ATEN_STATIC_WS: Dict[tuple, dict] = {}
-
-
-def _zero_device_buffer(t: torch.Tensor) -> None:
-    """Zero a device tensor via hcMemsetAsync when possible (capture-safe)."""
-    if t is None or not isinstance(t, torch.Tensor) or t.numel() == 0:
-        return
-    if not t.is_cuda:
-        t.zero_()
-        return
-    try:
-        import ctypes
-
-        lib = ctypes.CDLL("libhcrt.so")
-        lib.hcMemsetAsync.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_int,
-            ctypes.c_size_t,
-            ctypes.c_void_p,
-        ]
-        lib.hcMemsetAsync.restype = ctypes.c_int
-        stream = torch.cuda.current_stream().cuda_stream
-        nbytes = int(t.numel() * t.element_size())
-        st = lib.hcMemsetAsync(
-            ctypes.c_void_p(t.data_ptr()), 0, nbytes, ctypes.c_void_p(stream)
-        )
-        if st == 0:
-            return
-    except Exception:  # noqa: BLE001
-        pass
-    t.zero_()
+def _routed_experts_aten(
+    *_args: Any,
+    **_kwargs: Any,
+) -> torch.Tensor:
+    """Removed Phase 1 — hard-fail if residual call sites remain."""
+    raise RuntimeError(
+        "_routed_experts_aten removed (Phase 1): aten index_select+bmm MoE "
+        "body is deprecated. Use Triton fused_moe_routed."
+    )
 
 
 def _routed_experts_aten_static(
-    x: torch.Tensor,
-    topk_weights: torch.Tensor,
-    topk_ids: torch.Tensor,
-    w_gate_up: torch.Tensor,
-    w_down: torch.Tensor,
+    *_args: Any,
+    **_kwargs: Any,
 ) -> torch.Tensor:
-    """Decode-sized aten MoE into process-lifetime buffers (CG address stability)."""
-    top_k = int(topk_ids.shape[1])
-    t_tokens = int(x.size(0))
-    hidden = int(x.size(1))
-    n2 = int(w_gate_up.size(1))
-    key = (str(x.device), str(x.dtype), t_tokens, hidden, top_k, n2)
-    ws = _ATEN_STATIC_WS.get(key)
-    if ws is None:
-        ws = {
-            "acc": torch.empty((t_tokens, hidden), dtype=x.dtype, device=x.device),
-            "gu": torch.empty((t_tokens, n2), dtype=x.dtype, device=x.device),
-            "h": torch.empty((t_tokens, n2 // 2), dtype=x.dtype, device=x.device),
-            "y": torch.empty((t_tokens, hidden), dtype=x.dtype, device=x.device),
-            "w": torch.empty((t_tokens, 1), dtype=x.dtype, device=x.device),
-            "x3": torch.empty((t_tokens, hidden, 1), dtype=x.dtype, device=x.device),
-            "h3": torch.empty((t_tokens, n2 // 2, 1), dtype=x.dtype, device=x.device),
-        }
-        _ATEN_STATIC_WS[key] = ws
-        # #region agent log
-        _agent_log(
-            "H8",
-            "fused_moe_runtime.py:_routed_experts_aten_static",
-            "aten_static_ws_alloc",
-            {"key": list(key), "top_k": top_k},
-        )
-        # #endregion
-    acc = ws["acc"]
-    _zero_device_buffer(acc)
-    # Keep a stable view of x for bmm without per-call unsqueeze alloc when possible.
-    x3 = ws["x3"]
-    x3.copy_(x.unsqueeze(-1))
-    for k in range(top_k):
-        idx = topk_ids[:, k]
-        w_gu = w_gate_up.index_select(0, idx)
-        w_d = w_down.index_select(0, idx)
-        gu = ws["gu"]
-        gu3 = gu.view(t_tokens, n2, 1)
-        torch.bmm(w_gu, x3, out=gu3)
-        gate, up = gu.chunk(2, dim=-1)
-        # Fresh silu each expert; mul into static h (avoid ephemeral silu*up).
-        silu_g = F.silu(gate)
-        h = ws["h"]
-        torch.mul(silu_g, up, out=h)
-        h3 = ws["h3"]
-        h3.copy_(h.unsqueeze(-1))
-        y = ws["y"]
-        y3 = y.view(t_tokens, hidden, 1)
-        torch.bmm(w_d, h3, out=y3)
-        w = ws["w"]
-        wk = topk_weights[:, k].unsqueeze(-1)
-        if wk.dtype != x.dtype:
-            w.copy_(wk.to(dtype=x.dtype))
-        else:
-            w.copy_(wk)
-        acc.add_(y * w)
-    return acc
-
-
-def _routed_experts_aten(
-    x: torch.Tensor,
-    topk_weights: torch.Tensor,
-    topk_ids: torch.Tensor,
-    w_gate_up: torch.Tensor,
-    w_down: torch.Tensor,
-) -> torch.Tensor:
-    """Routed experts via index_select + bmm (no Triton).
-
-    Same shapes as ``fused_moe_routed``. Under capture, retain Torch temps so
-    MetaX replay does not dangle (parity with host-break freshness).
-
-    When ``INFINI_MOE_FORCE_CAPTURE`` + decode-sized T and Python cannot see
-    CaptureArena (TLS split), use process-static buffers (H8) so CG replay
-    keeps stable addresses — ``torch.zeros_like`` under a live capture garbles.
-    """
-    top_k = int(topk_ids.shape[1])
-    capturing = _under_device_stream_capture()
-    force_cap = os.environ.get("INFINI_MOE_FORCE_CAPTURE", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
+    """Removed Phase 1 — hard-fail if residual call sites remain."""
+    raise RuntimeError(
+        "_routed_experts_aten_static removed (Phase 1): aten MoE capture "
+        "escape is deprecated. Use Triton fused_moe_routed."
     )
-    decode_sized = int(x.size(0)) <= 16
-    # Prefer arena when TLS works; else static workspaces under FORCE_CAPTURE.
-    if force_cap and decode_sized and not capturing:
-        return _routed_experts_aten_static(
-            x, topk_weights, topk_ids, w_gate_up, w_down
-        )
-    if capturing:
-        try:
-            acc = _empty_capture(int(x.numel()), dtype=x.dtype, device=x.device).view(
-                x.shape
-            )
-            _zero_capture(acc)
-        except Exception:  # noqa: BLE001
-            return _routed_experts_aten_static(
-                x, topk_weights, topk_ids, w_gate_up, w_down
-            )
-    else:
-        acc = torch.zeros_like(x)
-    retained: list = []
-    for k in range(top_k):
-        idx = topk_ids[:, k]
-        w_gu = w_gate_up.index_select(0, idx)
-        w_d = w_down.index_select(0, idx)
-        gu = torch.bmm(w_gu, x.unsqueeze(-1)).squeeze(-1)
-        gate, up = gu.chunk(2, dim=-1)
-        silu_g = F.silu(gate)
-        if capturing:
-            h = _empty_capture(
-                int(gate.numel()), dtype=gate.dtype, device=gate.device
-            ).view_as(gate)
-            torch.mul(silu_g, up, out=h)
-            retained.extend((w_gu, w_d, gu, silu_g, h))
-        else:
-            h = silu_g * up
-        y = torch.bmm(w_d, h.unsqueeze(-1)).squeeze(-1)
-        w = topk_weights[:, k].unsqueeze(-1)
-        if w.dtype != x.dtype:
-            w = _capture_safe_to_dtype(w, x.dtype) if capturing else w.to(dtype=x.dtype)
-        if capturing:
-            contrib = y * w
-            retained.extend((y, contrib, w))
-            acc.add_(contrib)
-        else:
-            acc = acc + y * w
-    if capturing:
-        _retain_capture(acc, *retained)
-    return acc
 
 
 def _moe_align_block_size_host(
@@ -1214,14 +1079,10 @@ def fused_moe_routed(
 
     x: [T, H]; topk_*: [T, K]; w_gate_up [E, 2I, H]; w_down [E, H, I].
 
-    Capture modes (under ``hcStreamBeginCapture``):
-    - Decode-sized (``T<=16``) + capture allowed: aten index_select+bmm —
-      parity with host-break numerics / fresh buffers (Triton-under-capture still
-      garbles Gate C Cell B). Bucket/prefill capture (``T>16``) keeps Triton +
-      ``align_capture`` (aten OOMs on T=512).
-    - ``INFINI_MOE_CAPTURE_SAFE=1`` (any T, Triton-capture off): aten.
-    - ``INFINI_MOE_FORCE_HOST_BREAK=1``: force host-break (bisect).
-    Otherwise (eager / host-break): Triton + host_align for small numel.
+    Capture modes (under ``hcStreamBeginCapture``): Jul21 / Phase 1 — always
+    Triton + ``align_capture``. Aten capture escape deleted; truthy
+    ``INFINI_MOE_CAPTURE_SAFE`` warns and is ignored.
+    ``INFINI_MOE_FORCE_HOST_BREAK=1`` still forces host-break (bisect).
     """
     assert_no_vllm()
     if not x.is_cuda:
@@ -1233,19 +1094,8 @@ def fused_moe_routed(
 
     _capturing = _under_device_stream_capture()
     _triton_cap = _moe_triton_capture_enabled()
-    _safe = _moe_capture_safe_enabled()
+    _safe = _moe_capture_safe_deprecated_warn()
     _t_tokens = int(x.size(0))
-    # Host-break parity for decode-sized MoE body (aten index_select+bmm).
-    # Do NOT rely solely on pybind ``moe_triton_capture_allowed`` / TLS phase:
-    # InfiniLM C++ may set InferencePhase::Decode on a different libinfinicore
-    # TLS than the Python extension, so Gate C logs showed triton_cap=False
-    # while C++ still folded MoE in-graph (segs=1) → Triton-under-capture garble.
-    _force_hb = os.environ.get("INFINI_MOE_FORCE_HOST_BREAK", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
     _force_cap = os.environ.get("INFINI_MOE_FORCE_CAPTURE", "").strip().lower() in (
         "1",
         "true",
@@ -1253,15 +1103,7 @@ def fused_moe_routed(
         "on",
     )
     _decode_sized = _t_tokens <= 16
-    # Aten body only under live capture / CAPTURE_SAFE / C++ triton_cap.
-    # Do NOT key off FORCE_CAPTURE alone: on MetaX MoE stays host-break unless
-    # METAX_CAPTURE_UNSAFE, and FORCE_CAPTURE+aten during HB skipped host-topk
-    # D2H sync → race (post-fix19 all-118 garble).
-    _use_aten_capture = (not _force_hb) and (
-        (_capturing and _safe and not _triton_cap)
-        or (_triton_cap and _decode_sized)
-        or (_capturing and _decode_sized)
-    )
+    # Phase 1: CAPTURE_SAFE never selects aten; body is always Triton.
     # #region agent log
     _DEBUG_STATE["calls"] = int(_DEBUG_STATE["calls"]) + 1
     _call_n = int(_DEBUG_STATE["calls"])
@@ -1284,10 +1126,12 @@ def fused_moe_routed(
     _log_this = _crit or _call_n <= 8 or (_decode_sized and _call_n <= 64)
     if _log_this and int(_DEBUG_STATE.get(_log_budget_key, 0)) < _log_limit:
         _DEBUG_STATE[_log_budget_key] = int(_DEBUG_STATE.get(_log_budget_key, 0)) + 1
+        # Tag FORCE_CAPTURE decode as triton_capture even when TLS/env miss
+        # (duplicate libinfinicore); body is Triton either way post Phase 0.
         body = (
-            "aten_parity_decode"
-            if _use_aten_capture
-            else ("triton_capture" if (_capturing or _env_cap_on) else "triton_eager_or_hb")
+            "triton_capture"
+            if (_capturing or _env_cap_on or (_force_cap and _decode_sized))
+            else "triton_eager_or_hb"
         )
         _agent_log(
             "H6",
@@ -1307,8 +1151,6 @@ def fused_moe_routed(
             },
         )
     # #endregion
-    if _use_aten_capture:
-        return _routed_experts_aten(x, topk_w, topk_ids, w_gate_up, w_down)
 
     num_tokens = x.size(0)
     E, N2, H = w_gate_up.shape
