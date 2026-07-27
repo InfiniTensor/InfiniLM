@@ -6,6 +6,7 @@
 #include "infinicore/ops/mha_varlen.hpp"
 
 #include <limits>
+#include <mutex>
 
 namespace infinilm::layers::attention::backends {
 
@@ -34,6 +35,14 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
                                                const infinicore::Tensor &value,
                                                infinicore::Tensor &kv_cache,
                                                const infinilm::global_state::AttentionMetadata &attn_metadata) const {
+    // The Hygon flash-attn extension uses process-global launch state while
+    // capturing graphs. InfiniLM TP ranks are threads in the same process.
+    static std::mutex hygon_flash_attention_mutex;
+    std::unique_lock<std::mutex> hygon_lock(hygon_flash_attention_mutex, std::defer_lock);
+    if (query->device().getType() == infinicore::Device::Type::HYGON) {
+        hygon_lock.lock();
+    }
+
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
     auto input_offsets = attn_metadata.input_offsets;
     auto block_tables = attn_metadata.block_tables;
@@ -71,17 +80,14 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             std::nullopt,
             scale_);
     } else {
-        // FA2 decode path: flash::mha_fwd_kvcache
-        // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
-        // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
-        // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
+        // In paged-attn mode, seq_len is the batch size (one query token per sequence).
         auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
         auto attn_out_4d = infinicore::op::mha_kvcache(
             q_for_fa,
-            k_total, // [num_blocks, block_size, num_kv_heads, head_dim]
+            k_total,
             v_total,
-            total_sequence_lengths.value(), // [seq_len] int32 (one entry per sequence)
-            block_tables.value(),           // [seq_len, max_num_blocks_per_seq] int32
+            total_sequence_lengths.value(),
+            block_tables.value(),
             std::nullopt,
             scale_);
         attn_output = attn_out_4d->view({seq_len, num_heads_, head_dim_});
@@ -98,30 +104,33 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
     const auto &cache_shape = k_cache_layer->shape();
-    const bool use_hygon_paged_attention =
+    const bool use_hygon_lightop_paged_attention =
         key->device().getType() == infinicore::Device::Type::HYGON
         && cache_shape.size() == 4
-        && cache_shape[1] == 64;
-    if (use_hygon_paged_attention) {
+        && cache_shape[1] == 64
+        && cache_shape[2] == num_kv_heads_
+        && cache_shape[3] == head_dim_
+        && num_heads_ == 8
+        && num_kv_heads_ == 1
+        && head_dim_ == 128;
+    if (use_hygon_lightop_paged_attention) {
         const auto num_blocks = cache_shape[0];
         const auto block_size = cache_shape[1];
-        const auto num_kv_heads = cache_shape[2];
-        const auto head_dim = cache_shape[3];
-        auto k_cache_vllm = k_cache_layer->view(
-            {num_blocks, num_kv_heads, block_size, head_dim});
-        auto v_cache_vllm = v_cache_layer->view(
-            {num_blocks, num_kv_heads, head_dim, block_size});
+        auto k_cache_lightop = k_cache_layer->view(
+            {num_blocks, num_kv_heads_, block_size, head_dim_});
+        auto v_cache_lightop = v_cache_layer->view(
+            {num_blocks, num_kv_heads_, head_dim_, block_size});
         infinicore::op::paged_caching_(
-            k_cache_vllm,
-            v_cache_vllm,
+            k_cache_lightop,
+            v_cache_lightop,
             key,
             value,
             slot_mapping);
-        return {k_cache_vllm, v_cache_vllm};
+        return {k_cache_lightop, v_cache_lightop};
     }
 
     infinicore::op::paged_caching_(
-        k_cache_layer->permute({0, 2, 1, 3}), // permute to BHSD for paged_caching_
+        k_cache_layer->permute({0, 2, 1, 3}),
         v_cache_layer->permute({0, 2, 1, 3}),
         key,
         value,

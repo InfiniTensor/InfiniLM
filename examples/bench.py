@@ -234,19 +234,31 @@ def get_test_cases(
     return case_dict
 
 
-prompt_path = (
-    "examples/bench_prompt.md"
-    if os.path.isfile("examples/bench_prompt.md")
-    else "InfiniLM/examples/bench_prompt.md"
-)
-with open(prompt_path, "r") as f:
-    prompt = f.read()
-
-
-def repeat_prompt(input_ids: list[int], target_length: int):
+def repeat_tokens(input_ids: list[int], target_length: int):
     num = len(input_ids)
     repeat_times = (target_length + num - 1) // num
     return (input_ids * repeat_times)[:target_length]
+
+
+def split_chat_prompt_tokens(tokenizer, rendered_prompt: str, user_prompt: str):
+    """Split one rendered chat prompt around its user-content token span."""
+    full_ids = tokenizer.encode(rendered_prompt)
+    content_ids = tokenizer.encode(user_prompt, add_special_tokens=False)
+    if not content_ids:
+        raise ValueError("bench prompt must contain at least one token")
+
+    last_start = len(full_ids) - len(content_ids)
+    for start in range(last_start + 1):
+        if full_ids[start : start + len(content_ids)] == content_ids:
+            return (
+                full_ids[:start],
+                content_ids,
+                full_ids[start + len(content_ids) :],
+            )
+
+    raise ValueError(
+        "Could not locate the user prompt inside the rendered chat template"
+    )
 
 
 class TestModel:
@@ -269,6 +281,7 @@ class TestModel:
         moe_ep_backend="disabled",
         moe_ep_size=1,
         enable_prefix_caching=False,
+        prompt="How are you",
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -292,7 +305,13 @@ class TestModel:
                 add_generation_prompt=True,
                 tokenize=False,
             )
-            self.input_ids_list = [self.tokenizer.encode(input_content)]
+            prefix_ids, content_ids, suffix_ids = split_chat_prompt_tokens(
+                self.tokenizer, input_content, prompt
+            )
+            self.prompt_prefix_ids = prefix_ids
+            self.prompt_content_ids = content_ids
+            self.prompt_suffix_ids = suffix_ids
+            self.input_ids_list = [prefix_ids + content_ids + suffix_ids]
             self.model = None
             return
 
@@ -336,24 +355,30 @@ class TestModel:
             tokenize=False,
         )
 
-        input_ids_list = [
-            self.tokenizer.encode(
-                input_content,
-            )
-        ]
-
+        prefix_ids, content_ids, suffix_ids = split_chat_prompt_tokens(
+            self.tokenizer, input_content, prompt
+        )
+        self.prompt_prefix_ids = prefix_ids
+        self.prompt_content_ids = content_ids
+        self.prompt_suffix_ids = suffix_ids
+        self.input_ids_list = [prefix_ids + content_ids + suffix_ids]
         self.model = model
-        self.input_ids_list = input_ids_list
-        self.draft_model_path = draft_model_path
-        self.model_path = model_path
-        self.device_str = infini_device.type
-        self.tp = tp
-        self.cache_config = cache_config
-        self.enable_graph = enable_graph
-        self.attn_backend = attn_backend
-        self.use_mla = use_mla
-        self.weight_load_mode = weight_load_mode
-        self.skip_load = skip_load
+
+    def build_input_ids(self, target_length: int) -> list[int]:
+        template_tokens = len(self.prompt_prefix_ids) + len(self.prompt_suffix_ids)
+        if target_length < template_tokens:
+            raise ValueError(
+                f"input_len={target_length} is shorter than the chat template "
+                f"overhead ({template_tokens} tokens)"
+            )
+        content_length = target_length - template_tokens
+        input_ids = (
+            self.prompt_prefix_ids
+            + repeat_tokens(self.prompt_content_ids, content_length)
+            + self.prompt_suffix_ids
+        )
+        assert len(input_ids) == target_length
+        return input_ids
 
     def run(
         self,
@@ -364,7 +389,7 @@ class TestModel:
         top_p=1.0,
         temperature=1.0,
     ):
-        input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
+        input_ids = self.build_input_ids(input_len)
         input_ids_list = [input_ids] * batch_size
 
         # ---------------------------------------------------------------------------- #
@@ -513,6 +538,7 @@ if __name__ == "__main__":
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         enable_prefix_caching=False,
+        prompt=cfg.prompt,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -539,7 +565,7 @@ if __name__ == "__main__":
                 )
                 test.model.reset_cache(warmup_cache_config)
 
-            warmup_prompt_ids = repeat_prompt(test.input_ids_list[0], warmup_input_len)
+            warmup_prompt_ids = test.build_input_ids(warmup_input_len)
             warmup_ids = [warmup_prompt_ids] * warmup_batch
             input_ids_infini = infinicore.from_list(
                 warmup_ids, dtype=infinicore.int64

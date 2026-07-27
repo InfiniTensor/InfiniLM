@@ -78,7 +78,15 @@ class BaseConfig:
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
         self.num_blocks = self.args.num_blocks
-        self.block_size = self.args.block_size
+        if self.args.block_size is None:
+            platform = (
+                self.detect_device()
+                if self.device.lower() == "auto"
+                else self.device.lower()
+            )
+            self.block_size = 64 if platform == "hygon" else 256
+        else:
+            self.block_size = self.args.block_size
         self.max_cache_len = self.args.max_cache_len
         self.kv_cache_dtype = self.args.kv_cache_dtype
         self.skip_load = self.args.skip_load
@@ -272,7 +280,10 @@ class BaseConfig:
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"
         )
         self.parser.add_argument(
-            "--block-size", type=int, default=256, help="size of each KV cache block"
+            "--block-size",
+            type=int,
+            default=None,
+            help="size of each KV cache block (default: 64 on Hygon, 256 otherwise)",
         )
         self.parser.add_argument(
             "--max-cache-len", type=int, default=4096, help="maximum cache length"
