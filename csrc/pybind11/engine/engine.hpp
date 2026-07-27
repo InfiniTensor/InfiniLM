@@ -134,6 +134,7 @@ inline void bind_infer_engine(py::module &m) {
             py::init([](
                          std::optional<infinicore::Tensor> input_ids,
                          std::optional<infinicore::Tensor> position_ids,
+                         std::optional<infinicore::Tensor> token_type_ids,
                          std::optional<infinicore::Tensor> past_sequence_lengths,
                          std::optional<infinicore::Tensor> total_sequence_lengths,
                          std::optional<infinicore::Tensor> input_offsets,
@@ -146,6 +147,8 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<std::vector<infinicore::Tensor>> image_bound,
                          std::optional<std::vector<infinicore::Tensor>> tgt_sizes,
                          std::optional<std::vector<infinicore::Tensor>> image_grid_thw,
+                         std::optional<std::vector<infinicore::Tensor>> grid_thw,
+                         std::optional<std::vector<infinicore::Tensor>> image_type_ids,
                          std::optional<std::vector<size_t>> image_req_ids,
                          std::optional<std::vector<size_t>> visual_token_ranges,
                          std::optional<infinicore::Tensor> target_hidden_states,
@@ -154,6 +157,7 @@ inline void bind_infer_engine(py::module &m) {
                 InferEngine::Input input{
                     std::move(input_ids),
                     std::move(position_ids),
+                    std::move(token_type_ids),
                     std::move(past_sequence_lengths),
                     std::move(total_sequence_lengths),
                     std::move(input_offsets),
@@ -166,6 +170,8 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(image_bound),
                     std::move(tgt_sizes),
                     std::move(image_grid_thw),
+                    std::move(grid_thw),
+                    std::move(image_type_ids),
                     std::move(image_req_ids),
                     std::move(visual_token_ranges),
                     std::move(target_hidden_states),
@@ -205,6 +211,7 @@ inline void bind_infer_engine(py::module &m) {
             }),
             py::arg("input_ids") = std::nullopt,
             py::arg("position_ids") = std::nullopt,
+            py::arg("token_type_ids") = std::nullopt,
             py::arg("past_sequence_lengths") = std::nullopt,
             py::arg("total_sequence_lengths") = std::nullopt,
             py::arg("input_offsets") = std::nullopt,
@@ -217,12 +224,15 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("image_bound") = std::nullopt,
             py::arg("tgt_sizes") = std::nullopt,
             py::arg("image_grid_thw") = std::nullopt,
+            py::arg("grid_thw") = std::nullopt,
+            py::arg("image_type_ids") = std::nullopt,
             py::arg("image_req_ids") = std::nullopt,
             py::arg("visual_token_ranges") = std::nullopt,
             py::arg("target_hidden_states") = std::nullopt,
             py::arg("sample_all_positions") = false)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
+        .def_readwrite("token_type_ids", &InferEngine::Input::token_type_ids)
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
         .def_readwrite("total_sequence_lengths", &InferEngine::Input::total_sequence_lengths)
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
@@ -235,6 +245,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("image_bound", &InferEngine::Input::image_bound)
         .def_readwrite("tgt_sizes", &InferEngine::Input::tgt_sizes)
         .def_readwrite("image_grid_thw", &InferEngine::Input::image_grid_thw)
+        .def_readwrite("grid_thw", &InferEngine::Input::grid_thw)
+        .def_readwrite("image_type_ids", &InferEngine::Input::image_type_ids)
         .def_readwrite("image_req_ids", &InferEngine::Input::image_req_ids)
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)

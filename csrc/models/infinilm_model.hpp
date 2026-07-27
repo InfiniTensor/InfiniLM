@@ -22,6 +22,8 @@ public:
         std::optional<infinicore::Tensor> input_ids;
         /// Position IDs tensor of shape `[batch, seq_len]` or `[seq_len]`.
         std::optional<infinicore::Tensor> position_ids;
+        /// Token modality IDs. ERNIE-VL uses 0 for text and non-zero for vision.
+        std::optional<infinicore::Tensor> token_type_ids;
         /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
         std::optional<infinicore::Tensor> past_sequence_lengths;
         /// ToTal Lengths for each request sequence, of shape `[num_requests]`.
@@ -49,6 +51,10 @@ public:
         std::optional<std::vector<infinicore::Tensor>> tgt_sizes;
         /// Qwen-style image grids. Vector of tensors shape: [3] with temporal, height, width.
         std::optional<std::vector<infinicore::Tensor>> image_grid_thw;
+        /// ERNIE-VL image/video grids. Each tensor has shape [num_items, 3].
+        std::optional<std::vector<infinicore::Tensor>> grid_thw;
+        /// ERNIE-VL item type IDs, where 0=image and 1=video.
+        std::optional<std::vector<infinicore::Tensor>> image_type_ids;
         /// req_id for each pixel_values among a batch.
         std::optional<std::vector<size_t>> image_req_ids;
         /// Flattened [start, end) visual token ranges in the packed language sequence.

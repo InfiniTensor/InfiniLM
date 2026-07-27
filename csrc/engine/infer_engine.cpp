@@ -167,6 +167,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
+        to_device(token_type_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
         to_device(input_offsets),
@@ -179,6 +180,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_bound),
         to_device_vec(tgt_sizes),
         to_device_vec(image_grid_thw),
+        to_device_vec(grid_thw),
+        to_device_vec(image_type_ids),
         image_req_ids,
         visual_token_ranges,
         to_device(target_hidden_states)};
