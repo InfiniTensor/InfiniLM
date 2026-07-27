@@ -190,6 +190,7 @@ class TestModel:
         num_draft_tokens=4,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
+        pp=1,
         skip_load=False,
         cache_config=None,
         enable_graph=False,
@@ -205,6 +206,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -232,6 +234,7 @@ class TestModel:
             device=infini_device,
             distributed_config=DistConfig(
                 tp,
+                pp_size=pp,
                 moe_ep_backend=moe_ep_backend,
                 moe_ep_size=moe_ep_size,
             ),
@@ -276,6 +279,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -306,6 +310,7 @@ class TestModel:
                 num_draft_tokens=self.num_draft_tokens,
                 device=self.device_str,
                 tensor_parallel_size=self.tp,
+                pipeline_parallel_size=self.pp,
                 cache_type="paged" if self.cache_config is not None else "static",
                 max_batch_size=batch_size,
                 max_tokens=output_len,
@@ -392,11 +397,12 @@ if __name__ == "__main__":
     infini_device = infinicore.device(device_str, 0)
 
     tp = cfg.tp
+    pp = cfg.pp
     dp = cfg.dp
     moe_ep_backend, ep = configure_moe_ep_backend(
         tp, dp, cfg.ep, cfg.moe_ep_backend, model_path
     )
-    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  DP={dp}  EP={ep}")
+    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  PP={pp}  DP={dp}  EP={ep}")
 
     skip_load = cfg.skip_load
 
@@ -449,6 +455,7 @@ if __name__ == "__main__":
         num_draft_tokens=cfg.num_draft_tokens,
         infini_device=infini_device,
         tp=tp,
+        pp=pp,
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
