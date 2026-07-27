@@ -66,12 +66,13 @@ public:
         return 16;
     }
     size_t decode_graph_batch_size(size_t batch_size) const override {
-        for (const size_t bucket : {1UL, 2UL, 4UL, 8UL, 16UL}) {
-            if (batch_size <= bucket) {
-                return bucket;
-            }
+        // Exact graphs avoid dummy-request padding in the latency-sensitive
+        // 1-8 concurrency range. Larger decode batches may still share the
+        // batch-16 graph to cap capture count and memory use.
+        if (batch_size <= 8) {
+            return batch_size;
         }
-        return batch_size;
+        return batch_size <= 16 ? 16 : batch_size;
     }
 
 private:
