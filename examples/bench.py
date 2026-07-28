@@ -197,6 +197,7 @@ class TestModel:
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        enable_prefix_caching=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -210,6 +211,7 @@ class TestModel:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+        self.enable_prefix_caching = enable_prefix_caching
 
         if draft_model_path is not None:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
@@ -316,6 +318,7 @@ class TestModel:
                 use_mla=self.use_mla,
                 weight_load_mode=self.weight_load_mode,
                 skip_load=self.skip_load,
+                enable_prefix_caching=self.enable_prefix_caching,
             )
             t1 = time.time()
             print("=================== start generate ====================")
@@ -442,6 +445,7 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        enable_prefix_caching=False,
     )
 
     # ---------------------------------------------------------------------------- #

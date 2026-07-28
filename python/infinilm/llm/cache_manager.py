@@ -1,43 +1,37 @@
-"""
-KV Cache Manager - Paged Attention block-based cache allocation and management.
-"""
+"""Paged KV cache allocation and source-agnostic prefix lookup."""
 
 from collections import deque
+from collections.abc import Sequence
 from typing import Dict, List, Set
 
-import numpy as np
-import xxhash
+from infinilm.llm.prefix_cache import (
+    EMPTY_BLOCK_HASH,
+    BlockHash,
+)
 
 
 class Block:
-    """KV Cache Block with reference counting and hash-based reuse support."""
+    """Control-plane metadata for one physical KV cache page."""
 
     def __init__(self, block_id: int):
         self.block_id = block_id
         self.ref_count = 0
-        self.hash = -1
-        self.token_ids: List[int] = []
+        self.hash: BlockHash = EMPTY_BLOCK_HASH
 
     def __repr__(self) -> str:
         return f"Block(id={self.block_id}, ref={self.ref_count}, hash={self.hash})"
 
-    def update(self, hash_value: int, token_ids: List[int]) -> None:
-        self.hash = hash_value
-        self.token_ids = token_ids.copy()
-
     def reset(self) -> None:
         self.ref_count = 1
-        self.hash = -1
-        self.token_ids = []
+        self.hash = EMPTY_BLOCK_HASH
 
     def free(self) -> None:
         self.ref_count = 0
-        self.hash = -1
-        self.token_ids = []
+        self.hash = EMPTY_BLOCK_HASH
 
 
 class MambaCacheManager:
-    """Manages request ownership of mamba state cache rows.
+    """Manage request ownership of Mamba state cache rows.
 
     Row 0 is reserved as the permanent zero state. Request-owned rows are
     allocated from [1, num_blocks).
@@ -49,7 +43,7 @@ class MambaCacheManager:
         if num_blocks < 2:
             raise ValueError("mamba cache pool size must be at least 2")
         self.num_blocks = num_blocks
-        self.free_block_ids: deque = deque(range(1, num_blocks))
+        self.free_block_ids: deque[int] = deque(range(1, num_blocks))
         self.used_block_ids: Set[int] = set()
 
     def can_allocate(self) -> bool:
@@ -75,96 +69,55 @@ class MambaCacheManager:
 
 
 class BlockManager:
-    """Manages Paged KV Cache allocation with prefix caching support.
-
-    Features:
-    - Block allocation/deallocation with reference counting
-    - Hash-based prefix caching for token sequence reuse
-    - Slot mapping generation for physical-to-logical position mapping
-    """
-
-    @classmethod
-    def compute_hash(
-        cls,
-        token_ids: List[int],
-        prefix_hash: int = -1,
-        mm_data_identifiers: List[str] = None,
-    ) -> int:
-        """Compute hash for token sequence with optional prefix chaining."""
-        h = xxhash.xxh64()
-        if prefix_hash != -1:
-            h.update(prefix_hash.to_bytes(8, "little"))
-        h.update(np.array(token_ids, dtype=np.int32).tobytes())
-        if mm_data_identifiers is not None:
-            for identifier in mm_data_identifiers:
-                h.update(identifier.encode("utf-8"))
-        return h.intdigest()
+    """Manage physical paged-cache blocks and published prefix hashes."""
 
     def __init__(self, num_blocks: int, block_size: int):
-        assert num_blocks > 0 and block_size > 0, (
-            "num_blocks and block_size must be positive"
-        )
+        if num_blocks <= 0 or block_size <= 0:
+            raise ValueError("num_blocks and block_size must be positive")
         self.num_blocks = num_blocks
         self.block_size = block_size
 
         self.blocks: List[Block] = [Block(i) for i in range(num_blocks)]
-        self.hash_to_block_id: Dict[int, int] = {}
-        self.free_block_ids: deque = deque(range(num_blocks))
+        self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
+        self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
-        self.pending_block_ids: Set[int] = set()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"BlockManager(blocks={self.num_blocks}, block_size={self.block_size}, "
             f"free={len(self.free_block_ids)}, used={len(self.used_block_ids)})"
         )
 
-    # Private low-level operations
-
-    def _allocate_partial_block(self) -> Block:
-        """Pop the first free block and add it to used blocks as a partial block."""
+    def _allocate_block(self) -> Block:
         block_id = self.free_block_ids.popleft()
         block = self.blocks[block_id]
         assert block.ref_count == 0, f"Block {block_id} ref_count not zero"
-
         block.reset()
         self.used_block_ids.add(block_id)
         return block
 
-    def _allocate_full_block(self) -> Block:
-        """Pop the first free block and add it to pending blocks as a full block."""
-        block_id = self.free_block_ids.popleft()
-        block = self.blocks[block_id]
-        assert block.ref_count == 0, f"Block {block_id} ref_count not zero"
+    def _remove_block_hash(self, block: Block) -> None:
+        if block.hash == EMPTY_BLOCK_HASH:
+            return
+        block_ids = self.hash_to_block_ids.get(block.hash)
+        if block_ids is None or block.block_id not in block_ids:
+            raise RuntimeError(
+                f"block {block.block_id} hash metadata is missing from the prefix index"
+            )
+        block_ids.remove(block.block_id)
+        if not block_ids:
+            del self.hash_to_block_ids[block.hash]
+        block.hash = EMPTY_BLOCK_HASH
 
-        block.reset()
-        self.pending_block_ids.add(block_id)
-        return block
-
-    def _deallocate_block(self, block_id: int):
-        """Deallocate a block and return it to free list."""
+    def _deallocate_block(self, block_id: int) -> None:
         block = self.blocks[block_id]
         assert block.ref_count == 0, (
             f"Block {block_id} ref_count not zero, cannot deallocate"
         )
-
-        if block.hash != -1 and self.hash_to_block_id.get(block.hash) == block_id:
-            del self.hash_to_block_id[block.hash]
-
+        self._remove_block_hash(block)
         block.free()
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
-
-    def _commit_pending_blocks(self) -> None:
-        """Commit pending prefill blocks into used_block_ids and register their hashes."""
-        for block_id in self.pending_block_ids:
-            self.used_block_ids.add(block_id)
-            block = self.blocks[block_id]
-            if block.hash != -1:
-                self.hash_to_block_id[block.hash] = block_id
-        self.pending_block_ids.clear()
-
-    # Read-only state queries
 
     def can_allocate(self, num_required_blocks: int) -> bool:
         return len(self.free_block_ids) >= num_required_blocks
@@ -174,430 +127,238 @@ class BlockManager:
 
     def get_total_usable_blocks(self) -> int:
         freeable_used_blocks = sum(
-            1 for bid in self.used_block_ids if self.blocks[bid].ref_count == 0
+            1
+            for block_id in self.used_block_ids
+            if self.blocks[block_id].ref_count == 0
         )
         return len(self.free_block_ids) + freeable_used_blocks
 
-    # Core public operations
-
     def get_computed_blocks(
         self,
-        token_ids: List[int],
-        mm_token_index_mappings: List[dict] = None,
-    ) -> tuple[List[int], int, List[dict]]:
-        """Find locally cached prefix blocks for the given token sequence.
-
-        The last token is never matched, as it must be recomputed to obtain logits.
-
-        Args:
-            token_ids: Input token sequence.
-            mm_token_index_mappings: List of multimodal token index mappings.
-        Returns:
-            A tuple of (cached_block_table, num_local_cached_tokens, blocks_blueprint):
-            - cached_block_table: List of matched block IDs (each with ref_count incremented).
-            - num_local_cached_tokens: Number of cached tokens (always a multiple of block_size).
-            - blocks_blueprint: Per-block cached block id and precomputed prefix hash.
-        """
-        num_tokens = len(token_ids)
-        num_blocks = (num_tokens + self.block_size - 1) // self.block_size
-        num_full_blocks = num_tokens // self.block_size
-        remain_tokens = num_tokens % self.block_size
-        mm_token_index_mappings = mm_token_index_mappings or []
-        num_mm_inputs = len(mm_token_index_mappings)
-
-        # Variables
-        cached_block_table = []
-        prefix_hash = -1
-        cache_miss = False
-        mm_start_counter = 0
-        mm_caching_queue = deque()
-        blocks_blueprint = []  # [{"prefix_hash": int or -1 if not a full block, "block_id": int or -1 if not cached}, ...]
-        max_blocks_to_reuse = num_full_blocks
-
-        for block_idx in range(num_blocks):
-            start_idx = block_idx * self.block_size
-            end_idx = min(start_idx + self.block_size, num_tokens)
-            block_tokens = token_ids[start_idx:end_idx]
-
-            # Process multimodal token index mappings for this block
-            mm_data_identifiers = []
-            while (
-                mm_start_counter < num_mm_inputs
-                and mm_token_index_mappings[mm_start_counter]["start_index"] < end_idx
-                and mm_token_index_mappings[mm_start_counter]["start_index"]
-                >= start_idx
-            ):
-                # for all mm_data whose start_index is within this block's token range, add its identifier to the list
-                mm_data_identifiers.append(
-                    mm_token_index_mappings[mm_start_counter]["identifier"]
-                )
-                mm_caching_queue.append(mm_start_counter)
-                mm_start_counter += 1
-
-            prefix_hash = (
-                self.compute_hash(block_tokens, prefix_hash, mm_data_identifiers)
-                if len(block_tokens) == self.block_size
-                else -1
-            )
-
-            # Try to reuse existing block if no previous cache miss yet
-            cached_block_id = (
-                self.hash_to_block_id.get(prefix_hash, -1) if not cache_miss else -1
-            )
-            if (
-                cached_block_id != -1
-                and self.blocks[cached_block_id].token_ids != block_tokens
-            ):
-                cached_block_id = -1
-            if end_idx == num_tokens and remain_tokens == 0:
-                # Spicial case, when the last block is fully packed, we cannot reuse it because we need to leave at least one uncached token for forward
-                cached_block_id = -1
-
-            # Deal with the first cache miss
-            if not cache_miss and cached_block_id == -1:
-                max_blocks_to_reuse = min(max_blocks_to_reuse, block_idx)
-                cache_miss = True
-
-            if not cache_miss:
-                # pop fully cached mm_data
-                while (
-                    mm_caching_queue
-                    and mm_token_index_mappings[mm_caching_queue[0]]["end_index"]
-                    < end_idx
-                ):
-                    mm_caching_queue.popleft()
-
-            blocks_blueprint.append(
-                {"prefix_hash": prefix_hash, "block_id": cached_block_id}
-            )
-
-        # If there is one incomplete mm_data, tailing blocks need to fall back until all included mm_data are complete
-        if mm_caching_queue:
-            incomplete_mm = mm_token_index_mappings[mm_caching_queue.popleft()]
-            incomplete_mm_start = incomplete_mm[
-                "start_index"
-            ]  # Fall back until this index is no longer included in the block
-            max_blocks_to_reuse = min(
-                max_blocks_to_reuse, incomplete_mm_start // self.block_size
-            )
-
-        num_local_cached_tokens = max_blocks_to_reuse * self.block_size
-
-        for block_id in range(max_blocks_to_reuse):
-            block = self.blocks[blocks_blueprint[block_id]["block_id"]]
+        block_hashes: Sequence[BlockHash],
+        max_cache_hit_tokens: int,
+    ) -> tuple[List[int], int]:
+        """Pin the longest consecutive cached prefix identified by hashes."""
+        max_hit_blocks = min(
+            len(block_hashes), max(0, max_cache_hit_tokens) // self.block_size
+        )
+        cached_block_table: List[int] = []
+        for block_idx in range(max_hit_blocks):
+            block_hash = block_hashes[block_idx]
+            block_ids = self.hash_to_block_ids.get(block_hash)
+            if not block_ids:
+                break
+            block_id = next(iter(block_ids))
+            block = self.blocks[block_id]
+            assert block.hash == block_hash and block_id in self.used_block_ids
             block.ref_count += 1
-            cached_block_table.append(block.block_id)
-
-        return cached_block_table, num_local_cached_tokens, blocks_blueprint
+            cached_block_table.append(block_id)
+        return cached_block_table, len(cached_block_table) * self.block_size
 
     def allocate_slots(
         self,
-        token_ids: List[int],
         num_new_tokens: int,
         num_computed_tokens: int = 0,
-        cached_block_table: List[int] = None,
-        blocks_blueprint: List[dict] = None,
-        delay_cache_blocks: bool = False,
+        cached_block_table: List[int] | None = None,
     ) -> tuple[List[int], List[int]] | None:
-        """Allocate KV cache slots for a request (PD-disaggregation aware).
-
-        Note: Requires that the underlying attention kernel writes KV cache before
-        reading it (write-before-read ordering).
-
-        Args:
-            token_ids: Complete token sequence for the request.
-            num_new_tokens: Number of tokens to compute in this step.
-            num_computed_tokens: Total number of tokens already computed across local and remote workers.
-            cached_block_table: Already-matched local block IDs.
-            blocks_blueprint: Per-block precomputed prefix hashes from get_computed_blocks.
-            delay_cache_blocks: When True (async PD transfer in progress), allocate
-                blocks but defer hash registration until transfer completes.
-
-        Returns:
-            A tuple of (block_table, slot_mapping), or None if blocks are insufficient.
-            - block_table: Full block list.
-            - slot_mapping: Physical slot IDs for the tokens that need to be computed.
-        """
-        if cached_block_table is None:
-            cached_block_table = []
+        """Allocate physical blocks without publishing prefix hashes."""
+        if num_new_tokens < 0 or num_computed_tokens < 0:
+            raise ValueError("token counts must be non-negative")
+        cached_block_table = cached_block_table or []
         block_table = list(cached_block_table)
-        slot_mapping = []
+        cached_tokens = len(block_table) * self.block_size
+        if num_computed_tokens < cached_tokens:
+            raise ValueError(
+                "num_computed_tokens cannot precede the cached block boundary"
+            )
 
         total_tokens = num_computed_tokens + num_new_tokens
-
-        num_blocks_needed = (
-            total_tokens + self.block_size - 1
-        ) // self.block_size - len(cached_block_table)
+        total_blocks = (total_tokens + self.block_size - 1) // self.block_size
+        num_blocks_needed = total_blocks - len(block_table)
 
         if not self.can_allocate(num_blocks_needed):
             if not self.try_free_blocks(num_blocks_needed):
                 return None
 
-        start_block_idx = len(cached_block_table)
-        total_blocks = (total_tokens + self.block_size - 1) // self.block_size
-        prefix_hash = (
-            self.blocks[cached_block_table[-1]].hash if cached_block_table else -1
-        )
+        for _ in range(num_blocks_needed):
+            block_table.append(self._allocate_block().block_id)
 
-        for block_idx in range(start_block_idx, total_blocks):
-            start_tok = block_idx * self.block_size
-            end_tok = min(start_tok + self.block_size, len(token_ids))
-            block_tokens = token_ids[start_tok:end_tok]
-            is_full_block = len(block_tokens) == self.block_size
-
-            if not self.free_block_ids:
-                return None
-
-            if is_full_block:
-                block_hash = -1
-                if blocks_blueprint is not None and block_idx < len(blocks_blueprint):
-                    block_hash = blocks_blueprint[block_idx]["prefix_hash"]
-                if block_hash == -1:
-                    block_hash = self.compute_hash(block_tokens, prefix_hash)
-                prefix_hash = block_hash
-                block = self._allocate_full_block()
-                block.update(block_hash, block_tokens)
-            else:
-                block = self._allocate_partial_block()
-
-            block_table.append(block.block_id)
-
-        for tok_idx in range(num_computed_tokens, total_tokens):
-            blk_idx = tok_idx // self.block_size
-            blk_offset = tok_idx % self.block_size
-            slot_mapping.append(block_table[blk_idx] * self.block_size + blk_offset)
-
-        if delay_cache_blocks:
-            for block_id in list(self.pending_block_ids):
-                self.used_block_ids.add(block_id)
-            self.pending_block_ids.clear()
-        else:
-            self._commit_pending_blocks()
-
+        slot_mapping = []
+        for token_idx in range(num_computed_tokens, total_tokens):
+            block_idx = token_idx // self.block_size
+            block_offset = token_idx % self.block_size
+            slot_mapping.append(block_table[block_idx] * self.block_size + block_offset)
         return block_table, slot_mapping
 
     def append_slots(
-        self,
-        block_table: List[int],
-        start_num_tokens: int,
-        num_slots: int,
-        total_token_ids: List[int] = None,
-        update_hash: bool = True,
+        self, block_table: List[int], start_num_tokens: int, num_slots: int
     ) -> tuple[List[int], List[int]]:
-        """Append multiple decode slots for speculative target verification."""
-        slots = []
-        for offset in range(num_slots):
-            block_table, slot = self.append_slot(
-                block_table,
-                start_num_tokens + offset,
-                total_token_ids,
-                update_hash=update_hash,
+        """Append contiguous provisional slots for speculative verification."""
+        if num_slots < 0:
+            raise ValueError("num_slots must be non-negative")
+        if num_slots == 0:
+            return block_table, []
+        if start_num_tokens <= 0:
+            raise ValueError("start_num_tokens must be greater than 0")
+        expected_blocks = (start_num_tokens + self.block_size - 2) // self.block_size
+        if len(block_table) != expected_blocks:
+            raise ValueError(
+                "start_num_tokens must immediately follow the allocated logical length"
             )
-            slots.append(slot)
+
+        max_num_tokens = start_num_tokens + num_slots - 1
+        required_blocks = (max_num_tokens + self.block_size - 1) // self.block_size
+        additional_blocks = max(required_blocks - len(block_table), 0)
+        if not self.can_allocate(additional_blocks) and not self.try_free_blocks(
+            additional_blocks
+        ):
+            raise RuntimeError("No available cache blocks")
+
+        for _ in range(additional_blocks):
+            block_table.append(self._allocate_block().block_id)
+
+        slots = []
+        for num_tokens in range(start_num_tokens, start_num_tokens + num_slots):
+            token_idx = num_tokens - 1
+            block_idx, block_offset = divmod(token_idx, self.block_size)
+            slots.append(block_table[block_idx] * self.block_size + block_offset)
         return block_table, slots
 
     def truncate_blocks(
         self, block_table: List[int], keep_num_tokens: int
     ) -> List[int]:
-        """Trim block_table to the logical token length after speculative verify.
+        """Release private, unpublished speculative pages past an accepted length.
 
-        KV tensors are not physically cleared; future attention only sees slots reachable
-        from the returned block table and sequence lengths. Any newly allocated blocks
-        past keep_num_tokens are dereferenced, and hash metadata for the partial tail is
-        invalidated so rejected draft tokens are never reused as a prefix hit.
+        The caller must pass a manager-produced block table with unique page IDs.
         """
-        assert keep_num_tokens > 0, "keep_num_tokens must be greater than 0"
-        keep_blocks = (keep_num_tokens + self.block_size - 1) // self.block_size
-        keep_blocks = min(keep_blocks, len(block_table))
+        if keep_num_tokens <= 0:
+            raise ValueError("keep_num_tokens must be greater than 0")
+        capacity = len(block_table) * self.block_size
+        if keep_num_tokens > capacity:
+            raise ValueError(
+                f"keep_num_tokens={keep_num_tokens} exceeds block table capacity={capacity}"
+            )
 
-        removed = block_table[keep_blocks:]
-        for block_id in removed:
+        keep_blocks = (keep_num_tokens + self.block_size - 1) // self.block_size
+        discarded_block_ids = block_table[keep_blocks:]
+
+        # Validate the complete mutation set first so a malformed speculative
+        # table cannot be only partially released.
+        for block_id in discarded_block_ids:
+            if not 0 <= block_id < self.num_blocks:
+                raise RuntimeError(f"invalid provisional block id {block_id}")
+            block = self.blocks[block_id]
+            if block_id not in self.used_block_ids or block.ref_count != 1:
+                raise RuntimeError(
+                    f"provisional block {block_id} must be privately owned"
+                )
+            if block.hash != EMPTY_BLOCK_HASH:
+                raise RuntimeError(
+                    f"provisional block {block_id} must not be published"
+                )
+
+        if keep_num_tokens % self.block_size != 0:
+            retained_block_id = block_table[keep_blocks - 1]
+            if not 0 <= retained_block_id < self.num_blocks:
+                raise RuntimeError(f"invalid retained block id {retained_block_id}")
+            retained_block = self.blocks[retained_block_id]
+            if (
+                retained_block_id not in self.used_block_ids
+                or retained_block.ref_count != 1
+            ):
+                raise RuntimeError(
+                    f"retained partial block {retained_block_id} must be privately owned"
+                )
+            if retained_block.hash != EMPTY_BLOCK_HASH:
+                raise RuntimeError(
+                    f"retained partial block {retained_block_id} must not be published"
+                )
+
+        for block_id in discarded_block_ids:
             block = self.blocks[block_id]
             block.ref_count = 0
             self._deallocate_block(block_id)
 
-        truncated = block_table[:keep_blocks]
-        if truncated and keep_num_tokens % self.block_size != 0:
-            tail_id = truncated[-1]
-            tail = self.blocks[tail_id]
-            if tail.hash != -1 and self.hash_to_block_id.get(tail.hash) == tail_id:
-                del self.hash_to_block_id[tail.hash]
-            tail.hash = -1
-            tail.token_ids = []
+        return block_table[:keep_blocks]
 
-        return truncated
-
-    def commit_blocks_hash(
-        self, block_table: List[int], token_ids: List[int], num_tokens: int
-    ) -> None:
-        """Register hashes for full blocks whose tokens are finalized."""
-        assert num_tokens <= len(token_ids), "num_tokens exceeds token_ids length"
-        num_full_blocks = min(num_tokens // self.block_size, len(block_table))
-        prefix_hash = -1
-        for block_idx in range(num_full_blocks):
+    def publish_computed_blocks(
+        self,
+        block_table: Sequence[int],
+        block_hashes: Sequence[BlockHash],
+        start_block: int,
+        num_computed_tokens: int,
+    ) -> int:
+        """Publish newly computed full blocks and return the indexed boundary."""
+        end_block = min(
+            num_computed_tokens // self.block_size,
+            len(block_table),
+            len(block_hashes),
+        )
+        if not 0 <= start_block <= end_block:
+            raise ValueError(
+                f"invalid publish range: start_block={start_block}, end_block={end_block}"
+            )
+        for block_idx in range(start_block, end_block):
             block_id = block_table[block_idx]
             block = self.blocks[block_id]
-            block_start = block_idx * self.block_size
-            block_end = block_start + self.block_size
-            block_tokens = token_ids[block_start:block_end]
-            current_hash = self.compute_hash(block_tokens, prefix_hash)
+            if block.hash != EMPTY_BLOCK_HASH:
+                raise RuntimeError(
+                    f"published block {block_id} cannot change its prefix hash"
+                )
 
-            if block.hash != -1 and block.hash != current_hash:
-                if self.hash_to_block_id.get(block.hash) == block_id:
-                    del self.hash_to_block_id[block.hash]
-
-            if block.hash != current_hash or block.token_ids != block_tokens:
-                block.update(current_hash, block_tokens)
-            self.hash_to_block_id[current_hash] = block_id
-            prefix_hash = current_hash
+        for block_idx in range(start_block, end_block):
+            block_id = block_table[block_idx]
+            block = self.blocks[block_id]
+            block_hash = block_hashes[block_idx]
+            block.hash = block_hash
+            self.hash_to_block_ids.setdefault(block_hash, set()).add(block_id)
+        return end_block
 
     def append_slot(
-        self,
-        block_table: List[int],
-        num_tokens: int,
-        total_token_ids: List[int] = None,
-        update_hash: bool = True,
+        self, block_table: List[int], num_tokens: int
     ) -> tuple[List[int], int]:
-        """Append slot for decode phase (generate one new token).
+        """Allocate the slot used to compute the latest logical token."""
+        if (num_tokens - 1) % self.block_size == 0:
+            if not self.free_block_ids and not self.try_free_blocks(1):
+                raise RuntimeError("No available cache blocks")
+            block_table.append(self._allocate_block().block_id)
 
-        Args:
-            block_table: Current block_table
-            num_tokens: Current total token count (including newly generated token)
-            total_token_ids: All token sequence (for updating block hash)
-
-        Returns:
-            Tuple of (block_table, slot_id)
-        """
-        assert len(block_table) > 0, "block_table cannot be empty"
-        assert num_tokens > 0, "num_tokens must be greater than 0"
-
-        if num_tokens % self.block_size == 1:
-            if update_hash:
-                # Previous block is full, update its hash for future prefix caching.
-                last_block_id = block_table[-1]
-                last_block = self.blocks[last_block_id]
-
-                # Only update if block's token_ids is empty (avoid duplicate updates)
-                if len(last_block.token_ids) == 0:
-                    block_start_idx = num_tokens - self.block_size - 1
-                    block_end_idx = num_tokens - 1
-                    block_tokens = total_token_ids[block_start_idx:block_end_idx]
-
-                    # Compute prefix_hash using previous block's hash if available
-                    if len(block_table) > 1:
-                        prev_block = self.blocks[block_table[-2]]
-                        prefix_hash = prev_block.hash
-                    else:
-                        prefix_hash = -1
-
-                    current_hash = self.compute_hash(block_tokens, prefix_hash)
-                    last_block.update(current_hash, block_tokens)
-                    self.hash_to_block_id[current_hash] = last_block_id
-
-            # Need new block
-            if not self.free_block_ids:
-                if not self.try_free_blocks(1):
-                    raise RuntimeError("No available cache blocks")
-            new_block = self._allocate_partial_block()
-            block_table.append(new_block.block_id)
-
-        # Calculate slot
         last_block_id = block_table[-1]
         offset = (num_tokens - 1) % self.block_size
-        slot_id = last_block_id * self.block_size + offset
+        return block_table, last_block_id * self.block_size + offset
 
-        return block_table, slot_id
-
-    # Reference management
-
-    def free_blocks(self, block_table: List[int]):
-        """Decrease reference count for all blocks. Blocks with ref_count=0 are not
-        immediately freed to allow reuse."""
+    def free_blocks(self, block_table: Sequence[int]) -> None:
+        """Release request references while retaining computed blocks for reuse."""
         for block_id in reversed(block_table):
             block = self.blocks[block_id]
             assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
 
     def try_free_blocks(self, num_required: int) -> bool:
-        """Try to free blocks with ref_count=0."""
+        """Evict unreferenced blocks until the requested capacity is available."""
         to_free = [
-            bid for bid in self.used_block_ids if self.blocks[bid].ref_count == 0
+            block_id
+            for block_id in self.used_block_ids
+            if self.blocks[block_id].ref_count == 0
         ]
-
         for block_id in to_free:
             self._deallocate_block(block_id)
             if self.can_allocate(num_required):
                 return True
-
         return self.can_allocate(num_required)
-
-    # PD-disaggregation specific
-
-    def update_blocks_hash(self, block_table: List[int], num_local_cached_tokens: int):
-        """Register hashes for blocks beyond the locally cached prefix into the lookup table.
-
-        Called on the decode node after receiving KV data from the prefill node,
-        so that subsequent requests can hit these blocks via prefix caching.
-        Only full blocks (with a valid hash) are registered; partial blocks are skipped.
-
-        Args:
-            block_table: Block IDs for the current request.
-            num_local_cached_tokens: Number of locally cached tokens (must be a multiple of
-                block_size).
-        """
-        assert num_local_cached_tokens % self.block_size == 0, (
-            "num_local_cached_tokens must be multiple of block_size"
-        )
-        for idx in range(num_local_cached_tokens // self.block_size, len(block_table)):
-            block_id = block_table[idx]
-            block = self.blocks[block_id]
-            if block.hash != -1:
-                self.hash_to_block_id[block.hash] = block_id
 
     def update_blocks_slot(
         self, block_table: List[int], num_computed_tokens: int, total_tokens: int
     ) -> List[int]:
-        """Build the slot mapping for tokens that still need to be computed.
+        """Build slots for the recomputed suffix after a partial remote load."""
+        if num_computed_tokens >= total_tokens:
+            return []
 
-        Used on the decode node after a partial KV transfer failure to reconstruct
-        the slot mapping covering [num_computed_tokens, total_tokens).
-
-        Args:
-            block_table: Block IDs for the current request.
-            num_computed_tokens: Number of tokens already computed (may not be
-                a multiple of block_size).
-            total_tokens: Total token count for this request.
-
-        Returns:
-            Slot IDs for the range [num_computed_tokens, total_tokens).
-        """
-        bs = self.block_size
         new_slot_mapping = []
-
-        start_block = num_computed_tokens // bs
-        start_offset = num_computed_tokens % bs
-
-        last_token_idx = total_tokens - 1
-        end_block = last_token_idx // bs
-        end_offset = last_token_idx % bs + 1
-
-        if start_block == end_block:
-            block_id = block_table[start_block]
-            base = block_id * bs
-            new_slot_mapping.extend(range(base + start_offset, base + end_offset))
-            return new_slot_mapping
-
-        block_id = block_table[start_block]
-        base = block_id * bs
-        new_slot_mapping.extend(range(base + start_offset, base + bs))
-
-        for idx in range(start_block + 1, end_block):
-            block_id = block_table[idx]
-            base = block_id * bs
-            new_slot_mapping.extend(range(base, base + bs))
-
-        block_id = block_table[end_block]
-        base = block_id * bs
-        new_slot_mapping.extend(range(base, base + end_offset))
-
+        for token_idx in range(num_computed_tokens, total_tokens):
+            block_idx = token_idx // self.block_size
+            block_offset = token_idx % self.block_size
+            new_slot_mapping.append(
+                block_table[block_idx] * self.block_size + block_offset
+            )
         return new_slot_mapping

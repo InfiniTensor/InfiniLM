@@ -25,23 +25,15 @@ class SpeculativeCacheOps:
         block_table: List[int],
         start_length: int,
         num_slots: int,
-        token_ids: List[int],
     ):
         return self._cache_manager.append_slots(
             block_table,
             start_length,
             num_slots,
-            token_ids,
-            update_hash=False,
         )
 
     def rollback_to_length(self, block_table: List[int], keep_tokens: int):
         return self._cache_manager.truncate_blocks(block_table, keep_tokens)
-
-    def commit_accepted_tokens(
-        self, block_table: List[int], token_ids: List[int], num_tokens: int
-    ) -> None:
-        self._cache_manager.commit_blocks_hash(block_table, token_ids, num_tokens)
 
 
 class SchedulerOutput:
@@ -78,6 +70,7 @@ class Scheduler:
         connector=None,
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
+        enable_prefix_caching: bool = True,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -100,9 +93,18 @@ class Scheduler:
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
+        self.enable_prefix_caching = enable_prefix_caching
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            # TODO: Remove the multimodal exclusion once media-aware prefix
+            # hashing and model-side cache-boundary handling are supported.
+            request.initialize_block_hashes(
+                self.block_size,
+                self.enable_prefix_caching
+                and not self.has_mamba_cache
+                and not request.has_multimodal_inputs,
+            )
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
 
@@ -146,23 +148,23 @@ class Scheduler:
                 self.complete_requests([req])
                 continue
 
-            req_tokens = req.get_input_tokens()
-
             if req.num_computed_tokens == 0:
                 if self.has_mamba_cache:
                     cached_block_table = []
                     num_local_computed_tokens = 0
-                    blocks_blueprint = []
                     load_kv_async = False
                     num_external_computed_tokens = 0
                 else:
-                    (
-                        cached_block_table,
-                        num_local_computed_tokens,
-                        blocks_blueprint,
-                    ) = self.cache_manager.get_computed_blocks(
-                        req_tokens, req.get_mm_token_index_mappings()
-                    )
+                    if self.enable_prefix_caching:
+                        (
+                            cached_block_table,
+                            num_local_computed_tokens,
+                        ) = self.cache_manager.get_computed_blocks(
+                            req.block_hashes, req.get_prompt_length() - 1
+                        )
+                    else:
+                        cached_block_table = []
+                        num_local_computed_tokens = 0
                     if self.connector is not None:
                         ext_tokens, load_kv_async = (
                             self.connector.get_num_new_matched_tokens(
@@ -174,19 +176,19 @@ class Scheduler:
                         load_kv_async = False
                         num_external_computed_tokens = 0
 
-                num_computed_tokens = (
+                available_cached_tokens = (
                     num_local_computed_tokens + num_external_computed_tokens
                 )
-                if load_kv_async:
-                    num_computed_tokens -= 1
+                num_computed_tokens = min(
+                    available_cached_tokens,
+                    max(req.get_prompt_length() - 1, 0),
+                )
                 num_new_tokens = req.get_prompt_length() - num_computed_tokens
 
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
-                    num_tokens_this_step = (
-                        req.get_prompt_length() - num_local_computed_tokens
-                    )
+                    num_tokens_this_step = req.get_prompt_length() - num_computed_tokens
                     if self._exceeds_token_budget(
                         current_num_batched_tokens,
                         num_tokens_this_step,
@@ -212,16 +214,13 @@ class Scheduler:
                     deferred_requests.append(req)
                     break
 
-                req_blocks, slot_mapping = self.cache_manager.allocate_slots(
-                    req_tokens,
+                allocation = self.cache_manager.allocate_slots(
                     num_new_tokens,
                     num_computed_tokens=num_computed_tokens,
                     cached_block_table=cached_block_table,
-                    blocks_blueprint=blocks_blueprint,
-                    delay_cache_blocks=load_kv_async,
                 )
 
-                if req_blocks is None:
+                if allocation is None:
                     logger.warning(
                         "Failed to allocate KV cache blocks for request: %s",
                         req.request_id,
@@ -230,6 +229,7 @@ class Scheduler:
                         self.cache_manager.free_blocks(cached_block_table)
                     deferred_requests.append(req)
                     break
+                req_blocks, slot_mapping = allocation
 
                 if self.has_mamba_cache and req.mamba_cache_index is None:
                     req.mamba_cache_index = self.mamba_cache_manager.allocate()
@@ -245,7 +245,10 @@ class Scheduler:
                 req.block_table = req_blocks
                 req.slot_mapping = slot_mapping
                 req.num_blocks = len(req_blocks)
-                req.num_local_cached_tokens = num_local_computed_tokens
+                req.num_local_cached_tokens = (
+                    num_local_computed_tokens if load_kv_async else num_computed_tokens
+                )
+                req.num_cache_indexed_blocks = len(cached_block_table)
                 req.num_computed_tokens = num_computed_tokens
 
                 if self.connector is not None:
@@ -267,9 +270,7 @@ class Scheduler:
                 ):
                     deferred_requests.append(req)
                     break
-                self.cache_manager.update_blocks_hash(
-                    req.block_table, req.num_local_cached_tokens
-                )
+                self.commit_computed_tokens(req, req.num_computed_tokens)
 
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
@@ -316,17 +317,13 @@ class Scheduler:
                 continue
 
             # Decode phase: allocate slot for newly generated token
-            try:
-                req.block_table, new_slot = self.cache_manager.append_slot(
-                    req.block_table, req.get_total_length(), req.get_all_token_ids()
-                )
-                req.slot_mapping = [new_slot]
-                req.num_blocks = len(req.block_table)
-                req.num_local_cached_tokens = req.get_total_length() - 1
-                scheduled_requests.append(req)
-
-            except RuntimeError as e:
-                raise RuntimeError("No available cache blocks for new token") from e
+            req.block_table, new_slot = self.cache_manager.append_slot(
+                req.block_table, req.get_total_length()
+            )
+            req.slot_mapping = [new_slot]
+            req.num_blocks = len(req.block_table)
+            req.num_local_cached_tokens = req.get_total_length() - 1
+            scheduled_requests.append(req)
 
         # Promote completed remote KV transfers (lower priority than running queue).
         # Cleanup (is_finished, failed re-queue) runs unconditionally; batch append only if slots remain.
@@ -386,11 +383,7 @@ class Scheduler:
         ) // self.block_size
         if request.request_id in self.failed_receiving_kv_req_ids:
             if request.num_computed_tokens:
-                valid_block_count = request.num_computed_tokens // self.block_size
-                self.cache_manager.update_blocks_hash(
-                    request.block_table[:valid_block_count],
-                    request.num_local_cached_tokens,
-                )
+                self.commit_computed_tokens(request, request.num_computed_tokens)
                 request.slot_mapping = self.cache_manager.update_blocks_slot(
                     request.block_table,
                     request.num_computed_tokens,
@@ -404,9 +397,7 @@ class Scheduler:
                 request.num_local_cached_tokens = 0
             self.failed_receiving_kv_req_ids.discard(request.request_id)
         else:
-            self.cache_manager.update_blocks_hash(
-                request.block_table, request.num_local_cached_tokens
-            )
+            self.commit_computed_tokens(request, request.num_computed_tokens)
             request.num_local_cached_tokens = request.num_computed_tokens
         self.finished_receiving_kv_req_ids.discard(request.request_id)
 
@@ -509,6 +500,28 @@ class Scheduler:
         total_required_blocks = (total_length + self.block_size - 1) // self.block_size
         return max(total_required_blocks - len(request.block_table), 0)
 
+    def commit_computed_tokens(
+        self, request: InferenceRequest, num_computed_tokens: int
+    ) -> None:
+        if not self.enable_prefix_caching or self.has_mamba_cache:
+            return
+
+        indexed_blocks = request.num_cache_indexed_blocks
+        target_blocks = min(
+            num_computed_tokens // self.block_size,
+            len(request.block_table),
+            len(request.block_hashes),
+        )
+        if target_blocks == indexed_blocks:
+            return
+
+        request.num_cache_indexed_blocks = self.cache_manager.publish_computed_blocks(
+            request.block_table,
+            request.block_hashes,
+            request.num_cache_indexed_blocks,
+            num_computed_tokens,
+        )
+
     def update_from_output(self, model_output):
         if self.connector is None or model_output.kv_connector_output is None:
             return
@@ -536,27 +549,32 @@ class Scheduler:
             # else: already processed or unknown, discard to avoid stale entries.
         for req_id in finished_sending_req_ids:
             self.cache_manager.free_blocks(self.pending_free_blocks.pop(req_id, []))
+
+        invalid_set = set(invalid_block_ids)
         for req_id in failed_recving_req_ids:
-            # Only track failures for active (non-aborted) requests; aborted
-            # requests are handled via pending_free_blocks in finished_recving.
-            if req_id in self.remote_kv_requests:
-                self.failed_receiving_kv_req_ids.add(req_id)
+            req = self.remote_kv_requests.get(req_id)
+            if req is None:
+                continue
 
-        if invalid_block_ids:
-            invalid_set = set(invalid_block_ids)
+            self.failed_receiving_kv_req_ids.add(req_id)
+            if req.has_multimodal_inputs:
+                # A physical block boundary can split a media span. Recompute
+                # the prompt until multimodal cache-boundary handling is supported.
+                req.num_computed_tokens = 0
+                continue
 
-            for req in self.remote_kv_requests.values():
-                start_block_idx = req.num_local_cached_tokens // self.block_size
-                for i, block_id in enumerate(
-                    req.block_table[start_block_idx:], start=start_block_idx
-                ):
-                    if block_id in invalid_set:
-                        req.num_computed_tokens = i * self.block_size
-                        break
-        elif self.failed_receiving_kv_req_ids:
-            for req_id in self.failed_receiving_kv_req_ids:
-                req = self.remote_kv_requests[req_id]
-                req.num_computed_tokens = req.num_local_cached_tokens
+            trusted_boundary = req.num_local_cached_tokens
+            start_block_idx = req.num_cache_indexed_blocks
+            for block_idx, block_id in enumerate(
+                req.block_table[start_block_idx:], start=start_block_idx
+            ):
+                if block_id in invalid_set:
+                    trusted_boundary = min(
+                        req.num_computed_tokens,
+                        block_idx * self.block_size,
+                    )
+                    break
+            req.num_computed_tokens = trusted_boundary
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""
@@ -565,7 +583,6 @@ class Scheduler:
             "block_size": self.cache_manager.block_size,
             "num_free_blocks": self.cache_manager.get_num_free_blocks(),
             "usable_blocks": self.cache_manager.get_total_usable_blocks(),
-            "num_pending_blocks": len(self.cache_manager.pending_block_ids),
             "num_used_blocks": len(self.cache_manager.used_block_ids),
         }
         if self.mamba_cache_manager is not None:

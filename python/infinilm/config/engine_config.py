@@ -23,6 +23,7 @@ class EngineConfig:
         num_blocks: Number of KV cache blocks (only for paged cache).
         block_size: Size of each KV cache block (only for paged cache).
         max_cache_len: Maximum sequence length (only for static cache).
+        enable_prefix_caching: Whether to reuse KV cache across requests.
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
@@ -58,6 +59,7 @@ class EngineConfig:
     skip_load: bool = False
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
+    enable_prefix_caching: bool = True
 
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:

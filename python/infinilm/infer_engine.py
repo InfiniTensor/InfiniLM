@@ -50,6 +50,24 @@ def _normalize_videonsa_config(config_dict):
     return config_dict
 
 
+def model_uses_mamba_cache(config: dict) -> bool:
+    llm_config = config.get("text_config", config)
+    layer_types = llm_config.get("layer_types") or []
+    return (
+        config.get("model_type") == "mamba"
+        or llm_config.get("model_type") == "mamba"
+        or "linear_attention" in layer_types
+        or all(
+            key in llm_config
+            for key in (
+                "linear_conv_kernel_dim",
+                "linear_num_key_heads",
+                "linear_num_value_heads",
+            )
+        )
+    )
+
+
 def read_hf_config(model_path):
     config_path = os.path.join(model_path, "config.json")
     with open(config_path, "r") as f:
@@ -160,13 +178,7 @@ class InferEngine(_infinilm.InferEngine):
         self.use_cache = False
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
-        llm_config = self.hf_config.get("text_config", self.hf_config)
-        layer_types = llm_config.get("layer_types") or []
-        self.has_mamba_cache = "linear_attention" in layer_types or (
-            "linear_conv_kernel_dim" in llm_config
-            and "linear_num_key_heads" in llm_config
-            and "linear_num_value_heads" in llm_config
-        )
+        self.has_mamba_cache = model_uses_mamba_cache(self.hf_config)
 
     @property
     def dtype(self):
