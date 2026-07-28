@@ -10,6 +10,7 @@ enum class QuantScheme {
     GPTQ_W4A16_QY,
     GPTQ_W4A16,
     GPTQ_MARLIN_W4A16,
+    MXFP4_W4A16,
 };
 
 enum class KVQuantAlgo {
