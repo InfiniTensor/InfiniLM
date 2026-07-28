@@ -117,6 +117,7 @@ class InferenceServer:
         use_mla: bool = False,
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
+        stream_interval: int = 1,
         kv_transfer_config: Optional[KVTransferConfig] = None,
     ):
         """Initialize inference server.
@@ -145,6 +146,7 @@ class InferenceServer:
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
+            stream_interval: Number of decode steps to coalesce per SSE chunk.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
         """
         self.model_path = model_path
@@ -172,6 +174,7 @@ class InferenceServer:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.ignore_eos = ignore_eos
+        self.stream_interval = max(1, stream_interval)
         self.kv_transfer_config = kv_transfer_config
 
         self.engine: AsyncLLMEngine = None
@@ -367,6 +370,7 @@ class InferenceServer:
         """Handle streaming chat request."""
         req = None
         _abort_reason = FinishReason.CANCELED
+        data.setdefault("stream_interval", self.stream_interval)
 
         try:
             messages = data.get("messages", [])
@@ -631,6 +635,7 @@ def main():
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         ignore_eos=cfg.ignore_eos,
+        stream_interval=cfg.stream_interval,
         kv_transfer_config=kv_transfer_config,
     )
     server.start()

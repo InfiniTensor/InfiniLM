@@ -214,12 +214,22 @@ class LLMEngine:
                         req.mark_finished(req.finish_reason)
 
                 else:
+                    stream_interval = max(
+                        1, int((req.request_data or {}).get("stream_interval", 1))
+                    )
+                    should_emit = (
+                        is_finished
+                        or req.get_num_generated_tokens() == 1
+                        or req.get_num_generated_tokens() % stream_interval == 0
+                    )
+                    if not should_emit:
+                        continue
+
                     if holds_back and not is_finished:
                         token_text = ""
                     else:
                         if is_finished and req.finish_reason in (
                             FinishReason.EOS_TOKEN,
-                            FinishReason.LENGTH,
                             FinishReason.STOP_STRING,
                         ):
                             token_text = ""
