@@ -12,6 +12,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 #include "infinicore/ops.hpp"
+#include "../utils.hpp"
 #if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
 #include <c10/cuda/CUDAGuard.h>
 #endif
@@ -19,10 +20,13 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <vector>
 
 namespace infinilm::engine {
 
@@ -36,6 +40,89 @@ bool rank_worker_profile_enabled() {
     }
     return cached == 1;
 }
+
+bool sample_letter_log_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_SAMPLE_LETTER_LOG");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+// #region agent log
+/// Rate-limited prefill/sample letter-logit dump (A=54 B=55 C=56 D=57 MiniCPM5).
+inline void dbg_sample_letter_logits_(size_t sample_idx,
+                                      size_t vocab_size,
+                                      const infinicore::Tensor &score_1d,
+                                      int64_t sampled_id,
+                                      const char *cg_mode_cstr) {
+    static int dumps = 0;
+    if (dumps >= 8) {
+        return;
+    }
+    try {
+        auto cpu = score_1d->to(infinicore::Device::cpu());
+        const auto dtype = cpu->dtype();
+        auto read_f32 = [&](size_t idx) -> float {
+            if (idx >= vocab_size) {
+                return 0.f;
+            }
+            if (dtype == infinicore::DataType::BF16) {
+                const auto *p = reinterpret_cast<const uint16_t *>(cpu->data());
+                return bf16_to_f32(p[idx]);
+            }
+            if (dtype == infinicore::DataType::F32) {
+                const auto *p = reinterpret_cast<const float *>(cpu->data());
+                return p[idx];
+            }
+            if (dtype == infinicore::DataType::F16) {
+                // Reuse bf16 shift only for rough ranking is wrong for F16; skip.
+                return 0.f;
+            }
+            return 0.f;
+        };
+        // MiniCPM5 single-letter ids
+        constexpr size_t kA = 54, kB = 55, kC = 56, kD = 57;
+        const float la = read_f32(kA), lb = read_f32(kB), lc = read_f32(kC), ld = read_f32(kD);
+        size_t argmax = 0;
+        float best = read_f32(0);
+        // Cap scan for rate-limited debug (vocab may be 130k+).
+        const size_t scan_n = vocab_size;
+        for (size_t i = 1; i < scan_n; ++i) {
+            const float v = read_f32(i);
+            if (v > best) {
+                best = v;
+                argmax = i;
+            }
+        }
+        ++dumps;
+        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        std::ostringstream dj;
+        dj << "{\"sample_idx\":" << sample_idx << ",\"vocab\":" << vocab_size
+           << ",\"argmax\":" << argmax << ",\"argmax_logit\":" << best
+           << ",\"sampled\":" << sampled_id << ",\"cg_mode\":\""
+           << (cg_mode_cstr != nullptr ? cg_mode_cstr : "?") << "\""
+           << ",\"A\":" << la << ",\"B\":" << lb << ",\"C\":" << lc << ",\"D\":" << ld
+           << ",\"letter_ids\":[54,55,56,57]}";
+        std::ostringstream line;
+        line << "{\"sessionId\":\"8b13ee\",\"runId\":\"tok0-parity\",\"hypothesisId\":\"D\""
+             << ",\"location\":\"rank_worker.cpp:sample\",\"message\":\"sample_letter_logits\""
+             << ",\"data\":" << dj.str() << ",\"timestamp\":" << ms << "}\n";
+        const std::string s = line.str();
+        std::fprintf(stderr, "[8b13ee] %s", s.c_str());
+        std::fflush(stderr);
+        std::ofstream ofs("/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                          std::ios::app);
+        if (ofs) {
+            ofs << s;
+        }
+    } catch (...) {
+    }
+}
+// #endregion
 
 /// Dispatcher mode histogram (FULL / PIECEWISE / NONE + NONE reason).
 struct DispatchHistCounters {
@@ -1061,18 +1148,59 @@ void RankWorker::thread_loop() {
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
 
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                            // Host-safe offsets (device tensor ->data() is not portable on MetaX).
+                            auto offsets_cpu =
+                                local_args.input_offsets.value()->to(infinicore::Device::cpu());
+                            const int32_t *input_offsets =
+                                reinterpret_cast<const int32_t *>(offsets_cpu->data());
 
                             auto output_ids{infinicore::Tensor::empty(
                                 {sample_rows.size()}, infinicore::DataType::I64, rank_info_.device)};
 
                             for (size_t j = 0; j < sample_rows.size(); ++j) {
                                 const size_t i = sample_rows[j];
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};
+                                const size_t row = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                auto score{logits->view({batch_size * total_len, vocab_size})
+                                               ->narrow({{0, row, 1}})
+                                               ->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, j, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
                                     out, score, random_val, top_p, top_k, temperature);
+                                // #region agent log
+                                if (sample_letter_log_enabled()) {
+                                    auto out_cpu = out->to(infinicore::Device::cpu());
+                                    const int64_t sid =
+                                        *reinterpret_cast<const int64_t *>(out_cpu->data());
+                                    // Extend letter dump with sample row / offsets (hyp F).
+                                    try {
+                                        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                            std::chrono::system_clock::now().time_since_epoch())
+                                                            .count();
+                                        std::ostringstream dj;
+                                        dj << "{\"row\":" << row << ",\"total_len\":" << total_len
+                                           << ",\"off1\":" << input_offsets[i + 1]
+                                           << ",\"n_req\":" << sample_rows.size() << "}";
+                                        std::ostringstream line;
+                                        line << "{\"sessionId\":\"8b13ee\",\"runId\":\"tok0-parity\","
+                                                "\"hypothesisId\":\"F\",\"location\":\"rank_worker.cpp:sample\","
+                                                "\"message\":\"sample_row_select\",\"data\":"
+                                             << dj.str() << ",\"timestamp\":" << ms << "}\n";
+                                        const std::string s = line.str();
+                                        std::fprintf(stderr, "[8b13ee] %s", s.c_str());
+                                        std::ofstream ofs(
+                                            "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                                            std::ios::app);
+                                        if (ofs) {
+                                            ofs << s;
+                                        }
+                                    } catch (...) {
+                                    }
+                                    dbg_sample_letter_logits_(
+                                        j, vocab_size, score, sid,
+                                        cudagraph_runtime_mode_cstr(cg_mode));
+                                }
+                                // #endregion
                             }
 
                             output_ids = output_ids->to(infinicore::Device::cpu());

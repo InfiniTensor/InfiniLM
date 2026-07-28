@@ -5,6 +5,11 @@
 #include "infinicore/ops.hpp"
 #include "../../../global_state/global_state.hpp"
 
+#include <chrono>
+#include <cstdio>
+#include <fstream>
+#include <sstream>
+
 namespace infinilm::layers::attention::backends {
 
 PagedAttentionImpl::PagedAttentionImpl(size_t num_heads,
@@ -39,6 +44,70 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
+
+    // #region agent log
+    {
+        static int paged_dumps = 0;
+        if (paged_dumps < 3 && is_prefill && layer_idx_ == 0) {
+            ++paged_dumps;
+            try {
+                const auto &meta = infinilm::global_state::get_forward_context().attn_metadata;
+                int tot0 = -1, off0 = -1, off1 = -1, slot0 = -1, bt0 = -1;
+                try {
+                    auto tot_cpu = total_sequence_lengths.value()->to(infinicore::Device::cpu());
+                    auto off_cpu = input_offsets.value()->to(infinicore::Device::cpu());
+                    auto slot_cpu = slot_mapping.value()->to(infinicore::Device::cpu());
+                    auto bt_cpu = block_tables.value()->to(infinicore::Device::cpu());
+                    const auto *td = reinterpret_cast<const int32_t *>(tot_cpu->data());
+                    const auto *od = reinterpret_cast<const int32_t *>(off_cpu->data());
+                    const auto *sd = reinterpret_cast<const int64_t *>(slot_cpu->data());
+                    const auto *bd = reinterpret_cast<const int32_t *>(bt_cpu->data());
+                    if (tot_cpu->numel() >= 1) {
+                        tot0 = td[0];
+                    }
+                    if (off_cpu->size(0) >= 2) {
+                        off0 = od[0];
+                        off1 = od[1];
+                    }
+                    if (slot_cpu->numel() >= 1) {
+                        slot0 = static_cast<int>(sd[0]);
+                    }
+                    if (bt_cpu->numel() >= 1) {
+                        bt0 = bd[0];
+                    }
+                } catch (...) {
+                }
+                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::system_clock::now().time_since_epoch())
+                                    .count();
+                std::ostringstream dj;
+                dj << "{\"q_len\":" << seq_len
+                   << ",\"tot_shape0\":" << total_sequence_lengths.value()->shape()[0]
+                   << ",\"off_shape0\":"
+                   << (input_offsets.has_value() ? input_offsets.value()->shape()[0] : 0)
+                   << ",\"max_q\":" << meta.max_query_len << ",\"max_k\":" << meta.max_kv_len
+                   << ",\"bt_cols\":"
+                   << (block_tables.value()->ndim() >= 2 ? block_tables.value()->size(1) : 0)
+                   << ",\"tot0\":" << tot0 << ",\"off\":[" << off0 << "," << off1 << "]"
+                   << ",\"slot0\":" << slot0 << ",\"bt0\":" << bt0
+                   << ",\"slot_n\":" << slot_mapping.value()->shape()[0] << "}";
+                std::ostringstream line;
+                line << "{\"sessionId\":\"8b13ee\",\"runId\":\"paged-bisect\",\"hypothesisId\":\"B\""
+                     << ",\"location\":\"paged_attn.cpp:forward\",\"message\":\"paged_prefill_meta\""
+                     << ",\"data\":" << dj.str() << ",\"timestamp\":" << ms << "}\n";
+                const std::string s = line.str();
+                std::fprintf(stderr, "[8b13ee] %s", s.c_str());
+                std::fflush(stderr);
+                std::ofstream ofs("/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                                  std::ios::app);
+                if (ofs) {
+                    ofs << s;
+                }
+            } catch (...) {
+            }
+        }
+    }
+    // #endregion
 
     // 2. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());

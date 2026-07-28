@@ -27,6 +27,10 @@ struct AttentionMetadata {
     std::optional<infinicore::Tensor> block_tables;
     /// Slot ids for each token `[seq]`. Used for paged cache.
     std::optional<infinicore::Tensor> slot_mapping;
+    /// Host-side max query / KV lengths for FA varlen (not max_position_embeddings).
+    /// Required so flash-attn block_table indexing stays within table columns.
+    int max_query_len{0};
+    int max_kv_len{0};
 
     AttentionMetadata() = default;
 

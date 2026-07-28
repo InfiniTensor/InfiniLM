@@ -684,6 +684,40 @@ class LLMEngine:
             eos_ids = req.eos_token_ids or self.eos_token_ids
             if eos_ids and token_id in eos_ids:
                 req.finish_reason = FinishReason.EOS_TOKEN
+                # #region agent log
+                if len(req.generated_token_ids or []) <= 2 or not (
+                    req.generated_text or ""
+                ).strip():
+                    try:
+                        import json as _json, time as _time
+                        with open(
+                            "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                            "a",
+                        ) as _f:
+                            _f.write(
+                                _json.dumps(
+                                    {
+                                        "sessionId": "8b13ee",
+                                        "runId": "gate-b-empty",
+                                        "hypothesisId": "H2",
+                                        "location": "llm.py:_check_request_finished",
+                                        "message": "early_eos_or_empty_text",
+                                        "data": {
+                                            "request_id": getattr(req, "request_id", None),
+                                            "token_id": token_id,
+                                            "n_tokens": len(req.generated_token_ids or []),
+                                            "tok_ids": list(req.generated_token_ids or [])[:16],
+                                            "generated_text": (req.generated_text or "")[:240],
+                                        },
+                                        "timestamp": int(_time.time() * 1000),
+                                    },
+                                    ensure_ascii=False,
+                                )
+                                + "\n"
+                            )
+                    except Exception:
+                        pass
+                # #endregion
                 return True
 
             # While ignoring EOS, stop strings are also ignored to avoid requiring additional arguments for benchmarking.
@@ -692,8 +726,43 @@ class LLMEngine:
             stop_strings = req.sampling_params.stop or []
             for stop_str in stop_strings:
                 if req.generated_text.endswith(stop_str):
+                    _before = req.generated_text
                     req.generated_text = req.generated_text[: -len(stop_str)]
                     req.finish_reason = FinishReason.STOP_STRING
+                    # #region agent log
+                    if len(req.generated_text) < 8 or not req.generated_text.strip():
+                        try:
+                            import json as _json, time as _time
+                            with open(
+                                "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                                "a",
+                            ) as _f:
+                                _f.write(
+                                    _json.dumps(
+                                        {
+                                            "sessionId": "8b13ee",
+                                            "runId": "gate-b-empty",
+                                            "hypothesisId": "H1",
+                                            "location": "llm.py:_check_request_finished",
+                                            "message": "stop_string_near_empty",
+                                            "data": {
+                                                "request_id": getattr(req, "request_id", None),
+                                                "stop_str": repr(stop_str),
+                                                "before": (_before or "")[:240],
+                                                "after": (req.generated_text or "")[:240],
+                                                "n_tokens": len(req.generated_token_ids or []),
+                                                "tok_ids": list(req.generated_token_ids or [])[:16],
+                                                "token_id": token_id,
+                                            },
+                                            "timestamp": int(_time.time() * 1000),
+                                        },
+                                        ensure_ascii=False,
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
+                    # #endregion
                     return True
 
         return False

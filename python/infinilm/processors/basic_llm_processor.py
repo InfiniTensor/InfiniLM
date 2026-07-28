@@ -15,9 +15,57 @@ logger = logging.getLogger(__name__)
 @register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
+        # MiniCPM5 tokenizer_config claims LlamaTokenizerFast, but AutoTokenizer can
+        # bind the slow SentencePiece LlamaTokenizer which encodes CJK to [] — then
+        # CEval fewshot collapses to Latin "A.B.C.D." skeletons and last-fewshot D-bias.
+        # Prefer tokenizer.json via PreTrainedTokenizerFast when CJK probe is empty.
         self.tokenizer = AutoTokenizer.from_pretrained(
-            model_dir_path, trust_remote_code=True
+            model_dir_path, trust_remote_code=True, use_fast=True
         )
+        cjk_ids = self.tokenizer.encode("测", add_special_tokens=False)
+        tok_json = os.path.join(model_dir_path, "tokenizer.json")
+        if (not cjk_ids) and os.path.isfile(tok_json):
+            from transformers import PreTrainedTokenizerFast
+
+            fast = PreTrainedTokenizerFast.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+            probe = fast.encode("测", add_special_tokens=False)
+            if probe:
+                logger.warning(
+                    "BasicLLMProcessor: AutoTokenizer %s drops CJK; "
+                    "using PreTrainedTokenizerFast(tokenizer.json)",
+                    type(self.tokenizer).__name__,
+                )
+                self.tokenizer = fast
+            else:
+                logger.warning(
+                    "BasicLLMProcessor: CJK encode empty for both AutoTokenizer and "
+                    "PreTrainedTokenizerFast under %s",
+                    model_dir_path,
+                )
+        # #region agent log
+        try:
+            import time as _time
+
+            _probe = self.tokenizer.encode("你好", add_special_tokens=False)
+            _line = (
+                '{"sessionId":"8b13ee","runId":"tok-cjk","hypothesisId":"G",'
+                '"location":"basic_llm_processor.py:__init__","message":"tokenizer_cjk_probe",'
+                f'"data":{{"class":"{type(self.tokenizer).__name__}",'
+                f'"cjk_ids":{_probe[:8]},"cjk_n":{len(_probe)}}},'
+                f'"timestamp":{int(_time.time() * 1000)}}}\n'
+            )
+            print(f"[8b13ee] {_line}", end="", flush=True)
+            with open(
+                "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                "a",
+                encoding="utf-8",
+            ) as _df:
+                _df.write(_line)
+        except Exception:
+            pass
+        # #endregion
 
     @staticmethod
     def _slot_mapping_for_hybrid_prefill(slot_mapping: list[int]):

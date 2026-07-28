@@ -115,14 +115,7 @@ void PagedCompiler::compile() {
             set_zeros(input.slot_mapping.value());
 
             // Attention reads attn_metadata from thread-local forward context.
-            infinilm::global_state::get_forward_context().attn_metadata = {
-                input.past_sequence_lengths,
-                input.total_sequence_lengths,
-                input.input_offsets,
-                input.cu_seqlens,
-                input.block_tables,
-                input.slot_mapping,
-            };
+            attn_metadata_utils::set_attn_metadata(input);
 
             barrier_->wait();
             compiled_map_decode_[b] = capture_forward_graph_(std::move(input));
@@ -165,14 +158,7 @@ void PagedCompiler::compile() {
             input.slot_mapping = infinicore::Tensor::empty({S}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
 
-            infinilm::global_state::get_forward_context().attn_metadata = {
-                input.past_sequence_lengths,
-                input.total_sequence_lengths,
-                input.input_offsets,
-                input.cu_seqlens,
-                input.block_tables,
-                input.slot_mapping,
-            };
+            attn_metadata_utils::set_attn_metadata(input);
 
             barrier_->wait();
             compiled_map_prefill_[seq_bucket] = capture_forward_graph_(std::move(input));

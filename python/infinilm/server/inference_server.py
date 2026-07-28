@@ -739,7 +739,54 @@ class InferenceServer:
 
             output_text = output_text.strip()
             reasoning, visible_content = split_thinking_content(output_text)
+            # Unfinished <think> would otherwise yield empty content while vLLM
+            # returns the raw stream; expose raw so filters are not blanked.
+            if not (visible_content or "").strip() and (output_text or "").strip():
+                visible_content = output_text
             finish_reason = self._convert_finish_reason(req.finish_reason)
+
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                _tok_ids = list(getattr(req, "generated_token_ids", []) or [])
+                _raw_gen = getattr(req, "generated_text", None)
+                if not (visible_content or "").strip() or len(_tok_ids) <= 3:
+                    with open(
+                        "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
+                        "a",
+                    ) as _f:
+                        _f.write(
+                            _json.dumps(
+                                {
+                                    "sessionId": "8b13ee",
+                                    "runId": "gate-b-empty",
+                                    "hypothesisId": "H1-H5",
+                                    "location": "inference_server.py:_chat",
+                                    "message": "empty_or_short_completion",
+                                    "data": {
+                                        "request_id": request_id,
+                                        "finish_reason": str(finish_reason),
+                                        "req_finish": str(req.finish_reason),
+                                        "n_gen_tokens": len(_tok_ids),
+                                        "tok_ids_head": _tok_ids[:16],
+                                        "output_text": (output_text or "")[:240],
+                                        "raw_generated_text": (_raw_gen or "")[:240],
+                                        "reasoning_head": (reasoning or "")[:120],
+                                        "visible_len": len(visible_content or ""),
+                                        "stop": list(getattr(req.sampling_params, "stop", None) or []),
+                                        "has_think_open": "<think>" in (output_text or "")
+                                        or "<think>" in (_raw_gen or ""),
+                                        "output_endswith_nn": (output_text or "").endswith("\n\n"),
+                                    },
+                                    "timestamp": int(_time.time() * 1000),
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n"
+                        )
+            except Exception:
+                pass
+            # #endregion
 
             response = completion_json(
                 request_id,

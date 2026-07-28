@@ -1,5 +1,6 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
+#include "compiler/attn_metadata_utils.hpp"
 #include "spdlog/spdlog.h"
 
 #include <chrono>
@@ -171,14 +172,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         is_final_prefill_chunk,
     };
 
-    infinilm::global_state::get_forward_context().attn_metadata = {
-        input.past_sequence_lengths,
-        input.total_sequence_lengths,
-        input.input_offsets,
-        input.cu_seqlens,
-        input.block_tables,
-        input.slot_mapping,
-    };
+    infinilm::engine::attn_metadata_utils::set_attn_metadata(input);
     return input;
 }
 
