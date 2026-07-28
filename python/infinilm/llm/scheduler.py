@@ -3,6 +3,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 """
 
 import logging
+import os
 import queue
 from typing import List, Optional
 
@@ -99,6 +100,13 @@ class Scheduler:
         self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
+        self.enable_chunked_prefill = os.getenv(
+            "INFINILM_ENABLE_CHUNKED_PREFILL", "0"
+        ).lower() in {"1", "true", "yes", "on"}
+        self.kv_safety_blocks = max(0, int(os.getenv("INFINILM_KV_SAFETY_BLOCKS", "0")))
+        self.long_prompt_kv_safety_blocks = max(
+            0, int(os.getenv("INFINILM_LONG_PROMPT_KV_SAFETY_BLOCKS", "0"))
+        )
         self.connector = connector
 
     def add_request(self, request: InferenceRequest):
@@ -179,14 +187,19 @@ class Scheduler:
                 )
                 if load_kv_async:
                     num_computed_tokens -= 1
-                num_new_tokens = req.get_prompt_length() - num_computed_tokens
+                remaining_prompt_tokens = req.get_prompt_length() - num_computed_tokens
+                if self.enable_chunked_prefill:
+                    available_tokens = max(
+                        1, self.max_num_batched_tokens - current_num_batched_tokens
+                    )
+                    num_new_tokens = min(remaining_prompt_tokens, available_tokens)
+                else:
+                    num_new_tokens = remaining_prompt_tokens
+                num_tokens_this_step = num_new_tokens
 
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
-                    num_tokens_this_step = (
-                        req.get_prompt_length() - num_local_computed_tokens
-                    )
                     if self._exceeds_token_budget(
                         current_num_batched_tokens,
                         num_tokens_this_step,
@@ -201,6 +214,7 @@ class Scheduler:
                     req,
                     num_local_computed_tokens,
                     current_prefill_extra_blocks,
+                    len(scheduled_requests),
                 ):
                     logger.warning(
                         "Insufficient KV cache blocks for request %s, deferring.",
@@ -257,8 +271,16 @@ class Scheduler:
                     )
             else:
                 load_kv_async = False
+                remaining_prompt_tokens = (
+                    req.get_prompt_length() - req.num_computed_tokens
+                )
+                available_tokens = max(
+                    1, self.max_num_batched_tokens - current_num_batched_tokens
+                )
                 num_tokens_this_step = (
-                    req.get_prompt_length() - req.num_local_cached_tokens
+                    min(remaining_prompt_tokens, available_tokens)
+                    if self.enable_chunked_prefill
+                    else remaining_prompt_tokens
                 )
                 if self._exceeds_token_budget(
                     current_num_batched_tokens,
@@ -267,9 +289,23 @@ class Scheduler:
                 ):
                     deferred_requests.append(req)
                     break
-                self.cache_manager.update_blocks_hash(
-                    req.block_table, req.num_local_cached_tokens
+                req_blocks, slot_mapping = self.cache_manager.allocate_slots(
+                    req.get_input_tokens(),
+                    num_tokens_this_step,
+                    num_computed_tokens=req.num_computed_tokens,
+                    cached_block_table=req.block_table,
                 )
+                if req_blocks is None:
+                    deferred_requests.append(req)
+                    break
+                req.block_table = req_blocks
+                req.slot_mapping = slot_mapping
+                req.num_blocks = len(req_blocks)
+                req.num_local_cached_tokens = req.num_computed_tokens
+
+            prefill_end = req.num_computed_tokens + num_tokens_this_step
+            req._prefill_chunk_end = prefill_end
+            req._prefill_chunk_final = prefill_end >= req.get_prompt_length()
 
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
@@ -282,7 +318,6 @@ class Scheduler:
             current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
             scheduled_requests.append(req)
 
-            num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
             current_num_batched_tokens += num_tokens_this_step
 
             req.status = RequestStatus.RUNNING
@@ -464,6 +499,7 @@ class Scheduler:
         request: InferenceRequest,
         num_local_computed_tokens: int,
         current_prefill_extra_blocks: int = 0,
+        current_prefill_requests: int = 0,
     ) -> bool:
         if (
             self.mamba_cache_manager is not None
@@ -500,8 +536,21 @@ class Scheduler:
         # Include decode headroom for requests accepted earlier in this batch.
         total_required_blocks += current_prefill_extra_blocks
 
+        # Longer prompts leave more partially filled tail blocks across
+        # staggered prefill waves. Reserve one fragmentation block per active
+        # sequence so decode never reaches an unrecoverable zero-block state.
+        fragmentation_headroom = 0
+        if request.get_prompt_length() > self.block_size:
+            fragmentation_headroom = max(
+                self.long_prompt_kv_safety_blocks,
+                running_queue_size + current_prefill_requests + 1,
+            )
+
         # Compare with total usable blocks in cache manager
-        return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+        return (
+            total_required_blocks + self.kv_safety_blocks + fragmentation_headroom
+            <= self.cache_manager.get_total_usable_blocks()
+        )
 
     def _get_prefill_extra_blocks(self, request: InferenceRequest) -> int:
         total_length = request.get_prompt_length()

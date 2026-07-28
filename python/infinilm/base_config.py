@@ -112,6 +112,7 @@ class BaseConfig:
         self.port = self.args.port
         self.endpoint = self.args.endpoint
         self.ignore_eos = self.args.ignore_eos
+        self.stream_interval = self.args.stream_interval
         # PD separation (KV transfer)
         self.kv_transfer_config = self.args.kv_transfer_config
 
@@ -268,6 +269,12 @@ class BaseConfig:
             type=int,
             default=8,
             help="maximum batch size for server",
+        )
+        self.parser.add_argument(
+            "--stream-interval",
+            type=int,
+            default=1,
+            help="emit first token immediately, then coalesce decode steps per SSE chunk",
         )
         self.parser.add_argument(
             "--input-len", type=parse_list, default=10, help="input sequence length"

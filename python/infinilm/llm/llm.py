@@ -24,6 +24,7 @@ from infinilm.llm.request import (
     FinishReason,
     InferenceRequest,
     RequestOutput,
+    RequestStatus,
     TokenOutput,
 )
 from infinilm.llm.sampling_params import SamplingParams
@@ -177,6 +178,7 @@ class LLMEngine:
                 case _:
                     raise ValueError(f"Unsupported cache_type: {self.cache_type}")
         pending = []
+        step_complete_requests = []
         for req, token_ids in zip(requests, sampled_tokens):
             if req.is_aborted():
                 logger.info(
@@ -186,7 +188,23 @@ class LLMEngine:
                 # (status still RUNNING).
                 if not req.is_finished():
                     req.mark_canceled()
+                step_complete_requests.append(req)
                 continue
+
+            if is_prefill and not getattr(req, "_prefill_chunk_final", True):
+                # Intermediate chunk: KV has been written, but the sampled token
+                # is not a model output because the prompt is not complete yet.
+                req.num_computed_tokens = req._prefill_chunk_end
+                req.num_local_cached_tokens = req._prefill_chunk_end
+                req.status = RequestStatus.WAITING
+                self.scheduler.waiting_queue.sync_q.put(req)
+                continue
+
+            step_complete_requests.append(req)
+
+            if is_prefill:
+                req.num_computed_tokens = req.get_prompt_length()
+                req.num_local_cached_tokens = req.get_prompt_length()
 
             if not isinstance(token_ids, list):
                 token_ids = [token_ids]
@@ -195,6 +213,27 @@ class LLMEngine:
                 if req.is_finished():
                     break
                 req.generated_token_ids.append(token_id)
+
+                # Non-streaming benchmark/API path: avoid per-token queue traffic and
+                # incremental detokenization. With ignore_eos=true and no stop strings,
+                # the only normal finish condition is max_tokens, so final text can be
+                # decoded once when the request completes.
+                fast_non_stream = (
+                    req._output_queue is None
+                    and req.sampling_params.ignore_eos
+                    and not req.sampling_params.stop
+                )
+                if fast_non_stream:
+                    is_finished = self._check_request_finished(req, token_id)
+                    if is_finished:
+                        req.generated_text = self.tokenizer.decode(
+                            req.generated_token_ids
+                        )
+                        req._token_decode_offset = len(req.generated_token_ids)
+                        req._text_output_offset = len(req.generated_text)
+                        req.mark_finished(req.finish_reason)
+                    continue
+
                 pending_tokens = req.generated_token_ids[req._token_decode_offset :]
                 delta = self.tokenizer.decode(pending_tokens)
                 holds_back = bool(delta) and delta.endswith("\ufffd")
@@ -214,12 +253,22 @@ class LLMEngine:
                         req.mark_finished(req.finish_reason)
 
                 else:
+                    stream_interval = max(
+                        1, int((req.request_data or {}).get("stream_interval", 1))
+                    )
+                    should_emit = (
+                        is_finished
+                        or req.get_num_generated_tokens() == 1
+                        or req.get_num_generated_tokens() % stream_interval == 0
+                    )
+                    if not should_emit:
+                        continue
+
                     if holds_back and not is_finished:
                         token_text = ""
                     else:
                         if is_finished and req.finish_reason in (
                             FinishReason.EOS_TOKEN,
-                            FinishReason.LENGTH,
                             FinishReason.STOP_STRING,
                         ):
                             token_text = ""
@@ -246,7 +295,7 @@ class LLMEngine:
                         continue
                     pending.append((req.output_queue.async_q, output))
 
-        self.scheduler.complete_requests(requests)
+        self.scheduler.complete_requests(step_complete_requests)
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
@@ -323,6 +372,7 @@ class LLM:
         max_tokens: int = 4096,
         num_blocks: int = 512,
         block_size: int = 256,
+        kv_cache_dtype: Optional[str] = None,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -369,6 +419,7 @@ class LLM:
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            kv_cache_dtype=kv_cache_dtype,
             max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
@@ -530,6 +581,7 @@ class AsyncLLMEngine:
         max_tokens: int = 512,
         num_blocks: int = 512,
         block_size: int = 256,
+        kv_cache_dtype: Optional[str] = None,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
         top_p: float = 0.8,
@@ -579,6 +631,7 @@ class AsyncLLMEngine:
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
+            kv_cache_dtype=kv_cache_dtype,
             max_cache_len=max_cache_len,
             temperature=temperature,
             top_p=top_p,
@@ -721,6 +774,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
+        init_output_queue: bool = True,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -816,8 +870,10 @@ class AsyncLLMEngine:
             kv_params = request_data["kv_transfer_params"]
             request.kv_transfer_params = kv_params
 
-        # Initialize output queue for streaming
-        _ = request.output_queue
+        # Initialize output queue only when the caller needs token streaming.
+        # Non-streaming HTTP responses can wait for request completion and decode once.
+        if init_output_queue:
+            _ = request.output_queue
 
         self.engine.add_request(request)
         return request
@@ -829,6 +885,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
+        init_output_queue: bool = True,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -850,6 +907,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            init_output_queue=init_output_queue,
         )
 
     async def stream_request(
