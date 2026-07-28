@@ -893,6 +893,73 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
     return remapped
 
 
+def _remap_qwen3_next(state_dict, config):
+    """Adapt Qwen3Next fused linear-attention weights to InfiniLM module names."""
+    state_dict = drop_keys(state_dict, ["mtp."])
+    num_key_heads = config["linear_num_key_heads"]
+    num_value_heads = config["linear_num_value_heads"]
+    key_head_dim = config["linear_key_head_dim"]
+    value_head_dim = config["linear_value_head_dim"]
+    values_per_key = num_value_heads // num_key_heads
+    value_group_dim = values_per_key * value_head_dim
+    norm_weight_suffixes = (
+        "input_layernorm.weight",
+        "post_attention_layernorm.weight",
+        "self_attn.q_norm.weight",
+        "self_attn.k_norm.weight",
+    )
+
+    to_drop = []
+    to_add = {}
+    for key, tensor in state_dict.items():
+        if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
+            state_dict[key] = tensor + torch.ones_like(tensor)
+        elif key.endswith("linear_attn.in_proj_qkvz.weight"):
+            prefix = key[: -len("in_proj_qkvz.weight")]
+            grouped = tensor.view(
+                num_key_heads,
+                2 * key_head_dim + 2 * value_group_dim,
+                tensor.shape[1],
+            )
+            q, k, v, z = torch.split(
+                grouped,
+                [key_head_dim, key_head_dim, value_group_dim, value_group_dim],
+                dim=1,
+            )
+            to_add[prefix + "in_proj_q.weight"] = q.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_add[prefix + "in_proj_k.weight"] = k.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_add[prefix + "in_proj_v.weight"] = v.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_add[prefix + "in_proj_z.weight"] = z.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_drop.append(key)
+        elif key.endswith("linear_attn.in_proj_ba.weight"):
+            prefix = key[: -len("in_proj_ba.weight")]
+            grouped = tensor.view(
+                num_key_heads,
+                2 * values_per_key,
+                tensor.shape[1],
+            )
+            b, a = torch.split(grouped, [values_per_key, values_per_key], dim=1)
+            to_add[prefix + "in_proj_b.weight"] = b.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_add[prefix + "in_proj_a.weight"] = a.reshape(
+                -1, tensor.shape[1]
+            ).contiguous()
+            to_drop.append(key)
+
+    state_dict = drop_keys(state_dict, to_drop)
+    state_dict.update(to_add)
+    return state_dict
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -902,4 +969,5 @@ _WEIGHT_REMAPPER = {
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
+    "qwen3_next": _remap_qwen3_next,
 }

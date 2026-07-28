@@ -20,6 +20,11 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
+    infinicore::Tensor forward_static_(const infinicore::Tensor &position_ids,
+                                       const infinicore::Tensor &hidden_states) const;
+    infinicore::Tensor forward_paged_(const infinicore::Tensor &position_ids,
+                                      const infinicore::Tensor &hidden_states) const;
+
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);

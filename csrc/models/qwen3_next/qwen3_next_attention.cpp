@@ -1,8 +1,11 @@
 #include "qwen3_next_attention.hpp"
 
 #include "../../global_state/global_state.hpp"
+#include "../../layers/attention/attention.hpp"
+#include "../../utils.hpp"
 #include <cmath>
-#include <spdlog/spdlog.h>
+#include <infinicore/ops/mul.hpp>
+#include <infinicore/ops/sigmoid.hpp>
 #include <stdexcept>
 
 namespace infinilm::models::qwen3_next {
@@ -51,12 +54,119 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
 
     INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, rms_norm_eps, dtype, device);
+
+    infinilm::layers::attention::init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor Qwen3NextAttention::forward(const infinicore::Tensor &positions,
                                                const infinicore::Tensor &hidden_states) const {
-    spdlog::error("infinilm::models::qwen3_next::Qwen3NextAttention: forward not implemented");
-    return hidden_states;
+    if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
+        return forward_static_(positions, hidden_states);
+    }
+    return forward_paged_(positions, hidden_states);
+}
+
+infinicore::Tensor Qwen3NextAttention::forward_static_(const infinicore::Tensor &position_ids,
+                                                       const infinicore::Tensor &hidden_states) const {
+    auto hidden_states_mutable = hidden_states;
+    auto shape = hidden_states->shape();
+    size_t batch_size = shape[0];
+    size_t seq_len = shape[1];
+
+    auto [q_proj_out, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto q_proj_heads = q_proj_out->as_strided(
+        {batch_size * seq_len, num_attention_heads_, head_dim_ * 2},
+        {q_proj_out->stride(1), static_cast<infinicore::Stride>(head_dim_ * 2), 1});
+    auto q = q_proj_heads->narrow({{2, 0, head_dim_}});
+    auto gate = q_proj_heads->narrow({{2, head_dim_, head_dim_}})
+                    ->contiguous()
+                    ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+
+    q = q_norm_->forward(q);
+    auto k_heads = k->as_strided(
+        {batch_size * seq_len, num_key_value_heads_, head_dim_},
+        {k->stride(1), static_cast<infinicore::Stride>(head_dim_), 1});
+    k = k_norm_->forward(k_heads);
+
+    auto q_reshaped = q->as_strided(
+        {batch_size, seq_len, num_attention_heads_, head_dim_},
+        {static_cast<infinicore::Stride>(seq_len * num_attention_heads_ * head_dim_),
+         static_cast<infinicore::Stride>(num_attention_heads_ * head_dim_),
+         static_cast<infinicore::Stride>(head_dim_),
+         1});
+    auto k_reshaped = k->as_strided(
+        {batch_size, seq_len, num_key_value_heads_, head_dim_},
+        {static_cast<infinicore::Stride>(seq_len * num_key_value_heads_ * head_dim_),
+         static_cast<infinicore::Stride>(num_key_value_heads_ * head_dim_),
+         static_cast<infinicore::Stride>(head_dim_),
+         1});
+    auto v_reshaped = v->as_strided(
+        {batch_size, seq_len, num_key_value_heads_, head_dim_},
+        {v->stride(0), v->stride(1), static_cast<infinicore::Stride>(head_dim_), 1});
+
+    auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids_for_rope = position_ids;
+    if (pos_shape.size() == 2) {
+        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
+        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
+    } else if (pos_shape.size() == 1) {
+        pos_ids_for_rope = position_ids->contiguous();
+    } else {
+        throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextAttention: Unexpected position_ids shape");
+    }
+
+    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+
+    auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
+    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate));
+    return o_proj_->forward(attn_output);
+}
+
+infinicore::Tensor Qwen3NextAttention::forward_paged_(const infinicore::Tensor &position_ids,
+                                                      const infinicore::Tensor &hidden_states) const {
+    auto hidden_states_mutable = hidden_states;
+    auto shape = hidden_states->shape();
+    size_t batch_size = shape[0];
+    size_t seq_len = shape[1];
+
+    ASSERT_EQ(batch_size, 1);
+
+    auto [q_proj_out, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    auto q_proj_heads = q_proj_out->as_strided(
+        {seq_len, num_attention_heads_, head_dim_ * 2},
+        {q_proj_out->stride(1), static_cast<infinicore::Stride>(head_dim_ * 2), 1});
+    auto q = q_proj_heads->narrow({{2, 0, head_dim_}});
+    auto gate = q_proj_heads->narrow({{2, head_dim_, head_dim_}})
+                    ->contiguous()
+                    ->view({seq_len, num_attention_heads_ * head_dim_});
+
+    auto q_reshaped = q_norm_->forward(q);
+    auto k_heads = k->as_strided(
+        {seq_len, num_key_value_heads_, head_dim_},
+        {k->stride(1), static_cast<infinicore::Stride>(head_dim_), 1});
+    auto k_reshaped = k_norm_->forward(k_heads);
+    auto v_reshaped = v->as_strided(
+        {seq_len, num_key_value_heads_, head_dim_},
+        {v->stride(1), static_cast<infinicore::Stride>(head_dim_), 1});
+
+    auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids_for_rope = position_ids;
+    if (pos_shape.size() == 2) {
+        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
+        pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+    } else if (pos_shape.size() == 1) {
+        pos_ids_for_rope = position_ids;
+    } else {
+        throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextAttention: Unexpected position_ids shape");
+    }
+
+    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+
+    auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
+    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));
+    return o_proj_->forward(attn_output);
 }
 
 } // namespace infinilm::models::qwen3_next
