@@ -167,12 +167,22 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     infinicore::Tensor delta_out;
     if (is_decode) {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
-        auto q_delta = q->view({seq_len, 1, local_num_key_heads_, key_head_dim_});
-        auto k_delta = k->view({seq_len, 1, local_num_key_heads_, key_head_dim_});
-        auto v_delta = v->view({seq_len, 1, local_num_value_heads_, value_head_dim_});
+        auto q_delta = q->as_strided(
+            {seq_len, 1, local_num_key_heads_, key_head_dim_},
+            {q->stride(1), q->stride(0), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto k_delta = k->as_strided(
+            {seq_len, 1, local_num_key_heads_, key_head_dim_},
+            {k->stride(1), k->stride(0), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto v_delta = v->as_strided(
+            {seq_len, 1, local_num_value_heads_, value_head_dim_},
+            {v->stride(1), v->stride(0), static_cast<infinicore::Stride>(value_head_dim_), 1});
 
-        auto a_heads = a->view({seq_len, 1, local_num_value_heads_});
-        auto b_heads = b->view({seq_len, 1, local_num_value_heads_});
+        auto a_heads = a->as_strided(
+            {seq_len, 1, local_num_value_heads_},
+            {a->stride(1), a->stride(0), 1});
+        auto b_heads = b->as_strided(
+            {seq_len, 1, local_num_value_heads_},
+            {b->stride(1), b->stride(0), 1});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
 
         delta_out = infinicore::op::recurrent_gated_delta_rule_indexed(
@@ -185,15 +195,27 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             mamba_metadata.init_state_indices.value(),
             mamba_metadata.final_state_indices.value(),
             true);
-        delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
+        delta_out = delta_out->as_strided(
+            {seq_len, local_num_value_heads_, value_head_dim_},
+            {delta_out->stride(0), delta_out->stride(2), delta_out->stride(3)});
     } else {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
-        auto q_delta = q->view({1, seq_len, local_num_key_heads_, key_head_dim_});
-        auto k_delta = k->view({1, seq_len, local_num_key_heads_, key_head_dim_});
-        auto v_delta = v->view({1, seq_len, local_num_value_heads_, value_head_dim_});
+        auto q_delta = q->as_strided(
+            {1, seq_len, local_num_key_heads_, key_head_dim_},
+            {q->stride(0), q->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto k_delta = k->as_strided(
+            {1, seq_len, local_num_key_heads_, key_head_dim_},
+            {k->stride(0), k->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto v_delta = v->as_strided(
+            {1, seq_len, local_num_value_heads_, value_head_dim_},
+            {v->stride(0), v->stride(1), static_cast<infinicore::Stride>(value_head_dim_), 1});
 
-        auto a_heads = a->view({1, seq_len, local_num_value_heads_});
-        auto b_heads = b->view({1, seq_len, local_num_value_heads_});
+        auto a_heads = a->as_strided(
+            {1, seq_len, local_num_value_heads_},
+            {a->stride(0), a->stride(1), 1});
+        auto b_heads = b->as_strided(
+            {1, seq_len, local_num_value_heads_},
+            {b->stride(0), b->stride(1), 1});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
 
         delta_out = infinicore::op::chunk_gated_delta_rule(
@@ -207,11 +229,18 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             mamba_metadata.init_state_indices.value(),
             mamba_metadata.final_state_indices.value(),
             true);
-        delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
+        delta_out = delta_out->as_strided(
+            {seq_len, local_num_value_heads_, value_head_dim_},
+            {delta_out->stride(1), delta_out->stride(2), delta_out->stride(3)});
     }
 
-    auto v_norm = norm_->forward(delta_out->view({batch_size * seq_len * local_num_value_heads_, value_head_dim_}))
-                      ->view({batch_size, seq_len, local_value_dim_});
+    auto delta_out_2d = delta_out->as_strided(
+        {batch_size * seq_len * local_num_value_heads_, value_head_dim_},
+        {static_cast<infinicore::Stride>(value_head_dim_), 1});
+    auto v_norm_2d = norm_->forward(delta_out_2d);
+    auto v_norm = v_norm_2d->as_strided(
+        {batch_size, seq_len, local_value_dim_},
+        {static_cast<infinicore::Stride>(seq_len * local_value_dim_), static_cast<infinicore::Stride>(local_value_dim_), 1});
     auto gated = infinicore::op::mul(v_norm, infinicore::op::silu(z));
     return out_proj_->forward(gated);
 }

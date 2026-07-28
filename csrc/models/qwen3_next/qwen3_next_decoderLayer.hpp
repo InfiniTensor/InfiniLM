@@ -1,13 +1,12 @@
 #pragma once
 
-#include "../qwen3_moe/qwen3_moe_sparse_moe_block.hpp"
 #include "qwen3_next_attention.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
+#include "qwen3_next_sparse_moe_block.hpp"
 #include <string>
 #include <tuple>
 
 namespace infinilm::models::qwen3_next {
-using Qwen3NextSparseMoeBlock = qwen3_moe::Qwen3MoeSparseMoeBlock;
 
 class Qwen3NextDecoderLayer : public infinicore::nn::Module {
 public:
