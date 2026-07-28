@@ -7,11 +7,8 @@
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/inductor_segment.hpp"
 
-#include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <fstream>
-#include <sstream>
 #include <stdexcept>
 #include <vector>
 
@@ -155,6 +152,9 @@ infinicore::Tensor MiniCPM5MoeSparseMoeBlock::forward(const infinicore::Tensor &
         throw std::runtime_error("MiniCPM5MoeSparseMoeBlock: expected hidden [B, S, H]");
     }
     const size_t seq_len = shape[1];
+    // Piecewise pad-up presents [1, bucket, H] with valid_len=L. InfiniCore
+    // run_moe_segment uses valid-only eager MoE when valid_len < bucket
+    // (moe_B* AOTI pad-up is incorrect on sparse 651→1024).
     const size_t bucket = pick_moe_bucket(seq_len, layer_idx_);
     if (bucket == 0
         || !infinicore::op::inductor_segment_impl::has_package(
@@ -165,40 +165,6 @@ infinicore::Tensor MiniCPM5MoeSparseMoeBlock::forward(const infinicore::Tensor &
             + " (compile with scripts/aot_compile_minicpm5_moe_segment.sh; "
               "CPU MoE fallback disabled)");
     }
-
-    // #region agent log
-    {
-        static int moe_pick_dumps = 0;
-        if (moe_pick_dumps < 4 && (layer_idx_ == 0 || seq_len != bucket)) {
-            ++moe_pick_dumps;
-            try {
-                const size_t pw_valid =
-                    infinilm::global_state::get_forward_context().piecewise.valid_seq_len;
-                const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                    std::chrono::system_clock::now().time_since_epoch())
-                                    .count();
-                std::ostringstream dj;
-                dj << "{\"layer\":" << layer_idx_ << ",\"seq_len\":" << seq_len
-                   << ",\"bucket\":" << bucket << ",\"pad\":" << (bucket > seq_len)
-                   << ",\"piecewise_valid_seq_len\":" << pw_valid << "}";
-                std::ostringstream line;
-                line << "{\"sessionId\":\"8b13ee\",\"runId\":\"moe-bisect\",\"hypothesisId\":\"A\""
-                     << ",\"location\":\"minicpm5_moe_sparse_moe_block.cpp:forward\""
-                     << ",\"message\":\"moe_pick_bucket\",\"data\":" << dj.str()
-                     << ",\"timestamp\":" << ms << "}\n";
-                const std::string s = line.str();
-                std::fprintf(stderr, "[8b13ee] %s", s.c_str());
-                std::fflush(stderr);
-                std::ofstream ofs("/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
-                                  std::ios::app);
-                if (ofs) {
-                    ofs << s;
-                }
-            } catch (...) {
-            }
-        }
-    }
-    // #endregion
 
     auto out = infinicore::Tensor::empty(
         hidden_states->shape(), hidden_states->dtype(), hidden_states->device());

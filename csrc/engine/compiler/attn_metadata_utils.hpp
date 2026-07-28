@@ -240,12 +240,14 @@ inline void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compi
     }
     // #endregion
     // Host max seqlens must come from RUNTIME tensors: narrowed compiled/graph views
-    // fail raw D2H (and may fail to(cpu) on graph storage). FA still uses narrowed meta.
+    // fail raw D2H (and may fail to(cpu) on graph storage). FA still uses narrowed
+    // compiled meta (CG-safe addresses); runtime lengths were already copy_from'd
+    // into those buffers in copy_runtime_into_bucket_. Do NOT swap meta to runtime
+    // tensor objects under pad-up — that breaks CG address binding (SIGSEGV).
     {
-        const int saved_q = meta.max_query_len;
-        const int saved_k = meta.max_kv_len;
-        (void)saved_q;
-        (void)saved_k;
+        const size_t compiled_slot =
+            compiled.slot_mapping.has_value() ? compiled.slot_mapping.value()->shape()[0] : slot_len;
+        const bool pad_up = slot_len < compiled_slot;
         auto io = meta.input_offsets;
         auto tot = meta.total_sequence_lengths;
         auto cu = meta.cu_seqlens;
@@ -263,6 +265,16 @@ inline void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compi
         meta.block_tables = bt;
         meta.max_query_len = mq;
         meta.max_kv_len = mk;
+        // #region agent log
+        {
+            std::ostringstream dj;
+            dj << "{\"pad_up\":" << (pad_up ? "true" : "false") << ",\"slot_len\":" << slot_len
+               << ",\"compiled_slot\":" << compiled_slot << ",\"max_query_len\":" << meta.max_query_len
+               << ",\"max_kv_len\":" << meta.max_kv_len << "}";
+            dbg_log_d39f05_("A,C", "attn_metadata_utils.hpp:set_attn_metadata_for_varlen_batch",
+                            "pad_up_runtime_lens", dj.str());
+        }
+        // #endregion
     }
 }
 

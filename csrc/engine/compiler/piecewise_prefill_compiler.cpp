@@ -663,6 +663,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     piecewise.layer_staging = bucket_graphs.layer_staging;
     if (final_chunk) {
         // Exact-width and pad-up final chunks both use inductor when enabled.
+        // Pad-up still sets piecewise.valid_seq_len=L; AOT pads positions/hidden to bucket.
         piecewise.allow_inductor_pre_attn = inductor_mode && !repro_skip_final_inductor();
     } else if (repro_skip_midchunk_eager() && mid_chunk) {
         piecewise.allow_inductor_pre_attn = inductor_mode;
@@ -672,6 +673,11 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
     // Fresh residual each replay (matches capture warmup); hidden prefix comes from embed.
     set_zeros(piecewise.residual);
+    // Pad-up: clear stale CG tails on staging/hidden/logits before embed so pad
+    // positions do not pollute layernorm / MoE (RC-4).
+    if (seq_len < graph_bucket) {
+        clear_stale_bucket_tails_(piecewise, bucket_graphs.logits_holder, seq_len, graph_bucket);
+    }
 
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
@@ -679,7 +685,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const size_t num_layers = bucket_graphs.pre_attn.size();
     // Mid-chunk: always eager pre/post under inductor (do not replay CG segments).
     // Final-chunk inductor pre-attn needs the same eager post replay (B4 tail).
-    // Pad-up: eager inductor pre_attn (do not replay capture-time valid_len meta).
+    // Pad-up: always eager post/lm_head (CG PlannedMeta bakes full-bucket shapes).
     const bool use_eager_post =
         inductor_mode
         && (mid_chunk || piecewise.allow_inductor_pre_attn);
