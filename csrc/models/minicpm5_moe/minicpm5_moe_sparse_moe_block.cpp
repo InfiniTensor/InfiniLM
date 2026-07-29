@@ -153,8 +153,8 @@ infinicore::Tensor MiniCPM5MoeSparseMoeBlock::forward(const infinicore::Tensor &
     }
     const size_t seq_len = shape[1];
     // Piecewise pad-up presents [1, bucket, H] with valid_len=L. InfiniCore
-    // run_moe_segment uses valid-only eager MoE when valid_len < bucket
-    // (moe_B* AOTI pad-up is incorrect on sparse 651→1024).
+    // run_moe_segment uses pad-to-bucket + Triton when valid_len < bucket;
+    // exact-bucket still uses moe_B* AOT (packages required at serve).
     const size_t bucket = pick_moe_bucket(seq_len, layer_idx_);
     if (bucket == 0
         || !infinicore::op::inductor_segment_impl::has_package(
