@@ -36,7 +36,10 @@ except ImportError:
     pass
 
 from infinilm.server.openai_compat import resolve_chat_template_kwargs
-from infinilm.server.reasoning_parser import ReasoningStreamSplitter, split_thinking_content
+from infinilm.server.reasoning_parser import (
+    ReasoningStreamSplitter,
+    resolve_chat_visible_content,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -738,11 +741,12 @@ class InferenceServer:
                     break
 
             output_text = output_text.strip()
-            reasoning, visible_content = split_thinking_content(output_text)
-            # Unfinished <think> would otherwise yield empty content while vLLM
-            # returns the raw stream; expose raw so filters are not blanked.
-            if not (visible_content or "").strip() and (output_text or "").strip():
-                visible_content = output_text
+            # Unfinished <think>: do not dump raw reasoning into content (CEval
+            # regex takes the first [A-D] and scrapes mid-think option letters).
+            # Prefer explicit 答案/answer cues; map unique option prose → letter.
+            reasoning, visible_content = resolve_chat_visible_content(
+                output_text, messages=messages
+            )
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
             # #region agent log

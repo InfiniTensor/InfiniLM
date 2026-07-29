@@ -43,6 +43,7 @@ from infinilm.infer_engine import InferEngine
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
+from infinilm.server.reasoning_parser import has_unclosed_thinking
 
 logger = logging.getLogger(__name__)
 
@@ -845,10 +846,25 @@ class LLMEngine:
                 # #endregion
                 return True
 
-            # While ignoring EOS, stop strings are also ignored to avoid requiring additional arguments for benchmarking.
-            # Check stop strings
-            # Remove stop string from generated_text if STOP_STRING is the finishing reason
-            stop_strings = req.sampling_params.stop or []
+            # CEval harnesses pass until=["\n\n", ...]. MiniCPM spontaneous
+            # <think> bodies use paragraph breaks; honoring \n\n inside an
+            # unclosed think truncates reasoning. Other stops still apply.
+            # After think closes, also stop on a repeated close tag (model
+            # sometimes loops </think>).
+            stop_strings = list(req.sampling_params.stop or [])
+            gen_text = req.generated_text or ""
+            if has_unclosed_thinking(gen_text):
+                stop_strings = [s for s in stop_strings if s not in ("\n\n", "\r\n\r\n")]
+            else:
+                # Closed (or no) think: stop if a close tag was just emitted again.
+                for close in ("</think>", "</" + "redacted_thinking" + ">"):
+                    if close not in stop_strings and gen_text.endswith(close):
+                        # Only treat as stop when a prior close already exists
+                        # (repeated close / loop), not the first closing tag.
+                        first = gen_text.find(close)
+                        if first >= 0 and first + len(close) < len(gen_text):
+                            stop_strings = list(stop_strings) + [close]
+                            break
             for stop_str in stop_strings:
                 if req.generated_text.endswith(stop_str):
                     _before = req.generated_text

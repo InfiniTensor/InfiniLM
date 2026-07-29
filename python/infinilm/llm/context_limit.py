@@ -99,7 +99,11 @@ def cap_max_tokens(
     *,
     default_max_tokens: Optional[int] = None,
 ) -> int:
-    """Cap generation budget to ``max_model_len - prompt_len`` (vLLM ``get_max_tokens``)."""
+    """Cap generation budget to ``max_model_len - prompt_len`` (vLLM ``get_max_tokens``).
+
+    Request ``max_tokens`` wins over the server default; the default only applies
+    when the request omits a budget. Always clamp to remaining context room.
+    """
     allowed = max_model_len - prompt_len
     if allowed <= 0:
         raise ValueError(
@@ -107,12 +111,11 @@ def cap_max_tokens(
             f"(max_model_len={max_model_len})"
         )
 
-    candidates = [allowed]
     if max_tokens is not None:
-        candidates.append(int(max_tokens))
+        return min(allowed, int(max_tokens))
     if default_max_tokens is not None:
-        candidates.append(int(default_max_tokens))
-    return min(candidates)
+        return min(allowed, int(default_max_tokens))
+    return allowed
 
 
 def context_length_exceeded(total_length: int, max_model_len: int) -> bool:
