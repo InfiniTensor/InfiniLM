@@ -8,7 +8,10 @@
 #include "infinicore/graph/graph.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -310,16 +313,95 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return miss();
             }
             auto result = compiled_map_decode_.find(batch_size);
+            // Decode batch pad-up: exact miss → next larger captured FULL key
+            // (mirrors dispatcher ``bs_to_padded`` over ``INFINI_DECODE_CG_BATCHES``).
+            // Kill-switch ``INFINI_DECODE_CG_PAD_UP=0`` disables (eager via dispatcher).
             if (result == compiled_map_decode_.end()) {
-                return miss();
+                const char *pad_env = std::getenv("INFINI_DECODE_CG_PAD_UP");
+                const bool pad_up_on =
+                    !(pad_env != nullptr && pad_env[0] == '0' && pad_env[1] == '\0');
+                if (!pad_up_on) {
+                    return miss();
+                }
+                auto ladder_it = std::upper_bound(
+                    decode_batch_sizes_.begin(), decode_batch_sizes_.end(), batch_size);
+                if (ladder_it == decode_batch_sizes_.end()) {
+                    return miss();
+                }
+                result = compiled_map_decode_.find(*ladder_it);
+                if (result == compiled_map_decode_.end()) {
+                    return miss();
+                }
             }
             auto &graph_input = result->second.input;
+            const size_t padded_bs = graph_input.block_tables.value()->size(0);
+            const size_t runtime_bs = batch_size;
+            const bool pad_up = runtime_bs < padded_bs;
 
-            graph_input.input_ids.value()->copy_from(input.input_ids.value());
-            graph_input.position_ids.value()->copy_from(input.position_ids.value());
-            graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
-            graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
-            graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+            if (pad_up) {
+                // Zero full compiled buffers (same as capture warmup), then overwrite
+                // valid rows. Pad rows must NOT use slot/block=-1: under Band C FA
+                // FORCE in-graph, rearrange/FA still touch padded_bs rows and -1 ATUs.
+                set_zeros(graph_input.input_ids.value());
+                set_zeros(graph_input.position_ids.value());
+                set_zeros(graph_input.total_sequence_lengths.value());
+                set_zeros(graph_input.slot_mapping.value());
+                graph_input.input_ids.value()
+                    ->narrow({{1, 0, runtime_bs}})
+                    ->copy_from(input.input_ids.value());
+                graph_input.position_ids.value()
+                    ->narrow({{0, 0, runtime_bs}})
+                    ->copy_from(input.position_ids.value());
+                graph_input.total_sequence_lengths.value()
+                    ->narrow({{0, 0, runtime_bs}})
+                    ->copy_from(input.total_sequence_lengths.value());
+                // Pad-row lengths: identity offsets + total_len=1 (safe FA / MoE tails).
+                {
+                    std::vector<int32_t> ones(padded_bs - runtime_bs, 1);
+                    if (!ones.empty()) {
+                        auto len_tail = graph_input.total_sequence_lengths.value()->narrow(
+                            {{0, runtime_bs, ones.size()}});
+                        infinicore::context::memcpyH2D(
+                            len_tail->data(), ones.data(), ones.size() * sizeof(int32_t), false);
+                    }
+                    std::vector<int32_t> offsets(padded_bs + 1);
+                    for (size_t i = 0; i <= padded_bs; ++i) {
+                        offsets[i] = static_cast<int32_t>(i);
+                    }
+                    // Overlay runtime prefix (may differ if not identity, though decode is).
+                    auto off_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
+                    const auto *rt_off = reinterpret_cast<const int32_t *>(off_cpu->data());
+                    const size_t rt_off_n = input.input_offsets.value()->size(0);
+                    for (size_t i = 0; i < rt_off_n && i < offsets.size(); ++i) {
+                        offsets[i] = rt_off[i];
+                    }
+                    // Continue identity from last runtime offset for pad rows.
+                    const int32_t base = offsets[runtime_bs];
+                    for (size_t i = runtime_bs + 1; i <= padded_bs; ++i) {
+                        offsets[i] = base + static_cast<int32_t>(i - runtime_bs);
+                    }
+                    infinicore::context::memcpyH2D(
+                        graph_input.input_offsets.value()->data(),
+                        offsets.data(),
+                        offsets.size() * sizeof(int32_t),
+                        false);
+                    infinicore::context::memcpyH2D(
+                        graph_input.cu_seqlens.value()->data(),
+                        offsets.data(),
+                        offsets.size() * sizeof(int32_t),
+                        false);
+                }
+                graph_input.slot_mapping.value()
+                    ->narrow({{0, 0, runtime_bs}})
+                    ->copy_from(input.slot_mapping.value());
+            } else {
+                graph_input.input_ids.value()->copy_from(input.input_ids.value());
+                graph_input.position_ids.value()->copy_from(input.position_ids.value());
+                graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
+                graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
+                graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+                graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+            }
 
             const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
             if (block_per_req > compiled_block_per_req) {
@@ -327,14 +409,53 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return miss();
             }
 
-            // Initialize full padding to -1, then overwrite the narrowed logical region.
-            // This matches scheduler padding semantics without risking -1 access during graph recording.
+            // Pad rows: zeros (capture warmup). Valid rows: runtime tables.
+            // Do not fill pad with -1 — in-graph FA/rearrange indexes pad rows.
             auto &graph_block_tables = graph_input.block_tables.value();
-            set_minus_one(graph_block_tables);
-            graph_input.block_tables.value()->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
-            graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+            set_zeros(graph_block_tables);
+            graph_block_tables
+                ->narrow({{0, 0, runtime_bs}, {1, 0, block_per_req}})
+                ->copy_from(input.block_tables.value());
+
+            // #region agent log
+            if (pad_up) {
+                try {
+                    auto bt_cpu = graph_block_tables->to(infinicore::Device::cpu());
+                    auto sm_cpu = graph_input.slot_mapping.value()->to(infinicore::Device::cpu());
+                    const auto *bt = reinterpret_cast<const int32_t *>(bt_cpu->data());
+                    const auto *sm = reinterpret_cast<const int64_t *>(sm_cpu->data());
+                    const size_t bt_stride = compiled_block_per_req;
+                    std::ostringstream dj;
+                    dj << "{\"runtime_bs\":" << runtime_bs << ",\"padded_bs\":" << padded_bs
+                       << ",\"rt0_bt0\":" << (runtime_bs > 0 ? bt[0] : -999)
+                       << ",\"pad0_bt0\":" << bt[runtime_bs * bt_stride]
+                       << ",\"rt0_slot\":" << (runtime_bs > 0 ? sm[0] : -999)
+                       << ",\"pad0_slot\":" << sm[runtime_bs]
+                       << ",\"overlap_bt0\":"
+                       << (runtime_bs > 0 && bt[0] == bt[runtime_bs * bt_stride] ? "true"
+                                                                                : "false")
+                       << "}";
+                    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                        std::chrono::system_clock::now().time_since_epoch())
+                                        .count();
+                    std::ostringstream line;
+                    line << "{\"sessionId\":\"dd40b4\",\"runId\":\"garbage-loop\","
+                            "\"hypothesisId\":\"A\",\"location\":\"paged_compiler.cpp:pad_up\","
+                            "\"message\":\"decode_pad_kv\",\"data\":"
+                         << dj.str() << ",\"timestamp\":" << ms << "}\n";
+                    std::ofstream ofs(
+                        "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
+                        std::ios::app);
+                    if (ofs) {
+                        ofs << line.str();
+                    }
+                } catch (...) {
+                }
+            }
+            // #endregion
 
             // RC-2 analog: refresh attn_metadata from graph_input narrowed to runtime shapes.
+            // Pad-row buffers stay 0/1 (capture-safe); sampler only emits runtime n_req.
             attn_metadata_utils::set_attn_metadata_for_decode_batch(graph_input, input);
 
 

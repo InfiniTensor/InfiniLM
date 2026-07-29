@@ -33,6 +33,7 @@ class TestCudagraphDispatcher(unittest.TestCase):
             "INFINI_CUDAGRAPH_POLICY",
             "INFINI_DECODE_CG_BATCHES",
             "INFINI_NATIVE_CG_CAPTURE_BUCKETS",
+            "INFINI_DECODE_CG_PAD_UP",
         )
         self._backup = {k: os.environ.get(k) for k in self._keys}
         for k in self._keys:
@@ -46,9 +47,14 @@ class TestCudagraphDispatcher(unittest.TestCase):
             else:
                 os.environ[k] = v
 
-    def _disp(self, policy: str, buckets: str = "16,64,512,1024,2048,4096"):
+    def _disp(
+        self,
+        policy: str,
+        buckets: str = "16,64,512,1024,2048,4096",
+        decode_batches: str = "1,2,4",
+    ):
         os.environ["INFINI_CUDAGRAPH_POLICY"] = policy
-        os.environ["INFINI_DECODE_CG_BATCHES"] = "1,2,4"
+        os.environ["INFINI_DECODE_CG_BATCHES"] = decode_batches
         os.environ["INFINI_NATIVE_CG_CAPTURE_BUCKETS"] = buckets
         d = self.mod.CudagraphDispatcher()
         d.initialize_from_env()
@@ -72,9 +78,51 @@ class TestCudagraphDispatcher(unittest.TestCase):
         self.assertEqual(key.num_tokens, 1)
         mode, _ = d.dispatch(BD(num_tokens=4, num_reqs=4, uniform_decode=True))
         self.assertEqual(mode, Mode.FULL)
-        # Batch size not in FULL keys → NONE
+        # Pad-up: bs=3 → next FULL key 4
+        mode, key = d.dispatch(BD(num_tokens=3, num_reqs=3, uniform_decode=True))
+        self.assertEqual(mode, Mode.FULL)
+        self.assertEqual(key.num_tokens, 4)
+        self.assertEqual(key.num_reqs, 4)
+
+    def test_decode_batch_pad_up_ladder(self) -> None:
+        """Power-of-two ladder {1,2,4,8}: 3→4, 5→8; bs=9 → over_max."""
+        d = self._disp("full_and_piecewise", decode_batches="1,2,4,8")
+        BD = self.mod.BatchDescriptor
+        Mode = self.mod.CudaGraphRuntimeMode
+        for bs in (1, 2, 4, 8):
+            mode, key = d.dispatch(
+                BD(num_tokens=bs, num_reqs=bs, uniform_decode=True)
+            )
+            self.assertEqual(mode, Mode.FULL)
+            self.assertEqual(key.num_tokens, bs)
+            self.assertEqual(key.num_reqs, bs)
+        mode, key = d.dispatch(BD(num_tokens=3, num_reqs=3, uniform_decode=True))
+        self.assertEqual(mode, Mode.FULL)
+        self.assertEqual(key.num_tokens, 4)
+        mode, key = d.dispatch(BD(num_tokens=5, num_reqs=5, uniform_decode=True))
+        self.assertEqual(mode, Mode.FULL)
+        self.assertEqual(key.num_tokens, 8)
+        mode, key = d.dispatch(BD(num_tokens=7, num_reqs=7, uniform_decode=True))
+        self.assertEqual(mode, Mode.FULL)
+        self.assertEqual(key.num_tokens, 8)
+        mode, _ = d.dispatch(BD(num_tokens=9, num_reqs=9, uniform_decode=True))
+        self.assertEqual(mode, Mode.NONE)
+        self.assertEqual(
+            d.none_reason(BD(num_tokens=9, num_reqs=9, uniform_decode=True), False),
+            "decode_bs_over_max",
+        )
+
+    def test_decode_pad_up_kill_switch(self) -> None:
+        os.environ["INFINI_DECODE_CG_PAD_UP"] = "0"
+        d = self._disp("full_and_piecewise", decode_batches="1,2,4,8")
+        BD = self.mod.BatchDescriptor
+        Mode = self.mod.CudaGraphRuntimeMode
         mode, _ = d.dispatch(BD(num_tokens=3, num_reqs=3, uniform_decode=True))
         self.assertEqual(mode, Mode.NONE)
+        self.assertEqual(
+            d.none_reason(BD(num_tokens=3, num_reqs=3, uniform_decode=True), False),
+            "decode_bs_miss",
+        )
 
     def test_bucket_prefill_piecewise_exact(self) -> None:
         d = self._disp("full_and_piecewise")
@@ -125,16 +173,33 @@ class TestCudagraphDispatcher(unittest.TestCase):
             "over_max",
         )
 
-    def test_mixed_or_multi_req_none(self) -> None:
+    def test_mixed_or_multi_req_piecewise(self) -> None:
+        """vLLM mixed_mode=PIECEWISE: multi-req ragged pads num_tokens to bucket."""
         d = self._disp("full_and_piecewise")
         BD = self.mod.BatchDescriptor
         Mode = self.mod.CudaGraphRuntimeMode
-        # Multi-req prefill (even if total tokens hit a bucket) → NONE
-        mode, _ = d.dispatch(BD(num_tokens=512, num_reqs=2, uniform_decode=False))
+        # Multi-req prefill total tokens hit a bucket → PIECEWISE
+        mode, key = d.dispatch(BD(num_tokens=512, num_reqs=2, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 512)
+        self.assertEqual(key.num_reqs, 2)
+        # Ragged mixed shape (decode+prefill rows): pad-up 64 stays 64
+        mode, key = d.dispatch(BD(num_tokens=64, num_reqs=3, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 64)
+        self.assertEqual(key.num_reqs, 3)
+        # Pad-up mid-ladder: e.g. 1 decode + 650 prefill → 1024
+        mode, key = d.dispatch(BD(num_tokens=651, num_reqs=2, uniform_decode=False))
+        self.assertEqual(mode, Mode.PIECEWISE)
+        self.assertEqual(key.num_tokens, 1024)
+        self.assertEqual(key.num_reqs, 2)
+        # Over max still NONE
+        mode, _ = d.dispatch(BD(num_tokens=5000, num_reqs=2, uniform_decode=False))
         self.assertEqual(mode, Mode.NONE)
-        # Ragged mixed shape is not uniform_decode
-        mode, _ = d.dispatch(BD(num_tokens=64, num_reqs=3, uniform_decode=False))
-        self.assertEqual(mode, Mode.NONE)
+        self.assertEqual(
+            d.none_reason(BD(num_tokens=5000, num_reqs=2, uniform_decode=False), True),
+            "over_max",
+        )
 
 
 if __name__ == "__main__":

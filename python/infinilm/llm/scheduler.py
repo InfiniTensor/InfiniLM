@@ -15,6 +15,7 @@ from infinilm.compile.env import (
     max_num_batched_tokens,
     moe_aot_step_max_tokens,
     moe_aot_step_total_allowed,
+    schedule_no_mixed_enabled,
     v1_scheduler_enabled,
 )
 from infinilm.llm.request import RequestStatus, InferenceRequest, FinishReason, TokenOutput
@@ -313,6 +314,9 @@ class Scheduler:
 
         MoE/piecewise shape gate defers any row that would make the step total
         leave the exact AOT ladder (powers of two through 4096).
+
+        With ``INFINI_SCHEDULE_NO_MIXED=1``, never pack decode + prefill in one
+        step (Band C concurrent quality mitigation).
         """
         budget = SchedulingBudget(
             max_num_batched_tokens(),
@@ -322,9 +326,35 @@ class Scheduler:
         scheduled_requests: List[InferenceRequest] = []
         chunk_size_hint = 0
         deferred_running: List[InferenceRequest] = []
+        no_mixed = schedule_no_mixed_enabled()
 
         # Phase 1 — RUNNING first (mid-prefill and decode share the budget).
         running_snapshot = self._drain_running_queue()
+        if no_mixed:
+            # Prefer decode-only when any decode is runnable; else prefill-only.
+            has_decode = any(
+                (not req.is_finished()) and (not req.is_prefill)
+                for req in running_snapshot
+            )
+            filtered: List[InferenceRequest] = []
+            for req in running_snapshot:
+                if req.is_finished():
+                    filtered.append(req)
+                    continue
+                if has_decode:
+                    if req.is_prefill:
+                        deferred_running.append(req)
+                    else:
+                        filtered.append(req)
+                else:
+                    if req.is_prefill and req.prefill_debt() > 0:
+                        filtered.append(req)
+                    elif req.is_prefill:
+                        deferred_running.append(req)
+                    else:
+                        filtered.append(req)
+            running_snapshot = filtered
+
         for req in running_snapshot:
             if req.is_finished():
                 self.complete_requests([req])
@@ -349,13 +379,47 @@ class Scheduler:
                 deferred_running.append(req)
 
         # Phase 2 — WAITING prefills into remaining budget.
+        # Skip when no-mixed and this step already has decode rows.
+        has_decode_row = any(not r.is_prefill_row for r in rows)
+        skip_waiting_prefills = no_mixed and has_decode_row
+        # #region agent log
+        if no_mixed:
+            try:
+                import json as _json, time as _time
+                with open(
+                    "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
+                    "a",
+                ) as _f:
+                    _f.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "dd40b4",
+                                "runId": "garbage-loop-postfix",
+                                "hypothesisId": "D",
+                                "location": "scheduler.py:_schedule_v1_mixed",
+                                "message": "no_mixed_gate",
+                                "data": {
+                                    "has_decode_row": has_decode_row,
+                                    "skip_waiting_prefills": skip_waiting_prefills,
+                                    "n_rows": len(rows),
+                                    "n_deferred": len(deferred_running),
+                                },
+                                "timestamp": int(_time.time() * 1000),
+                            }
+                        )
+                        + "\n"
+                    )
+            except Exception:
+                pass
+        # #endregion
         prefill_batch_cap = min(
             self.max_batch_size,
             self.max_prefill_batch_size or self.max_batch_size,
         )
         n_prefill = sum(1 for r in rows if r.is_prefill_row)
         while (
-            n_prefill < prefill_batch_cap
+            not skip_waiting_prefills
+            and n_prefill < prefill_batch_cap
             and len(scheduled_requests) < self.max_batch_size
         ):
             try:

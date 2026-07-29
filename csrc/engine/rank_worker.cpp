@@ -134,6 +134,7 @@ struct DispatchHistCounters {
     std::atomic<uint64_t> none_multi_req_prefill{0};
     std::atomic<uint64_t> none_bucket_miss{0};
     std::atomic<uint64_t> none_decode_bs_miss{0};
+    std::atomic<uint64_t> none_decode_bs_over_max{0};
     std::atomic<uint64_t> none_over_max{0};
     std::atomic<uint64_t> none_other{0};
 };
@@ -167,6 +168,8 @@ void record_dispatch_hist(CudaGraphRuntimeMode mode, const char *none_reason) {
             h.none_bucket_miss.fetch_add(1, std::memory_order_relaxed);
         } else if (std::strcmp(none_reason, "decode_bs_miss") == 0) {
             h.none_decode_bs_miss.fetch_add(1, std::memory_order_relaxed);
+        } else if (std::strcmp(none_reason, "decode_bs_over_max") == 0) {
+            h.none_decode_bs_over_max.fetch_add(1, std::memory_order_relaxed);
         } else if (std::strcmp(none_reason, "over_max") == 0) {
             h.none_over_max.fetch_add(1, std::memory_order_relaxed);
         } else {
@@ -184,7 +187,7 @@ void log_dispatch_hist_if_enabled(const char *tag) {
     spdlog::info(
         "{}: dispatch_hist FULL={} PIECEWISE={} NONE={} "
         "none_reason[eager_policy={} mixed={} multi_req_prefill={} "
-        "bucket_miss={} decode_bs_miss={} over_max={} other={}]",
+        "bucket_miss={} decode_bs_miss={} decode_bs_over_max={} over_max={} other={}]",
         tag,
         h.full.load(std::memory_order_relaxed),
         h.piecewise.load(std::memory_order_relaxed),
@@ -194,6 +197,7 @@ void log_dispatch_hist_if_enabled(const char *tag) {
         h.none_multi_req_prefill.load(std::memory_order_relaxed),
         h.none_bucket_miss.load(std::memory_order_relaxed),
         h.none_decode_bs_miss.load(std::memory_order_relaxed),
+        h.none_decode_bs_over_max.load(std::memory_order_relaxed),
         h.none_over_max.load(std::memory_order_relaxed),
         h.none_other.load(std::memory_order_relaxed));
 }
@@ -859,7 +863,7 @@ void RankWorker::thread_loop() {
                             } else if (batch_desc.uniform_decode) {
                                 is_prefill = false;
                             } else if (batch_desc.num_reqs > 1 && !batch_desc.uniform_decode) {
-                                // Ragged / mixed → eager (NONE).
+                                // Ragged / mixed shape; CG mode from dispatcher (PIECEWISE or NONE).
                                 is_mixed = true;
                             }
                         }
@@ -1088,6 +1092,15 @@ void RankWorker::thread_loop() {
                         if (!logits && !piecewise_ran) {
                             global_state::hang_trace::ScopedBracket eager_bracket(
                                 "eager_forward", rank_info_.tp_rank);
+                            // Eager full forward (esp. MIXED after decode CG): do not
+                            // inherit piecewise.valid_seq_len from prior CG replay —
+                            // MoE would truncate to a stale prefix and zero the rest
+                            // (wrong tok0 / politics garbage loops under continuous mix).
+                            auto &piecewise_eager =
+                                global_state::get_forward_context().piecewise;
+                            piecewise_eager.valid_seq_len = 0;
+                            piecewise_eager.phase =
+                                global_state::PiecewiseCapturePhase::None;
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             const bool decode_prof =
                                 !is_prefill && global_state::decode_phase_profile::enabled();

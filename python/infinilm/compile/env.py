@@ -139,10 +139,10 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
       Decode monolithic FULL for uniform decode batches; FA **host-break**;
       MoE Triton **in-graph on Decode** (Prefill / Unknown host-break;
       bisect ``INFINI_MOE_FORCE_HOST_BREAK=1``). Prefill **native piecewise**
-      for homogeneous bucket hits (``16,64,512,1024,2048,4096``). MIXED
-      batches → eager until ragged mixed PIECEWISE exists. Does **not** set
-      ``FA_FORCE``. ``INFINI_PREFILL_NATIVE_CG`` is not written and is
-      ignored when set.
+      for bucket hits including ragged/mixed multi-req (pad-up
+      ``num_tokens``; capture ``max_capture_req ≥ MAX_BATCH_SIZE``). Does
+      **not** set ``FA_FORCE``. ``INFINI_PREFILL_NATIVE_CG`` is not written
+      and is ignored when set.
     """
     if policy is None:
         p = cudagraph_policy()
@@ -180,7 +180,7 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     # Decode FULL: FA host-break by default; MoE host-break on MetaX (FORCE +
     # METAX_CAPTURE_UNSAFE diagnose-only). FA-in-graph via INFINI_FA_FORCE_CAPTURE.
     # Prefill: native piecewise always on (derived from policy, not PREFILL_NATIVE_CG).
-    # MIXED → eager (dispatcher NONE) until mixed PIECEWISE exists.
+    # Ragged/mixed multi-req → PIECEWISE (pad-up num_tokens); FULL remains uniform decode only.
     _setdefault_env("INFINI_DECODE_GRAPH_ONLY", "0")
     _setdefault_env("INFINI_SKIP_MONOLITHIC_DECODE_CG", "0")
     _setdefault_env("INFINI_DECODE_PIECEWISE", "0")
@@ -190,7 +190,7 @@ def apply_cudagraph_policy_env(policy: Optional[str] = None) -> str:
     logger.info(
         "cudagraph_policy=full_and_piecewise "
         "(FULL uniform decode + FA host-break + MetaX MoE host-break; "
-        "PIECEWISE homogeneous prefill; MIXED→eager)"
+        "PIECEWISE prefill/mixed pad-up)"
     )
     return p
 
@@ -262,6 +262,15 @@ def schedule_homogeneous_enabled() -> bool:
             )
             _SCHEDULE_HOMOGENEOUS_WARNED = True
     return False
+
+
+def schedule_no_mixed_enabled() -> bool:
+    """When true, v1 never mixes decode rows with prefill rows in one step.
+
+    Kill-switch only (not the product path). Product path is continuous mix +
+    PIECEWISE / eager-with-valid_seq_len reset. Default off.
+    """
+    return _truthy("INFINI_SCHEDULE_NO_MIXED", "0")
 
 
 def max_num_batched_tokens(default: int = 8192) -> int:

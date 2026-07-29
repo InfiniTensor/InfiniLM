@@ -59,6 +59,11 @@ def _padded_bucket_for_seq_len(seq_len: int, bs_to_padded: List[int], fallback: 
     return fallback
 
 
+def _decode_cg_pad_up_enabled() -> bool:
+    """Default on; ``INFINI_DECODE_CG_PAD_UP=0`` disables (bisect kill-switch)."""
+    return os.environ.get("INFINI_DECODE_CG_PAD_UP", "1") != "0"
+
+
 def cudagraph_policy() -> str:
     raw = os.environ.get("INFINI_CUDAGRAPH_POLICY", "eager").strip().lower()
     if raw in ("", "eager"):
@@ -75,7 +80,9 @@ class CudagraphDispatcher:
         self.full_keys: Set[int] = set()
         self.piecewise_keys: Set[int] = set()
         self._bs_to_padded: List[int] = []
+        self._bs_to_padded_decode: List[int] = []
         self._max_capture: int = 0
+        self._max_decode_bs: int = 0
 
     def _rebuild_pad_table(self) -> None:
         self._bs_to_padded = []
@@ -86,11 +93,22 @@ class CudagraphDispatcher:
         self._bs_to_padded = _build_bs_to_padded_bucket(caps)
         self._max_capture = caps[-1]
 
+    def _rebuild_decode_pad_table(self) -> None:
+        self._bs_to_padded_decode = []
+        self._max_decode_bs = 0
+        if not self.full_keys:
+            return
+        caps = sorted(self.full_keys)
+        self._bs_to_padded_decode = _build_bs_to_padded_bucket(caps)
+        self._max_decode_bs = caps[-1]
+
     def initialize_from_env(self) -> None:
         self.full_keys.clear()
         self.piecewise_keys.clear()
         self._bs_to_padded = []
+        self._bs_to_padded_decode = []
         self._max_capture = 0
+        self._max_decode_bs = 0
         policy = cudagraph_policy()
         if policy == "eager":
             return
@@ -100,25 +118,38 @@ class CudagraphDispatcher:
                 os.environ.get("INFINI_NATIVE_CG_CAPTURE_BUCKETS")
             )
             self._rebuild_pad_table()
+            self._rebuild_decode_pad_table()
 
     def dispatch(
         self, desc: BatchDescriptor
     ) -> Tuple[CudaGraphRuntimeMode, BatchDescriptor]:
         if cudagraph_policy() == "eager":
             return CudaGraphRuntimeMode.NONE, desc
-        if desc.uniform_decode and desc.num_tokens in self.full_keys:
-            key = BatchDescriptor(
-                num_tokens=desc.num_tokens,
-                num_reqs=desc.num_tokens,
-                uniform_decode=True,
-            )
-            return CudaGraphRuntimeMode.FULL, key
-        # Homogeneous single-req prefill with vLLM-style pad-up; MIXED / multi-req → NONE.
-        if (
-            not desc.uniform_decode
-            and desc.num_reqs == 1
-            and self.piecewise_keys
-        ):
+        if desc.uniform_decode and self.full_keys:
+            if desc.num_tokens in self.full_keys:
+                key = BatchDescriptor(
+                    num_tokens=desc.num_tokens,
+                    num_reqs=desc.num_tokens,
+                    uniform_decode=True,
+                )
+                return CudaGraphRuntimeMode.FULL, key
+            if (
+                _decode_cg_pad_up_enabled()
+                and desc.num_tokens <= self._max_decode_bs
+            ):
+                padded = _padded_bucket_for_seq_len(
+                    desc.num_tokens, self._bs_to_padded_decode, fallback=0
+                )
+                if padded > 0 and padded in self.full_keys:
+                    key = BatchDescriptor(
+                        num_tokens=padded,
+                        num_reqs=padded,
+                        uniform_decode=True,
+                    )
+                    return CudaGraphRuntimeMode.FULL, key
+        # Ragged / mixed / homogeneous prefill: vLLM-style pad-up of num_tokens
+        # (no num_reqs==1 gate; capture must allow runtime_n_req ≤ max_capture_req).
+        if not desc.uniform_decode and self.piecewise_keys:
             if desc.num_tokens > self._max_capture:
                 return CudaGraphRuntimeMode.NONE, desc
             padded = _padded_bucket_for_seq_len(
@@ -136,12 +167,14 @@ class CudagraphDispatcher:
     def none_reason(self, desc: BatchDescriptor, is_mixed: bool) -> str:
         if cudagraph_policy() == "eager":
             return "eager_policy"
-        if is_mixed:
-            return "mixed"
-        if not desc.uniform_decode and desc.num_reqs > 1:
-            return "multi_req_prefill"
         if desc.uniform_decode:
+            if self.full_keys and desc.num_tokens > self._max_decode_bs:
+                return "decode_bs_over_max"
             return "decode_bs_miss"
         if self.piecewise_keys and desc.num_tokens > self._max_capture:
             return "over_max"
+        if is_mixed:
+            return "mixed"
+        if desc.num_reqs > 1:
+            return "multi_req_prefill"
         return "bucket_miss"

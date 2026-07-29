@@ -456,6 +456,48 @@ class LLMEngine:
 
             req.generated_token_ids.append(token_id)
             holds_back = self._update_generated_text_from_tokens(req)
+            # #region agent log
+            try:
+                _glen = len(req.generated_token_ids or [])
+                if _glen <= 8:
+                    import json as _json, time as _time, re as _re
+                    _txt = req.generated_text or ""
+                    _n_sched = len(scheduler_output.scheduled_requests or [])
+                    _loop = bool(
+                        _glen >= 4 and len(set(req.generated_token_ids[-4:])) == 1
+                    )
+                    with open(
+                        "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
+                        "a",
+                    ) as _f:
+                        _f.write(
+                            _json.dumps(
+                                {
+                                    "sessionId": "dd40b4",
+                                    "runId": "garbage-loop",
+                                    "hypothesisId": "A,B,D,E",
+                                    "location": "llm.py:_update_requests_from_rows",
+                                    "message": "early_token_v1",
+                                    "data": {
+                                        "rid": getattr(req, "request_id", None),
+                                        "prefill_row": bool(row.is_prefill_row),
+                                        "final_pref": bool(row.is_final_prefill_chunk),
+                                        "n_sched": _n_sched,
+                                        "glen": _glen,
+                                        "tid": int(token_id),
+                                        "toks": list(req.generated_token_ids)[:12],
+                                        "text": _txt[:80],
+                                        "loopish": _loop,
+                                    },
+                                    "timestamp": int(_time.time() * 1000),
+                                },
+                                ensure_ascii=False,
+                            )
+                            + "\n"
+                        )
+            except Exception:
+                pass
+            # #endregion
 
             is_finished = self._check_request_finished(req, token_id)
 
@@ -591,6 +633,49 @@ class LLMEngine:
                 f"decode token/sample mismatch: n_tokens={len(sampled_tokens)} "
                 f"n_req={len(requests)} request_ids={req_ids}"
             )
+        # #region agent log
+        try:
+            import json as _json, time as _time
+            _n = len(requests)
+            _pairs = []
+            for _req, _tid in zip(requests, sampled_tokens):
+                _glen = len(_req.generated_token_ids or [])
+                if _glen < 12:
+                    _pairs.append(
+                        {
+                            "rid": getattr(_req, "request_id", None),
+                            "glen": _glen,
+                            "tid": int(_tid),
+                            "prev": list(_req.generated_token_ids or [])[:8],
+                        }
+                    )
+            if _pairs and (_n >= 2 or any(p["glen"] < 4 for p in _pairs)):
+                with open(
+                    "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
+                    "a",
+                ) as _f:
+                    _f.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "dd40b4",
+                                "runId": "garbage-loop",
+                                "hypothesisId": "B,D",
+                                "location": "llm.py:_update_requests_legacy_phase:decode",
+                                "message": "decode_token_assign",
+                                "data": {
+                                    "n_req": _n,
+                                    "tokens": [int(t) for t in sampled_tokens],
+                                    "pairs": _pairs,
+                                },
+                                "timestamp": int(_time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+        except Exception:
+            pass
+        # #endregion
         for req, token_id in zip(requests, sampled_tokens):
             pending.extend(self._apply_sampled_token(req, token_id))
 
@@ -623,6 +708,46 @@ class LLMEngine:
 
         req.generated_token_ids.append(token_id)
         holds_back = self._update_generated_text_from_tokens(req)
+        # #region agent log
+        try:
+            _glen = len(req.generated_token_ids or [])
+            if _glen <= 8:
+                import json as _json, time as _time, re as _re
+                _txt = req.generated_text or ""
+                _loop = bool(
+                    _glen >= 4
+                    and len(set(req.generated_token_ids[-4:])) == 1
+                ) or bool(_re.search(r"(.)\1{6,}", _txt.replace(" ", "")))
+                with open(
+                    "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
+                    "a",
+                ) as _f:
+                    _f.write(
+                        _json.dumps(
+                            {
+                                "sessionId": "dd40b4",
+                                "runId": "garbage-loop",
+                                "hypothesisId": "A,B,D,E",
+                                "location": "llm.py:_apply_sampled_token",
+                                "message": "early_token",
+                                "data": {
+                                    "rid": getattr(req, "request_id", None),
+                                    "is_prefill_was": False,
+                                    "glen": _glen,
+                                    "tid": int(token_id),
+                                    "toks": list(req.generated_token_ids)[:12],
+                                    "text": _txt[:80],
+                                    "loopish": _loop,
+                                },
+                                "timestamp": int(_time.time() * 1000),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+        except Exception:
+            pass
+        # #endregion
 
         is_finished = self._check_request_finished(req, token_id)
 

@@ -36,22 +36,6 @@ void cpu_router_logits_f32(const infinicore::Tensor &hs_cpu,
     }
 }
 
-size_t pick_moe_bucket(size_t seq_len, size_t layer_idx) {
-    static const size_t kBuckets[] = {16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
-    if (infinicore::op::inductor_segment_impl::has_package(
-            infinicore::op::PiecewiseInductorSegmentId::Moe, layer_idx, seq_len)) {
-        return seq_len;
-    }
-    for (size_t bucket : kBuckets) {
-        if (bucket >= seq_len
-            && infinicore::op::inductor_segment_impl::has_package(
-                   infinicore::op::PiecewiseInductorSegmentId::Moe, layer_idx, bucket)) {
-            return bucket;
-        }
-    }
-    return 0;
-}
-
 } // namespace
 
 MiniCPM5MoeSparseMoeBlock::MiniCPM5MoeSparseMoeBlock(
@@ -151,24 +135,13 @@ infinicore::Tensor MiniCPM5MoeSparseMoeBlock::forward(const infinicore::Tensor &
     if (shape.size() != 3) {
         throw std::runtime_error("MiniCPM5MoeSparseMoeBlock: expected hidden [B, S, H]");
     }
-    const size_t seq_len = shape[1];
-    // Piecewise pad-up presents [1, bucket, H] with valid_len=L. InfiniCore
-    // run_moe_segment uses pad-to-bucket + Triton when valid_len < bucket;
-    // exact-bucket still uses moe_B* AOT (packages required at serve).
-    const size_t bucket = pick_moe_bucket(seq_len, layer_idx_);
-    if (bucket == 0
-        || !infinicore::op::inductor_segment_impl::has_package(
-               infinicore::op::PiecewiseInductorSegmentId::Moe, layer_idx_, bucket)) {
-        throw std::runtime_error(
-            "MiniCPM5MoeSparseMoeBlock: missing MoE AOTI package for layer="
-            + std::to_string(layer_idx_) + " seq_len=" + std::to_string(seq_len)
-            + " (compile with scripts/aot_compile_minicpm5_moe_segment.sh; "
-              "CPU MoE fallback disabled)");
-    }
-
+    // Triton at graph staging width (== hidden S == CG bucket).
+    // Pad-up and exact-match both replay Triton at this bucket (no moe_B* AOT).
+    // Never remap staging up to a larger AOT size (768→1024 → tok0 16431).
+    const size_t triton_bucket = shape[1];
     auto out = infinicore::Tensor::empty(
         hidden_states->shape(), hidden_states->dtype(), hidden_states->device());
-    infinicore::op::inductor_moe_(hidden_states, out, layer_idx_, bucket);
+    infinicore::op::inductor_moe_(hidden_states, out, layer_idx_, triton_bucket);
     return out;
 }
 

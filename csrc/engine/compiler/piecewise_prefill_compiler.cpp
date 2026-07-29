@@ -490,13 +490,13 @@ void PiecewisePrefillCompiler::compile() {
     const auto *paged_config =
         dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
     const size_t nblocks = paged_config->num_blocks();
-    // Capture n_req=1 by default: CudagraphDispatcher only selects PIECEWISE for
-    // homogeneous single-req prefill (MIXED / multi-req → NONE). Capturing with
-    // max_batch_size (e.g. 4) records FA varlen shapes for split rows and SIGSEGVs
-    // on MC=1 bucket replay under serve (Gate D). Opt into wider capture via
-    // INFINI_MAX_PREFILL_BATCH when multi-req piecewise exists.
-    max_capture_req_ = 1;
+    // Capture width ≥ MAX_BATCH_SIZE so mixed/multi-req PIECEWISE can replay with
+    // runtime_n_req ≤ compiled_n_req (vLLM mixed_mode=PIECEWISE). Opt-in override:
+    // INFINI_MAX_PREFILL_BATCH. Default 8 (Band C). Set to 1 only for Gate-D bisect.
+    max_capture_req_ = 8;
     if (const char *raw = std::getenv("INFINI_MAX_PREFILL_BATCH")) {
+        max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
+    } else if (const char *raw = std::getenv("MAX_BATCH_SIZE")) {
         max_capture_req_ = std::max<size_t>(1, std::stoul(raw));
     }
     size_t max_bucket = capture_buckets_.empty() ? 0 : capture_buckets_.front();
@@ -562,16 +562,36 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
         graph_input.past_sequence_lengths.value()
             ->narrow({{0, 0, runtime_n_req}})
             ->copy_from(runtime.past_sequence_lengths.value());
+        if (runtime_n_req < compiled_n_req) {
+            auto past_tail = graph_input.past_sequence_lengths.value()->narrow(
+                {{0, runtime_n_req, compiled_n_req - runtime_n_req}});
+            set_zeros(past_tail);
+        }
     }
     graph_input.total_sequence_lengths.value()
         ->narrow({{0, 0, runtime_n_req}})
         ->copy_from(runtime.total_sequence_lengths.value());
+    if (runtime_n_req < compiled_n_req) {
+        auto total_tail = graph_input.total_sequence_lengths.value()->narrow(
+            {{0, runtime_n_req, compiled_n_req - runtime_n_req}});
+        set_zeros(total_tail);
+    }
     graph_input.input_offsets.value()
         ->narrow({{0, 0, runtime_n_req + 1}})
         ->copy_from(runtime.input_offsets.value());
     graph_input.cu_seqlens.value()
         ->narrow({{0, 0, runtime_n_req + 1}})
         ->copy_from(runtime.cu_seqlens.value());
+    // Zero-pad unused req rows in offsets/cu_seqlens (compiled width > runtime).
+    if (runtime_n_req < compiled_n_req) {
+        const size_t off_tail = compiled_n_req - runtime_n_req;
+        auto offsets_tail = graph_input.input_offsets.value()->narrow(
+            {{0, runtime_n_req + 1, off_tail}});
+        set_zeros(offsets_tail);
+        auto cu_tail = graph_input.cu_seqlens.value()->narrow(
+            {{0, runtime_n_req + 1, off_tail}});
+        set_zeros(cu_tail);
+    }
 
     const size_t block_per_req = runtime.block_tables.value()->size(1);
     const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
@@ -632,6 +652,14 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     }
     if (compiled_.find(graph_bucket) == compiled_.end()) {
         ++prefill_misses_;
+        return std::nullopt;
+    }
+    if (runtime_n_req > max_capture_req_) {
+        ++prefill_misses_;
+        spdlog::debug(
+            "piecewise run_prefill: runtime_n_req={} > max_capture_req={} → eager",
+            runtime_n_req,
+            max_capture_req_);
         return std::nullopt;
     }
     const bool inductor_mode = infinilm::global_state::piecewise_inductor_segment_enabled();
