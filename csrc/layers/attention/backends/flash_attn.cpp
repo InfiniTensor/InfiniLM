@@ -8,36 +8,8 @@
 #include "infinicore/ops/mha_varlen.hpp"
 
 #include <algorithm>
-#include <chrono>
-#include <cstdio>
-#include <fstream>
-#include <sstream>
 
 namespace infinilm::layers::attention::backends {
-
-// #region agent log
-namespace {
-inline void dbg_fa_d39f05_(const char *hypothesisId, const char *message, const std::string &data_json) {
-    try {
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                            std::chrono::system_clock::now().time_since_epoch())
-                            .count();
-        std::ostringstream line;
-        line << "{\"sessionId\":\"8b13ee\",\"runId\":\"dbias2\",\"hypothesisId\":\"" << hypothesisId
-             << "\",\"location\":\"flash_attn.cpp:forward\",\"message\":\"" << message
-             << "\",\"data\":" << data_json << ",\"timestamp\":" << ms << "}\n";
-        const std::string s = line.str();
-        std::fprintf(stderr, "[8b13ee] %s", s.c_str());
-        std::fflush(stderr);
-        std::ofstream ofs("/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log", std::ios::app);
-        if (ofs) {
-            ofs << s;
-        }
-    } catch (...) {
-    }
-}
-} // namespace
-// #endregion
 
 
 FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
@@ -102,39 +74,6 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             max_seqlen_k = std::min(max_seqlen_k, table_cap);
             max_seqlen_q = std::min(max_seqlen_q, table_cap);
         }
-        // #region agent log
-        {
-            static int fa_prefill_logs = 0;
-            if (fa_prefill_logs < 8 && seq_len >= 32) {
-                ++fa_prefill_logs;
-                int off0 = -1, off1 = -1, cu0 = -1, cu1 = -1;
-                try {
-                    auto off_cpu = input_offsets.value()->to(infinicore::Device::cpu());
-                    auto cu_cpu = cu_seqlens.value()->to(infinicore::Device::cpu());
-                    const auto *od = reinterpret_cast<const int32_t *>(off_cpu->data());
-                    const auto *cd = reinterpret_cast<const int32_t *>(cu_cpu->data());
-                    if (off_cpu->size(0) >= 2) {
-                        off0 = od[0];
-                        off1 = od[1];
-                    }
-                    if (cu_cpu->size(0) >= 2) {
-                        cu0 = cd[0];
-                        cu1 = cd[1];
-                    }
-                } catch (...) {
-                }
-                std::ostringstream dj;
-                dj << "{\"q_len\":" << seq_len << ",\"max_q\":" << max_seqlen_q
-                   << ",\"max_k\":" << max_seqlen_k << ",\"off\":[" << off0 << "," << off1
-                   << "],\"cu\":[" << cu0 << "," << cu1 << "],\"bt_cols\":"
-                   << (block_tables.value()->ndim() >= 2 ? block_tables.value()->size(1) : 0)
-                   << ",\"q_vs_max\":" << (static_cast<int>(seq_len) == max_seqlen_q ? "true" : "false")
-                   << ",\"off_span_vs_q\":" << ((off1 - off0) == static_cast<int>(seq_len) ? "true" : "false")
-                   << "}";
-                dbg_fa_d39f05_("F,H", "fa_prefill_shapes", dj.str());
-            }
-        }
-        // #endregion
         infinicore::op::mha_varlen_(
             attn_output,
             query,

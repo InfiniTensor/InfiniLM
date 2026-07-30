@@ -8,10 +8,7 @@
 #include "infinicore/graph/graph.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -416,43 +413,6 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_block_tables
                 ->narrow({{0, 0, runtime_bs}, {1, 0, block_per_req}})
                 ->copy_from(input.block_tables.value());
-
-            // #region agent log
-            if (pad_up) {
-                try {
-                    auto bt_cpu = graph_block_tables->to(infinicore::Device::cpu());
-                    auto sm_cpu = graph_input.slot_mapping.value()->to(infinicore::Device::cpu());
-                    const auto *bt = reinterpret_cast<const int32_t *>(bt_cpu->data());
-                    const auto *sm = reinterpret_cast<const int64_t *>(sm_cpu->data());
-                    const size_t bt_stride = compiled_block_per_req;
-                    std::ostringstream dj;
-                    dj << "{\"runtime_bs\":" << runtime_bs << ",\"padded_bs\":" << padded_bs
-                       << ",\"rt0_bt0\":" << (runtime_bs > 0 ? bt[0] : -999)
-                       << ",\"pad0_bt0\":" << bt[runtime_bs * bt_stride]
-                       << ",\"rt0_slot\":" << (runtime_bs > 0 ? sm[0] : -999)
-                       << ",\"pad0_slot\":" << sm[runtime_bs]
-                       << ",\"overlap_bt0\":"
-                       << (runtime_bs > 0 && bt[0] == bt[runtime_bs * bt_stride] ? "true"
-                                                                                : "false")
-                       << "}";
-                    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::system_clock::now().time_since_epoch())
-                                        .count();
-                    std::ostringstream line;
-                    line << "{\"sessionId\":\"dd40b4\",\"runId\":\"garbage-loop\","
-                            "\"hypothesisId\":\"A\",\"location\":\"paged_compiler.cpp:pad_up\","
-                            "\"message\":\"decode_pad_kv\",\"data\":"
-                         << dj.str() << ",\"timestamp\":" << ms << "}\n";
-                    std::ofstream ofs(
-                        "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
-                        std::ios::app);
-                    if (ofs) {
-                        ofs << line.str();
-                    }
-                } catch (...) {
-                }
-            }
-            // #endregion
 
             // RC-2 analog: refresh attn_metadata from graph_input narrowed to runtime shapes.
             // Pad-row buffers stay 0/1 (capture-safe); sampler only emits runtime n_req.

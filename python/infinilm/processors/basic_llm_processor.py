@@ -44,28 +44,6 @@ class BasicLLMProcessor(InfinilmProcessor):
                     "PreTrainedTokenizerFast under %s",
                     model_dir_path,
                 )
-        # #region agent log
-        try:
-            import time as _time
-
-            _probe = self.tokenizer.encode("你好", add_special_tokens=False)
-            _line = (
-                '{"sessionId":"8b13ee","runId":"tok-cjk","hypothesisId":"G",'
-                '"location":"basic_llm_processor.py:__init__","message":"tokenizer_cjk_probe",'
-                f'"data":{{"class":"{type(self.tokenizer).__name__}",'
-                f'"cjk_ids":{_probe[:8]},"cjk_n":{len(_probe)}}},'
-                f'"timestamp":{int(_time.time() * 1000)}}}\n'
-            )
-            print(f"[8b13ee] {_line}", end="", flush=True)
-            with open(
-                "/opt/offline/infinilm-metax-20260622/.cursor/debug-8b13ee.log",
-                "a",
-                encoding="utf-8",
-            ) as _df:
-                _df.write(_line)
-        except Exception:
-            pass
-        # #endregion
 
     @staticmethod
     def _slot_mapping_for_hybrid_prefill(slot_mapping: list[int]):

@@ -291,35 +291,6 @@ def _phase_marker(name: str) -> None:
         print(f"=== PHASE {name} ===", flush=True)
 
 
-# #region agent log
-_DEBUG_LOG_PATH = "/opt/offline/infinilm-metax-20260622/.cursor/debug-e5aec6.log"
-_DEBUG_STATE = {"calls": 0}
-
-
-def _agent_log(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    """NDJSON debug log for MoE host-break vs in-graph parity bisect."""
-    try:
-        import json
-        import time
-
-        payload = {
-            "sessionId": "e5aec6",
-            "runId": os.environ.get("INFINI_DEBUG_RUN_ID", "pre-fix"),
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with open(_DEBUG_LOG_PATH, "a", encoding="utf-8") as f:
-            f.write(json.dumps(payload, default=str) + "\n")
-    except Exception:  # noqa: BLE001
-        pass
-
-
-# #endregion
-
-
 def _host_split_enabled() -> bool:
     return os.environ.get("INFINI_MOE_HOST_SPLIT", "").strip().lower() in (
         "1",
@@ -794,22 +765,6 @@ def moe_align_block_size(
         _HOST_SPLIT.begin("align_capture")
         out = _moe_align_block_size_capture(topk_ids, block_size, num_experts)
         _HOST_SPLIT.end("align_capture")
-        # #region agent log
-        if _DEBUG_STATE["calls"] < 8:
-            _agent_log(
-                "H1",
-                "fused_moe_runtime.py:moe_align_block_size",
-                "align_path",
-                {
-                    "path": "align_capture",
-                    "numel": numel,
-                    "block_size": int(block_size),
-                    "num_experts": int(num_experts),
-                    "sorted_len": int(out[0].numel()),
-                    "expert_len": int(out[1].numel()),
-                },
-            )
-        # #endregion
         return out
     # Decode-sized (e.g. M=1,TOP_K=16 → 16 ids): host path wins on MetaX.
     # Keep larger prefill-like aligns on-device (avoid big D2H).
@@ -817,22 +772,6 @@ def moe_align_block_size(
         _HOST_SPLIT.begin("align_host_small")
         out = _moe_align_block_size_host(topk_ids, block_size, num_experts)
         _HOST_SPLIT.end("align_host_small")
-        # #region agent log
-        if _DEBUG_STATE["calls"] < 8:
-            _agent_log(
-                "H1",
-                "fused_moe_runtime.py:moe_align_block_size",
-                "align_path",
-                {
-                    "path": "align_host_small",
-                    "numel": numel,
-                    "block_size": int(block_size),
-                    "num_experts": int(num_experts),
-                    "sorted_len": int(out[0].numel()),
-                    "expert_len": int(out[1].numel()),
-                },
-            )
-        # #endregion
         return out
 
     flat = topk_ids.reshape(-1).to(torch.int64)
@@ -927,24 +866,6 @@ def _invoke_kernel(
             sorted_token_ids.size(0),
             A.size(0) * top_k * config["BLOCK_SIZE_M"],
         )
-    # #region agent log
-    if _DEBUG_STATE["calls"] <= 6:
-        _agent_log(
-            "H1",
-            "fused_moe_runtime.py:_invoke_kernel",
-            "triton_grid",
-            {
-                "call": _DEBUG_STATE["calls"],
-                "capturing": _under_device_stream_capture(),
-                "EM": int(EM),
-                "sorted_len": int(sorted_token_ids.size(0)),
-                "A0": int(A.size(0)),
-                "top_k": int(top_k),
-                "BLOCK_M": int(config["BLOCK_SIZE_M"]),
-                "mul_routed": bool(mul_routed_weight),
-            },
-        )
-    # #endregion
     grid = lambda META: (  # noqa: E731
         triton.cdiv(EM, META["BLOCK_SIZE_M"])
         * triton.cdiv(B.size(1), META["BLOCK_SIZE_N"]),
@@ -1092,65 +1013,8 @@ def fused_moe_routed(
     assert w_gate_up.dim() == 3 and w_down.dim() == 3
     assert x.size(1) == w_gate_up.size(2) == w_down.size(1)
 
-    _capturing = _under_device_stream_capture()
-    _triton_cap = _moe_triton_capture_enabled()
-    _safe = _moe_capture_safe_deprecated_warn()
-    _t_tokens = int(x.size(0))
-    _force_cap = os.environ.get("INFINI_MOE_FORCE_CAPTURE", "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    _decode_sized = _t_tokens <= 16
     # Phase 1: CAPTURE_SAFE never selects aten; body is always Triton.
-    # #region agent log
-    _DEBUG_STATE["calls"] = int(_DEBUG_STATE["calls"]) + 1
-    _call_n = int(_DEBUG_STATE["calls"])
-    _env_cap = None
-    try:
-        import ctypes
-
-        _g = ctypes.CDLL(None).getenv
-        _g.argtypes = [ctypes.c_char_p]
-        _g.restype = ctypes.c_char_p
-        _raw = _g(b"INFINI_DEVICE_STREAM_CAPTURING")
-        _env_cap = _raw.decode() if _raw else ""
-    except Exception:  # noqa: BLE001
-        _env_cap = "err"
-    _env_cap_on = str(_env_cap).strip().lower() in ("1", "true", "yes", "on")
-    # Separate budgets: eager noise vs capture/force_capture (critical path).
-    _crit = bool(_capturing or _env_cap_on or _force_cap)
-    _log_budget_key = "logged_crit" if _crit else "logged"
-    _log_limit = 128 if _crit else 48
-    _log_this = _crit or _call_n <= 8 or (_decode_sized and _call_n <= 64)
-    if _log_this and int(_DEBUG_STATE.get(_log_budget_key, 0)) < _log_limit:
-        _DEBUG_STATE[_log_budget_key] = int(_DEBUG_STATE.get(_log_budget_key, 0)) + 1
-        # Tag FORCE_CAPTURE decode as triton_capture even when TLS/env miss
-        # (duplicate libinfinicore); body is Triton either way post Phase 0.
-        body = (
-            "triton_capture"
-            if (_capturing or _env_cap_on or (_force_cap and _decode_sized))
-            else "triton_eager_or_hb"
-        )
-        _agent_log(
-            "H6",
-            "fused_moe_runtime.py:fused_moe_routed",
-            "moe_body_path",
-            {
-                "call": _call_n,
-                "capturing": _capturing,
-                "env_DEVICE_STREAM_CAPTURING": _env_cap,
-                "triton_capture_allowed": _triton_cap,
-                "force_capture_env": _force_cap,
-                "capture_safe": _safe,
-                "body": body,
-                "T": _t_tokens,
-                "K": int(topk_ids.size(1)),
-                "E": int(w_gate_up.size(0)),
-            },
-        )
-    # #endregion
+    _moe_capture_safe_deprecated_warn()
 
     num_tokens = x.size(0)
     E, N2, H = w_gate_up.shape
@@ -1213,20 +1077,6 @@ def fused_moe_routed(
     _phase_marker("silu")
     _HOST_SPLIT.begin("opaque_silu")
     gate, up = intermediate_cache1.view(-1, N2).chunk(2, dim=-1)
-    # #region agent log
-    if _DEBUG_STATE["calls"] <= 4 and _under_device_stream_capture():
-        _agent_log(
-            "H3",
-            "fused_moe_runtime.py:opaque_silu",
-            "silu_mul_under_capture",
-            {
-                "call": _DEBUG_STATE["calls"],
-                "gate_numel": int(gate.numel()),
-                "cache2_data_ptr": int(intermediate_cache2.data_ptr()),
-                "gate_data_ptr": int(gate.data_ptr()),
-            },
-        )
-    # #endregion
     # Write silu*up into workspace cache2 (avoid extra temporary + copy_).
     torch.mul(F.silu(gate), up, out=intermediate_cache2)
     _HOST_SPLIT.end("opaque_silu")

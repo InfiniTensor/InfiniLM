@@ -382,36 +382,6 @@ class Scheduler:
         # Skip when no-mixed and this step already has decode rows.
         has_decode_row = any(not r.is_prefill_row for r in rows)
         skip_waiting_prefills = no_mixed and has_decode_row
-        # #region agent log
-        if no_mixed:
-            try:
-                import json as _json, time as _time
-                with open(
-                    "/opt/offline/infinilm-metax-20260622/.cursor/debug-dd40b4.log",
-                    "a",
-                ) as _f:
-                    _f.write(
-                        _json.dumps(
-                            {
-                                "sessionId": "dd40b4",
-                                "runId": "garbage-loop-postfix",
-                                "hypothesisId": "D",
-                                "location": "scheduler.py:_schedule_v1_mixed",
-                                "message": "no_mixed_gate",
-                                "data": {
-                                    "has_decode_row": has_decode_row,
-                                    "skip_waiting_prefills": skip_waiting_prefills,
-                                    "n_rows": len(rows),
-                                    "n_deferred": len(deferred_running),
-                                },
-                                "timestamp": int(_time.time() * 1000),
-                            }
-                        )
-                        + "\n"
-                    )
-            except Exception:
-                pass
-        # #endregion
         prefill_batch_cap = min(
             self.max_batch_size,
             self.max_prefill_batch_size or self.max_batch_size,
