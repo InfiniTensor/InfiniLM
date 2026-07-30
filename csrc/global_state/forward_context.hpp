@@ -17,6 +17,9 @@ struct AttentionMetadata {
     std::optional<infinicore::Tensor> block_tables;
     /// Slot ids for each token `[seq]`. Used for paged cache.
     std::optional<infinicore::Tensor> slot_mapping;
+    /// Host mirror retained by the serving path so Ascend decode does not
+    /// synchronize every attention layer just to recover sequence lengths.
+    std::optional<infinicore::Tensor> host_total_sequence_lengths;
 
     AttentionMetadata() = default;
 
@@ -53,6 +56,10 @@ struct MambaMetadata {
     std::optional<infinicore::Tensor> init_state_indices;
     /// State cache indices written with the final state of each request forward.
     std::optional<infinicore::Tensor> final_state_indices;
+    /// Host metadata for Ascend vendor causal-conv. These mirrors are created
+    /// once per model forward, rather than synchronized in every GDN layer.
+    std::vector<int64_t> host_input_offsets;
+    std::vector<int64_t> host_final_state_indices;
 };
 
 struct ForwardContext {

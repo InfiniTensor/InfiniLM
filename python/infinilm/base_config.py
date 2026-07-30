@@ -79,6 +79,7 @@ class BaseConfig:
         self.use_mla = self.args.use_mla
         self.pre_transpose = self.args.pre_transpose
         self.num_blocks = self.args.num_blocks
+        self.num_mamba_cache_blocks = self.args.num_mamba_cache_blocks
         self.block_size = self.args.block_size
         self.max_cache_len = self.args.max_cache_len
         self.kv_cache_dtype = self.args.kv_cache_dtype
@@ -276,6 +277,12 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"
+        )
+        self.parser.add_argument(
+            "--num-mamba-cache-blocks",
+            type=int,
+            default=None,
+            help="number of Mamba/GatedDeltaNet state cache blocks (default: num-blocks / 4)",
         )
         self.parser.add_argument(
             "--block-size", type=int, default=256, help="size of each KV cache block"

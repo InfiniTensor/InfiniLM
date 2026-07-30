@@ -1,11 +1,12 @@
-import asyncio
-from pathlib import Path
-import time
-from openai import AsyncOpenAI
 import argparse
+import asyncio
+import math
 import random
 import subprocess
+import time
+from pathlib import Path
 
+from openai import AsyncOpenAI
 
 PROMPTS = [
     "如果猫能写诗，它们会写些什么？",
@@ -40,6 +41,10 @@ NUM_REQUESTS = 64
 CONCURRENCY = 20
 API_URL = "http://127.0.0.1:8000"
 MODEL = ""
+FIXED_PROMPT = None
+MAX_TOKENS = None
+REQUESTED_INPUT_TOKENS = None
+ACTUAL_INPUT_TOKENS = None
 
 
 class ImageCollector:
@@ -130,7 +135,14 @@ async def benchmark_user(
                 print(f"🚀 User#{user_id} Sending request #{task_id}")
                 messages = None
                 if image_collector is None:
-                    messages = [{"role": "user", "content": random.choice(PROMPTS)}]
+                    messages = [
+                        {
+                            "role": "user",
+                            "content": FIXED_PROMPT
+                            if FIXED_PROMPT is not None
+                            else random.choice(PROMPTS),
+                        }
+                    ]
                 else:
                     messages = [
                         {
@@ -150,17 +162,26 @@ async def benchmark_user(
                 print(messages)
 
                 start_time = time.time()
-                stream = await client.chat.completions.create(
-                    model=MODEL,
-                    messages=messages,
-                    stream=True,
-                )
+                request_args = {
+                    "model": MODEL,
+                    "messages": messages,
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                }
+                if MAX_TOKENS is not None:
+                    request_args["max_tokens"] = MAX_TOKENS
+                stream = await client.chat.completions.create(**request_args)
 
                 first_token_time = None
                 total_tokens = 0
+                usage_tokens = None
                 answer_chunks = []
 
                 async for chunk in stream:
+                    if chunk.usage is not None:
+                        usage_tokens = chunk.usage.completion_tokens
+                    if not chunk.choices:
+                        continue
                     if first_token_time is None:
                         first_token_time = time.time()
                     delta = chunk.choices[0].delta.content
@@ -171,12 +192,17 @@ async def benchmark_user(
                         break
 
                 end_time = time.time()
+                if usage_tokens is not None:
+                    total_tokens = usage_tokens
 
                 ttft = first_token_time - start_time if first_token_time else None
                 elapsed_time = end_time - start_time if start_time else None
-                ms_per_token = (
-                    (elapsed_time / total_tokens * 1000)
-                    if total_tokens > 0 and elapsed_time
+                tpot_ms = (
+                    ((elapsed_time - ttft) / (total_tokens - 1) * 1000)
+                    if total_tokens > 0
+                    and elapsed_time
+                    and ttft is not None
+                    and total_tokens > 1
                     else None
                 )
                 tokens_per_second = (
@@ -186,7 +212,7 @@ async def benchmark_user(
                 answer = "".join(answer_chunks)
 
                 results.append(
-                    (total_tokens, elapsed_time, tokens_per_second, ttft, ms_per_token)
+                    (total_tokens, elapsed_time, tokens_per_second, ttft, tpot_ms)
                 )
 
                 if verbose:
@@ -197,10 +223,10 @@ async def benchmark_user(
                         print(f"  ⏱ 总耗时: {elapsed_time:.3f}s")
 
                     print(f"  🔤 解码 token 总数: {total_tokens}")
-                    if ms_per_token is not None:
-                        print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
+                    if tpot_ms is not None:
+                        print(f"  📏 TPOT（排除 TTFT）: {tpot_ms:.2f} ms/token")
                     else:
-                        print(f"  📏 平均 token 解码时间: N/A (no token generated)")
+                        print("  📏 TPOT（排除 TTFT）: N/A")
                     print(f"  ❓ 提问: {messages}")
                     print(f"  💬 回答: {answer}\n")
 
@@ -265,17 +291,98 @@ async def run_benchmark(verbose=False, image_collector=None):
     print(sep)
     print(f"{'并发数':<{width_label}}: {CONCURRENCY}")
     print(f"{'请求总数':<{width_label}}: {NUM_REQUESTS}")
+    if REQUESTED_INPUT_TOKENS is not None:
+        print(f"{'目标输入 tokens':<{width_label}}: {REQUESTED_INPUT_TOKENS}")
+        print(f"{'实际输入 tokens':<{width_label}}: {ACTUAL_INPUT_TOKENS}")
+    print(f"{'最大输出 tokens':<{width_label}}: {MAX_TOKENS}")
     print(f"{'成功请求数':<{width_label}}: {successful_requests}")
     print(f"{'总耗时':<{width_label}}: {total_elapsed_time:.2f} s")
     print(f"{'总输出token数':<{width_label}}: {sum(tokens_list)}")
+    print(
+        f"{'聚合输出吞吐':<{width_label}}: "
+        f"{sum(tokens_list) / total_elapsed_time:.2f} tokens/s"
+    )
     print(f"{'请求速率 (RPS)':<{width_label}}: {requests_per_second:.2f} requests/s")
     print(sep)
     print(f"{'Average latency':<{width_label}}: {avg_latency:.2f} s")
     print(f"{'Average TTFT':<{width_label}}: {avg_ttft:.2f} s")
-    print(f"{'Avg time per token':<{width_label}}: {avg_ms_per_token:.2f} ms/token")
+    if avg_ms_per_token is None:
+        print(f"{'Average TPOT':<{width_label}}: N/A")
+    else:
+        print(f"{'Average TPOT':<{width_label}}: {avg_ms_per_token:.2f} ms/token")
     print(
         f"{'Avg Token generation speed':<{width_label}}: {avg_tokens_per_second:.2f} tokens/s"
     )
+
+
+def build_prompt_for_token_length(tokenizer_path, target_tokens):
+    """Build a natural-language prompt close to an exact chat-template token length."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path, trust_remote_code=True)
+    prefix = "请阅读以下背景信息，并用正常语言简要总结其要点："
+    filler = "这是用于语言模型服务性能测试的一段背景信息，内容本身没有特殊含义。"
+
+    def chat_length(content):
+        messages = [{"role": "user", "content": content}]
+        encoded = tokenizer.apply_chat_template(
+            messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+        )
+        input_ids = encoded["input_ids"]
+        if hasattr(input_ids, "shape"):
+            return input_ids.shape[-1]
+        if input_ids and isinstance(input_ids[0], list):
+            return len(input_ids[0])
+        return len(input_ids)
+
+    minimum = chat_length(prefix)
+    if target_tokens < minimum:
+        raise ValueError(
+            f"--input-tokens={target_tokens} is smaller than chat-template "
+            f"overhead ({minimum} tokens)"
+        )
+
+    low, high = 0, max(1, math.ceil(target_tokens / 2))
+    best_prompt, best_length = prefix, minimum
+    while low <= high:
+        middle = (low + high) // 2
+        candidate = prefix + filler * middle
+        length = chat_length(candidate)
+        if length <= target_tokens:
+            best_prompt, best_length = candidate, length
+            low = middle + 1
+        else:
+            high = middle - 1
+
+    # Chinese characters are generally one token in Qwen tokenizers. Try a
+    # short suffix search to close any remainder left by sentence granularity.
+    for count in range(1, target_tokens - best_length + 9):
+        candidate = best_prompt + "测" * count
+        length = chat_length(candidate)
+        if best_length < length <= target_tokens:
+            best_prompt, best_length = candidate, length
+        if length > target_tokens:
+            break
+
+    # Token merging can make a repeated-character suffix jump over the target.
+    # Greedily try heterogeneous suffixes that commonly add one token.
+    suffixes = ("。", "！", "？", "\n", " a", " 1", "x")
+    while best_length < target_tokens:
+        previous_length = best_length
+        for suffix in suffixes:
+            candidate = best_prompt + suffix
+            length = chat_length(candidate)
+            if best_length < length <= target_tokens:
+                best_prompt, best_length = candidate, length
+                if best_length == target_tokens:
+                    break
+        if best_length == previous_length:
+            break
+
+    return best_prompt, best_length
 
 
 if __name__ == "__main__":
@@ -285,10 +392,45 @@ if __name__ == "__main__":
     parser.add_argument("--mm-port", type=str, default=None)
     parser.add_argument("--api-url", type=str, default="127.0.0.1:8000")
     parser.add_argument("--model", type=str, default="")
+    parser.add_argument("--num-requests", type=int, default=NUM_REQUESTS)
+    parser.add_argument("--concurrency", type=int, default=CONCURRENCY)
+    parser.add_argument("--prompt", type=str, default=None)
+    parser.add_argument("--prompt-repeat", type=int, default=1)
+    parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--input-tokens", type=int, default=None)
+    parser.add_argument("--tokenizer", type=str, default=None)
     args = parser.parse_args()
+
+    if args.num_requests <= 0:
+        parser.error("--num-requests must be positive")
+    if args.concurrency <= 0:
+        parser.error("--concurrency must be positive")
+    if args.prompt_repeat <= 0:
+        parser.error("--prompt-repeat must be positive")
+    if args.input_tokens is not None and args.input_tokens <= 0:
+        parser.error("--input-tokens must be positive")
+    if args.input_tokens is not None and args.prompt is not None:
+        parser.error("--input-tokens and --prompt are mutually exclusive")
+    if args.input_tokens is not None and not args.tokenizer:
+        parser.error("--tokenizer is required with --input-tokens")
 
     API_URL = "http://" + args.api_url
     MODEL = args.model
+    NUM_REQUESTS = args.num_requests
+    CONCURRENCY = args.concurrency
+    MAX_TOKENS = args.max_tokens
+    REQUESTED_INPUT_TOKENS = args.input_tokens
+    if args.input_tokens is not None:
+        try:
+            FIXED_PROMPT, ACTUAL_INPUT_TOKENS = build_prompt_for_token_length(
+                args.tokenizer, args.input_tokens
+            )
+        except ValueError as error:
+            parser.error(str(error))
+    else:
+        FIXED_PROMPT = (
+            args.prompt * args.prompt_repeat if args.prompt is not None else None
+        )
 
     image_collector = None
     if args.image_dir is not None:

@@ -124,14 +124,20 @@ infinicore::Tensor create_layer_kv_cache(
     size_t block_size = config.block_size();
 
     infinicore::Shape kv_shape;
-    if (global_state::get_infinilm_config().attention_backend == backends::AttentionBackend::FLASH_ATTN) {
-        // FLASH_ATTN kernel expects BSHD layout
+    const bool use_flash_attn = global_state::get_infinilm_config().attention_backend
+                             == backends::AttentionBackend::FLASH_ATTN;
+    const bool use_ascend_bnsd = use_flash_attn
+                              && rank_info.device.getType() == infinicore::Device::Type::ASCEND;
+    if (use_ascend_bnsd) {
+        // Ascend FIA paged attention prefers BnNBsD.
+        kv_shape = {2, num_blocks_per_layer, num_rank_k_heads, block_size, k_dim};
+    } else if (use_flash_attn) {
+        // CUDA-style FLASH_ATTN kernels expect BnBsND.
         kv_shape = {2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
     } else {
         kv_shape = {2, num_blocks_per_layer, num_rank_k_heads, block_size, k_dim};
     }
 
-    // [1+1, num_blocks, num_rank_k_heads, block_size, k_dim]
     infinicore::Tensor kv_cache = infinicore::Tensor::zeros(
         kv_shape,
         dtype,

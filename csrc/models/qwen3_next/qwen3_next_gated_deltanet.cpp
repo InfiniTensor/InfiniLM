@@ -3,13 +3,17 @@
 #include "../../global_state/global_state.hpp"
 
 #include <infinicore/ops/causal_conv1d.hpp>
+#include <infinicore/ops/causal_conv1d_ascend_vendor.hpp>
 #include <infinicore/ops/chunk_gated_delta_rule.hpp>
 #include <infinicore/ops/fused_gated_delta_net_gating.hpp>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/recurrent_gated_delta_rule.hpp>
 #include <infinicore/ops/silu.hpp>
+#include <infinicore/ops/swiglu.hpp>
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <optional>
 #include <stdexcept>
 #include <vector>
@@ -48,46 +52,117 @@ Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(std::shared_ptr<infinilm::config::M
 }
 
 void Qwen3NextCausalConv1D::process_weights_after_loading() {
-    if (tp_size_ <= 1 || weight_->size(0) == local_conv_dim_) {
-        return;
+    if (tp_size_ > 1 && weight_->size(0) != local_conv_dim_) {
+        const size_t expected_full_conv_dim = full_qk_dim_ * 2 + full_v_dim_;
+        if (weight_->size(0) != expected_full_conv_dim) {
+            throw std::runtime_error(
+                "Qwen3NextCausalConv1D: unexpected conv1d weight "
+                "shape for TP slicing");
+        }
+
+        auto local_weight = infinicore::Tensor::empty(
+            {local_conv_dim_, 1, conv_kernel_dim_},
+            weight_->dtype(),
+            weight_->device());
+
+        const size_t src_qk0_offset = tp_rank_ * local_qk_dim_;
+        const size_t src_qk1_offset = full_qk_dim_ + tp_rank_ * local_qk_dim_;
+        const size_t src_v_offset = 2 * full_qk_dim_ + tp_rank_ * local_v_dim_;
+
+        local_weight->narrow({{0, 0, local_qk_dim_}})
+            ->copy_from(weight_->narrow(
+                {{0, src_qk0_offset, local_qk_dim_}}));
+        local_weight->narrow({{0, local_qk_dim_, local_qk_dim_}})
+            ->copy_from(weight_->narrow(
+                {{0, src_qk1_offset, local_qk_dim_}}));
+        local_weight->narrow(
+                        {{0, 2 * local_qk_dim_, local_v_dim_}})
+            ->copy_from(weight_->narrow(
+                {{0, src_v_offset, local_v_dim_}}));
+
+        weight_ = infinicore::nn::Parameter(local_weight);
+        parameters_["weight"] = weight_;
     }
 
-    const size_t expected_full_conv_dim = full_qk_dim_ * 2 + full_v_dim_;
-    if (weight_->size(0) != expected_full_conv_dim) {
-        throw std::runtime_error("Qwen3NextCausalConv1D: unexpected conv1d weight shape for TP slicing");
-    }
-
-    auto local_weight = infinicore::Tensor::empty(
-        {local_conv_dim_, 1, conv_kernel_dim_},
-        weight_->dtype(),
-        weight_->device());
-
-    const size_t src_qk0_offset = tp_rank_ * local_qk_dim_;
-    const size_t src_qk1_offset = full_qk_dim_ + tp_rank_ * local_qk_dim_;
-    const size_t src_v_offset = 2 * full_qk_dim_ + tp_rank_ * local_v_dim_;
-
-    const size_t dst_qk0_offset = 0;
-    const size_t dst_qk1_offset = local_qk_dim_;
-    const size_t dst_v_offset = 2 * local_qk_dim_;
-
-    local_weight->narrow({{0, dst_qk0_offset, local_qk_dim_}})
-        ->copy_from(weight_->narrow({{0, src_qk0_offset, local_qk_dim_}}));
-    local_weight->narrow({{0, dst_qk1_offset, local_qk_dim_}})
-        ->copy_from(weight_->narrow({{0, src_qk1_offset, local_qk_dim_}}));
-    local_weight->narrow({{0, dst_v_offset, local_v_dim_}})
-        ->copy_from(weight_->narrow({{0, src_v_offset, local_v_dim_}}));
-
-    weight_ = infinicore::nn::Parameter(local_weight);
-    parameters_["weight"] = weight_;
+    // Checkpoint layout is [C, 1, K]. The vendor kernel wants [K, C].
+    // Materialize it once here; there is no transpose in the inference loop.
+    vendor_weight_ = weight_
+                         ->narrow({{0, 0, local_conv_dim_}})
+                         ->permute({2, 0, 1})
+                         ->contiguous()
+                         ->view({conv_kernel_dim_, local_conv_dim_});
 }
 
 infinicore::Tensor Qwen3NextCausalConv1D::forward(const infinicore::Tensor &qkv) const {
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
 
+    static const bool vendor_enabled = []() {
+        const char *value = std::getenv("INFINILM_ASCEND_CAUSAL_CONV_VENDOR");
+        return value == nullptr || std::strcmp(value, "0") != 0;
+    }();
+    const bool use_vendor = qkv->device().getType() == infinicore::Device::Type::ASCEND
+                         && vendor_enabled;
+    const bool decode = mamba_metadata.host_input_offsets.size() == qkv->size(1) + 1;
+    auto conv_state = forward_context.conv_state_vec[layer_idx_];
+    if (use_vendor && !decode) {
+        if (!vendor_weight_) {
+            throw std::runtime_error(
+                "Qwen3NextCausalConv1D: vendor weight was not "
+                "materialized; call process_weights_after_loading()");
+        }
+
+        size_t vendor_pool_size = 1;
+        for (const auto state_idx : mamba_metadata.host_final_state_indices) {
+            if (state_idx >= 0) {
+                const auto required_size = static_cast<size_t>(state_idx) + 1;
+                if (required_size > vendor_pool_size) {
+                    vendor_pool_size = required_size;
+                }
+            }
+        }
+        if (!vendor_state_
+            || vendor_state_->size(0) < vendor_pool_size
+            || vendor_state_->size(1) != conv_state->size(2)
+            || vendor_state_->size(2) != conv_state->size(1)) {
+            vendor_state_ = infinicore::Tensor::empty(
+                {vendor_pool_size, conv_state->size(2), conv_state->size(1)},
+                qkv->dtype(),
+                qkv->device());
+        }
+
+        auto conv_out = infinicore::op::causal_conv1d_ascend_vendor(
+            qkv,
+            vendor_state_,
+            vendor_weight_,
+            std::nullopt,
+            mamba_metadata.host_input_offsets,
+            mamba_metadata.host_final_state_indices,
+            true,
+            false);
+
+        for (const auto state_idx : mamba_metadata.host_final_state_indices) {
+            if (state_idx < 0) {
+                continue;
+            }
+            const auto cache_index = static_cast<size_t>(state_idx);
+            if (cache_index >= conv_state->size(0)) {
+                throw std::runtime_error(
+                    "Qwen3NextCausalConv1D: final state index exceeds cache pool");
+            }
+            conv_state
+                ->narrow({{0, cache_index, 1}})
+                ->copy_from(
+                    vendor_state_
+                        ->narrow({{0, cache_index, 1}})
+                        ->permute({0, 2, 1}));
+        }
+        return conv_out;
+    }
+
     auto conv_out = infinicore::op::causal_conv1d(
         qkv,
-        forward_context.conv_state_vec[layer_idx_],
+        conv_state,
         weight_->narrow({{0, 0, local_conv_dim_}}), // narrow in case load is skipped
         std::nullopt,
         mamba_metadata.input_offsets.value(),
@@ -130,9 +205,13 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
         false, false, false,
         "in_proj_q", "in_proj_k", "in_proj_v", register_fn,
         quantization_method, dtype, device, rank_info);
-    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, false, dtype, device, tp_rank, tp_size);
-    in_proj_a_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_a", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
-    in_proj_b_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_b", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
+    // z, a and b consume the same activation. Fuse their checkpoint weights
+    // into one column-parallel GEMM to avoid two tiny ACLNN launches per layer.
+    in_proj_zab_ = std::make_shared<layers::linear::QKVParallelLinear>(
+        hidden_size, linear_value_head_dim, 1, 1,
+        linear_num_value_heads, linear_num_value_heads, linear_num_value_heads,
+        false, false, false, "in_proj_z", "in_proj_a", "in_proj_b",
+        register_fn, quantization_method, dtype, device, rank_info);
 
     INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
     INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
@@ -143,7 +222,25 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
         false, dtype, device, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
 }
 
-infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hidden_states) const {
+infinicore::Tensor Qwen3NextGatedDeltaNet::forward(
+    const infinicore::Tensor &hidden_states) const {
+    auto projected = forward_projected_(hidden_states);
+    return out_proj_->forward(projected);
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+Qwen3NextGatedDeltaNet::forward_add_rmsnorm(
+    const infinicore::Tensor &hidden_states,
+    const infinicore::Tensor &residual,
+    const infinicore::Tensor &gamma,
+    float epsilon) const {
+    auto projected = forward_projected_(hidden_states);
+    return out_proj_->forward_add_rmsnorm(
+        projected, residual, gamma, epsilon);
+}
+
+infinicore::Tensor Qwen3NextGatedDeltaNet::forward_projected_(
+    const infinicore::Tensor &hidden_states) const {
 
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
@@ -151,9 +248,7 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     size_t seq_len = shape[1];
 
     auto qkv = in_proj_qkv_->forward(hidden_states_mutable);
-    auto z = in_proj_z_->forward(hidden_states_mutable);
-    auto a = in_proj_a_->forward(hidden_states_mutable);
-    auto b = in_proj_b_->forward(hidden_states_mutable);
+    auto [z, a, b] = in_proj_zab_->forward_split(hidden_states_mutable);
 
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
@@ -167,22 +262,14 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     infinicore::Tensor delta_out;
     if (is_decode) {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
-        auto q_delta = q->as_strided(
-            {seq_len, 1, local_num_key_heads_, key_head_dim_},
-            {q->stride(1), q->stride(0), static_cast<infinicore::Stride>(key_head_dim_), 1});
-        auto k_delta = k->as_strided(
-            {seq_len, 1, local_num_key_heads_, key_head_dim_},
-            {k->stride(1), k->stride(0), static_cast<infinicore::Stride>(key_head_dim_), 1});
-        auto v_delta = v->as_strided(
-            {seq_len, 1, local_num_value_heads_, value_head_dim_},
-            {v->stride(1), v->stride(0), static_cast<infinicore::Stride>(value_head_dim_), 1});
+        // Q/K are packed and normalized by the recurrent GDR preprocess
+        // kernel; keep their strided views to avoid two standalone copies.
+        auto q_delta = q->view({seq_len, 1, local_num_key_heads_, key_head_dim_});
+        auto k_delta = k->view({seq_len, 1, local_num_key_heads_, key_head_dim_});
+        auto v_delta = v->view({seq_len, 1, local_num_value_heads_, value_head_dim_})->contiguous();
 
-        auto a_heads = a->as_strided(
-            {seq_len, 1, local_num_value_heads_},
-            {a->stride(1), a->stride(0), 1});
-        auto b_heads = b->as_strided(
-            {seq_len, 1, local_num_value_heads_},
-            {b->stride(1), b->stride(0), 1});
+        auto a_heads = a->view({seq_len, 1, local_num_value_heads_});
+        auto b_heads = b->view({seq_len, 1, local_num_value_heads_});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
 
         delta_out = infinicore::op::recurrent_gated_delta_rule_indexed(
@@ -195,27 +282,15 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             mamba_metadata.init_state_indices.value(),
             mamba_metadata.final_state_indices.value(),
             true);
-        delta_out = delta_out->as_strided(
-            {seq_len, local_num_value_heads_, value_head_dim_},
-            {delta_out->stride(0), delta_out->stride(2), delta_out->stride(3)});
+        delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
     } else {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
-        auto q_delta = q->as_strided(
-            {1, seq_len, local_num_key_heads_, key_head_dim_},
-            {q->stride(0), q->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
-        auto k_delta = k->as_strided(
-            {1, seq_len, local_num_key_heads_, key_head_dim_},
-            {k->stride(0), k->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
-        auto v_delta = v->as_strided(
-            {1, seq_len, local_num_value_heads_, value_head_dim_},
-            {v->stride(0), v->stride(1), static_cast<infinicore::Stride>(value_head_dim_), 1});
+        auto q_delta = q->view({1, seq_len, local_num_key_heads_, key_head_dim_})->contiguous();
+        auto k_delta = k->view({1, seq_len, local_num_key_heads_, key_head_dim_})->contiguous();
+        auto v_delta = v->view({1, seq_len, local_num_value_heads_, value_head_dim_})->contiguous();
 
-        auto a_heads = a->as_strided(
-            {1, seq_len, local_num_value_heads_},
-            {a->stride(0), a->stride(1), 1});
-        auto b_heads = b->as_strided(
-            {1, seq_len, local_num_value_heads_},
-            {b->stride(0), b->stride(1), 1});
+        auto a_heads = a->view({1, seq_len, local_num_value_heads_});
+        auto b_heads = b->view({1, seq_len, local_num_value_heads_});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
 
         delta_out = infinicore::op::chunk_gated_delta_rule(
@@ -229,20 +304,13 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             mamba_metadata.init_state_indices.value(),
             mamba_metadata.final_state_indices.value(),
             true);
-        delta_out = delta_out->as_strided(
-            {seq_len, local_num_value_heads_, value_head_dim_},
-            {delta_out->stride(1), delta_out->stride(2), delta_out->stride(3)});
+        delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
     }
 
-    auto delta_out_2d = delta_out->as_strided(
-        {batch_size * seq_len * local_num_value_heads_, value_head_dim_},
-        {static_cast<infinicore::Stride>(value_head_dim_), 1});
-    auto v_norm_2d = norm_->forward(delta_out_2d);
-    auto v_norm = v_norm_2d->as_strided(
-        {batch_size, seq_len, local_value_dim_},
-        {static_cast<infinicore::Stride>(seq_len * local_value_dim_), static_cast<infinicore::Stride>(local_value_dim_), 1});
-    auto gated = infinicore::op::mul(v_norm, infinicore::op::silu(z));
-    return out_proj_->forward(gated);
+    auto v_norm = norm_->forward(delta_out->view({batch_size * seq_len * local_num_value_heads_, value_head_dim_}))
+                      ->view({batch_size, seq_len, local_value_dim_});
+    auto gated = infinicore::op::swiglu(v_norm, z);
+    return gated;
 }
 
 } // namespace infinilm::models::qwen3_next

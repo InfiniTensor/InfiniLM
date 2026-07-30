@@ -15,6 +15,12 @@ public:
 
 private:
     infinicore::nn::Parameter weight_;
+    // Contiguous vendor layout [kernel, local_channels], materialized once
+    // after checkpoint loading and TP slicing.
+    infinicore::Tensor vendor_weight_;
+    // Scratch [pool, kernel - 1, local_channels] used only by vendor prefill.
+    // Decode keeps the persistent cache contiguous as [pool, channels, kernel - 1].
+    mutable infinicore::Tensor vendor_state_;
 
     size_t layer_idx_;
     size_t local_conv_dim_;
@@ -34,12 +40,19 @@ public:
                            const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward_add_rmsnorm(
+        const infinicore::Tensor &hidden_states,
+        const infinicore::Tensor &residual,
+        const infinicore::Tensor &gamma,
+        float epsilon) const;
 
 private:
+    infinicore::Tensor forward_projected_(
+        const infinicore::Tensor &hidden_states) const;
+
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_z_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_a_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_b_;
+    std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_zab_;
     std::shared_ptr<Qwen3NextCausalConv1D> conv1d_;
 
     INFINICORE_NN_PARAMETER(dt_bias);

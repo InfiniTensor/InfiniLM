@@ -66,6 +66,7 @@ protected:
     int split_dim_ = -1;
     float alpha_ = 1.0f;
     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_;
+    infinicore::Tensor weight_transposed_view_;
 };
 
 } // namespace infinilm::nn

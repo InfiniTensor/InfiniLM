@@ -1,11 +1,38 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
+#include <cstdint>
 #include <future>
 #include <stdexcept>
 #include <unordered_set>
+#include <vector>
 
 namespace infinilm::engine {
+namespace {
+
+std::vector<int64_t> tensor_to_host_i64(
+    const std::optional<infinicore::Tensor> &tensor) {
+    if (!tensor.has_value()) {
+        return {};
+    }
+    auto cpu = tensor.value()->to(infinicore::Device::cpu());
+    std::vector<int64_t> values(cpu->numel());
+    if (cpu->dtype() == infinicore::DataType::I64) {
+        const auto *ptr = reinterpret_cast<const int64_t *>(cpu->data());
+        values.assign(ptr, ptr + cpu->numel());
+        return values;
+    }
+    if (cpu->dtype() == infinicore::DataType::I32) {
+        const auto *ptr = reinterpret_cast<const int32_t *>(cpu->data());
+        for (size_t i = 0; i < cpu->numel(); ++i) {
+            values[i] = static_cast<int64_t>(ptr[i]);
+        }
+        return values;
+    }
+    throw std::runtime_error("Mamba metadata must be int32 or int64");
+}
+
+} // namespace
 
 //------------------------------------------------------
 // Constructor
@@ -185,18 +212,22 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         visual_token_ranges,
         to_device(target_hidden_states)};
 
-    infinilm::global_state::get_forward_context().attn_metadata = {
+    auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
         input.cu_seqlens,
         input.block_tables,
         input.slot_mapping};
+    attn_metadata.host_total_sequence_lengths = total_sequence_lengths;
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
         input.mamba_init_state_indices,
-        input.mamba_final_state_indices};
+        input.mamba_final_state_indices,
+        tensor_to_host_i64(input_offsets),
+        tensor_to_host_i64(mamba_final_state_indices)};
 
     global_state::get_forward_context().mm_metadata = {
         image_req_ids,

@@ -60,10 +60,30 @@ Qwen3NextAttention::Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelCo
 
 infinicore::Tensor Qwen3NextAttention::forward(const infinicore::Tensor &positions,
                                                const infinicore::Tensor &hidden_states) const {
+    infinicore::Tensor attn_output;
     if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
-        return forward_static_(positions, hidden_states);
+        attn_output = forward_static_(positions, hidden_states);
+    } else {
+        attn_output = forward_paged_(positions, hidden_states);
     }
-    return forward_paged_(positions, hidden_states);
+    return o_proj_->forward(attn_output);
+}
+
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+Qwen3NextAttention::forward_add_rmsnorm(
+    const infinicore::Tensor &positions,
+    const infinicore::Tensor &hidden_states,
+    const infinicore::Tensor &residual,
+    const infinicore::Tensor &gamma,
+    float epsilon) const {
+    infinicore::Tensor attn_output;
+    if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
+        attn_output = forward_static_(positions, hidden_states);
+    } else {
+        attn_output = forward_paged_(positions, hidden_states);
+    }
+    return o_proj_->forward_add_rmsnorm(
+        attn_output, residual, gamma, epsilon);
 }
 
 infinicore::Tensor Qwen3NextAttention::forward_static_(const infinicore::Tensor &position_ids,
@@ -120,7 +140,7 @@ infinicore::Tensor Qwen3NextAttention::forward_static_(const infinicore::Tensor 
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate));
-    return o_proj_->forward(attn_output);
+    return attn_output;
 }
 
 infinicore::Tensor Qwen3NextAttention::forward_paged_(const infinicore::Tensor &position_ids,
@@ -166,7 +186,7 @@ infinicore::Tensor Qwen3NextAttention::forward_paged_(const infinicore::Tensor &
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));
-    return o_proj_->forward(attn_output);
+    return attn_output;
 }
 
 } // namespace infinilm::models::qwen3_next
