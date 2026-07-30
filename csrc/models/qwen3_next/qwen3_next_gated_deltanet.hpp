@@ -34,12 +34,19 @@ public:
                            const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward_add_rmsnorm(
+        const infinicore::Tensor &hidden_states,
+        const infinicore::Tensor &residual,
+        const infinicore::Tensor &gamma,
+        float epsilon) const;
 
 private:
+    infinicore::Tensor forward_projected_(
+        const infinicore::Tensor &hidden_states) const;
+
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_z_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_a_;
-    std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_b_;
+    std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_zab_;
     std::shared_ptr<Qwen3NextCausalConv1D> conv1d_;
 
     INFINICORE_NN_PARAMETER(dt_bias);

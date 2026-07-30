@@ -35,12 +35,22 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen3NextDecoderLayer::forwar
                                                                                   infinicore::Tensor &residual) {
     input_layernorm_->forward_inplace(hidden_states, residual);
     if ("linear_attention" == layer_type_) {
-        hidden_states = linear_attn_->forward(hidden_states);
+        std::tie(hidden_states, residual) = linear_attn_->forward_add_rmsnorm(
+            hidden_states,
+            residual,
+            post_attention_layernorm_->weight(),
+            static_cast<float>(
+                post_attention_layernorm_->eps()));
     } else if ("full_attention" == layer_type_) {
-        hidden_states = self_attn_->forward(positions, hidden_states);
+        std::tie(hidden_states, residual) = self_attn_->forward_add_rmsnorm(
+            positions,
+            hidden_states,
+            residual,
+            post_attention_layernorm_->weight(),
+            static_cast<float>(
+                post_attention_layernorm_->eps()));
     }
 
-    post_attention_layernorm_->forward_inplace(hidden_states, residual);
     hidden_states = mlp_->forward(hidden_states);
     return std::make_tuple(hidden_states, residual);
 }
@@ -50,14 +60,22 @@ infinicore::Tensor Qwen3NextDecoderLayer::forward(const infinicore::Tensor &posi
     auto residual = hidden_states;
     hidden_states = input_layernorm_->forward(hidden_states);
     if ("linear_attention" == layer_type_) {
-        hidden_states = linear_attn_->forward(hidden_states);
+        std::tie(hidden_states, residual) = linear_attn_->forward_add_rmsnorm(
+            hidden_states,
+            residual,
+            post_attention_layernorm_->weight(),
+            static_cast<float>(
+                post_attention_layernorm_->eps()));
     } else if ("full_attention" == layer_type_) {
-        hidden_states = self_attn_->forward(positions, hidden_states);
+        std::tie(hidden_states, residual) = self_attn_->forward_add_rmsnorm(
+            positions,
+            hidden_states,
+            residual,
+            post_attention_layernorm_->weight(),
+            static_cast<float>(
+                post_attention_layernorm_->eps()));
     }
-    hidden_states = infinicore::op::add(residual, hidden_states);
 
-    residual = hidden_states;
-    hidden_states = post_attention_layernorm_->forward(hidden_states);
     hidden_states = mlp_->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
     return hidden_states;

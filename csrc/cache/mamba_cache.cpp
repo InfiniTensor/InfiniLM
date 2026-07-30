@@ -19,9 +19,7 @@ infinicore::Tensor MambaCache::create_layer_conv_state(
     const size_t conv_dim = 2 * num_rank_k_heads * k_dim + num_rank_v_heads * v_dim;
 
     auto conv_state = infinicore::Tensor::zeros(
-        {pool_size, conv_dim, conv_state_len},
-        dtype,
-        rank_info.device);
+        {pool_size, conv_dim, conv_state_len}, dtype, rank_info.device);
     infinicore::context::syncStream();
     return conv_state;
 }

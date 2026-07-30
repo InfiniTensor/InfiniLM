@@ -6,6 +6,7 @@
 #include "infinicore/ops.hpp"
 #include <infiniccl.h>
 #include <optional>
+#include <tuple>
 
 namespace infinilm::nn {
 
@@ -70,6 +71,13 @@ public:
                       infinicclComm_t communicator = nullptr);
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward_add_rmsnorm(
+        infinicore::Tensor &input,
+        const infinicore::Tensor &residual,
+        const infinicore::Tensor &gamma,
+        float epsilon) const;
+
     std::string extra_repr() const;
 
 protected:

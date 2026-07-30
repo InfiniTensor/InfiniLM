@@ -88,6 +88,17 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     return BaseLinear::forward(input);
 }
 
+std::tuple<infinicore::Tensor, infinicore::Tensor>
+RowParallelLinear::forward_add_rmsnorm(
+    infinicore::Tensor &input,
+    const infinicore::Tensor &residual,
+    const infinicore::Tensor &gamma,
+    float epsilon) const {
+    auto projected = forward(input);
+    auto add_out = infinicore::op::add(residual, projected);
+    auto normalized = infinicore::op::rms_norm(add_out, gamma, epsilon);
+    return {normalized, add_out};
+}
 std::string RowParallelLinear::extra_repr() const {
     return "RowParallelLinear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
 }

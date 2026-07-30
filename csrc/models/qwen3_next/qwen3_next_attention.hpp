@@ -13,6 +13,14 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
 
+    std::tuple<infinicore::Tensor, infinicore::Tensor>
+    forward_add_rmsnorm(
+        const infinicore::Tensor &positions,
+        const infinicore::Tensor &hidden_states,
+        const infinicore::Tensor &residual,
+        const infinicore::Tensor &gamma,
+        float epsilon) const;
+
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
     size_t num_kv_heads() const { return num_key_value_heads_; }
