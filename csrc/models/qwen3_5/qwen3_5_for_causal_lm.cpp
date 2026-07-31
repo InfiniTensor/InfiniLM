@@ -35,12 +35,7 @@ void Qwen35ForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     model_->reset_cache(cache_config);
 }
 
-std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
-    const std::string model_type = model_config->get<std::string>("model_type");
-    if ("qwen3_5" != model_type) {
-        throw std::runtime_error("infinilm::models::qwen3_5::create_qwen3_next_model_config: model_type is not qwen3_5");
-    }
-
+std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     nlohmann::json &config_json = model_config->get_config_json();
     if (config_json.contains("text_config") && config_json["text_config"].is_object()) {
         const nlohmann::json &text_config_json = config_json["text_config"];
@@ -77,6 +72,14 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::
         config_json["attention_bias"] = false;
     }
     return model_config;
+}
+
+std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+    const std::string model_type = model_config->get<std::string>("model_type");
+    if ("qwen3_5" != model_type) {
+        throw std::runtime_error("infinilm::models::qwen3_5::create_qwen3_5_model_config: model_type is not qwen3_5");
+    }
+    return prepare_qwen3_5_model_config(model_config);
 }
 
 } // namespace infinilm::models::qwen3_5
