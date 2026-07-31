@@ -5,15 +5,45 @@ Request and Output - Data structures for inference requests and outputs.
 import asyncio
 import logging
 import time
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import List, Optional
 
 import janus
 
+from infinilm.llm.prefix_cache import (
+    EMPTY_BLOCK_HASH,
+    BlockHash,
+    hash_block_tokens,
+)
 from infinilm.llm.sampling_params import SamplingParams
 
 logger = logging.getLogger(__name__)
+
+
+class _SequenceView(Sequence):
+    """Live read-only view over an internally mutable list."""
+
+    def __init__(self, values: list) -> None:
+        self._values = values
+
+    def __getitem__(self, index):
+        return self._values[index]
+
+    def __iter__(self) -> Iterator:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return len(self._values)
+
+    def __repr__(self) -> str:
+        return repr(self._values)
+
+    def __eq__(self, other: object) -> bool:
+        return (
+            list(self._values) == list(other) if isinstance(other, Sequence) else False
+        )
 
 
 class RequestStatus(Enum):
@@ -126,6 +156,8 @@ class InferenceRequest:
         arrival_time: Optional[float] = None,
         # For server use
         request_data: Optional[dict] = None,
+        *,
+        has_multimodal_inputs: bool = False,
     ):
         self.arrival_time: float = arrival_time or time.time()
         self.finished_time: Optional[float] = None
@@ -133,12 +165,15 @@ class InferenceRequest:
         # Request metadata
         self.request_id: str = request_id
         self.prompt: Optional[str] = prompt
-        self.prompt_token_ids: List[int] = (
-            prompt_token_ids if prompt_token_ids is not None else []
+        self._prompt_token_ids: tuple[int, ...] = (
+            tuple(prompt_token_ids) if prompt_token_ids is not None else ()
         )
-        self.prompt_length: int = len(self.prompt_token_ids)
+        self.prompt_length: int = len(self._prompt_token_ids)
         self.processed_inputs: Optional[dict] = processed_inputs
         self.mm_token_index_mappings: Optional[List[dict]] = mm_token_index_mappings
+        self.has_multimodal_inputs: bool = has_multimodal_inputs or bool(
+            mm_token_index_mappings
+        )
         self.priority: int = 0
 
         # Sampling & stopping criteria
@@ -148,19 +183,28 @@ class InferenceRequest:
         )
 
         # Generation state
-        self.generated_token_ids: List[int] = []
+        self._generated_token_ids: List[int] = []
+        self._generated_token_ids_view = _SequenceView(self._generated_token_ids)
         self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
 
-        # KV cache management
-        self.block_table: List[int] = []
+        # KV cache state
+        self.block_table: List[int] = []  # Logical block to physical page ID
         self.slot_mapping: List[int] = []
         self.num_local_cached_tokens: int = (
-            0  # Number of locally cached (prefix-hit) tokens
+            0  # Number of cached tokens visible to the current model step
         )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
         self.num_blocks: int = 0
+        # Incremental hashes for complete logical token blocks.
+        self._block_hashes: List[BlockHash] = []
+        self._block_hashes_view = _SequenceView(self._block_hashes)
+        self._hash_block_size: Optional[int] = None
+        self._prefix_caching_enabled: bool = False
+        self._hash_tail_token_ids: List[int] = []
+        # Number of leading full blocks published to the prefix-cache index.
+        self.num_cache_indexed_blocks: int = 0
 
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
@@ -189,20 +233,80 @@ class InferenceRequest:
             self._output_queue = janus.Queue()
         return self._output_queue
 
+    @property
+    def prompt_token_ids(self) -> tuple[int, ...]:
+        return self._prompt_token_ids
+
+    @property
+    def generated_token_ids(self) -> Sequence[int]:
+        return self._generated_token_ids_view
+
+    @property
+    def block_hashes(self) -> Sequence[BlockHash]:
+        return self._block_hashes_view
+
     def get_prompt_length(self) -> int:
         return self.prompt_length
 
-    def get_input_tokens(self) -> List[int]:
-        return self.prompt_token_ids
+    def get_input_tokens(self) -> Sequence[int]:
+        return self._prompt_token_ids
 
     def get_num_generated_tokens(self) -> int:
-        return len(self.generated_token_ids)
+        return len(self._generated_token_ids)
 
     def get_total_length(self) -> int:
-        return self.prompt_length + len(self.generated_token_ids)
+        return self.prompt_length + len(self._generated_token_ids)
 
     def get_all_token_ids(self) -> List[int]:
-        return self.prompt_token_ids + self.generated_token_ids
+        return list(self._prompt_token_ids) + self._generated_token_ids
+
+    def initialize_block_hashes(
+        self, block_size: int, enable_prefix_caching: bool
+    ) -> None:
+        """Initialize incremental block hashing for this request."""
+        if block_size <= 0:
+            raise ValueError("block_size must be positive")
+        if self._hash_block_size is not None:
+            if (
+                self._hash_block_size != block_size
+                or self._prefix_caching_enabled != enable_prefix_caching
+            ):
+                raise RuntimeError("request block hashing is already initialized")
+            return
+
+        self._hash_block_size = block_size
+        self._prefix_caching_enabled = enable_prefix_caching
+        if not enable_prefix_caching:
+            return
+
+        num_full_blocks = self.prompt_length // block_size
+        parent_hash = EMPTY_BLOCK_HASH
+        for block_idx in range(num_full_blocks):
+            start = block_idx * block_size
+            end = start + block_size
+            parent_hash = hash_block_tokens(
+                self.prompt_token_ids[start:end], parent_hash
+            )
+            self._block_hashes.append(parent_hash)
+
+        tail_start = num_full_blocks * block_size
+        self._hash_tail_token_ids = list(self._prompt_token_ids[tail_start:])
+
+    def append_generated_token_id(self, token_id: int) -> None:
+        """Append one output token and extend the hash chain at block boundaries."""
+        self._generated_token_ids.append(token_id)
+        if not self._prefix_caching_enabled:
+            return
+
+        self._hash_tail_token_ids.append(token_id)
+        if len(self._hash_tail_token_ids) == self._hash_block_size:
+            parent_hash = (
+                self._block_hashes[-1] if self._block_hashes else EMPTY_BLOCK_HASH
+            )
+            self._block_hashes.append(
+                hash_block_tokens(self._hash_tail_token_ids, parent_hash)
+            )
+            self._hash_tail_token_ids.clear()
 
     def get_num_blocks_required(self, block_size: int) -> int:
         total_tokens = self.get_total_length()
@@ -285,12 +389,12 @@ class InferenceRequest:
         return RequestOutput(
             request_id=self.request_id,
             prompt=self.prompt,
-            prompt_token_ids=self.prompt_token_ids,
+            prompt_token_ids=list(self._prompt_token_ids),
             outputs=[
                 CompletionOutput(
                     index=0,
                     text=self.generated_text,
-                    token_ids=self.generated_token_ids.copy(),
+                    token_ids=list(self._generated_token_ids),
                     finish_reason=self.finish_reason,
                 )
             ],

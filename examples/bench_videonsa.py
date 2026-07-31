@@ -10,7 +10,6 @@ from infinilm.llm.sampling_params import SamplingParams
 from infinilm.processors import AutoInfinilmProcessor
 from infinilm.processors.videonsa_processor import decode_video_frames
 
-
 VIDEO_AUTO_MIN_FRAMES = 4
 VIDEO_AUTO_MAX_FRAMES = 8
 VIDEO_AUTO_SAMPLE_FPS = 1.0
@@ -180,6 +179,7 @@ def run_case(model, tokenizer, cfg, video_payload, batch_size, input_len, output
 
 def main():
     cfg = BaseConfig()
+    cfg.enable_prefix_caching = False
     normalize_bench_defaults(cfg)
 
     input_lens = as_int_list(cfg.input_len)
@@ -219,6 +219,7 @@ def main():
         attn_backend=cfg.attn,
         enable_graph=cfg.enable_graph,
         weight_load_mode=cfg.weight_load_mode,
+        enable_prefix_caching=cfg.enable_prefix_caching,
     )
 
     for input_len in input_lens:

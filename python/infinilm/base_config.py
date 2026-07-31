@@ -71,6 +71,7 @@ class BaseConfig:
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
         self.enable_paged_attn = self.args.enable_paged_attn
+        self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
         self.num_blocks = self.args.num_blocks
         self.block_size = self.args.block_size
@@ -232,6 +233,13 @@ class BaseConfig:
             "--enable-paged-attn",
             action="store_true",
             help="use paged cache",
+        )
+        self.parser.add_argument(
+            "--disable-prefix-caching",
+            dest="enable_prefix_caching",
+            action="store_false",
+            default=True,
+            help="disable KV prefix cache reuse",
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"

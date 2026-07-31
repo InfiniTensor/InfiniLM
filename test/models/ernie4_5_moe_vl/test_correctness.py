@@ -75,6 +75,7 @@ def run_infinilm(
         top_k=1,  # greedy
         top_p=1.0,
         attn_backend=attn_backend,
+        enable_prefix_caching=False,
     )
 
     sp = SamplingParams(

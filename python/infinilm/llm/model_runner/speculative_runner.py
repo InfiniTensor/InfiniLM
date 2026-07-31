@@ -118,12 +118,10 @@ class SpeculativeRunner:
                 continue
 
             base_len = req.get_total_length()
-            total_token_ids = req.get_all_token_ids() + draft_tokens
             verify_block_table, verify_slots = cache_ops.append_verify_slots(
                 list(req.block_table),
                 base_len + 1,
                 len(draft_tokens),
-                total_token_ids,
             )
             req.block_table = verify_block_table
             req.num_blocks = len(req.block_table)
@@ -175,10 +173,6 @@ class SpeculativeRunner:
                 )
                 req.num_blocks = len(req.block_table)
                 req.slot_mapping = []
-                accepted_token_ids = req.get_all_token_ids() + draft_tokens[:accepted]
-                cache_ops.commit_accepted_tokens(
-                    req.block_table, accepted_token_ids, keep_tokens
-                )
 
                 output_tokens = draft_tokens[:accepted] + [correction]
                 remaining = candidate["remaining"]

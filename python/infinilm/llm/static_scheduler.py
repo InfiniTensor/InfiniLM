@@ -4,14 +4,15 @@ Static Scheduler - Single-batch request scheduling for Static KV Cache.
 
 import logging
 import queue
-import janus
 from typing import List, Optional
 
-from infinilm.llm.cache_manager import BlockManager
+import janus
+
+from infinilm.llm.prefix_cache import BlockHash
 from infinilm.llm.request import (
-    RequestStatus,
-    InferenceRequest,
     FinishReason,
+    InferenceRequest,
+    RequestStatus,
     TokenOutput,
 )
 
@@ -46,15 +47,25 @@ class StaticScheduler:
     - Prefix cache reuse via chained block hashing (block size = _BLOCK_SIZE)
     """
 
-    def __init__(self, max_cache_len: int = 4096):
+    def __init__(
+        self,
+        max_cache_len: int = 4096,
+        enable_prefix_caching: bool = True,
+    ):
         self.waiting_queue = janus.Queue()
         self.running_request: Optional[InferenceRequest] = None
         self.max_cache_len = max_cache_len
-        self.cached_block_hashes: List[int] = []
-        self.pending_block_hashes: List[int] = []
+        self.enable_prefix_caching = enable_prefix_caching
+        self.cached_block_hashes: List[BlockHash] = []
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            # TODO: Remove the multimodal exclusion once media-aware prefix
+            # hashing and model-side cache-boundary handling are supported.
+            request.initialize_block_hashes(
+                _BLOCK_SIZE,
+                self.enable_prefix_caching and not request.has_multimodal_inputs,
+            )
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
 
@@ -93,23 +104,6 @@ class StaticScheduler:
                         )
                     continue
 
-                total_length = req.get_total_length()
-                if total_length % _BLOCK_SIZE == 1 and total_length > _BLOCK_SIZE:
-                    block_index = total_length // _BLOCK_SIZE - 1
-                    if len(self.cached_block_hashes) <= block_index:
-                        all_tokens = req.get_all_token_ids()
-                        block_tokens = all_tokens[-(_BLOCK_SIZE + 1) : -1]
-                        prev_h = (
-                            self.cached_block_hashes[-1]
-                            if self.cached_block_hashes
-                            else -1
-                        )
-                        new_h = BlockManager.compute_hash(block_tokens, prev_h)
-                        self.cached_block_hashes.append(new_h)
-                        logger.debug(
-                            f"Decode: appended block hash at index {block_index}"
-                        )
-
                 return StaticSchedulerOutput(scheduled_requests=[req], is_prefill=False)
 
             # Case 2: Get new request from waiting queue (prefill phase)
@@ -147,66 +141,27 @@ class StaticScheduler:
                     )
                 continue
 
-            tokens = req.prompt_token_ids
-            num_full_blocks = prompt_len // _BLOCK_SIZE
             matched = 0
 
-            self.pending_block_hashes.clear()
-
-            for i in range(num_full_blocks):
-                prev_h = self.cached_block_hashes[i - 1] if i > 0 else -1
-                h = BlockManager.compute_hash(
-                    tokens[i * _BLOCK_SIZE : (i + 1) * _BLOCK_SIZE], prev_h
-                )
-                if (
-                    i < len(self.cached_block_hashes)
-                    and h == self.cached_block_hashes[i]
-                ):
-                    matched = i + 1
-                else:
-                    del self.cached_block_hashes[i:]
-                    cur_h = h
-                    self.pending_block_hashes.append(cur_h)
-                    for j in range(i + 1, num_full_blocks):
-                        cur_h = BlockManager.compute_hash(
-                            tokens[j * _BLOCK_SIZE : (j + 1) * _BLOCK_SIZE],
-                            cur_h,
-                        )
-                        self.pending_block_hashes.append(cur_h)
-                    break
+            if self.enable_prefix_caching:
+                for block_idx in range(len(req.block_hashes)):
+                    if (
+                        block_idx >= len(self.cached_block_hashes)
+                        or req.block_hashes[block_idx]
+                        != self.cached_block_hashes[block_idx]
+                    ):
+                        break
+                    matched += 1
+                self.cached_block_hashes = self.cached_block_hashes[:matched]
             else:
-                del self.cached_block_hashes[matched:]
+                self.cached_block_hashes.clear()
 
-            prefix_hit_len = matched * _BLOCK_SIZE
-
-            # Prevent 100% prefix cache hits to avoid an empty prefill input.
-            # When prefix_hit_len equals the total token length, the remaining tokens
-            # for prefill would be zero (input_ids becomes empty), leading to crashes
-            # or incorrect state transitions in the downstream processor.
-            #
-            # This fix is directly inspired by SGLang's approach in their core scheduler
-            # logic (specifically the `adjust_max_prefix_ids` method). SGLang explicitly
-            # trims the prefix matching length to ensure at least one token is left:
-            #
-            #   # To work around some bugs in logprob computation, we need to
-            #   # ensure each request has at least one token. Later, we can relax
-            #   # this requirement and use `input_len`.
-            #   max_prefix_len = input_len - 1
-            #
-            # By forcing the last token to be "missed" from the cache hit, we guarantee
-            # that every request has at least one token to go through the prefill forward
-            # pass. This elegantly avoids the complexity of hijacking the request into
-            # the decode phase and handles edge cases in logprob computation gracefully.
-            #
-            # Mathematically and architecturally, this 2-line adjustment is exactly
-            # equivalent to SGLang's robust production strategy.
-            #
-            if prefix_hit_len >= len(tokens):
-                prefix_hit_len = len(tokens) - 1
+            # Leave the last prompt token for a non-empty model input.
+            prefix_hit_len = min(matched * _BLOCK_SIZE, max(prompt_len - 1, 0))
 
             logger.info(
-                f"Prefill cache match: {matched}/{num_full_blocks} blocks "
-                f"({prefix_hit_len} tokens reused, {len(self.pending_block_hashes)} pending)"
+                f"Prefill cache match: {matched}/{len(req.block_hashes)} blocks "
+                f"({prefix_hit_len} tokens reused)"
             )
 
             req.status = RequestStatus.RUNNING
@@ -215,12 +170,25 @@ class StaticScheduler:
                 scheduled_requests=[req], is_prefill=True, prefix_hit_len=prefix_hit_len
             )
 
-    def update_cache(self):
-        """Commit hashes computed during prefill into the confirmed cache hash list."""
-        self.cached_block_hashes.extend(self.pending_block_hashes)
-        self.pending_block_hashes.clear()
-        logger.debug(
-            f"update_cache: cached_block_hashes now has {len(self.cached_block_hashes)} blocks"
+    def commit_computed_tokens(
+        self, request: InferenceRequest, num_computed_tokens: int
+    ) -> None:
+        """Publish the current request's computed static-cache prefix."""
+        if not self.enable_prefix_caching:
+            self.cached_block_hashes.clear()
+            return
+        num_computed_blocks = min(
+            num_computed_tokens // _BLOCK_SIZE,
+            len(request.block_hashes),
+        )
+        if len(self.cached_block_hashes) > num_computed_blocks:
+            del self.cached_block_hashes[num_computed_blocks:]
+        start_block = len(self.cached_block_hashes)
+        if start_block == num_computed_blocks:
+            return
+
+        self.cached_block_hashes.extend(
+            request.block_hashes[start_block:num_computed_blocks]
         )
 
     def update_from_output(self, model_output):
