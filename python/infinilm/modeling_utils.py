@@ -960,6 +960,60 @@ def _remap_qwen3_next(state_dict, config):
     return state_dict
 
 
+def _remap_qwen3_5_moe(state_dict, config):
+    """Adapt packed Qwen3.5-MoE experts to InfiniLM expert parameter names."""
+    state_dict = _remap_qwen3_5(state_dict, config)
+    text_config = config.get("text_config", config)
+    expected_num_experts = text_config["num_experts"]
+    expected_intermediate_size = text_config["moe_intermediate_size"]
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if key.endswith(".mlp.experts.gate_up_proj"):
+            if tensor.ndim != 3:
+                raise ValueError(
+                    f"Expected packed gate_up_proj to be 3D, got {tensor.shape} for {key}"
+                )
+            if tensor.shape[0] != expected_num_experts:
+                raise ValueError(
+                    f"Expected {expected_num_experts} experts, got {tensor.shape[0]} for {key}"
+                )
+            if tensor.shape[1] != expected_intermediate_size * 2:
+                raise ValueError(
+                    f"Expected packed gate/up size {expected_intermediate_size * 2}, "
+                    f"got {tensor.shape[1]} for {key}"
+                )
+
+            prefix = key[: -len("gate_up_proj")]
+            for expert_idx, expert_gate_up in enumerate(tensor.unbind(0)):
+                gate, up = expert_gate_up.chunk(2, dim=0)
+                expert_prefix = f"{prefix}{expert_idx}."
+                remapped[f"{expert_prefix}gate_proj.weight"] = gate
+                remapped[f"{expert_prefix}up_proj.weight"] = up
+        elif key.endswith(".mlp.experts.down_proj"):
+            if tensor.ndim != 3:
+                raise ValueError(
+                    f"Expected packed down_proj to be 3D, got {tensor.shape} for {key}"
+                )
+            if tensor.shape[0] != expected_num_experts:
+                raise ValueError(
+                    f"Expected {expected_num_experts} experts, got {tensor.shape[0]} for {key}"
+                )
+            if tensor.shape[2] != expected_intermediate_size:
+                raise ValueError(
+                    f"Expected down projection input size {expected_intermediate_size}, "
+                    f"got {tensor.shape[2]} for {key}"
+                )
+
+            prefix = key[: -len("down_proj")]
+            for expert_idx, expert_down in enumerate(tensor.unbind(0)):
+                remapped[f"{prefix}{expert_idx}.down_proj.weight"] = expert_down
+        else:
+            remapped[key] = tensor
+
+    return remapped
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -969,5 +1023,6 @@ _WEIGHT_REMAPPER = {
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
+    "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
 }

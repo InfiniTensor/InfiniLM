@@ -197,6 +197,7 @@ class TestModel:
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        use_legacy_moe=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -240,6 +241,7 @@ class TestModel:
             kv_cache_dtype=cfg.kv_cache_dtype,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
+            use_legacy_moe=use_legacy_moe,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -442,6 +444,7 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        use_legacy_moe=cfg.use_legacy_moe,
     )
 
     # ---------------------------------------------------------------------------- #
