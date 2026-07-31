@@ -31,8 +31,8 @@ std::vector<int32_t> tensor_to_i32_vector(const infinicore::Tensor &tensor) {
 
 } // namespace
 
-Qwen35Model::Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         const infinicore::Device &device)
+Qwen35ModelBase::Qwen35ModelBase(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                 const infinicore::Device &device)
     : model_config_(model_config) {
     const auto &dtype{model_config->get_dtype()};
     nlohmann::json &config_json = model_config->get_config_json();
@@ -40,11 +40,16 @@ Qwen35Model::Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_co
     if (config_json.contains("vision_config") && !config_json["vision_config"].is_null()) {
         INFINICORE_NN_MODULE_INIT(visual, config_json["vision_config"], dtype, device);
     }
+}
+
+Qwen35Model::Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                         const infinicore::Device &device)
+    : Qwen35ModelBase(model_config, device) {
     INFINICORE_NN_MODULE_INIT(language_model, model_config, device);
 }
 
-void Qwen35Model::replace_image_embeddings(infinicore::Tensor &inputs_embeds,
-                                           const InfinilmModel::Input &input) const {
+void Qwen35ModelBase::replace_image_embeddings(infinicore::Tensor &inputs_embeds,
+                                               const InfinilmModel::Input &input) const {
     if (!input.pixel_values.has_value() || input.pixel_values->empty()) {
         return;
     }
@@ -116,7 +121,7 @@ infinicore::Tensor Qwen35Model::forward(const InfinilmModel::Input &input) const
     return language_model_->forward(input);
 }
 
-void Qwen35Model::reset_cache(const cache::CacheConfig *cache_config) {
+void Qwen35ModelBase::reset_cache(const cache::CacheConfig *cache_config) {
     if (nullptr == cache_config) {
         return;
     }

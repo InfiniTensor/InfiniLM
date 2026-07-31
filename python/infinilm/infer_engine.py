@@ -516,9 +516,13 @@ class InferEngine(_infinilm.InferEngine):
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
+                position_ids_list = (
+                    list(range(past_seq_len, past_seq_len + seq_len)) * batch_size
+                )
+                if self.model_type in ("qwen3_5", "qwen3_5_moe"):
+                    position_ids_list = [position_ids_list] * 3
                 position_ids = infinicore.from_list(
-                    list(range(past_seq_len, past_seq_len + seq_len)) * batch_size,
-                    dtype=infinicore.int64,
+                    position_ids_list, dtype=infinicore.int64
                 )
 
                 if iter == 0:
