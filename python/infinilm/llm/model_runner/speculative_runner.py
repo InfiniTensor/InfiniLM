@@ -20,7 +20,11 @@ class SpeculativeRunner:
         self.draft_model_engine = InferEngine(
             model_path=config.draft_model_path,
             device=device,
-            distributed_config=DistConfig(config.tensor_parallel_size),
+            distributed_config=(
+                DistConfig(tp_device_ids=config.tp_device_ids)
+                if config.tp_device_ids is not None
+                else DistConfig(config.tensor_parallel_size)
+            ),
             cache_config=draft_cache_config,
             enable_graph_compiling=config.enable_graph,
             attention_backend="default",

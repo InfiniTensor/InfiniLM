@@ -54,7 +54,7 @@ void PagedCompiler::compile() {
 
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
-            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I32, infinicore::context::getDevice());
+            input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());
@@ -165,6 +165,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return {nullptr, nullptr};
             }
             auto &graph_input = result->second.input;
+            if (graph_input.input_ids.value()->dtype() != input.input_ids.value()->dtype()) {
+                // Cross-device `Tensor::copy_from` does not convert dtypes.
+                // Falling back avoids interpreting CPU `I64` token IDs as
+                // packed GPU `I32` values.
+                return {nullptr, nullptr};
+            }
 
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());

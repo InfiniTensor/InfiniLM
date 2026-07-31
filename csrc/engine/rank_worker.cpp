@@ -284,6 +284,14 @@ RankWorker::Output RankWorker::get_output() {
     return output_;
 }
 
+void RankWorker::retire_completed_inputs() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    while (!inflight_input_refs_.empty()
+           && inflight_input_refs_.front().ready_event->query()) {
+        inflight_input_refs_.pop_front();
+    }
+}
+
 //------------------------------------------------------
 // thread_loop
 //------------------------------------------------------
@@ -436,11 +444,9 @@ void RankWorker::thread_loop() {
                         // batch periodically instead; at most one interval of
                         // already-completed references remains in the queue.
                         constexpr std::size_t kInputRetirePollInterval = 64;
-                        if (++input_retire_poll_count_ >=
-                            kInputRetirePollInterval) {
+                        if (++input_retire_poll_count_ >= kInputRetirePollInterval) {
                             input_retire_poll_count_ = 0;
-                            while (!inflight_input_refs_.empty() &&
-                                   inflight_input_refs_.front().ready_event->query()) {
+                            while (!inflight_input_refs_.empty() && inflight_input_refs_.front().ready_event->query()) {
                                 inflight_input_refs_.pop_front();
                             }
                         }
@@ -452,8 +458,7 @@ void RankWorker::thread_loop() {
                             infinicore::context::streamWaitEvent(
                                 infinicore::context::getStream(), local_args.wait_event->get());
                         }
-                        auto source_input_refs =
-                            std::make_shared<Input>(local_args);
+                        auto source_input_refs = std::make_shared<Input>(local_args);
                         std::shared_ptr<InfinilmModel::Input> model_args;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
@@ -534,13 +539,10 @@ void RankWorker::thread_loop() {
 
                             const bool sample_all_positions = local_args.sample_all_positions;
                             const size_t n_out = sample_all_positions
-                                                     ? static_cast<size_t>(input_offsets[n_req])
-                                                     : n_req;
-                            const auto output_dtype = sample_all_positions
-                                                          ? infinicore::DataType::I64
-                                                          : infinicore::DataType::I32;
+                                                   ? static_cast<size_t>(input_offsets[n_req])
+                                                   : n_req;
                             output_ids = infinicore::Tensor::empty(
-                                {n_out}, output_dtype, rank_info_.device);
+                                {n_out}, infinicore::DataType::I64, rank_info_.device);
 
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;

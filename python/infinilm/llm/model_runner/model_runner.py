@@ -1,4 +1,6 @@
 import logging
+import queue
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
@@ -42,6 +44,19 @@ class ModelRunnerOutput:
     kv_connector_output: KVConnectorOutput | None = None
 
 
+@dataclass
+class PendingModelOutput:
+    """GPU output whose host token has not been retired yet."""
+
+    scheduler_output: Any
+    sampled_tokens: Any = None
+    relay_tokens: Any = None
+    host_tokens: Any = None
+    host_ready: Any = None
+    ready: threading.Event = field(default_factory=threading.Event)
+    exception: BaseException | None = None
+
+
 class ModelRunner:
     def __init__(self, config: EngineConfig, initialize_processor: bool = True):
         self.config = config
@@ -50,6 +65,13 @@ class ModelRunner:
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
         self._init_device()
+
+        self._closed = False
+        self._relay_pools = {}
+        self._relay_buffer_indices = {}
+        self._forward_queue = None
+        self._forward_thread = None
+        self._async_token_handoff_enabled = False
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
@@ -67,21 +89,33 @@ class ModelRunner:
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
+        dist_config_kwargs = {
+            "moe_ep_backend": config.moe_ep_backend,
+            "moe_ep_size": config.moe_ep_size,
+            "pp_size": config.pipeline_parallel_size,
+            "pp_stage": config.pipeline_parallel_stage,
+            "master_addr": config.master_addr,
+            "master_port": config.master_port,
+        }
+        if self.tp_device_ids is not None:
+            distributed_config = DistConfig(
+                tp_device_ids=self.tp_device_ids,
+                **dist_config_kwargs,
+            )
+            logger.info("Using explicit TP device ids: %s", self.tp_device_ids)
+        else:
+            distributed_config = DistConfig(
+                config.tensor_parallel_size,
+                **dist_config_kwargs,
+            )
+
         # InferEngine creates the per-node TP communicator first. For PP it then
         # uses the short-lived C++ TCP rendezvous to bootstrap one global
         # InfiniCCL communicator spanning every (PP stage, TP rank) pair.
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
-            distributed_config=DistConfig(
-                config.tensor_parallel_size,
-                moe_ep_backend=config.moe_ep_backend,
-                moe_ep_size=config.moe_ep_size,
-                pp_size=config.pipeline_parallel_size,
-                pp_stage=config.pipeline_parallel_stage,
-                master_addr=config.master_addr,
-                master_port=config.master_port,
-            ),
+            distributed_config=distributed_config,
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
@@ -149,6 +183,58 @@ class ModelRunner:
 
             self.kv_connector.register_kv_caches(kv_caches)
 
+        self._configure_async_token_handoff()
+
+    def _async_token_handoff_unsupported_reasons(self) -> list[str]:
+        reasons = []
+        if self.config.pipeline_parallel_size != 1:
+            reasons.append("pipeline parallelism is not supported")
+        if self.config.cache_type != "paged":
+            reasons.append("paged KV cache is required")
+        if self.config.device != "cuda":
+            reasons.append("only the CUDA backend is currently validated")
+        if not self.config.enable_graph:
+            reasons.append("CUDA graph compilation is required")
+        if not getattr(self.processor, "supports_async_token_handoff", False):
+            reasons.append(
+                f"processor {type(self.processor).__name__} does not support GPU decode inputs"
+            )
+        if self.kv_connector is not None:
+            reasons.append("KV transfer connectors are not supported")
+        if self.speculative_runner is not None:
+            reasons.append("draft-model speculation is not supported")
+        if getattr(self.model_engine, "has_mamba_cache", False):
+            reasons.append("Mamba state caches are not supported")
+        return reasons
+
+    def _configure_async_token_handoff(self) -> None:
+        preference = getattr(self.config, "enable_async_token_handoff", None)
+        if preference is False:
+            logger.info("Async GPU token handoff disabled by configuration")
+            return
+
+        reasons = self._async_token_handoff_unsupported_reasons()
+        if reasons:
+            message = "; ".join(reasons)
+            if preference is True:
+                self.close()
+                raise ValueError(
+                    "Async GPU token handoff was explicitly enabled but is unavailable: "
+                    + message
+                )
+            logger.info("Async GPU token handoff auto-disabled: %s", message)
+            return
+
+        self._forward_queue = queue.Queue()
+        self._forward_thread = threading.Thread(
+            target=self._forward_submission_loop,
+            daemon=True,
+            name="InfiniLMForwardSubmit",
+        )
+        self._forward_thread.start()
+        self._async_token_handoff_enabled = True
+        logger.info("Async GPU token handoff enabled")
+
     @property
     def model_type(self):
         return self.model_engine.model_type
@@ -166,7 +252,11 @@ class ModelRunner:
                 f"Unsupported device: '{device_str}'. "
                 f"Supported devices: {supported_devices}"
             )
-        self.device = infinicore.device(device_str, 0)
+
+        self.tp_device_ids = self.config.tp_device_ids
+        device_index = self.tp_device_ids[0] if self.tp_device_ids else 0
+
+        self.device = infinicore.device(device_str, device_index)
 
         dtype_map = {
             "float32": infinicore.float32,
@@ -206,14 +296,170 @@ class ModelRunner:
             kv_connector_output=kv_connector_output,
         )
 
-    def _model_forward(self, scheduler_output):
-        # Build model inputs
-        model_input = self.processor.build_model_inputs(
+    def _build_model_input(self, scheduler_output, decode_input_ids=None):
+        return self.processor.build_model_inputs(
             scheduler_output,
             self.config.temperature,
             self.config.top_p,
             self.config.top_k,
+            decode_input_ids=decode_input_ids,
         )
+
+    def can_async_token_handoff(self, scheduler_output) -> bool:
+        """Return whether this step may use the stable paged-batch relay path."""
+        return bool(
+            self._async_token_handoff_enabled
+            and scheduler_output.num_requests > 0
+            and all(
+                not req.has_multimodal_inputs
+                and not req.sampling_params.stop
+                and not req.sampling_params.stop_token_ids
+                for req in scheduler_output.scheduled_requests
+            )
+        )
+
+    def _acquire_relay_buffer(self, num_requests):
+        pool = self._relay_pools.get(num_requests)
+        if pool is None:
+            pool = []
+            for _ in range(2):
+                relay = infinicore.empty(
+                    [num_requests],
+                    dtype=infinicore.int64,
+                    device=self.device,
+                )
+                host = infinicore.empty(
+                    [num_requests],
+                    dtype=infinicore.int64,
+                    device=infinicore.device("cpu", 0),
+                    pin_memory=True,
+                )
+                if not host.is_pinned():
+                    raise RuntimeError(
+                        "async token handoff requires pinned host output memory"
+                    )
+                pool.append((relay, host, infinicore.DeviceEvent(self.device)))
+            self._relay_pools[num_requests] = pool
+            self._relay_buffer_indices[num_requests] = 0
+
+        index = self._relay_buffer_indices[num_requests]
+        relay, host, host_ready = pool[index]
+        self._relay_buffer_indices[num_requests] = (index + 1) % len(pool)
+        return relay, host, host_ready
+
+    def _forward_submission_loop(self):
+        """Run pre-queued forwards back-to-back with minimal handoff latency."""
+        while True:
+            job = self._forward_queue.get()
+            if job is None:
+                self._forward_queue.task_done()
+                return
+
+            pending, model_input, predecessor, num_requests = job
+            try:
+                if predecessor is not None:
+                    predecessor.ready.wait()
+                    if predecessor.exception is not None:
+                        raise RuntimeError(
+                            "predecessor async forward failed"
+                        ) from predecessor.exception
+                    model_input["input_ids"] = predecessor.sampled_tokens.view(
+                        [1, num_requests]
+                    )
+
+                pending.sampled_tokens = self.model_engine.forward(**model_input)
+                # Queue the stable copy before this thread can start a newer
+                # forward and overwrite InferEngine.last_output_ids_.
+                self.model_engine.copy_last_output_to(pending.relay_tokens)
+                pending.host_tokens.copy_async_(pending.relay_tokens)
+                pending.host_ready.record()
+            except BaseException as exc:
+                pending.exception = exc
+            finally:
+                pending.ready.set()
+                self._forward_queue.task_done()
+
+    def launch_async_token_handoff(
+        self,
+        scheduler_output,
+        model_input=None,
+        predecessor=None,
+    ) -> PendingModelOutput:
+        """Queue a forward on the dedicated submission thread."""
+        if not self.can_async_token_handoff(scheduler_output):
+            raise RuntimeError("async token handoff is not supported for this step")
+
+        if model_input is None:
+            model_input = self._build_model_input(scheduler_output)
+
+        relay_tokens, host_tokens, host_ready = self._acquire_relay_buffer(
+            scheduler_output.num_requests
+        )
+        pending = PendingModelOutput(
+            scheduler_output=scheduler_output,
+            relay_tokens=relay_tokens,
+            host_tokens=host_tokens,
+            host_ready=host_ready,
+        )
+        self._forward_queue.put(
+            (
+                pending,
+                model_input,
+                predecessor,
+                scheduler_output.num_requests,
+            )
+        )
+        return pending
+
+    def prepare_decode_lookahead_input(
+        self,
+        lookahead_output,
+    ):
+        """Build the next decode metadata while the current GPU step is running."""
+        decode_input_ids = infinicore.from_list(
+            [[0] * lookahead_output.num_requests],
+            dtype=infinicore.int64,
+        )
+        return self._build_model_input(
+            lookahead_output,
+            decode_input_ids=decode_input_ids,
+        )
+
+    def finish_async_token_handoff(
+        self, pending: PendingModelOutput
+    ) -> ModelRunnerOutput:
+        """Retire one relay output on the host after its D2D copy is ordered."""
+        if pending.relay_tokens is None:
+            raise RuntimeError(
+                "async token handoff relay must be queued before a newer forward"
+            )
+
+        # The task returns only after the sampled tensor exists and its stable
+        # relay copy has been queued before any newer forward submission.
+        pending.ready.wait()
+        if pending.exception is not None:
+            raise pending.exception
+
+        # D2H was queued by the submission thread before the next graph. Wait
+        # only for this output event; DeviceEvent.synchronize releases the GIL.
+        pending.host_ready.synchronize()
+
+        sampled_tokens_list = pending.host_tokens.to_numpy().tolist()
+        return ModelRunnerOutput(
+            req_ids=[
+                req.request_id for req in pending.scheduler_output.scheduled_requests
+            ],
+            sampled_token_ids=sampled_tokens_list,
+            kv_connector_output=None,
+        )
+
+    def reset_async_token_handoff_state(self) -> None:
+        """Clear engine-owned output events after a speculative step is discarded."""
+        self.model_engine.reset_request_state()
+
+    def _model_forward(self, scheduler_output):
+        # Build model inputs
+        model_input = self._build_model_input(scheduler_output)
 
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
@@ -268,11 +514,19 @@ class ModelRunner:
             output.kv_connector_stats = self.kv_connector.get_kv_connector_stats()
 
     def close(self) -> None:
-        """Release resources held by the KV connector."""
+        """Drain the submission thread and release native engine resources."""
         if self._closed:
             return
-        if self.pipeline_control is not None:
-            self.pipeline_control.close()
-        if self.kv_connector is not None:
-            self.kv_connector.shutdown()
         self._closed = True
+        if self._forward_queue is not None:
+            self._forward_queue.join()
+            self._forward_queue.put(None)
+            self._forward_queue.join()
+        if self._forward_thread is not None:
+            self._forward_thread.join()
+        if getattr(self, "pipeline_control", None) is not None:
+            self.pipeline_control.close()
+        if getattr(self, "kv_connector", None) is not None:
+            self.kv_connector.shutdown()
+        if getattr(self, "model_engine", None) is not None:
+            self.model_engine.close()

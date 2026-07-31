@@ -14,6 +14,8 @@ DEFAULT_VIDEO_NUM_FRAMES = 8
 
 @register_processor("ernie4_5_moe_vl")
 class Ernie45VLProcessor(BasicLLMProcessor):
+    supports_async_token_handoff = False
+
     def __init__(self, model_dir_path: str):
         self.pixel_values_dtype = None
         self.im_patch_id = None

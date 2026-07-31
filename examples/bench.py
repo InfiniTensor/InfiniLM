@@ -189,6 +189,7 @@ class TestModel:
         num_draft_tokens=4,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
+        tp_device_ids=None,
         skip_load=False,
         cache_config=None,
         enable_graph=False,
@@ -205,6 +206,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.tp_device_ids = tp_device_ids
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -228,14 +230,23 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        创建模型,
         # ---------------------------------------------------------------------------- #
-        model = InferEngine(
-            model_path,
-            device=infini_device,
-            distributed_config=DistConfig(
+        distributed_config = (
+            DistConfig(
+                tp_device_ids=tp_device_ids,
+                moe_ep_backend=moe_ep_backend,
+                moe_ep_size=moe_ep_size,
+            )
+            if tp_device_ids is not None
+            else DistConfig(
                 tp,
                 moe_ep_backend=moe_ep_backend,
                 moe_ep_size=moe_ep_size,
-            ),
+            )
+        )
+        model = InferEngine(
+            model_path,
+            device=infini_device,
+            distributed_config=distributed_config,
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
             attention_backend=attn_backend,
@@ -307,6 +318,7 @@ class TestModel:
                 num_draft_tokens=self.num_draft_tokens,
                 device=self.device_str,
                 tensor_parallel_size=self.tp,
+                tp_device_ids=self.tp_device_ids,
                 cache_type="paged" if self.cache_config is not None else "static",
                 max_batch_size=batch_size,
                 max_tokens=output_len,
@@ -379,7 +391,8 @@ if __name__ == "__main__":
     # -------------------------------------------------------- #
     model_path = cfg.model
 
-    infini_device = infinicore.device(device_str, 0)
+    device_index = cfg.tp_device_ids[0] if cfg.tp_device_ids else 0
+    infini_device = infinicore.device(device_str, device_index)
 
     tp = cfg.tp
     dp = cfg.dp
@@ -437,6 +450,7 @@ if __name__ == "__main__":
         num_draft_tokens=cfg.num_draft_tokens,
         infini_device=infini_device,
         tp=tp,
+        tp_device_ids=cfg.tp_device_ids,
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,

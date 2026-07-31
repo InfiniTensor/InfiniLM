@@ -8,6 +8,8 @@ from .processor import InfinilmProcessor, register_processor
 
 @register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
+    supports_async_token_handoff = True
+
     def __init__(self, model_dir_path: str):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
@@ -75,13 +77,20 @@ class BasicLLMProcessor(InfinilmProcessor):
         **kwargs,
     ) -> dict:
         """Process a batch of data and return a dictionary of model inputs."""
+        decode_input_ids = kwargs.get("decode_input_ids")
         if isinstance(scheduler_output, StaticSchedulerOutput):
+            if decode_input_ids is not None:
+                raise ValueError("GPU decode input handoff requires paged scheduling")
             return self._build_model_input_from_static_scheduler_output(
                 scheduler_output, temperature, top_p, top_k
             )
         elif isinstance(scheduler_output, SchedulerOutput):
             return self._build_model_input_from_batch_scheduler_output(
-                scheduler_output, temperature, top_p, top_k
+                scheduler_output,
+                temperature,
+                top_p,
+                top_k,
+                decode_input_ids=decode_input_ids,
             )
         else:
             raise ValueError(
@@ -159,7 +168,12 @@ class BasicLLMProcessor(InfinilmProcessor):
         }
 
     def _build_model_input_from_batch_scheduler_output(
-        self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
+        self,
+        scheduler_output: SchedulerOutput,
+        temperature,
+        top_p,
+        top_k,
+        decode_input_ids=None,
     ) -> dict:
         """Construct model inputs for prefill or decode phase.
 
@@ -188,6 +202,24 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "build_model_inputs called with empty scheduled_requests"
             )
 
+        lookahead_states = (
+            getattr(scheduler_output, "decode_lookahead_states", None) or []
+        )
+        lookahead_by_request = {id(state.request): state for state in lookahead_states}
+        if decode_input_ids is not None:
+            if scheduler_output.is_prefill:
+                raise ValueError("GPU decode input cannot be used for prefill")
+            if len(lookahead_states) != len(scheduler_output.scheduled_requests):
+                raise ValueError(
+                    "GPU decode input requires lookahead state for every request"
+                )
+            expected_shape = [1, len(scheduler_output.scheduled_requests)]
+            if list(decode_input_ids.shape) != expected_shape:
+                raise ValueError(
+                    f"GPU decode input shape must be {expected_shape}, "
+                    f"got {list(decode_input_ids.shape)}"
+                )
+
         tokens = []
         seq_lens = []
         seq_offsets = [0]
@@ -198,7 +230,12 @@ class BasicLLMProcessor(InfinilmProcessor):
         cu_seqlens = [0]
 
         max_block_table_len = max(
-            len(req.block_table) for req in scheduler_output.scheduled_requests
+            len(
+                lookahead_by_request[id(req)].block_table
+                if id(req) in lookahead_by_request
+                else req.block_table
+            )
+            for req in scheduler_output.scheduled_requests
         )
         current_offset = 0
 
@@ -222,32 +259,53 @@ class BasicLLMProcessor(InfinilmProcessor):
                 position_ids.extend(range(num_cached, num_cached + compute_len))
 
             else:
-                # Decode phase
-                seq_len = req.get_total_length()
-                last_token = (
-                    req.generated_token_ids[-1]
-                    if req.generated_token_ids
-                    else req.prompt_token_ids[-1]
-                )
-                tokens.append(last_token)
+                lookahead_state = lookahead_by_request.get(id(req))
+                if lookahead_state is not None:
+                    # The sampled token remains on GPU. A placeholder keeps the
+                    # packed offsets identical; input_ids is replaced below.
+                    seq_len = lookahead_state.projected_total_length
+                    tokens.append(0)
+                    slot_mapping.extend(lookahead_state.slot_mapping)
+                    cached_lens.append(seq_len - 1)
+                else:
+                    # Established synchronous decode path.
+                    seq_len = req.get_total_length()
+                    last_token = (
+                        req.generated_token_ids[-1]
+                        if req.generated_token_ids
+                        else req.prompt_token_ids[-1]
+                    )
+                    tokens.append(last_token)
+                    slot_mapping.extend(req.slot_mapping)
+                    cached_lens.append(num_cached)
+
                 seq_lens.append(seq_len)
 
                 current_offset += 1
                 seq_offsets.append(current_offset)
 
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
                 position_ids.append(seq_len - 1)
 
             # Pad block_table to same length
-            padded_block_table = req.block_table + [-1] * (
-                max_block_table_len - len(req.block_table)
+            active_block_table = (
+                lookahead_by_request[id(req)].block_table
+                if id(req) in lookahead_by_request
+                else req.block_table
+            )
+            padded_block_table = active_block_table + [-1] * (
+                max_block_table_len - len(active_block_table)
             )
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
+        input_ids = (
+            decode_input_ids
+            if decode_input_ids is not None
+            else infinicore.from_list([tokens], dtype=infinicore.int64)
+        )
+
         return {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
+            "input_ids": input_ids,
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(
                 cached_lens, dtype=infinicore.int32

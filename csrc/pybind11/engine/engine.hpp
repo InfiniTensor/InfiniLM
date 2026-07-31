@@ -126,9 +126,7 @@ inline void bind_infer_engine(py::module &m) {
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 py::gil_scoped_release release;
-                return self.forward(input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
+                return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
         .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("reset_request_state", &InferEngine::reset_request_state, "Clear per-request relay state without resetting KV cache or recompiling graphs")

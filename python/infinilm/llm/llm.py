@@ -20,7 +20,10 @@ from infinilm.config.engine_config import EngineConfig
 from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.infer_engine import model_uses_mamba_cache, read_hf_config
 from infinilm.kv_connector import KVConnectorFactory, KVConnectorRole
-from infinilm.llm.model_runner.model_runner import ModelRunner
+from infinilm.llm.model_runner.model_runner import (
+    ModelRunner,
+    PendingModelOutput,
+)
 from infinilm.llm.request import (
     FinishReason,
     InferenceRequest,
@@ -121,6 +124,9 @@ class LLMEngine:
 
         self.cache_type = config.cache_type
 
+        self._inflight_model_output: Optional[PendingModelOutput] = None
+        self._async_token_handoff_batch_sizes: set[int] = set()
+
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_runner.eos_token_id or []
         if isinstance(self.eos_token_ids, int):
@@ -132,14 +138,121 @@ class LLMEngine:
             f"enable_graph={config.enable_graph}"
         )
 
+    def close(self) -> None:
+        """Drain pending submissions and release model-runner resources."""
+        self.model_runner.close()
+
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
-    def close(self):
-        self.model_runner.close()
-
     def step(self) -> tuple[bool, list[tuple]]:
+        """Run one inference step, using async GPU token handoff when safe."""
+        pending_model = self._inflight_model_output
+        self._inflight_model_output = None
+
+        if pending_model is None:
+            scheduler_output = self.scheduler.schedule()
+            if scheduler_output is None:
+                return False, []
+
+            if not self.model_runner.can_async_token_handoff(scheduler_output):
+                return self._step_synchronous(scheduler_output)
+
+            pending_model = self.model_runner.launch_async_token_handoff(
+                scheduler_output
+            )
+
+        scheduler_output = pending_model.scheduler_output
+        lookahead = None
+        lookahead_model_input = None
+        lookahead_committed = False
+
+        speculative_next = None
+        speculative_next_drained = False
+        if isinstance(self.scheduler, Scheduler):
+            try:
+                lookahead = self.scheduler.prepare_decode_lookahead(scheduler_output)
+                if lookahead is not None:
+                    lookahead_model_input = (
+                        self.model_runner.prepare_decode_lookahead_input(lookahead)
+                    )
+            except Exception as exc:
+                if lookahead is not None:
+                    self.scheduler.rollback_decode_lookahead(lookahead)
+                lookahead = None
+                lookahead_model_input = None
+                logger.warning(
+                    "Async token handoff lookahead preparation failed; "
+                    "falling back to the synchronous scheduler: %s",
+                    exc,
+                    exc_info=True,
+                )
+
+        if lookahead is not None:
+            # Launch the next GPU step before retiring the current token on the
+            # host. Stable decode keeps it; terminal or dynamic scheduling
+            # changes drain and discard it before rolling back the KV slot.
+            speculative_next = self.model_runner.launch_async_token_handoff(
+                lookahead,
+                model_input=lookahead_model_input,
+                predecessor=pending_model,
+            )
+
+        try:
+            runner_output = self.model_runner.finish_async_token_handoff(pending_model)
+            if isinstance(self.scheduler, Scheduler):
+                self.scheduler.finalize_executed_decode_lookahead(scheduler_output)
+            self.scheduler.update_from_output(runner_output)
+            pending = self._update_requests(
+                scheduler_output.scheduled_requests,
+                runner_output.sampled_token_ids,
+                complete_requests=lookahead is None,
+            )
+
+            if lookahead is None:
+                self.model_runner.reset_async_token_handoff_state()
+
+            if lookahead is not None:
+                if self.scheduler.decode_lookahead_still_valid(lookahead):
+                    self.scheduler.commit_decode_lookahead(lookahead)
+                    lookahead_committed = True
+                    self._inflight_model_output = speculative_next
+                    batch_size = lookahead.num_requests
+                    if batch_size not in self._async_token_handoff_batch_sizes:
+                        self._async_token_handoff_batch_sizes.add(batch_size)
+                        logger.info(
+                            "Async GPU token handoff fast path activated "
+                            "for stable paged batch=%s decode",
+                            batch_size,
+                        )
+                else:
+                    self.model_runner.finish_async_token_handoff(speculative_next)
+                    speculative_next_drained = True
+                    self.model_runner.reset_async_token_handoff_state()
+                    self.scheduler.rollback_decode_lookahead(lookahead)
+                    self.scheduler.complete_requests(
+                        scheduler_output.scheduled_requests
+                    )
+        except Exception:
+            if (
+                speculative_next is not None
+                and not speculative_next_drained
+                and not lookahead_committed
+            ):
+                try:
+                    self.model_runner.finish_async_token_handoff(speculative_next)
+                    self.model_runner.reset_async_token_handoff_state()
+                except Exception:
+                    logger.exception("Failed to drain speculative async token handoff")
+            if lookahead is not None and not lookahead_committed:
+                self.scheduler.rollback_decode_lookahead(lookahead)
+                self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+            raise
+
+        return True, pending
+
+    def _step_synchronous(self, scheduler_output) -> tuple[bool, list[tuple]]:
         """Run one inference step.
 
         Returns:
@@ -147,12 +260,7 @@ class LLMEngine:
             - did_work
             - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
         """
-        # Schedule the next unit of work, which may be model execution,
-        # connector control metadata, or both.
-        scheduler_output = self.scheduler.schedule()
-        if scheduler_output is None:
-            return False, []
-
+        # Execute model
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
@@ -178,6 +286,7 @@ class LLMEngine:
         self,
         requests: List[InferenceRequest],
         sampled_token_ids: list[int | list[int]],
+        complete_requests: bool = True,
     ) -> List[tuple]:
         """Apply sampled tokens and publish their target-model KV boundary."""
         if len(requests) != len(sampled_token_ids):
@@ -272,7 +381,8 @@ class LLMEngine:
             if post_output_computed_tokens > pre_output_computed_tokens:
                 self.scheduler.commit_computed_tokens(req, post_output_computed_tokens)
 
-        self.scheduler.complete_requests(requests)
+        if complete_requests:
+            self.scheduler.complete_requests(requests)
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
@@ -342,6 +452,7 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        tp_device_ids: Optional[List[int]] = None,
         pipeline_parallel_size: int = 1,
         pipeline_parallel_stage: int = 0,
         master_addr: str = "127.0.0.1",
@@ -372,6 +483,7 @@ class LLM:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            tp_device_ids: Optional explicit logical devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
@@ -393,6 +505,7 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            tp_device_ids=tp_device_ids,
             pipeline_parallel_size=pipeline_parallel_size,
             pipeline_parallel_stage=pipeline_parallel_stage,
             master_addr=master_addr,
@@ -567,6 +680,7 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        tp_device_ids: Optional[List[int]] = None,
         pipeline_parallel_size: int = 1,
         pipeline_parallel_stage: int = 0,
         master_addr: str = "127.0.0.1",
@@ -583,6 +697,7 @@ class AsyncLLMEngine:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        enable_async_token_handoff: Optional[bool] = None,
         attn_backend: str = "default",
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
@@ -597,6 +712,7 @@ class AsyncLLMEngine:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            tp_device_ids: Optional explicit logical devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
@@ -607,6 +723,9 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            enable_async_token_handoff: Async token handoff preference. `None`
+                automatically selects compatible paged NVIDIA decode paths;
+                `True` enables it and `False` disables it.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
@@ -621,6 +740,7 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            tp_device_ids=tp_device_ids,
             pipeline_parallel_size=pipeline_parallel_size,
             pipeline_parallel_stage=pipeline_parallel_stage,
             master_addr=master_addr,
@@ -637,6 +757,7 @@ class AsyncLLMEngine:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            enable_async_token_handoff=enable_async_token_handoff,
             attn_backend=attn_backend,
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
@@ -673,13 +794,10 @@ class AsyncLLMEngine:
 
     def stop(self):
         """Stop the background inference loop."""
-        if not self._running:
-            logger.warning("AsyncLLMEngine is not running")
-            return
-
         self._running = False
-        if self._step_thread:
-            self._step_thread.join(timeout=5)
+        if self._step_thread is not None:
+            self._step_thread.join()
+            self._step_thread = None
         self.engine.close()
         logger.info("AsyncLLMEngine stopped")
 

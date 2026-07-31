@@ -664,9 +664,7 @@ class InferEngine(_infinilm.InferEngine):
                 decode_latency = generation_end_time - decode_start_time
             decode_tokens = max(0, len(output_ids) - 1)
 
-            print(
-                f"\n\n\n Generation completed in {round(total_latency * 1000, 2)} ms"
-            )
+            print(f"\n\n\n Generation completed in {round(total_latency * 1000, 2)} ms")
             print(
                 f" Batchsize={initial_batch_size}  Per_Batch_Input_Len={initial_seqlen}  Per_Batch_New_Tokens={len(output_ids)}\n"
             )

@@ -1,4 +1,8 @@
 class InfinilmProcessor:
+    # Only processors that consume decode_input_ids without rebuilding token
+    # dependent metadata may opt into GPU token handoff.
+    supports_async_token_handoff = False
+
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
         raise NotImplementedError("ModelInputProcessor is not implemented yet")

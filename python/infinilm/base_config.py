@@ -67,6 +67,18 @@ class BaseConfig:
         self.node_rank = self.args.node_rank
         self.master_addr = self.args.master_addr
         self.master_port = self.args.master_port
+        self.tp_device_ids = self.args.tp_device_ids
+        if isinstance(self.tp_device_ids, int):
+            self.tp_device_ids = [self.tp_device_ids]
+        if self.tp_device_ids is not None:
+            if len(self.tp_device_ids) != self.tp:
+                self.parser.error(
+                    f"`--tp-device-ids` must contain exactly {self.tp} device IDs."
+                )
+            if len(set(self.tp_device_ids)) != len(self.tp_device_ids):
+                self.parser.error("`--tp-device-ids` must not contain duplicates.")
+            if any(device_id < 0 for device_id in self.tp_device_ids):
+                self.parser.error("`--tp-device-ids` must contain non-negative IDs.")
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
@@ -74,6 +86,11 @@ class BaseConfig:
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
+        self.enable_async_token_handoff = {
+            "auto": None,
+            "on": True,
+            "off": False,
+        }[self.args.async_token_handoff]
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
@@ -227,6 +244,15 @@ class BaseConfig:
             type=int,
             default=29500,
         )
+        self.parser.add_argument(
+            "--tp-device-ids",
+            type=parse_list,
+            default=None,
+            help=(
+                "Select explicit logical device IDs for tensor parallelism, "
+                "for example `--tp-device-ids=0,2`."
+            ),
+        )
         self.parser.add_argument("--dp", "--data-parallel-size", type=int, default=1)
         self.parser.add_argument(
             "--ep", "--expert-parallel-size", type=int, default=None
@@ -251,6 +277,24 @@ class BaseConfig:
             choices=["default", "paged-attn", "flash-attn"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
+        self.parser.add_argument(
+            "--async-token-handoff",
+            choices=["auto", "on", "off"],
+            default="auto",
+            help=(
+                "Select the GPU token relay mode. `auto` enables it only for "
+                "compatible paged NVIDIA decode paths, `on` requests it "
+                "explicitly, and `off` disables it (default: `auto`)."
+            ),
+        )
+        self.parser.add_argument(
+            "--enable-async-token-handoff",
+            dest="async_token_handoff",
+            action="store_const",
+            const="on",
+            default=argparse.SUPPRESS,
+            help=argparse.SUPPRESS,
+        )
         self.parser.add_argument(
             "--use-mla",
             action="store_true",

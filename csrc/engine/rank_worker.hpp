@@ -7,8 +7,8 @@
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
 #include "distributed/distributed.hpp"
-#include "rank_barrier.hpp"
 #include "infinicore/device_event.hpp"
+#include "rank_barrier.hpp"
 
 #include <any>
 #include <condition_variable>
@@ -145,6 +145,9 @@ public:
 
     // Thread-safe accessor for last output produced by RUN.
     Output get_output();
+
+    // Release completed asynchronous input references at request boundaries.
+    void retire_completed_inputs();
 
     std::string info() const;
 

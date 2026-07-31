@@ -9,6 +9,8 @@ from .processor import register_processor
 
 @register_processor("qwen3_next")
 class Qwen3NextProcessor(BasicLLMProcessor):
+    supports_async_token_handoff = False
+
     @override
     def build_model_inputs(
         self,

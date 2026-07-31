@@ -1,8 +1,10 @@
 import time
 from typing import Optional
+
 import infinicore
-from ..cache_utils import Cache, DynamicCache
 import numpy as np
+
+from ..cache_utils import Cache, DynamicCache
 
 
 def infini_to_ctype_dtype(infini_dtype):
