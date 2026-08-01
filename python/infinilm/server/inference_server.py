@@ -125,6 +125,7 @@ class InferenceServer:
         prefill_coalesce_ms: float = 2.0,
         max_num_batched_tokens: Optional[int] = None,
         max_num_mixed_prefill_tokens: Optional[int] = None,
+        enable_prefix_caching: bool = True,
     ):
         """Initialize inference server.
 
@@ -191,6 +192,7 @@ class InferenceServer:
             raise ValueError("prefill_coalesce_ms must be non-negative")
         self.admission_workers = admission_workers
         self.prefill_coalesce_ms = prefill_coalesce_ms
+        self.enable_prefix_caching = enable_prefix_caching
 
         self.engine: AsyncLLMEngine = None
         self._admission_executor: Optional[ThreadPoolExecutor] = None
@@ -239,6 +241,7 @@ class InferenceServer:
                     weight_load_mode=self.weight_load_mode,
                     kv_transfer_config=self.kv_transfer_config,
                     prefill_coalesce_ms=self.prefill_coalesce_ms,
+                    enable_prefix_caching=self.enable_prefix_caching,
                 )
                 self.engine.start()
                 logger.info(f"Engine initialized with model at {self.model_path}")
@@ -778,6 +781,7 @@ def main():
         kv_transfer_config=kv_transfer_config,
         admission_workers=cfg.admission_workers,
         prefill_coalesce_ms=cfg.prefill_coalesce_ms,
+        enable_prefix_caching=cfg.enable_prefix_caching,
     )
     server.start()
 
