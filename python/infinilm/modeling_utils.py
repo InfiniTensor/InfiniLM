@@ -144,8 +144,11 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
-            preserve_fp32 = k.endswith(".e_score_correction_bias")
+            # Router correction bias and quantization scales are consumed
+            # as FP32 by their registered InfiniCore parameters.
+            preserve_fp32 = k.endswith(
+                (".e_score_correction_bias", ".weight_scale", ".weight_scale_inv")
+            )
             if tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:

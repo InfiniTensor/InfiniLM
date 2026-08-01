@@ -264,7 +264,7 @@ class Scheduler:
 
             try:
                 req.block_table, new_slot = self.cache_manager.append_slot(
-                    req.block_table, req.get_total_length(), req.get_all_token_ids()
+                    req.block_table, req.get_total_length()
                 )
             except RuntimeError as e:
                 raise RuntimeError("No available cache blocks for new token") from e
@@ -362,10 +362,6 @@ class Scheduler:
                     num_new_tokens,
                     num_computed_tokens=num_computed_tokens,
                     cached_block_table=cached_block_table,
-                    blocks_blueprint=blocks_blueprint,
-                    delay_cache_blocks=(
-                        load_kv_async or num_tokens_this_step < num_new_tokens
-                    ),
                 )
 
                 if allocation is None:
