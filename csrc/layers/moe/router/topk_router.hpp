@@ -14,7 +14,7 @@ enum class TopKRouterBackend {
     Softmax,
     Sigmoid,
     FusedGate,
-    VllmTopK,
+    VendorTopK,
 };
 
 class TopKRouter : public infinicore::nn::Module {

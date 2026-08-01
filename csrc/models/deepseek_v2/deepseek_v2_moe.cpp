@@ -6,7 +6,7 @@
 #include "infinicore/ops/moe_argsort_bincount.hpp"
 #include "infinicore/ops/moe_expand_input.hpp"
 #include "infinicore/ops/moe_silu_and_mul_quant.hpp"
-#include "infinicore/ops/moe_sum_vllm.hpp"
+#include "infinicore/ops/moe_sum_vendor.hpp"
 #include "infinicore/ops/w16a16_group_gemm.hpp"
 
 #include <stdexcept>
@@ -113,7 +113,7 @@ infinicore::Tensor DeepseekV2Experts::forward(const infinicore::Tensor &hidden_s
 
     auto output = infinicore::Tensor::empty(
         {num_tokens, hidden_size_}, hidden_states->dtype(), hidden_states->device());
-    infinicore::op::moe_sum_vllm_(output,
+    infinicore::op::moe_sum_vendor_(output,
                                   expert_output->view({num_tokens, num_experts_per_tok_, hidden_size_}),
                                   top_k_weights,
                                   shared_output);

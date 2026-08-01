@@ -2,8 +2,8 @@
 
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cast.hpp"
-#include "infinicore/ops/grouped_topk_vllm.hpp"
-#include "infinicore/ops/moe_topk_vllm.hpp"
+#include "infinicore/ops/grouped_topk_vendor.hpp"
+#include "infinicore/ops/moe_topk_vendor.hpp"
 
 #include <stdexcept>
 #include <string>
@@ -21,8 +21,8 @@ TopKRouterBackend parse_router_backend(const std::string &backend) {
     if (backend == "fused_gate" || backend == "noaux_tc") {
         return TopKRouterBackend::FusedGate;
     }
-    if (backend == "vllm_topk") {
-        return TopKRouterBackend::VllmTopK;
+    if (backend == "vendor_topk") {
+        return TopKRouterBackend::VendorTopK;
     }
     throw std::runtime_error("Unsupported MoE router backend: " + backend);
 }
@@ -85,40 +85,40 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
         }
     }
 
-    if (router_backend_ == TopKRouterBackend::VllmTopK) {
+    if (router_backend_ == TopKRouterBackend::VendorTopK) {
         if (topk_method_ != "greedy" && topk_method_ != "noaux_tc") {
-            throw std::runtime_error("vllm_topk MoE router supports greedy or noaux_tc");
+            throw std::runtime_error("vendor_topk MoE router supports greedy or noaux_tc");
         }
         if (scoring_func_ != "softmax" && scoring_func_ != "sigmoid") {
-            throw std::runtime_error("vllm_topk MoE router supports softmax or sigmoid scoring");
+            throw std::runtime_error("vendor_topk MoE router supports softmax or sigmoid scoring");
         }
         if (moe_softcapping_ != 0.0f) {
-            throw std::runtime_error("vllm_topk MoE router does not support moe_softcapping");
+            throw std::runtime_error("vendor_topk MoE router does not support moe_softcapping");
         }
         if (topk_method_ == "noaux_tc") {
             if (!use_correction_bias_) {
-                throw std::runtime_error("vllm_topk noaux_tc requires correction bias");
+                throw std::runtime_error("vendor_topk noaux_tc requires correction bias");
             }
             if (num_expert_group_ == 0 || topk_group_ == 0) {
-                throw std::runtime_error("vllm_topk noaux_tc requires num_expert_group/n_group and topk_group");
+                throw std::runtime_error("vendor_topk noaux_tc requires num_expert_group/n_group and topk_group");
             }
             if (num_experts_ % num_expert_group_ != 0) {
-                throw std::runtime_error("vllm_topk noaux_tc requires num_experts divisible by num_expert_group");
+                throw std::runtime_error("vendor_topk noaux_tc requires num_experts divisible by num_expert_group");
             }
         } else {
             if ((num_expert_group_ != 0 && num_expert_group_ != 1)
                 || (topk_group_ != 0 && topk_group_ != 1)) {
-                throw std::runtime_error("vllm_topk greedy supports only a single expert group");
+                throw std::runtime_error("vendor_topk greedy supports only a single expert group");
             }
             if (routed_scaling_factor_ != 1.0f) {
-                throw std::runtime_error("vllm_topk greedy currently requires routed_scaling_factor=1");
+                throw std::runtime_error("vendor_topk greedy currently requires routed_scaling_factor=1");
             }
         }
     }
 }
 
 void TopKRouter::process_weights_after_loading() {
-    if (router_backend_ == TopKRouterBackend::VllmTopK && use_correction_bias_) {
+    if (router_backend_ == TopKRouterBackend::VendorTopK && use_correction_bias_) {
         runtime_correction_bias_ = infinicore::Tensor::empty({num_experts_}, weight_->dtype(), weight_->device());
         infinicore::op::cast_(runtime_correction_bias_, e_score_correction_bias_);
     }
@@ -165,12 +165,12 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const inf
             routed_scaling_factor_,
             apply_routed_scaling_factor_on_output_);
         break;
-    case TopKRouterBackend::VllmTopK: {
+    case TopKRouterBackend::VendorTopK: {
         if (topk_method_ == "noaux_tc") {
             if (!runtime_correction_bias_) {
-                throw std::runtime_error("vllm_topk correction bias was not prepared after weight loading");
+                throw std::runtime_error("vendor_topk correction bias was not prepared after weight loading");
             }
-            infinicore::op::grouped_topk_vllm_(router_scores,
+            infinicore::op::grouped_topk_vendor_(router_scores,
                                                router_indices,
                                                router_logits,
                                                num_expert_group_,
@@ -184,14 +184,14 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const inf
                 {ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
             const auto &bias = use_correction_bias_ ? runtime_correction_bias_ : infinicore::Tensor();
             if (scoring_func_ == "softmax") {
-                infinicore::op::moe_topk_softmax_vllm_(router_scores,
+                infinicore::op::moe_topk_softmax_vendor_(router_scores,
                                                        router_indices,
                                                        token_expert_indices,
                                                        router_logits,
                                                        norm_topk_prob_,
                                                        bias);
             } else {
-                infinicore::op::moe_topk_sigmoid_vllm_(router_scores,
+                infinicore::op::moe_topk_sigmoid_vendor_(router_scores,
                                                        router_indices,
                                                        token_expert_indices,
                                                        router_logits,

@@ -6,7 +6,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
-#include "infinicore/ops/distributed/p2p.hpp"
+#include "infinicore/ops/distributed/send_recv.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
@@ -190,14 +190,18 @@ void GlmModel::transfer_pipeline_state_(
     }
 
     if (is_source) {
-        infinicore::op::distributed::send_grouped(
-            pipeline_state, static_cast<int>(source_stage + 1), pp_comm_);
+        for (const auto &tensor : pipeline_state) {
+            infinicore::op::distributed::send(
+                tensor, static_cast<int>(source_stage + 1), pp_comm_);
+        }
         pipeline_send_lifetimes_.insert(
             pipeline_send_lifetimes_.end(),
             pipeline_state.begin(), pipeline_state.end());
     } else {
-        infinicore::op::distributed::recv_grouped_(
-            pipeline_state, static_cast<int>(source_stage), pp_comm_);
+        for (auto &tensor : pipeline_state) {
+            infinicore::op::distributed::recv_(
+                tensor, static_cast<int>(source_stage), pp_comm_);
+        }
         if (!infinicore::context::isGraphRecording()) {
             infinicore::context::syncStream();
         }
