@@ -222,7 +222,11 @@ def load_model_state_dict_by_file(
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
-    preserve_fp32_suffixes = (".e_score_correction_bias",)
+    preserve_fp32_suffixes = (
+        ".e_score_correction_bias",
+        ".weight_scale",
+        ".weight_scale_inv",
+    )
     if model_type == "kimi_k3":
         preserve_fp32_suffixes += (".A_log", ".dt_bias")
 
