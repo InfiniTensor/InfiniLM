@@ -5,6 +5,23 @@
 #include <spdlog/spdlog.h>
 
 namespace infinilm::engine {
+namespace {
+
+bool has_mamba_cache(
+    const infinilm::global_state::ForwardContext &forward_context) {
+    auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
+        for (const auto &state : state_vec) {
+            if (state) {
+                return true;
+            }
+        }
+        return false;
+    };
+    return has_state(forward_context.conv_state_vec)
+        || has_state(forward_context.ssm_state_vec);
+}
+
+} // namespace
 
 PagedCompiler::PagedCompiler(
     const std::shared_ptr<InfinilmModel> &model,
@@ -83,7 +100,28 @@ InfinilmModel::Input PagedCompiler::make_decode_input(
     // dummy forwards from modifying a live request's MLA/indexer KV caches.
     set_minus_one_device_async(input.slot_mapping.value());
 
-    infinilm::global_state::get_forward_context().attn_metadata = {
+    auto &forward_context =
+        infinilm::global_state::get_forward_context();
+    if (has_mamba_cache(forward_context)) {
+        input.mamba_init_state_indices = infinicore::Tensor::empty(
+            {b}, infinicore::DataType::I32, device);
+        input.mamba_final_state_indices = infinicore::Tensor::empty(
+            {b}, infinicore::DataType::I32, device);
+        std::vector<int32_t> init_state_indices_vec(b, 0);
+        std::vector<int32_t> final_state_indices_vec(b, 1);
+        infinicore::context::memcpyH2D(
+            input.mamba_init_state_indices.value()->data(),
+            init_state_indices_vec.data(),
+            b * sizeof(int32_t),
+            false);
+        infinicore::context::memcpyH2D(
+            input.mamba_final_state_indices.value()->data(),
+            final_state_indices_vec.data(),
+            b * sizeof(int32_t),
+            false);
+    }
+
+    forward_context.attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
@@ -92,6 +130,11 @@ InfinilmModel::Input PagedCompiler::make_decode_input(
         input.block_tables,
         input.slot_mapping,
         static_cast<int64_t>(block_per_req * block_size_),
+    };
+    forward_context.mamba_metadata = {
+        input.input_offsets,
+        input.mamba_init_state_indices,
+        input.mamba_final_state_indices,
     };
     return input;
 }
@@ -230,6 +273,15 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(
     const size_t batch_size = input.block_tables.value()->size(0);
     const size_t graph_batch_size = model_->decode_graph_batch_size(batch_size);
     const size_t block_per_req = input.block_tables.value()->size(1);
+    const bool input_has_mamba_indices =
+        input.mamba_init_state_indices.has_value()
+        && input.mamba_final_state_indices.has_value();
+
+    // Padding Mamba requests would write dummy final states into live cache
+    // rows. Keep the main-branch exact-batch graph contract for hybrid models.
+    if (input_has_mamba_indices && graph_batch_size != batch_size) {
+        return {nullptr, nullptr};
+    }
 
     // One input token per active request is the decode-only graph contract.
     // Prefill, mixed batches, oversized batches, and dynamic widths stay eager.
@@ -267,6 +319,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(
         return {nullptr, nullptr};
     }
     auto &graph_input = result->second.input;
+    const bool graph_has_mamba_indices =
+        graph_input.mamba_init_state_indices.has_value()
+        && graph_input.mamba_final_state_indices.has_value();
+    if (graph_has_mamba_indices != input_has_mamba_indices) {
+        return {nullptr, nullptr};
+    }
 
     const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
     if (block_per_req > compiled_block_per_req) {
@@ -287,6 +345,16 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(
         input.total_sequence_lengths.value(),
         0);
     copy_prefix(graph_input.request_ids.value(), input.request_ids.value(), 0);
+    if (graph_has_mamba_indices) {
+        copy_prefix(
+            graph_input.mamba_init_state_indices.value(),
+            input.mamba_init_state_indices.value(),
+            0);
+        copy_prefix(
+            graph_input.mamba_final_state_indices.value(),
+            input.mamba_final_state_indices.value(),
+            0);
+    }
 
     // Decode-only offsets are canonical [0, 1, ..., batch]. Keep the graph
     // bucket's preinitialized dummy suffix and update only the active prefix.
