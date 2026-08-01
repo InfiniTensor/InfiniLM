@@ -68,6 +68,25 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     )
 
 
+def _is_glm_base_inference_unused_weight(key: str, config: dict) -> bool:
+    """Weights intentionally outside the base 78-layer forward.
+
+    Layers at num_hidden_layers and above belong to the optional MTP
+    predictor. Base-model DSA indexer weights are loaded normally; only MTP
+    predictor layers remain outside this model. Keep this allowlist GLM-specific
+    so other model loaders remain strict.
+    """
+    if config.get("model_type") != "glm_moe_dsa":
+        return False
+    prefix = "model.layers."
+    if key.startswith(prefix):
+        rest = key[len(prefix) :]
+        layer = rest.split(".", 1)[0]
+        if layer.isdigit() and int(layer) >= int(config.get("num_hidden_layers", 0)):
+            return True
+    return False
+
+
 def check_parameters(model_keys: list, already_loaded_keys: list):
     model_keys = set(model_keys)
     already_loaded_keys = set(already_loaded_keys)
@@ -125,8 +144,11 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
-            preserve_fp32 = k.endswith(".e_score_correction_bias")
+            # Router correction bias and quantization scales are consumed
+            # as FP32 by their registered InfiniCore parameters.
+            preserve_fp32 = k.endswith(
+                (".e_score_correction_bias", ".weight_scale", ".weight_scale_inv")
+            )
             if tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
@@ -240,6 +262,13 @@ def load_model_state_dict_by_file(
             # Apply model-specific weight remapping
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
+
+            if model_type == "glm_moe_dsa":
+                model_param = {
+                    key: value
+                    for key, value in model_param.items()
+                    if not _is_glm_base_inference_unused_weight(key, model.hf_config)
+                }
 
             already_loaded_keys.extend(model_param.keys())
 

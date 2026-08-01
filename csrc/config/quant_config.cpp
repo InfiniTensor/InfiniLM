@@ -20,6 +20,10 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
+    } else if (quant_method == "glm_w8a8" || quant_method == "w8a8") {
+        return std::make_shared<infinilm::quantization::GlmW8A8>(quantization_config);
+    } else if (quant_method == "glm_w4a8" || quant_method == "w4a8") {
+        return std::make_shared<infinilm::quantization::GlmW4A8>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }

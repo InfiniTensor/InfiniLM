@@ -8,6 +8,7 @@ import infinicore
 import numpy as np
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
+from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.llm.llm import LLM
@@ -189,6 +190,7 @@ class TestModel:
         num_draft_tokens=4,
         infini_device=infinicore.device("cpu", 0),
         tp=1,
+        pp=1,
         skip_load=False,
         cache_config=None,
         enable_graph=False,
@@ -205,6 +207,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -233,6 +236,7 @@ class TestModel:
             device=infini_device,
             distributed_config=DistConfig(
                 tp,
+                pp_size=pp,
                 moe_ep_backend=moe_ep_backend,
                 moe_ep_size=moe_ep_size,
             ),
@@ -277,6 +281,7 @@ class TestModel:
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
+        self.pp = pp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
@@ -307,6 +312,7 @@ class TestModel:
                 num_draft_tokens=self.num_draft_tokens,
                 device=self.device_str,
                 tensor_parallel_size=self.tp,
+                pipeline_parallel_size=self.pp,
                 cache_type="paged" if self.cache_config is not None else "static",
                 max_batch_size=batch_size,
                 max_tokens=output_len,
@@ -373,7 +379,19 @@ if __name__ == "__main__":
 
     device_str = cfg.get_device_str(cfg.device)
 
-    _PAGED_KV_BLOCK_SIZE = cfg.block_size
+    runtime_config = EngineConfig(
+        model_path=cfg.model,
+        device=device_str,
+        tensor_parallel_size=cfg.tp,
+        cache_type="paged" if cfg.enable_paged_attn else "static",
+        block_size=cfg.block_size,
+        enable_graph=cfg.enable_graph,
+        attn_backend=cfg.attn,
+        use_mla=cfg.use_mla,
+        weight_load_mode=cfg.weight_load_mode,
+    )
+
+    _PAGED_KV_BLOCK_SIZE = runtime_config.block_size
     # -------------------------------------------------------- #
     #             解析参数
     # -------------------------------------------------------- #
@@ -382,11 +400,12 @@ if __name__ == "__main__":
     infini_device = infinicore.device(device_str, 0)
 
     tp = cfg.tp
+    pp = cfg.pp
     dp = cfg.dp
     moe_ep_backend, ep = configure_moe_ep_backend(
         tp, dp, cfg.ep, cfg.moe_ep_backend, model_path
     )
-    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  DP={dp}  EP={ep}")
+    print(f"MoE EP backend: {moe_ep_backend}  TP={tp}  PP={pp}  DP={dp}  EP={ep}")
 
     skip_load = cfg.skip_load
 
@@ -407,7 +426,7 @@ if __name__ == "__main__":
         output_len = [output_len]
 
     cases_dict = get_test_cases(
-        model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
+        model_path, batch_size, input_len, output_len, use_mla=runtime_config.use_mla
     )
     # -------------------------------------------------------- #
     #             测试
@@ -428,8 +447,10 @@ if __name__ == "__main__":
     else:
         cache_config = None
 
-    if enable_paged_attn and attn_backend == "default":
-        attn_backend = "paged-attn"
+    if enable_paged_attn:
+        attn_backend = runtime_config.attn_backend
+        if attn_backend == "default":
+            attn_backend = "paged-attn"
 
     test = TestModel(
         model_path,
@@ -437,11 +458,12 @@ if __name__ == "__main__":
         num_draft_tokens=cfg.num_draft_tokens,
         infini_device=infini_device,
         tp=tp,
+        pp=pp,
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
         attn_backend=attn_backend,
-        use_mla=cfg.use_mla,
+        use_mla=runtime_config.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
