@@ -73,7 +73,7 @@ create_deepseek_v2_model_config(std::shared_ptr<infinilm::config::ModelConfig> m
     json["partial_rotary_factor"] = static_cast<double>(rope_dim) / static_cast<double>(nope_dim + rope_dim);
     json["num_experts"] = json.value("n_routed_experts", 0);
     json["mlp_bias"] = false;
-    json["moe_router_backend"] = "vllm_topk";
+    json["moe_router_backend"] = "vendor_topk";
     if (!json.contains("attention_output_bias")) {
         json["attention_output_bias"] = json.value("attention_bias", false);
     }

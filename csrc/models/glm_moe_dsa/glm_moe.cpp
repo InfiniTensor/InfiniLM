@@ -3,11 +3,11 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cast.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
-#include "infinicore/ops/grouped_topk_vllm.hpp"
+#include "infinicore/ops/grouped_topk_vendor.hpp"
 #include "infinicore/ops/moe_argsort_bincount.hpp"
 #include "infinicore/ops/moe_expand_input.hpp"
 #include "infinicore/ops/moe_silu_and_mul_quant.hpp"
-#include "infinicore/ops/moe_sum_vllm.hpp"
+#include "infinicore/ops/moe_sum_vendor.hpp"
 #include "infinicore/ops/w4a8_group_gemm.hpp"
 #include <stdexcept>
 namespace infinilm::models::glm_moe_dsa {
@@ -33,7 +33,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> GlmTopKRouter::forward(const 
     auto logits = infinicore::op::linear(x, weight_, std::nullopt, 1);
     auto w = infinicore::Tensor::empty({x->size(0), top_k_}, infinicore::DataType::F32, x->device());
     auto ids = infinicore::Tensor::empty({x->size(0), top_k_}, infinicore::DataType::I32, x->device());
-    infinicore::op::grouped_topk_vllm_(w, ids, logits, num_expert_group_, topk_group_, renormalize_, routed_scaling_factor_, runtime_bias_, "sigmoid");
+    infinicore::op::grouped_topk_vendor_(w, ids, logits, num_expert_group_, topk_group_, renormalize_, routed_scaling_factor_, runtime_bias_, "sigmoid");
 
     return {w, ids};
 }
@@ -93,7 +93,7 @@ infinicore::Tensor GlmW4A8Experts::forward(const infinicore::Tensor &x,
     auto a3 = infinicore::Tensor::empty({total, hidden_}, x->dtype(), x->device());
     infinicore::op::w4a8_group_gemm_(a3, a2q, w2_, a2s, s2_, gc, sorted, std::nullopt, true, dec);
     auto out = infinicore::Tensor::empty({m, hidden_}, x->dtype(), x->device());
-    infinicore::op::moe_sum_vllm_(
+    infinicore::op::moe_sum_vendor_(
         out, a3->view({m, topk_, hidden_}), tw, shared_output);
     if (tp_ > 1 && comm_) {
         infinicore::op::distributed::allreduce_(out, out, INFINICCL_SUM, comm_);
