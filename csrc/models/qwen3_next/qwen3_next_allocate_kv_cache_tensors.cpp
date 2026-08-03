@@ -43,7 +43,16 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     conv_state_vec.reserve(num_hidden_layers);
     ssm_state_vec.reserve(num_hidden_layers);
 
+    size_t mamba_state_pool_size = 0;
     auto allocate_linear_attention_cache = [&](size_t layer_idx, size_t pool_size) {
+        if (mamba_state_pool_size == 0) {
+            mamba_state_pool_size = pool_size;
+        } else if (mamba_state_pool_size != pool_size) {
+            throw std::runtime_error(
+                "qwen3_next_allocate_cache_tensors: inconsistent mamba state pool size at layer "
+                + std::to_string(layer_idx));
+        }
+
         auto conv_state = cache::MambaCache::create_layer_conv_state(
             linear_key_head_dim,
             linear_value_head_dim,
@@ -141,7 +150,8 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     return AllocatedHybridCache{
         std::move(kv_cache_vec),
         std::move(conv_state_vec),
-        std::move(ssm_state_vec)};
+        std::move(ssm_state_vec),
+        mamba_state_pool_size};
 }
 
 } // namespace infinilm::models::qwen3_next

@@ -70,6 +70,9 @@ public:
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();
     }
+    const std::shared_ptr<infinilm::config::ModelConfig> &get_model_config() const {
+        return model_config_;
+    }
 
     void process_weights_after_loading();
     void reset_runtime_state() const;
