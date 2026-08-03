@@ -9,23 +9,6 @@
 
 namespace infinilm::models::qwen3_next {
 
-Qwen3NextForCausalLM::Qwen3NextForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                           const infinicore::Device &device) {
-    model_config_ = model_config;
-    size_t hidden_size = model_config->get<size_t>("hidden_size");
-    size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const auto &dtype{model_config->get_dtype()};
-
-    INFINICORE_NN_MODULE_INIT(model, model_config, device);
-    INFINICORE_NN_MODULE_INIT(lm_head, hidden_size, vocab_size, false, dtype, device);
-}
-
-infinilm::InfinilmModel::Output Qwen3NextForCausalLM::forward(const infinilm::InfinilmModel::Input &input) const {
-    auto hidden_states = model_->forward(input);
-    auto logits = lm_head_->forward(hidden_states);
-    return {logits};
-}
-
 void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     if (nullptr == cache_config) {
         InfinilmModel::reset_cache(nullptr);
