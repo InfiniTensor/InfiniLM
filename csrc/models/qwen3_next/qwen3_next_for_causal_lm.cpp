@@ -34,10 +34,7 @@ void Qwen3NextForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     cache_config_ = cache_config->unique_copy();
 
     auto &forward_context = infinilm::global_state::get_forward_context();
-    forward_context.kv_cache_vec.clear();
-    forward_context.conv_state_vec.clear();
-    forward_context.ssm_state_vec.clear();
-    forward_context.mamba_state_pool_size = 0;
+    forward_context.clear_model_caches();
 
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
 

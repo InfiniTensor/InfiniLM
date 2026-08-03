@@ -1,39 +1,11 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
-#include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
-#include "../qwen3_next/qwen3_next_for_causal_lm.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
-
-Qwen35ForCausalLM::Qwen35ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                     const infinicore::Device &device) {
-    model_config_ = model_config;
-    size_t hidden_size = model_config->get<size_t>("hidden_size");
-    size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const auto &dtype{model_config->get_dtype()};
-
-    INFINICORE_NN_MODULE_INIT(model, model_config, device);
-    INFINICORE_NN_MODULE_INIT(lm_head, hidden_size, vocab_size, false, dtype, device);
-}
-
-infinilm::InfinilmModel::Output Qwen35ForCausalLM::forward(const infinilm::InfinilmModel::Input &input) const {
-    auto hidden_states = model_->forward(input);
-    auto logits = lm_head_->forward(hidden_states);
-    return {logits};
-}
-
-void Qwen35ForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
-    if (cache_config == nullptr) {
-        cache_config_.reset();
-    } else {
-        cache_config_ = cache_config->unique_copy();
-    }
-    model_->reset_cache(cache_config);
-}
 
 std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     nlohmann::json &config_json = model_config->get_config_json();
