@@ -4,22 +4,14 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 namespace infinilm::engine {
 namespace {
 
 bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_context) {
-    auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
-        for (const auto &state : state_vec) {
-            if (state) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    return has_state(forward_context.conv_state_vec) || has_state(forward_context.ssm_state_vec);
+    return forward_context.mamba_state_pool_size > 0;
 }
 
 } // namespace
@@ -45,22 +37,22 @@ void PagedCompiler::compile() {
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
+        const auto &model_config = model_->get_model_config();
+        const size_t position_id_axes = model_config == nullptr
+                                          ? 1
+                                          : model_config->get_or<size_t>("position_id_axes", 1);
+        if (position_id_axes == 0) {
+            throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
+        }
         auto compile_batch_sizes = decode_batch_sizes_;
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         if (has_mamba_state) {
-            size_t max_mamba_batch_size = max_batch_size;
-            auto clamp_to_state_pool = [&max_mamba_batch_size](const std::vector<infinicore::Tensor> &state_vec) {
-                for (const auto &state : state_vec) {
-                    if (!state) {
-                        continue;
-                    }
-                    const size_t pool_size = state->size(0);
-                    const size_t usable_rows = pool_size > 0 ? pool_size - 1 : 0;
-                    max_mamba_batch_size = std::min(max_mamba_batch_size, usable_rows);
-                }
-            };
-            clamp_to_state_pool(forward_context.conv_state_vec);
-            clamp_to_state_pool(forward_context.ssm_state_vec);
+            if (forward_context.mamba_state_pool_size < 2) {
+                throw std::runtime_error(
+                    "PagedCompiler: mamba state pool must reserve row 0 and at least one request row");
+            }
+            const size_t max_mamba_batch_size = std::min(
+                max_batch_size, forward_context.mamba_state_pool_size - 1);
             compile_batch_sizes.erase(
                 std::remove_if(
                     compile_batch_sizes.begin(),
@@ -83,12 +75,12 @@ void PagedCompiler::compile() {
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
-            // Qwen3.5 hybrid models use three MRoPE axes even for text-only
-            // decode. Their scheduler supplies position_ids with shape [3, b].
-            // Other paged models continue to use the traditional [b] layout.
+            // Models declare their position-id axes explicitly. Single-axis
+            // models retain the traditional [b] layout.
             input.position_ids = infinicore::Tensor::empty(
-                has_mamba_state ? std::vector<size_t>{3, b}
-                                : std::vector<size_t>{b},
+                position_id_axes > 1
+                    ? std::vector<size_t>{position_id_axes, b}
+                    : std::vector<size_t>{b},
                 infinicore::DataType::I64,
                 infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());

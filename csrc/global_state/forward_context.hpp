@@ -62,6 +62,7 @@ struct ForwardContext {
     std::vector<infinicore::Tensor> kv_cache_vec;
     std::vector<infinicore::Tensor> conv_state_vec;
     std::vector<infinicore::Tensor> ssm_state_vec;
+    size_t mamba_state_pool_size{0};
 };
 
 void initialize_forward_context(ForwardContext &forward_context);

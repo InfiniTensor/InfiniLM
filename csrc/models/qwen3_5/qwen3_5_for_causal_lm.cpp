@@ -48,10 +48,21 @@ std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std:
             config_json["dtype"] = config_json["torch_dtype"];
         }
     }
+    if (!config_json.contains("position_id_axes")) {
+        size_t position_id_axes = 1;
+        if (config_json.contains("rope_parameters")
+            && config_json["rope_parameters"].is_object()) {
+            const auto &rope_parameters = config_json["rope_parameters"];
+            if (rope_parameters.contains("mrope_section")
+                && rope_parameters["mrope_section"].is_array()
+                && !rope_parameters["mrope_section"].empty()) {
+                position_id_axes = rope_parameters["mrope_section"].size();
+            }
+        }
+        config_json["position_id_axes"] = position_id_axes;
+    }
     if (!config_json.contains("rope_theta") && config_json.contains("rope_parameters") && config_json["rope_parameters"].is_object() && config_json["rope_parameters"].contains("rope_theta")) {
-        // TODO: This is only a temporary loader shim. Qwen3.6 uses mRoPE,
-        // which needs proper support in InfiniCore instead of treating it as
-        // plain RoPE through a top-level rope_theta.
+        // Normalize the nested HuggingFace field for the Qwen3.5 attention module.
         config_json["rope_theta"] = config_json["rope_parameters"]["rope_theta"];
     }
     if (!config_json.contains("partial_rotary_factor") && config_json.contains("rope_parameters") && config_json["rope_parameters"].is_object() && config_json["rope_parameters"].contains("partial_rotary_factor")) {

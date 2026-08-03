@@ -106,6 +106,27 @@ class GenerationConfig:
     stop_on_eos: bool = True
 
 
+def _infer_position_id_axes(hf_config: dict) -> int:
+    text_config = hf_config.get("text_config", hf_config)
+    if not isinstance(text_config, dict):
+        return 1
+
+    explicit_axes = text_config.get(
+        "position_id_axes", hf_config.get("position_id_axes")
+    )
+    if explicit_axes is not None:
+        axes = int(explicit_axes)
+        if axes < 1:
+            raise ValueError("position_id_axes must be positive")
+        return axes
+
+    rope_parameters = text_config.get("rope_parameters") or {}
+    mrope_section = rope_parameters.get("mrope_section")
+    if isinstance(mrope_section, (list, tuple)) and mrope_section:
+        return len(mrope_section)
+    return 1
+
+
 class InferEngine(_infinilm.InferEngine):
     def __init__(
         self,
@@ -125,6 +146,11 @@ class InferEngine(_infinilm.InferEngine):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
+        self.position_id_axes = _infer_position_id_axes(self.hf_config)
+        self.hf_config["position_id_axes"] = self.position_id_axes
+        text_config = self.hf_config.get("text_config")
+        if isinstance(text_config, dict):
+            text_config.setdefault("position_id_axes", self.position_id_axes)
 
         if device is None:
             device = infinicore.device()
@@ -519,8 +545,8 @@ class InferEngine(_infinilm.InferEngine):
                 position_ids_list = (
                     list(range(past_seq_len, past_seq_len + seq_len)) * batch_size
                 )
-                if self.model_type in ("qwen3_5", "qwen3_5_moe"):
-                    position_ids_list = [position_ids_list] * 3
+                if self.position_id_axes > 1:
+                    position_ids_list = [position_ids_list] * self.position_id_axes
                 position_ids = infinicore.from_list(
                     position_ids_list, dtype=infinicore.int64
                 )
