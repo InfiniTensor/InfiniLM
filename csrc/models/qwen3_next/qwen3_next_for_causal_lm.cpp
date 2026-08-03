@@ -1,11 +1,11 @@
 #include "qwen3_next_for_causal_lm.hpp"
 #include "../../cache/hybrid_cache.hpp"
+#include "../../config/hybrid_model_config.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <vector>
 
 namespace infinilm::models::qwen3_next {
 
@@ -51,21 +51,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
         throw std::runtime_error("infinilm::models::qwen3_next::create_qwen3_next_model_config: model_type is not qwen3_next");
     }
 
-    nlohmann::json &config_json = model_config->get_config_json();
-    if (!config_json.contains("layer_types")) {
-        size_t full_attention_interval = model_config->get<size_t>("full_attention_interval");
-        size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-        std::vector<std::string> layer_types;
-        layer_types.reserve(num_hidden_layers);
-        for (size_t i = 0; i < num_hidden_layers; i++) {
-            layer_types.push_back(bool((i + 1) % full_attention_interval) ? "linear_attention" : "full_attention");
-        }
-        config_json["layer_types"] = layer_types;
-    }
-
-    if (!config_json.contains("attention_bias")) {
-        config_json["attention_bias"] = false;
-    }
+    infinilm::config::prepare_hybrid_model_config(model_config);
     return model_config;
 }
 
