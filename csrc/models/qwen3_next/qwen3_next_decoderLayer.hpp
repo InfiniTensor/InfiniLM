@@ -1,38 +1,15 @@
 #pragma once
 
+#include "../../layers/causal_lm_templates/hybrid_decoder_layer.hpp"
 #include "qwen3_next_attention.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
 #include "qwen3_next_sparse_moe_block.hpp"
-#include <string>
-#include <tuple>
 
 namespace infinilm::models::qwen3_next {
 
-class Qwen3NextDecoderLayer : public infinicore::nn::Module {
-public:
-    Qwen3NextDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                          size_t layer_idx,
-                          const infinicore::Device &device);
-
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
-                                                               infinicore::Tensor &hidden_states,
-                                                               infinicore::Tensor &residual);
-
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               infinicore::Tensor &hidden_states);
-
-    size_t layer_idx() const { return layer_idx_; }
-
-protected:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(Qwen3NextAttention, self_attn);
-    INFINICORE_NN_MODULE(Qwen3NextGatedDeltaNet, linear_attn);
-    INFINICORE_NN_MODULE(Qwen3NextSparseMoeBlock, mlp);
-
-private:
-    size_t layer_idx_;
-    std::string layer_type_;
-};
+using Qwen3NextDecoderLayer = infinilm::layers::causal_lm_templates::HybridDecoderLayer<
+    Qwen3NextAttention,
+    Qwen3NextGatedDeltaNet,
+    Qwen3NextSparseMoeBlock>;
 
 } // namespace infinilm::models::qwen3_next
