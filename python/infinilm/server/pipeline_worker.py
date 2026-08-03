@@ -37,7 +37,7 @@ def run_worker(cfg: BaseConfig) -> None:
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         skip_load=cfg.skip_load,
-        skip_legacy_moe=cfg.skip_legacy_moe,
+        use_legacy_moe=cfg.use_legacy_moe,
     )
 
     runner = ModelRunner(config, initialize_processor=False)

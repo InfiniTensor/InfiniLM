@@ -55,6 +55,20 @@
     python examples/test_infer.py --device nvidia --model=/models/9G7B_MHA/ --backend=cpp --tp=4 --batch-size=16
     ```
 
+    - PP=2 示例：
+
+      在两个终端中分别启动 stage 0 和 stage 1。两个进程的模型、并行和缓存参数必须保持一致。
+
+      ```bash
+      # Terminal 1: stage 0 / coordinator (--node-rank=0)
+      CUDA_VISIBLE_DEVICES=0 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128
+
+      # Terminal 2: stage 1 / worker
+      CUDA_VISIBLE_DEVICES=1 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128
+      ```
+
+      跨节点运行时，每个节点的命令中的 `--master-addr` 和 `--master-port` 设置为 stage 0 节点的 IP 地址和通信端口。
+
 
   - 推理服务测试
     - 启动推理服务
@@ -75,6 +89,18 @@
     - 使用paged attention, flash attention后端，cuda graph等功能：
       ```bash
       CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-attn --enable-graph
+      ```
+
+    - PP=2 推理服务示例：
+
+      只有 stage 0 启动 HTTP 服务。两个进程使用相同的 PP rendezvous 地址和模型配置。
+
+      ```bash
+      # Terminal 1: stage 0 / coordinator and HTTP server
+      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128 --max-batch-size=32 --port=8000
+
+      # Terminal 2: stage 1 / worker
+      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128 --max-batch-size=32 --port=8000
       ```
     
     - 测试推理服务性能：
