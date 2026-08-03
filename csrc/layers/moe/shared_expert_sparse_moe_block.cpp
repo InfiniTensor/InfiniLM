@@ -16,11 +16,8 @@ SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
 SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     size_t layer_idx,
-    const infinicore::Device &device) {
-    INFINICORE_NN_MODULE_INIT(gate, model_config, device);
-    INFINICORE_NN_MODULE_INIT(experts, model_config, device);
-    INFINICORE_NN_MODULE_INIT(fused_moe, model_config, device, layer_idx);
-
+    const infinicore::Device &device)
+    : SparseMoeBlock(model_config, device, layer_idx) {
     auto shared_config_json = model_config->get_config_json();
     shared_config_json["intermediate_size"] = model_config->get<size_t>("shared_expert_intermediate_size");
     auto shared_config = std::make_shared<infinilm::config::ModelConfig>(
@@ -38,22 +35,7 @@ SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
 
 infinicore::Tensor SharedExpertSparseMoeBlock::forward(
     const infinicore::Tensor &hidden_states) const {
-    ASSERT(hidden_states->ndim() == 3);
-
-    const auto shape = hidden_states->shape();
-    auto hidden_states_reshaped = hidden_states->view(
-        {shape[0] * shape[1], shape[2]});
-
-    auto [routing_weights, selected_experts] = gate_->forward(hidden_states_reshaped);
-    TopKOutput topk_output{
-        routing_weights,
-        selected_experts,
-        infinicore::Tensor(),
-    };
-    auto routed_output = fused_moe_->forward(
-        hidden_states_reshaped,
-        topk_output,
-        experts_->moe_weights());
+    auto routed_output = SparseMoeBlock::forward(hidden_states);
 
     auto shared_output = shared_expert_->forward(hidden_states);
     auto shared_gate_input = hidden_states;
@@ -64,7 +46,7 @@ infinicore::Tensor SharedExpertSparseMoeBlock::forward(
         {shared_gate->stride(0), shared_gate->stride(1), 0});
     shared_output = infinicore::op::mul(shared_output, shared_gate);
 
-    return infinicore::op::add(routed_output->view(shape), shared_output);
+    return infinicore::op::add(routed_output, shared_output);
 }
 
 } // namespace infinilm::layers::moe

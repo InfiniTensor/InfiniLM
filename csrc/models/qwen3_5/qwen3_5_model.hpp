@@ -25,15 +25,31 @@ protected:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 };
 
-class Qwen35Model : public Qwen35ModelBase {
+template <typename LanguageModel>
+class Qwen35ModelTemplate : public Qwen35ModelBase {
 public:
-    Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                const infinicore::Device &device);
+    Qwen35ModelTemplate(
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const infinicore::Device &device)
+        : Qwen35ModelBase(model_config, device) {
+        language_model_ = this->register_module<LanguageModel>(
+            "language_model", model_config, device);
+    }
 
-    infinicore::Tensor forward(const InfinilmModel::Input &input) const;
+    infinicore::Tensor forward(const InfinilmModel::Input &input) const {
+        if (input.pixel_values.has_value() && !input.pixel_values->empty()) {
+            auto inputs_embeds = language_model_->embed_tokens(input.input_ids.value());
+            replace_image_embeddings(inputs_embeds, input);
+            return language_model_->forward_embeds(
+                inputs_embeds, input.position_ids.value());
+        }
+        return language_model_->forward(input);
+    }
 
 protected:
-    INFINICORE_NN_MODULE(Qwen35LanguageModel, language_model);
+    INFINICORE_NN_MODULE(LanguageModel, language_model);
 };
+
+using Qwen35Model = Qwen35ModelTemplate<Qwen35LanguageModel>;
 
 } // namespace infinilm::models::qwen3_5

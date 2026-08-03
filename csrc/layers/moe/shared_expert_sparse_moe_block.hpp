@@ -1,8 +1,6 @@
 #pragma once
 
-#include "experts/fused_moe_experts.hpp"
-#include "fused_moe.hpp"
-#include "router/topk_router.hpp"
+#include "sparse_moe_block.hpp"
 
 #include "../../config/model_config.hpp"
 #include "../linear/linear.hpp"
@@ -14,7 +12,7 @@
 
 namespace infinilm::layers::moe {
 
-class SharedExpertSparseMoeBlock : public infinicore::nn::Module {
+class SharedExpertSparseMoeBlock : public SparseMoeBlock {
 public:
     SharedExpertSparseMoeBlock(
         std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -27,9 +25,6 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_MODULE(TopKRouter, gate);
-    INFINICORE_NN_MODULE(FusedMoeExperts, experts);
-    INFINICORE_NN_MODULE(FusedMoE, fused_moe);
     INFINICORE_NN_MODULE(infinilm::layers::mlp::MLP, shared_expert);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, shared_expert_gate);
 };

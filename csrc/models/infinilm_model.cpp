@@ -7,16 +7,16 @@
 namespace infinilm {
 
 void InfinilmModel::reset_cache(const cache::CacheConfig *cache_config) {
+    auto &forward_context = global_state::get_forward_context();
+    forward_context.clear_model_caches();
     if (cache_config == nullptr) {
         cache_config_.reset();
-        global_state::get_forward_context().kv_cache_vec.clear();
         return;
     }
     cache_config_ = cache_config->unique_copy();
-    auto &kv_cache_vec = global_state::get_forward_context().kv_cache_vec;
-    kv_cache_vec.clear();
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
-    kv_cache_vec = std::move(default_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend));
+    forward_context.kv_cache_vec = std::move(
+        default_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend));
 }
 
 std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors(
