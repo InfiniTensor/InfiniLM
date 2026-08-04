@@ -36,9 +36,6 @@ public:
         ParamsMap &params,
         const infinicore::Device &device,
         int split_dim = -1) const override;
-
-private:
-    mutable infinicore::DataType output_dtype_{infinicore::DataType::BF16};
 };
 
 } // namespace infinilm::quantization

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import sys
 import time
@@ -27,6 +28,7 @@ DATA_TYPE_BYTES = {
 }
 
 _PAGED_KV_BLOCK_SIZE = 256
+_WARMUP_DECODE_LEN = 5
 
 # Maps model_type to its specific config key normalization rules.
 # Each rule maps a standard key (e.g., "head_dim") to either:
@@ -197,6 +199,19 @@ class TestModel:
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
+        pp=1,
+        pp_stage=0,
+        master_addr="127.0.0.1",
+        master_port=29500,
+        max_batch_size=1,
+        max_tokens=512,
+        num_blocks=512,
+        block_size=256,
+        max_cache_len=4096,
+        temperature=1.0,
+        top_p=1.0,
+        top_k=1,
+        use_legacy_moe=False,
         enable_prefix_caching=False,
     ) -> None:
         model_path = os.path.expanduser(model_path)
@@ -212,6 +227,10 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
         self.enable_prefix_caching = enable_prefix_caching
+        self.pp = pp
+
+        if pp > 1 and draft_model_path is not None:
+            raise ValueError("pipeline-parallel speculative decoding is not supported")
 
         if draft_model_path is not None:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
@@ -223,6 +242,45 @@ class TestModel:
             )
             self.input_ids_list = [self.tokenizer.encode(input_content)]
             self.model = None
+            return
+
+        if pp > 1:
+            self.model = LLM(
+                model_path=model_path,
+                device=self.device_str,
+                dtype=cfg.dtype,
+                tensor_parallel_size=tp,
+                pipeline_parallel_size=pp,
+                pipeline_parallel_stage=pp_stage,
+                master_addr=master_addr,
+                master_port=master_port,
+                moe_ep_backend=moe_ep_backend,
+                moe_ep_size=moe_ep_size,
+                cache_type="paged" if cache_config is not None else "static",
+                max_batch_size=max_batch_size,
+                max_tokens=max_tokens,
+                num_blocks=num_blocks,
+                block_size=block_size,
+                max_cache_len=max_cache_len,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                enable_graph=enable_graph,
+                attn_backend=attn_backend,
+                use_mla=use_mla,
+                weight_load_mode=weight_load_mode,
+                skip_load=skip_load,
+                use_legacy_moe=use_legacy_moe,
+                enable_prefix_caching=enable_prefix_caching,
+            )
+            self.processor = self.model.engine.processor
+            self.tokenizer = self.processor.get_tokenizer()
+            input_content = self.processor.apply_chat_template(
+                conversation=[{"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+                tokenize=False,
+            )
+            self.input_ids_list = [self.tokenizer.encode(input_content)]
             return
 
         # ---------------------------------------------------------------------------- #
@@ -284,6 +342,14 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
 
+    @property
+    def uses_pipeline_parallel(self) -> bool:
+        return self.pp > 1
+
+    def close(self) -> None:
+        if self.uses_pipeline_parallel:
+            self.model.close()
+
     def run(
         self,
         batch_size: int,
@@ -299,32 +365,40 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
-        if self.draft_model_path is not None:
+        if self.draft_model_path is not None or self.uses_pipeline_parallel:
             prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
-            llm = LLM(
-                model_path=self.model_path,
-                draft_model_path=self.draft_model_path,
-                num_draft_tokens=self.num_draft_tokens,
-                device=self.device_str,
-                tensor_parallel_size=self.tp,
-                cache_type="paged" if self.cache_config is not None else "static",
-                max_batch_size=batch_size,
-                max_tokens=output_len,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                enable_graph=self.enable_graph,
-                attn_backend=self.attn_backend,
-                use_mla=self.use_mla,
-                weight_load_mode=self.weight_load_mode,
-                skip_load=self.skip_load,
-                enable_prefix_caching=self.enable_prefix_caching,
-            )
+            llm = self.model
+            if self.draft_model_path is not None:
+                llm = LLM(
+                    model_path=self.model_path,
+                    draft_model_path=self.draft_model_path,
+                    num_draft_tokens=self.num_draft_tokens,
+                    device=self.device_str,
+                    tensor_parallel_size=self.tp,
+                    cache_type="paged" if self.cache_config is not None else "static",
+                    max_batch_size=batch_size,
+                    max_tokens=output_len,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    enable_graph=self.enable_graph,
+                    attn_backend=self.attn_backend,
+                    use_mla=self.use_mla,
+                    weight_load_mode=self.weight_load_mode,
+                    skip_load=self.skip_load,
+                    enable_prefix_caching=self.enable_prefix_caching,
+                )
             t1 = time.time()
             print("=================== start generate ====================")
             outputs = llm.generate(
                 prompts=[prompt_text] * batch_size,
-                sampling_params=SamplingParams(max_tokens=output_len, ignore_eos=True),
+                sampling_params=SamplingParams(
+                    max_tokens=output_len,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    ignore_eos=True,
+                ),
                 use_tqdm=False,
             )
             t2 = time.time()
@@ -370,6 +444,10 @@ class TestModel:
 
 if __name__ == "__main__":
     cfg = BaseConfig()
+    logging.basicConfig(
+        level=getattr(logging, cfg.log_level.upper(), logging.INFO),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     device_str = cfg.get_device_str(cfg.device)
 
@@ -409,6 +487,13 @@ if __name__ == "__main__":
     cases_dict = get_test_cases(
         model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
     )
+    max_benchmark_batch_size = max(
+        case["batch_size"] for case in cases_dict.values()
+    )
+    max_benchmark_tokens = max(case["output_len"] for case in cases_dict.values())
+    max_benchmark_cache_len = max(
+        case["input_len"] + case["output_len"] for case in cases_dict.values()
+    )
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
@@ -424,12 +509,43 @@ if __name__ == "__main__":
                 for _, c_ in cases_dict.items()
             ]
         )
+        if cfg.warmup:
+            warmup_case = next(iter(cases_dict.values()))
+            warmup_num_blocks = (
+                warmup_case["input_len"]
+                + _WARMUP_DECODE_LEN
+                + paged_kv_block_size
+                - 1
+            ) // paged_kv_block_size * warmup_case["batch_size"]
+            max_num_blocks = max(max_num_blocks, warmup_num_blocks)
         cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
     else:
         cache_config = None
 
     if enable_paged_attn and attn_backend == "default":
         attn_backend = "paged-attn"
+
+    if cfg.pp > 1:
+        cfg.max_batch_size = max_benchmark_batch_size
+        cfg.max_new_tokens = max(
+            max_benchmark_tokens,
+            _WARMUP_DECODE_LEN if cfg.warmup else 0,
+        )
+        cfg.max_cache_len = max(
+            max_benchmark_cache_len,
+            next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
+            if cfg.warmup
+            else 0,
+        )
+        cfg.attn = attn_backend
+        if enable_paged_attn:
+            cfg.num_blocks = max_num_blocks
+
+        if cfg.node_rank > 0:
+            from infinilm.server.pipeline_worker import run_worker
+
+            run_worker(cfg)
+            raise SystemExit(0)
 
     test = TestModel(
         model_path,
@@ -445,6 +561,27 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
+        pp=cfg.pp,
+        pp_stage=cfg.node_rank,
+        master_addr=cfg.master_addr,
+        master_port=cfg.master_port,
+        max_batch_size=max_benchmark_batch_size,
+        max_tokens=max(
+            max_benchmark_tokens,
+            _WARMUP_DECODE_LEN if cfg.warmup else 0,
+        ),
+        num_blocks=max_num_blocks if enable_paged_attn else cfg.num_blocks,
+        block_size=cfg.block_size,
+        max_cache_len=max(
+            max_benchmark_cache_len,
+            next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
+            if cfg.warmup
+            else 0,
+        ),
+        temperature=cfg.temperature,
+        top_p=cfg.top_p,
+        top_k=cfg.top_k,
+        use_legacy_moe=cfg.use_legacy_moe,
         enable_prefix_caching=False,
     )
 
@@ -458,28 +595,7 @@ if __name__ == "__main__":
         warmup_case = next(iter(cases_dict.values()))
         warmup_batch = warmup_case["batch_size"]
         warmup_input_len = warmup_case["input_len"]
-        warmup_decode_len = 5
-
-        if enable_paged_attn:
-            warmup_num_blocks = (
-                (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
-                // paged_kv_block_size
-            ) * warmup_batch
-            warmup_cache_config = PagedKVCacheConfig(
-                warmup_num_blocks, paged_kv_block_size
-            )
-        else:
-            warmup_cache_config = StaticKVCacheConfig(
-                max_batch_size=warmup_batch,
-                max_cache_len=warmup_input_len + warmup_decode_len,
-            )
-
-        test.model.reset_cache(warmup_cache_config)
-
-        warmup_prompt_ids = repeat_prompt(test.input_ids_list[0], warmup_input_len)
-        warmup_ids = [warmup_prompt_ids] * warmup_batch
-
-        input_ids_infini = infinicore.from_list(warmup_ids, dtype=infinicore.int64)
+        warmup_decode_len = _WARMUP_DECODE_LEN
 
         print(
             f"\033[93m[warmup] batch={warmup_batch}, input_len={warmup_input_len}, "
@@ -487,23 +603,57 @@ if __name__ == "__main__":
         )
         print("=================== warmup start ===================")
 
-        for _ in range(warmup_steps):
-            _ = test.model.generate(
-                input_ids_infini,
-                GenerationConfig(
-                    max_new_tokens=warmup_decode_len,  # decode kernel warmup
-                    temperature=cfg.temperature,
+        if test.uses_pipeline_parallel:
+            for _ in range(warmup_steps):
+                test.run(
+                    batch_size=warmup_batch,
+                    input_len=warmup_input_len,
+                    output_len=warmup_decode_len,
                     top_k=cfg.top_k,
                     top_p=cfg.top_p,
-                    stop_on_eos=False,
-                ),
-                _measure_and_log_time=False,
+                    temperature=cfg.temperature,
+                )
+        else:
+            if enable_paged_attn:
+                warmup_num_blocks = (
+                    (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
+                    // paged_kv_block_size
+                ) * warmup_batch
+                warmup_cache_config = PagedKVCacheConfig(
+                    warmup_num_blocks, paged_kv_block_size
+                )
+            else:
+                warmup_cache_config = StaticKVCacheConfig(
+                    max_batch_size=warmup_batch,
+                    max_cache_len=warmup_input_len + warmup_decode_len,
+                )
+
+            test.model.reset_cache(warmup_cache_config)
+            warmup_prompt_ids = repeat_prompt(
+                test.input_ids_list[0], warmup_input_len
             )
+            warmup_ids = [warmup_prompt_ids] * warmup_batch
+            input_ids_infini = infinicore.from_list(
+                warmup_ids, dtype=infinicore.int64
+            )
+
+            for _ in range(warmup_steps):
+                _ = test.model.generate(
+                    input_ids_infini,
+                    GenerationConfig(
+                        max_new_tokens=warmup_decode_len,
+                        temperature=cfg.temperature,
+                        top_k=cfg.top_k,
+                        top_p=cfg.top_p,
+                        stop_on_eos=False,
+                    ),
+                    _measure_and_log_time=False,
+                )
 
         print("=================== warmup done ====================")
 
         # reset cache back to benchmark config
-        if cache_config is not None:
+        if cache_config is not None and not test.uses_pipeline_parallel:
             test.model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
@@ -517,7 +667,7 @@ if __name__ == "__main__":
         input_len = case["input_len"]
         output_len = case["output_len"]
 
-        if not enable_paged_attn:
+        if not test.uses_pipeline_parallel and not enable_paged_attn:
             # reset cache if static kvcache is used
             initial_capacity = input_len + output_len
             test.model.reset_cache(
@@ -535,3 +685,5 @@ if __name__ == "__main__":
             top_p=cfg.top_p,
             temperature=cfg.temperature,
         )
+
+    test.close()

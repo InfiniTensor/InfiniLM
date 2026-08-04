@@ -53,6 +53,7 @@ def _normalize_videonsa_config(config_dict):
 def model_uses_mamba_cache(config: dict) -> bool:
     llm_config = config.get("text_config", config)
     layer_types = llm_config.get("layer_types") or []
+    linear_attn_config = llm_config.get("linear_attn_config") or {}
     return (
         config.get("model_type") == "mamba"
         or llm_config.get("model_type") == "mamba"
@@ -65,6 +66,7 @@ def model_uses_mamba_cache(config: dict) -> bool:
                 "linear_num_value_heads",
             )
         )
+        or bool(linear_attn_config.get("kda_layers"))
     )
 
 

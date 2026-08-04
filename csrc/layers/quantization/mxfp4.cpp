@@ -1,8 +1,6 @@
 #include "mxfp4.hpp"
 
-#include "none_quantization.hpp"
-
-#include <infinicore/ops/mxfp4_dequantize.hpp>
+#include <infinicore/ops/linear_mxfp4.hpp>
 
 #include <optional>
 #include <stdexcept>
@@ -18,8 +16,6 @@ std::vector<ParamDescriptor> MXFP4::get_param_layout(
     if (in_features % 32 != 0) {
         throw std::runtime_error("MXFP4: in_features must be divisible by 32");
     }
-    output_dtype_ = dtype;
-
     std::vector<ParamDescriptor> descs;
     descs.push_back({"weight", {out_features, in_features / 2}, infinicore::DataType::U8, split_dim, tp_rank, tp_size});
     descs.push_back({"weight_scale", {out_features, in_features / 32}, infinicore::DataType::U8, split_dim, tp_rank, tp_size});
@@ -30,12 +26,20 @@ std::vector<ParamDescriptor> MXFP4::get_param_layout(
 }
 
 infinicore::Tensor MXFP4::forward(
-    const ParamsMap &,
-    const infinicore::Tensor &,
-    bool,
-    float) const {
-    throw std::runtime_error(
-        "MXFP4: weights must be processed before the first forward pass");
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float alpha) const {
+    std::optional<infinicore::Tensor> bias = std::nullopt;
+    if (has_bias) {
+        bias = params.at("bias");
+    }
+    return infinicore::op::linear_mxfp4(
+        input->contiguous(),
+        params.at("weight"),
+        params.at("weight_scale"),
+        bias,
+        alpha);
 }
 
 std::vector<SplitParam> MXFP4::split_params(
@@ -77,11 +81,7 @@ std::shared_ptr<BaseQuantization> MXFP4::process_weights_after_loading(
         throw std::runtime_error(
             "MXFP4: post-load processing requires weight and weight_scale");
     }
-    auto dequantized = infinicore::op::mxfp4_dequantize(
-        weight_it->second, scale_it->second, output_dtype_);
-    params["weight"] = std::move(dequantized);
-    params.erase("weight_scale");
-    return std::make_shared<NoneQuantization>();
+    return nullptr;
 }
 
 } // namespace infinilm::quantization
