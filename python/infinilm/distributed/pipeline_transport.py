@@ -206,6 +206,17 @@ class PipelineControlServer:
                     + response.get("error", "unknown error")
                 )
 
+    def abort(self) -> None:
+        """Close the control plane immediately after an unrecoverable failure."""
+        for connection in self._connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            finally:
+                connection.close()
+        self._connections.clear()
+
     def close(self) -> None:
         for connection in self._connections:
             try:

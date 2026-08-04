@@ -227,10 +227,10 @@ class ModelRunner:
             sampled_tokens = self.model_engine.forward(**model_input)
         except BaseException:
             if self.pipeline_control is not None:
-                try:
-                    self.pipeline_control.wait_forward()
-                except BaseException:
-                    logger.exception("pipeline worker also failed during forward")
+                # A downstream stage may already be blocked waiting for an
+                # activation that this stage failed to produce. Waiting for its
+                # acknowledgement here would deadlock the coordinator.
+                self.pipeline_control.abort()
             raise
         if self.pipeline_control is not None:
             self.pipeline_control.wait_forward()
