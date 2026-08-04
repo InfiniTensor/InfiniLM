@@ -1,23 +1,23 @@
-#include "shared_expert_sparse_moe_block.hpp"
+#include "qwen3_next_sparse_moe_block.hpp"
 
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/mul.hpp"
 
 #include <utility>
 
-namespace infinilm::layers::moe {
+namespace infinilm::models::qwen3_next {
 
-SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
+Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const infinicore::Device &device)
-    : SharedExpertSparseMoeBlock(model_config, 0, device) {
+    : Qwen3NextSparseMoeBlock(model_config, 0, device) {
 }
 
-SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
+Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     size_t layer_idx,
     const infinicore::Device &device)
-    : SparseMoeBlock(model_config, device, layer_idx) {
+    : infinilm::layers::moe::SparseMoeBlock(model_config, device, layer_idx) {
     auto shared_config_json = model_config->get_config_json();
     shared_config_json["intermediate_size"] = model_config->get<size_t>("shared_expert_intermediate_size");
     auto shared_config = std::make_shared<infinilm::config::ModelConfig>(
@@ -33,9 +33,9 @@ SharedExpertSparseMoeBlock::SharedExpertSparseMoeBlock(
         device);
 }
 
-infinicore::Tensor SharedExpertSparseMoeBlock::forward(
+infinicore::Tensor Qwen3NextSparseMoeBlock::forward(
     const infinicore::Tensor &hidden_states) const {
-    auto routed_output = SparseMoeBlock::forward(hidden_states);
+    auto routed_output = infinilm::layers::moe::SparseMoeBlock::forward(hidden_states);
 
     auto shared_output = shared_expert_->forward(hidden_states);
     auto shared_gate_input = hidden_states;
@@ -49,4 +49,4 @@ infinicore::Tensor SharedExpertSparseMoeBlock::forward(
     return infinicore::op::add(routed_output, shared_output);
 }
 
-} // namespace infinilm::layers::moe
+} // namespace infinilm::models::qwen3_next
