@@ -139,6 +139,7 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_backend="disabled",
         moe_ep_size=1,
         use_legacy_moe=False,
+        pre_transpose=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
@@ -175,6 +176,7 @@ class InferEngine(_infinilm.InferEngine):
             ),
             use_mla,
             weight_load_mode,
+            pre_transpose,
         )
         self.use_cache = False
 

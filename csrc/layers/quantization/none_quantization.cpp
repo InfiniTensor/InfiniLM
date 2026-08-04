@@ -1,4 +1,5 @@
 #include "none_quantization.hpp"
+#include "../../global_state/global_state.hpp"
 #include "infinicore/ops/linear.hpp"
 #include <optional>
 
@@ -35,6 +36,11 @@ infinicore::Tensor NoneQuantization::forward(
         bias_opt = params.at("bias");
     }
 
+    // Ascend path: weight was pre-packed to [IC, OC] in process_weights_after_loading.
+    // Use linear_packed to skip the runtime permute({1,0}).
+    if (weight_prepacked_) {
+        return infinicore::op::linear_packed(input_contiguous, weight, bias_opt, alpha);
+    }
     return infinicore::op::linear(input_contiguous->contiguous(), weight->contiguous(), bias_opt, alpha);
 }
 
@@ -61,6 +67,34 @@ std::vector<SplitParam> NoneQuantization::split_params(
         }
     }
     return result;
+}
+
+std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loading(
+    ParamsMap &params,
+    const infinicore::Device &device,
+    int /*split_dim*/) const {
+
+    // Controlled by --pre-transpose CLI flag, default off.
+    if (!global_state::get_infinilm_config().pre_transpose) {
+        return nullptr;
+    }
+
+    auto weight_it = params.find("weight");
+    if (weight_it != params.end()) {
+        // Transpose weight from [OC, IC] to [IC, OC] once.
+        // contiguous() materializes the transposed layout so that
+        // subsequent forwards can feed it directly to GEMM.
+        params["weight"] = weight_it->second->permute({1, 0})->contiguous();
+
+        // Mark as pre-packed so forward() uses linear_packed.
+        weight_prepacked_ = true;
+    }
+
+    // Must return non-null so that BaseLinear::process_weights_after_loading
+    // writes the modified params back into parameters_.
+    // Returning shared_from_this() triggers the "quantization changed" path
+    // which calls parameters_.clear() + re-insert from params.
+    return std::const_pointer_cast<BaseQuantization>(shared_from_this());
 }
 
 } // namespace infinilm::quantization

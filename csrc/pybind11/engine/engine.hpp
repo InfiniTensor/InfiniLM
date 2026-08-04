@@ -79,7 +79,8 @@ inline void bind_infer_engine(py::module &m) {
                           const std::string &attention_backend,
                           std::optional<infinicore::DataType> kv_cache_dtype,
                           bool use_mla,
-                          const std::string &weight_load_mode) {
+                          const std::string &weight_load_mode,
+                          bool pre_transpose) {
                  return std::make_shared<InferEngine>(
                      config_str,
                      dist,
@@ -89,7 +90,8 @@ inline void bind_infer_engine(py::module &m) {
                      infinilm::backends::parse_attention_backend(attention_backend),
                      kv_cache_dtype,
                      use_mla,
-                     weight_load_mode);
+                     weight_load_mode,
+                     pre_transpose);
              }),
              py::arg("config_str"),
              py::arg("distributed_config"),
@@ -99,7 +101,8 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("attention_backend") = "default",
              py::arg("kv_cache_dtype") = py::none(),
              py::arg("use_mla") = false,
-             py::arg("weight_load_mode") = "async")
+             py::arg("weight_load_mode") = "async",
+             py::arg("pre_transpose") = false)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")

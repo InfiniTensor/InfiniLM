@@ -19,7 +19,8 @@ InferEngine::InferEngine(
     backends::AttentionBackend attention_backend,
     std::optional<infinicore::DataType> kv_cache_dtype,
     bool use_mla,
-    const std::string &weight_load_mode)
+    const std::string &weight_load_mode,
+    bool pre_transpose)
     : communication_group_(distributed_config, device_type),
       attention_backend_(attention_backend),
       weight_load_mode_(weight_load_mode),
@@ -38,7 +39,8 @@ InferEngine::InferEngine(
         this->model_config_,
         use_mla,
         distributed_config.moe_ep_backend,
-        distributed_config.moe_ep_size);
+        distributed_config.moe_ep_size,
+        pre_transpose);
 
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {

@@ -195,6 +195,7 @@ class TestModel:
         attn_backend="default",
         use_mla=False,
         weight_load_mode="async",
+        pre_transpose=False,
         moe_ep_backend="disabled",
         moe_ep_size=1,
         enable_prefix_caching=False,
@@ -242,6 +243,7 @@ class TestModel:
             kv_cache_dtype=cfg.kv_cache_dtype,
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
+            pre_transpose=pre_transpose,
         )
 
         # ---------------------------------------------------------------------------- #
@@ -443,6 +445,7 @@ if __name__ == "__main__":
         attn_backend=attn_backend,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
+        pre_transpose=cfg.pre_transpose,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         enable_prefix_caching=False,

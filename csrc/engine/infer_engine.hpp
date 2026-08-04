@@ -32,7 +32,8 @@ public:
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,
         std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt,
         bool use_mla = false,
-        const std::string &weight_load_mode = "async");
+        const std::string &weight_load_mode = "async",
+        bool pre_transpose = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);

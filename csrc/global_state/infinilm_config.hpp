@@ -20,11 +20,13 @@ public:
                    const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
                    bool use_mla = false,
                    std::string moe_ep_backend = "disabled",
-                   size_t moe_ep_size = 1)
+                   size_t moe_ep_size = 1,
+                   bool pre_transpose = false)
         : attention_backend(backend),
           use_mla(use_mla),
           moe_ep_backend(std::move(moe_ep_backend)),
           moe_ep_size(moe_ep_size),
+          pre_transpose(pre_transpose),
           model_config(model_config) {}
 
 public:
@@ -32,6 +34,7 @@ public:
     bool use_mla{false};
     std::string moe_ep_backend{"disabled"};
     size_t moe_ep_size{1};
+    bool pre_transpose{false};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
 };
 
