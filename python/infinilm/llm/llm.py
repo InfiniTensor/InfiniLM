@@ -50,6 +50,12 @@ class LLMEngine:
                 "--disable-prefix-caching."
             )
 
+        if config.pipeline_parallel_size > 1 and config.pipeline_parallel_stage != 0:
+            raise ValueError(
+                "LLMEngine can only run pipeline stage 0; launch non-host nodes "
+                "with inference_server.py --node-rank=N"
+            )
+
         self.model_runner = ModelRunner(config)
 
         self.device = self.model_runner.device
@@ -129,6 +135,9 @@ class LLMEngine:
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
+
+    def close(self):
+        self.model_runner.close()
 
     def step(self) -> tuple[bool, list[tuple]]:
         """Run one inference step.
@@ -333,6 +342,10 @@ class LLM:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
+        pipeline_parallel_stage: int = 0,
+        master_addr: str = "127.0.0.1",
+        master_port: int = 29500,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         cache_type: str = "paged",
@@ -380,6 +393,10 @@ class LLM:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
+            pipeline_parallel_stage=pipeline_parallel_stage,
+            master_addr=master_addr,
+            master_port=master_port,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
@@ -401,6 +418,9 @@ class LLM:
         )
         self.engine = LLMEngine(config)
         self.config = config
+
+    def close(self):
+        self.engine.close()
 
     def generate(
         self,
@@ -547,6 +567,10 @@ class AsyncLLMEngine:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        pipeline_parallel_size: int = 1,
+        pipeline_parallel_stage: int = 0,
+        master_addr: str = "127.0.0.1",
+        master_port: int = 29500,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
         cache_type: str = "paged",
@@ -597,6 +621,10 @@ class AsyncLLMEngine:
             device=device,
             dtype=dtype,
             tensor_parallel_size=tensor_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
+            pipeline_parallel_stage=pipeline_parallel_stage,
+            master_addr=master_addr,
+            master_port=master_port,
             moe_ep_backend=moe_ep_backend,
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
@@ -652,6 +680,7 @@ class AsyncLLMEngine:
         self._running = False
         if self._step_thread:
             self._step_thread.join(timeout=5)
+        self.engine.close()
         logger.info("AsyncLLMEngine stopped")
 
     def add_aborted_req(

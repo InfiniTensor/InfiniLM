@@ -21,6 +21,14 @@ inline void bind_dist_config(py::module &m) {
                        "MoE expert-parallel backend")
         .def_readwrite("moe_ep_size", &DistConfig::moe_ep_size,
                        "MoE expert-parallel size")
+        .def_readwrite("pp_size", &DistConfig::pp_size,
+                       "Pipeline parallel size")
+        .def_readwrite("pp_stage", &DistConfig::pp_stage,
+                       "Pipeline parallel stage index for this engine")
+        .def_readwrite("master_addr", &DistConfig::master_addr,
+                       "Address used to bootstrap distributed communication")
+        .def_readwrite("master_port", &DistConfig::master_port,
+                       "TCP port used to bootstrap distributed communication")
         .def("__repr__", [](const DistConfig &cfg) {
             return std::string(cfg);
         })
@@ -83,9 +91,9 @@ inline void bind_infer_engine(py::module &m) {
                      use_mla,
                      weight_load_mode);
              }),
-             py::arg("config_str") = "",
-             py::arg("distributed_config") = distributed::DistConfig(),
-             py::arg("device_type") = infinicore::context::getDevice().getType(),
+             py::arg("config_str"),
+             py::arg("distributed_config"),
+             py::arg("device_type"),
              py::arg("cache_config") = py::none(),
              py::arg("enable_graph_compiling") = false,
              py::arg("attention_backend") = "default",
