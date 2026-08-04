@@ -165,10 +165,6 @@ class InferEngine(_infinilm.InferEngine):
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
-        self.hf_config["position_id_axes"] = self.position_id_axes
-        text_config = self.hf_config.get("text_config")
-        if isinstance(text_config, dict):
-            text_config.setdefault("position_id_axes", self.position_id_axes)
 
         if device is None:
             device = infinicore.device()
