@@ -86,7 +86,8 @@ class LLMEngine:
                     f"KV Connector created: {config.kv_transfer_config.kv_connector} "
                     f"(role={config.kv_transfer_config.kv_role})"
                 )
-            llm_config = self.model_runner.model_engine.hf_config
+            model_engine = self.model_runner.model_engine
+            llm_config = model_engine.hf_config
             if "text_config" in llm_config:
                 llm_config = llm_config["text_config"]
 

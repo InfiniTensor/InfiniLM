@@ -4,7 +4,7 @@ import json
 import os
 import re
 import time
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import infinicore
 import torch
@@ -101,7 +101,10 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
 
 
 def load_state_dict(
-    checkpoint_file: Union[str, os.PathLike], device="cpu", dtype=torch.bfloat16
+    checkpoint_file: Union[str, os.PathLike],
+    device="cpu",
+    dtype=torch.bfloat16,
+    preserve_fp32_suffixes: Tuple[str, ...] = (".e_score_correction_bias",),
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
@@ -125,8 +128,7 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
-            preserve_fp32 = k.endswith(".e_score_correction_bias")
+            preserve_fp32 = k.endswith(preserve_fp32_suffixes)
             if tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
@@ -199,6 +201,9 @@ def load_model_state_dict_by_file(
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
+    preserve_fp32_suffixes = (".e_score_correction_bias",)
+    if model_type == "kimi_k3":
+        preserve_fp32_suffixes += (".A_log", ".dt_bias")
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -237,7 +242,10 @@ def load_model_state_dict_by_file(
             #          Load weights from *.safetensors file
             # --------------------------------------------------------- #
             model_param = load_state_dict(
-                file_path, device=torch_device, dtype=torch_dtype
+                file_path,
+                device=torch_device,
+                dtype=torch_dtype,
+                preserve_fp32_suffixes=preserve_fp32_suffixes,
             )
 
             # Apply model-specific weight remapping
@@ -313,8 +321,13 @@ def load_model_state_dict_by_file(
 
         model_param_infini = {}
         for key in model_params.keys():
+            target_dtype = (
+                model_params[key].dtype
+                if key.endswith(preserve_fp32_suffixes)
+                else torch_dtype
+            )
             model_param_infini[key] = infinicore.from_torch(
-                model_params[key].to(dtype=torch_dtype)
+                model_params[key].to(dtype=target_dtype)
             )
             already_loaded_keys.append(key)
 
@@ -1039,6 +1052,25 @@ def _remap_qwen3_5_moe(state_dict, config):
     return remapped
 
 
+def _remap_kimi_k3(state_dict, config):
+    """Adapt released Kimi-K3 KDA weights to the reference module layout."""
+    text_config = config.get("text_config", config)
+    num_heads = text_config["linear_attn_config"]["num_heads"]
+
+    for key, tensor in state_dict.items():
+        if key.endswith(".self_attn.A_log") and tensor.shape != (num_heads,):
+            if tensor.ndim != 1 or tensor.shape[0] < num_heads:
+                raise ValueError(
+                    f"Kimi-K3 A_log must contain at least {num_heads} values, "
+                    f"but {key} has shape {tuple(tensor.shape)}"
+                )
+            # Released Kimi-K3 checkpoints contain head_dim entries although
+            # the bundled reference module and KDA ABI consume one per head.
+            state_dict[key] = tensor[:num_heads].contiguous()
+
+    return state_dict
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1050,4 +1082,5 @@ _WEIGHT_REMAPPER = {
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
+    "kimi_k3": _remap_kimi_k3,
 }
