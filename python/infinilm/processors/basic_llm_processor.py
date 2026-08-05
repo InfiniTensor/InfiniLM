@@ -161,32 +161,40 @@ class BasicLLMProcessor(InfinilmProcessor):
     def _build_model_input_from_batch_scheduler_output(
         self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
     ) -> dict:
-        """Construct model inputs for prefill or decode phase.
+        """Construct paged-cache inputs from the scheduled token ranges."""
+        work_items = scheduler_output.work_items
+        if work_items is not None:
+            token_ranges = [
+                (work.request, work.start_token, work.end_token) for work in work_items
+            ]
+        else:
+            requests = scheduler_output.scheduled_requests
+            if not requests:
+                raise RuntimeError(
+                    "build_model_inputs called with empty scheduled_requests"
+                )
+            if scheduler_output.is_prefill:
+                token_ranges = [
+                    (req, req.num_local_cached_tokens, req.get_prompt_length())
+                    for req in requests
+                ]
+            else:
+                token_ranges = [
+                    (req, req.get_total_length() - 1, req.get_total_length())
+                    for req in requests
+                ]
 
-        Prefill phase:
-            - input_ids: Flattened token list (excluding cached tokens)
-            - position_ids: Position IDs for new tokens in complete sequence
-            - past_kv_lengths: Number of cached tokens per request
-            - total_kv_lengths: Total tokens (cached + new) per request
-            - input_offsets: Start position of each request in flattened array
-            - block_tables: Padded block_table for each request
-            - slot_mapping: Token to slot mappings
+        return self._build_model_input_from_token_ranges(
+            token_ranges,
+            temperature,
+            top_p,
+            top_k,
+        )
 
-        Decode phase:
-            - input_ids: Only last generated token per request
-            - position_ids: Position of last token in complete sequence
-            - past_kv_lengths: Number of cached tokens per request
-            - total_kv_lengths: Total sequence length per request
-            - input_offsets: Offsets for each request
-            - block_tables: Padded block_table for each request
-            - slot_mapping: Single slot per request
-        """
+    def _build_model_input_from_token_ranges(
+        self, token_ranges, temperature, top_p, top_k
+    ) -> dict:
         import infinicore
-
-        if not scheduler_output.scheduled_requests:
-            raise RuntimeError(
-                "build_model_inputs called with empty scheduled_requests"
-            )
 
         tokens = []
         seq_lens = []
@@ -196,55 +204,19 @@ class BasicLLMProcessor(InfinilmProcessor):
         cached_lens = []
         position_ids = []
         cu_seqlens = [0]
+        max_block_table_len = max(len(req.block_table) for req, _, _ in token_ranges)
 
-        max_block_table_len = max(
-            len(req.block_table) for req in scheduler_output.scheduled_requests
-        )
-        current_offset = 0
-
-        for req in scheduler_output.scheduled_requests:
-            num_cached = req.num_local_cached_tokens
-            if scheduler_output.is_prefill:
-                # Prefill phase
-                req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
-                tokens.extend(tokens_to_compute)
-
-                compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
-                seq_lens.append(seq_len)
-
-                current_offset += compute_len
-                seq_offsets.append(current_offset)
-
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + compute_len))
-
-            else:
-                # Decode phase
-                seq_len = req.get_total_length()
-                last_token = (
-                    req.generated_token_ids[-1]
-                    if req.generated_token_ids
-                    else req.prompt_token_ids[-1]
-                )
-                tokens.append(last_token)
-                seq_lens.append(seq_len)
-
-                current_offset += 1
-                seq_offsets.append(current_offset)
-
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.append(seq_len - 1)
-
-            # Pad block_table to same length
-            padded_block_table = req.block_table + [-1] * (
-                max_block_table_len - len(req.block_table)
+        for req, start_token, end_token in token_ranges:
+            tokens.extend(req.get_token_slice(start_token, end_token))
+            seq_lens.append(end_token)
+            seq_offsets.append(seq_offsets[-1] + end_token - start_token)
+            slot_mapping.extend(req.slot_mapping)
+            cached_lens.append(start_token)
+            position_ids.extend(range(start_token, end_token))
+            block_tables.append(
+                req.block_table + [-1] * (max_block_table_len - len(req.block_table))
             )
-            block_tables.append(padded_block_table)
-            cu_seqlens.append(cu_seqlens[-1] + seq_len)
+            cu_seqlens.append(cu_seqlens[-1] + end_token)
 
         return {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),

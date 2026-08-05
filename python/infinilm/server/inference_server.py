@@ -119,6 +119,8 @@ class InferenceServer:
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
+        enable_chunked_prefill: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
     ):
         """Initialize inference server.
 
@@ -142,11 +144,15 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
-            attn_backend: Attention backend to use ('default', 'flash-attn').
+            attn_backend: Attention backend to use: 'default', 'flash-attn', or
+                'paged-attn'.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            enable_prefix_caching: Whether to reuse KV cache across requests.
+            enable_chunked_prefill: Whether to split prompt processing across steps.
+            max_num_batched_tokens: Maximum query tokens scheduled in one model step.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -175,6 +181,8 @@ class InferenceServer:
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
+        self.enable_chunked_prefill = enable_chunked_prefill
+        self.max_num_batched_tokens = max_num_batched_tokens
 
         self.engine: AsyncLLMEngine = None
 
@@ -213,6 +221,8 @@ class InferenceServer:
                 weight_load_mode=self.weight_load_mode,
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
+                enable_chunked_prefill=self.enable_chunked_prefill,
+                max_num_batched_tokens=self.max_num_batched_tokens,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -636,6 +646,8 @@ def main():
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
+        enable_chunked_prefill=cfg.enable_chunked_prefill,
+        max_num_batched_tokens=cfg.max_num_batched_tokens,
     )
     server.start()
 

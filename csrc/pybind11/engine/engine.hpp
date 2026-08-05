@@ -150,6 +150,8 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<std::vector<size_t>> visual_token_ranges,
                          std::optional<infinicore::Tensor> target_hidden_states,
                          bool sample_all_positions,
+                         std::optional<std::vector<int32_t>> sampling_indices,
+                         bool force_eager,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
                     std::move(input_ids),
@@ -170,6 +172,8 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(visual_token_ranges),
                     std::move(target_hidden_states),
                     sample_all_positions,
+                    std::move(sampling_indices),
+                    force_eager,
                 };
 
                 // Explicit defaults
@@ -220,7 +224,9 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("image_req_ids") = std::nullopt,
             py::arg("visual_token_ranges") = std::nullopt,
             py::arg("target_hidden_states") = std::nullopt,
-            py::arg("sample_all_positions") = false)
+            py::arg("sample_all_positions") = false,
+            py::arg("sampling_indices") = std::nullopt,
+            py::arg("force_eager") = false)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
@@ -239,6 +245,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("sampling_indices", &InferEngine::Input::sampling_indices)
+        .def_readwrite("force_eager", &InferEngine::Input::force_eager)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);

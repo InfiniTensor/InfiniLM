@@ -2,6 +2,7 @@
 
 from collections import deque
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Dict, List, Set
 
 from infinilm.llm.prefix_cache import (
@@ -28,6 +29,14 @@ class Block:
     def free(self) -> None:
         self.ref_count = 0
         self.hash = EMPTY_BLOCK_HASH
+
+
+@dataclass(slots=True)
+class SlotAllocation:
+    """Private pages and slots allocated for one logical token range."""
+
+    new_blocks: List[int]
+    slot_mapping: List[int]
 
 
 class MambaCacheManager:
@@ -81,6 +90,7 @@ class BlockManager:
         self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
+        self.evictable_block_ids: Set[int] = set()
 
     def __repr__(self) -> str:
         return (
@@ -115,6 +125,7 @@ class BlockManager:
             f"Block {block_id} ref_count not zero, cannot deallocate"
         )
         self._remove_block_hash(block)
+        self.evictable_block_ids.discard(block_id)
         block.free()
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
@@ -126,12 +137,7 @@ class BlockManager:
         return len(self.free_block_ids)
 
     def get_total_usable_blocks(self) -> int:
-        freeable_used_blocks = sum(
-            1
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        )
-        return len(self.free_block_ids) + freeable_used_blocks
+        return len(self.free_block_ids) + len(self.evictable_block_ids)
 
     def get_computed_blocks(
         self,
@@ -151,6 +157,8 @@ class BlockManager:
             block_id = next(iter(block_ids))
             block = self.blocks[block_id]
             assert block.hash == block_hash and block_id in self.used_block_ids
+            if block.ref_count == 0:
+                self.evictable_block_ids.remove(block_id)
             block.ref_count += 1
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
@@ -189,6 +197,48 @@ class BlockManager:
             block_offset = token_idx % self.block_size
             slot_mapping.append(block_table[block_idx] * self.block_size + block_offset)
         return block_table, slot_mapping
+
+    def allocate_slot_range(
+        self,
+        block_table: Sequence[int],
+        start_token: int,
+        end_token: int,
+    ) -> SlotAllocation:
+        """Allocate private pages and slots for ``[start_token, end_token)``.
+
+        The caller owns ``block_table``. This method neither copies nor mutates it;
+        only ``new_blocks`` from the returned handle may be appended after the
+        scheduler finishes constructing the complete batch.
+        """
+        required_start_blocks = (start_token + self.block_size - 1) // self.block_size
+        if len(block_table) < required_start_blocks:
+            raise RuntimeError("block table does not cover the computed token boundary")
+
+        required_blocks = (end_token + self.block_size - 1) // self.block_size
+        num_new_blocks = max(required_blocks - len(block_table), 0)
+        new_blocks: List[int] = []
+
+        if len(self.free_block_ids) < num_new_blocks:
+            if not self.try_free_blocks(num_new_blocks):
+                raise RuntimeError(
+                    "KV cache capacity invariant violated after admission preflight"
+                )
+
+        for _ in range(num_new_blocks):
+            new_blocks.append(self._allocate_block().block_id)
+
+        slot_mapping = []
+        existing_blocks = len(block_table)
+        for token_idx in range(start_token, end_token):
+            block_idx, block_offset = divmod(token_idx, self.block_size)
+            block_id = (
+                block_table[block_idx]
+                if block_idx < existing_blocks
+                else new_blocks[block_idx - existing_blocks]
+            )
+            slot_mapping.append(block_id * self.block_size + block_offset)
+
+        return SlotAllocation(new_blocks=new_blocks, slot_mapping=slot_mapping)
 
     def append_slots(
         self, block_table: List[int], start_num_tokens: int, num_slots: int
@@ -333,19 +383,16 @@ class BlockManager:
             block = self.blocks[block_id]
             assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
+            if block.ref_count == 0:
+                self.evictable_block_ids.add(block_id)
 
     def try_free_blocks(self, num_required: int) -> bool:
-        """Evict unreferenced blocks until the requested capacity is available."""
-        to_free = [
-            block_id
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        ]
-        for block_id in to_free:
-            self._deallocate_block(block_id)
-            if self.can_allocate(num_required):
-                return True
-        return self.can_allocate(num_required)
+        """Evict cached pages until the requested free capacity is available."""
+        while not self.can_allocate(num_required):
+            if not self.evictable_block_ids:
+                return False
+            self._deallocate_block(next(iter(self.evictable_block_ids)))
+        return True
 
     def update_blocks_slot(
         self, block_table: List[int], num_computed_tokens: int, total_tokens: int

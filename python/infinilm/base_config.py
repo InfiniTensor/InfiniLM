@@ -72,6 +72,8 @@ class BaseConfig:
         self.enable_graph = self.args.enable_graph
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
+        self.enable_chunked_prefill = self.args.enable_chunked_prefill
+        self.max_num_batched_tokens = self.args.max_num_batched_tokens
         self.use_mla = self.args.use_mla
         self.num_blocks = self.args.num_blocks
         self.block_size = self.args.block_size
@@ -146,9 +148,6 @@ class BaseConfig:
             os.environ["INFINILM_VIDEONSA_VIDEO_MIN_PIXELS"] = str(
                 self.video_min_pixels
             )
-
-        if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
 
         # Force sync weight loading for Metax devices
         self._force_sync_for_metax()
@@ -240,6 +239,17 @@ class BaseConfig:
             action="store_false",
             default=True,
             help="disable KV prefix cache reuse",
+        )
+        self.parser.add_argument(
+            "--enable-chunked-prefill",
+            action="store_true",
+            help="split prompt processing across token-budgeted model steps",
+        )
+        self.parser.add_argument(
+            "--max-num-batched-tokens",
+            type=int,
+            default=None,
+            help="maximum query tokens scheduled in one model step",
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"

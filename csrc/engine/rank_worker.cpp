@@ -333,7 +333,7 @@ void RankWorker::thread_loop() {
                 } else if (local_cmd == Command::PREPROCESS) {
 
                 } else if (local_cmd == Command::RUN) {
-                    local_args = pending_args_;
+                    local_args = std::move(pending_args_);
                 } else if (local_cmd == Command::RESET_CACHE) {
                     if (pending_cache_config_ != nullptr) {
                         local_cache_config = pending_cache_config_->unique_copy();
@@ -419,14 +419,16 @@ void RankWorker::thread_loop() {
                         infinicore::Tensor hidden_states;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                        if (!local_args.force_eager
+                            && !local_args.sample_all_positions
+                            && compiler_ != nullptr) {
+                            auto [graph, output] = compiler_->get_compiled(
+                                local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
                             }
                         }
-                        // Fall back to eager mode
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             auto model_output = model_->forward(model_args);
@@ -448,23 +450,71 @@ void RankWorker::thread_loop() {
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+                            const bool sample_all_positions{
+                                local_args.sample_all_positions};
+                            const bool has_sampling_indices{
+                                !sample_all_positions
+                                && local_args.sampling_indices.has_value()};
+                            const auto total_packed_rows{
+                                static_cast<size_t>(input_offsets[n_req])};
 
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
-                                }
-                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                            const int32_t *sampling_indices = nullptr;
+                            size_t n_out;
+                            if (sample_all_positions) {
+                                n_out = total_packed_rows;
+                            } else if (has_sampling_indices) {
+                                const auto &indices{
+                                    local_args.sampling_indices.value()};
+                                n_out = indices.size();
+                                sampling_indices = indices.data();
+                            } else {
+                                n_out = n_req;
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
+                            auto output_ids{infinicore::Tensor::empty(
+                                {n_out},
+                                infinicore::DataType::I64,
+                                n_out == 0 ? infinicore::Device::cpu()
+                                           : rank_info_.device)};
+
+                            if (n_out > 0) {
+                                auto flat_logits{logits->view(
+                                    {batch_size * total_len, vocab_size})};
+                                auto sample_at = [&](size_t output_idx,
+                                                     size_t score_idx) {
+                                    auto score{flat_logits->narrow(
+                                                              {{0, score_idx, 1}})
+                                                   ->view({vocab_size})};
+                                    auto out{output_ids
+                                                 ->narrow({{0, output_idx, 1}})
+                                                 ->view({})};
+                                    const float random_val{
+                                        std::uniform_real_distribution<float>(0, 1)(
+                                            rng_)};
+                                    infinicore::op::random_sample_(
+                                        out,
+                                        score,
+                                        random_val,
+                                        top_p,
+                                        top_k,
+                                        temperature);
+                                };
+
+                                if (sample_all_positions) {
+                                    for (size_t i{0}; i < n_out; ++i) {
+                                        sample_at(i, i);
+                                    }
+                                } else if (has_sampling_indices) {
+                                    for (size_t i{0}; i < n_out; ++i) {
+                                        sample_at(i, static_cast<size_t>(sampling_indices[i]));
+                                    }
+                                } else {
+                                    for (size_t i{0}; i < n_out; ++i) {
+                                        sample_at(i, input_offsets[i + 1] - 1);
+                                    }
+                                }
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                            }
 
                             infinicore::context::syncStream();
 

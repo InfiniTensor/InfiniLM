@@ -45,6 +45,7 @@ class ModelRunner:
     def __init__(self, config: EngineConfig):
         self.config = config
         self.kv_transfer_config = config.kv_transfer_config
+        self.enable_chunked_prefill = config.enable_chunked_prefill
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
         self._init_device()
@@ -174,10 +175,10 @@ class ModelRunner:
                 if scheduler_output.num_requests > 0:
                     sampled_tokens_list = self._model_forward(scheduler_output)
 
-        #  model_runner_output
-        req_ids = []
-        for i in range(scheduler_output.num_requests):
-            req_ids.append(scheduler_output.scheduled_requests[i].request_id)
+        if self.enable_chunked_prefill:
+            req_ids = [work.request.request_id for work in scheduler_output.work_items]
+        else:
+            req_ids = [req.request_id for req in scheduler_output.scheduled_requests]
 
         return ModelRunnerOutput(
             req_ids=req_ids,
@@ -197,11 +198,40 @@ class ModelRunner:
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
+        if self.enable_chunked_prefill:
+            model_input.update(
+                self._build_chunked_execution_options(scheduler_output.work_items)
+            )
+
         # Run inference
         sampled_tokens = self.model_engine.forward(**model_input)
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         return sampled_tokens_list
+
+    def _build_chunked_execution_options(self, work_items):
+        if all(
+            work.start_token >= work.request.get_prompt_length() for work in work_items
+        ):
+            return {"sampling_indices": None, "force_eager": False}
+
+        force_eager = False
+        sampled_row_indices: list[int] = []
+        packed_row_end = 0
+        for work in work_items:
+            if work.start_token >= work.request.get_prompt_length():
+                force_eager = True
+            packed_row_end += work.num_scheduled_tokens
+            if work.requires_sampling:
+                sampled_row_indices.append(packed_row_end - 1)
+
+        sampling_indices = (
+            None if len(sampled_row_indices) == len(work_items) else sampled_row_indices
+        )
+        return {
+            "sampling_indices": sampling_indices,
+            "force_eager": force_eager,
+        }
 
     def _model_forward_with_speculative(self, scheduler_output, model_input):
         return self.speculative_runner.forward(scheduler_output, model_input)

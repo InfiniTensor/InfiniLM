@@ -28,11 +28,14 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
-        attn_backend: Attention backend to use ('default', 'flash-attn').
+        attn_backend: Attention backend to use: 'default', 'flash-attn', or
+            'paged-attn'.
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
         use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
+        enable_chunked_prefill: Whether to split prompt work across model steps.
+        max_num_batched_tokens: Maximum query tokens scheduled in one model step.
     """
 
     model_path: str
@@ -60,13 +63,21 @@ class EngineConfig:
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    enable_chunked_prefill: bool = False
+    max_num_batched_tokens: Optional[int] = None
 
     def __post_init__(self) -> None:
+        if self.cache_type == "paged" and self.attn_backend == "default":
+            self.attn_backend = "paged-attn"
+
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
 
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")
+
+        if self.max_num_batched_tokens is not None and self.max_num_batched_tokens <= 0:
+            raise ValueError("max_num_batched_tokens must be positive")
 
         if (
             self.kv_transfer_config is not None

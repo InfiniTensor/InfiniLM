@@ -11,6 +11,7 @@
 
 #include <any>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <random>
 #include <string>
@@ -72,6 +73,11 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+        /// Optional packed-logits row indices to sample. Absence samples the last
+        /// row of every request; an empty vector disables sampling.
+        std::optional<std::vector<int32_t>> sampling_indices;
+        /// Skip graph dispatch for a batch that is not graph-compatible.
+        bool force_eager{false};
 
         float temperature{1};
 

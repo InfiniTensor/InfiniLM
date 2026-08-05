@@ -4,6 +4,9 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 
 import logging
 import queue
+from collections import deque
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import List, Optional
 
 import janus
@@ -36,6 +39,22 @@ class SpeculativeCacheOps:
         return self._cache_manager.truncate_blocks(block_table, keep_tokens)
 
 
+@dataclass(frozen=True, slots=True)
+class ScheduledRequestWork:
+    request: InferenceRequest
+    start_token: int
+    num_scheduled_tokens: int
+
+    @property
+    def end_token(self) -> int:
+        return self.start_token + self.num_scheduled_tokens
+
+    @property
+    def requires_sampling(self) -> bool:
+        prompt_length = self.request.get_prompt_length()
+        return self.start_token >= prompt_length or self.end_token == prompt_length
+
+
 class SchedulerOutput:
     """Scheduler output containing scheduled requests and execution phase info."""
 
@@ -44,9 +63,16 @@ class SchedulerOutput:
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
         speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
+        work_items: Sequence[ScheduledRequestWork] | None = None,
     ):
+        if work_items is not None:
+            work_items = tuple(work_items)
+
+        self.work_items = work_items
         self.scheduled_requests = scheduled_requests
-        self.num_requests = len(scheduled_requests)
+        self.num_requests = (
+            len(work_items) if work_items is not None else len(scheduled_requests)
+        )
         self.is_prefill = is_prefill
         self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
@@ -71,6 +97,7 @@ class Scheduler:
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
+        enable_chunked_prefill: bool = False,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -94,9 +121,40 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
+        self.enable_chunked_prefill = enable_chunked_prefill
+        if self.enable_chunked_prefill and self.max_num_batched_tokens <= 0:
+            raise ValueError("max_num_batched_tokens must be positive")
+
+        self._active_requests: deque[InferenceRequest] = deque()
+        self._waiting_requests: deque[InferenceRequest] = deque()
+        self._schedule_impl = (
+            self._schedule_chunked
+            if self.enable_chunked_prefill
+            else self._schedule_legacy
+        )
+        self._complete_requests_impl = (
+            self._complete_chunked_requests
+            if self.enable_chunked_prefill
+            else self._complete_legacy_requests
+        )
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            if self.enable_chunked_prefill:
+                if request.has_multimodal_inputs:
+                    raise RuntimeError(
+                        "Chunked prefill does not support multimodal requests yet."
+                    )
+                max_tokens = request.sampling_params.max_tokens
+                if max_tokens is None or max_tokens < 1:
+                    raise ValueError("chunked prefill requires request max_tokens >= 1")
+                required_blocks = self._blocks_for_tokens(self._max_kv_tokens(request))
+                if required_blocks > self.cache_manager.num_blocks:
+                    raise ValueError(
+                        f"Request {request.request_id} requires "
+                        f"{required_blocks} KV blocks, but the cache has only "
+                        f"{self.cache_manager.num_blocks}"
+                    )
             # TODO: Remove the multimodal exclusion once media-aware prefix
             # hashing and model-side cache-boundary handling are supported.
             request.initialize_block_hashes(
@@ -127,6 +185,9 @@ class Scheduler:
         )
 
     def schedule(self) -> Optional[SchedulerOutput]:
+        return self._schedule_impl()
+
+    def _schedule_legacy(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
         deferred_requests = []
         scheduled_requests = []
@@ -376,6 +437,198 @@ class Scheduler:
 
         return None
 
+    def _drain_waiting_ingress(self) -> None:
+        for _ in range(self.waiting_queue.sync_q.qsize()):
+            self._waiting_requests.append(self.waiting_queue.sync_q.get_nowait())
+
+    def _prune_finished_chunked_requests(self) -> None:
+        active_requests: deque[InferenceRequest] = deque()
+        for request in self._active_requests:
+            if request.is_finished():
+                self._complete_terminal_request(request)
+            else:
+                active_requests.append(request)
+        self._active_requests = active_requests
+
+        while self._waiting_requests and self._waiting_requests[0].is_finished():
+            self._complete_terminal_request(self._waiting_requests.popleft())
+
+    def _blocks_for_tokens(self, num_tokens: int) -> int:
+        return (num_tokens + self.block_size - 1) // self.block_size
+
+    def _max_kv_tokens(self, request: InferenceRequest) -> int:
+        # The newest sampled token has not been forwarded into KV yet.
+        return request.get_prompt_length() + request.sampling_params.max_tokens - 1
+
+    def _completion_missing_blocks(self, request: InferenceRequest) -> int:
+        return max(
+            self._blocks_for_tokens(self._max_kv_tokens(request))
+            - len(request.block_table),
+            0,
+        )
+
+    def _get_completion_slack(self) -> int:
+        """Return usable blocks not reserved for active requests to finish."""
+        completion_reservation = sum(
+            self._completion_missing_blocks(request)
+            for request in self._active_requests
+        )
+        usable_blocks = self.cache_manager.get_total_usable_blocks()
+        if usable_blocks < completion_reservation:
+            raise RuntimeError(
+                "Resident requests exceed the guaranteed KV completion capacity"
+            )
+        return usable_blocks - completion_reservation
+
+    def _allocate_chunked_work(
+        self,
+        request: InferenceRequest,
+        block_table: List[int],
+        start_token: int,
+        end_token: int,
+    ) -> ScheduledRequestWork:
+        work = ScheduledRequestWork(
+            request=request,
+            start_token=start_token,
+            num_scheduled_tokens=end_token - start_token,
+        )
+        allocation = self.cache_manager.allocate_slot_range(
+            block_table,
+            work.start_token,
+            work.end_token,
+        )
+
+        request.block_table = block_table
+        request.block_table.extend(allocation.new_blocks)
+        request.slot_mapping = allocation.slot_mapping
+        request.num_blocks = len(request.block_table)
+        request.status = RequestStatus.RUNNING
+        return work
+
+    def _schedule_active_chunked_requests(
+        self, token_budget: int
+    ) -> tuple[List[ScheduledRequestWork], int]:
+        work_items: List[ScheduledRequestWork] = []
+
+        while (
+            self._active_requests
+            and token_budget > 0
+            and len(work_items) < self.max_batch_size
+        ):
+            request = self._active_requests[0]
+            prompt_length = request.get_prompt_length()
+            if request.num_computed_tokens < prompt_length:
+                remaining = prompt_length - request.num_computed_tokens
+                end_token = request.num_computed_tokens + min(remaining, token_budget)
+            else:
+                if request.get_total_length() != request.num_computed_tokens + 1:
+                    raise RuntimeError(
+                        f"Request {request.request_id} does not have exactly "
+                        "one uncomputed ordinary decode token"
+                    )
+                end_token = request.num_computed_tokens + 1
+            work = self._allocate_chunked_work(
+                request,
+                request.block_table,
+                request.num_computed_tokens,
+                end_token,
+            )
+            self._active_requests.popleft()
+            work_items.append(work)
+            token_budget -= work.num_scheduled_tokens
+
+        return work_items, token_budget
+
+    def _admit_waiting_chunked_requests(
+        self,
+        token_budget: int,
+        request_budget: int,
+        completion_slack: int,
+    ) -> List[ScheduledRequestWork]:
+        work_items: List[ScheduledRequestWork] = []
+
+        while self._waiting_requests and token_budget > 0 and request_budget > 0:
+            request = self._waiting_requests[0]
+
+            # A request can be canceled after it enters the ingress queue but
+            # before it reaches the head of the scheduler-owned deque.
+            if request.is_finished():
+                self._waiting_requests.popleft()
+                self._complete_terminal_request(request)
+                continue
+
+            if self.enable_prefix_caching:
+                usable_before_lookup = self.cache_manager.get_total_usable_blocks()
+                cached_blocks, cached_tokens = self.cache_manager.get_computed_blocks(
+                    request.block_hashes,
+                    request.get_prompt_length() - 1,
+                )
+                newly_pinned_blocks = (
+                    usable_before_lookup - self.cache_manager.get_total_usable_blocks()
+                )
+            else:
+                cached_blocks = []
+                cached_tokens = 0
+                newly_pinned_blocks = 0
+
+            completion_missing_blocks = max(
+                self._blocks_for_tokens(self._max_kv_tokens(request))
+                - len(cached_blocks),
+                0,
+            )
+            admission_cost = newly_pinned_blocks + completion_missing_blocks
+            if admission_cost > completion_slack:
+                self.cache_manager.free_blocks(cached_blocks)
+                break
+
+            num_cached_blocks = len(cached_blocks)
+            scheduled_tokens = min(
+                request.get_prompt_length() - cached_tokens,
+                token_budget,
+            )
+            work = self._allocate_chunked_work(
+                request,
+                cached_blocks,
+                cached_tokens,
+                cached_tokens + scheduled_tokens,
+            )
+            self._waiting_requests.popleft()
+            request.num_computed_tokens = cached_tokens
+            request.num_local_cached_tokens = cached_tokens
+            request.num_cache_indexed_blocks = num_cached_blocks
+            work_items.append(work)
+            token_budget -= work.num_scheduled_tokens
+            request_budget -= 1
+            completion_slack -= admission_cost
+
+        return work_items
+
+    def _schedule_chunked(self) -> Optional[SchedulerOutput]:
+        self._drain_waiting_ingress()
+        self._prune_finished_chunked_requests()
+        completion_slack = self._get_completion_slack()
+
+        # Match vLLM's running-first policy: preserve inter-token latency for
+        # resident requests, then use the remaining capacity for new prefills.
+        active_work, token_budget = self._schedule_active_chunked_requests(
+            self.max_num_batched_tokens
+        )
+        waiting_work = self._admit_waiting_chunked_requests(
+            token_budget,
+            self.max_batch_size - len(active_work),
+            completion_slack,
+        )
+        work_items = active_work + waiting_work
+
+        if not work_items:
+            return None
+
+        return SchedulerOutput(
+            scheduled_requests=[],
+            speculative_cache_ops=self.speculative_cache_ops,
+            work_items=work_items,
+        )
+
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)
         self.pending_kv_decode_blocks -= (
@@ -403,52 +656,60 @@ class Scheduler:
 
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests and free their blocks."""
+        self._complete_requests_impl(requests)
+
+    def _complete_legacy_requests(self, requests: List[InferenceRequest]) -> None:
         for req in requests:
-            if req.status in [
-                RequestStatus.FINISHED,
-                RequestStatus.CANCELED,
-                RequestStatus.FAILED,
-                RequestStatus.TIMEOUT,
-            ]:
-                delay_free_blocks = False
-                if self.connector is not None:
-                    delay_free_blocks, _ = self.connector.request_finished(
-                        req, req.block_table, self.block_size
-                    )
-
-                if req.request_id in self.remote_kv_requests:
-                    self.pending_kv_decode_blocks -= (
-                        req.sampling_params.max_tokens + self.block_size - 1
-                    ) // self.block_size
-                    self.remote_kv_requests.pop(req.request_id, None)
-                    if req.request_id in self.finished_receiving_kv_req_ids:
-                        self.finished_receiving_kv_req_ids.discard(req.request_id)
-                        self.failed_receiving_kv_req_ids.discard(req.request_id)
-                    else:
-                        delay_free_blocks = True
-                if req.block_table and not delay_free_blocks:
-                    self.cache_manager.free_blocks(req.block_table)
-                elif req.block_table and delay_free_blocks:
-                    self.pending_free_blocks[req.request_id] = list(req.block_table)
-                if self.mamba_cache_manager is not None:
-                    self.mamba_cache_manager.free(req.mamba_cache_index)
-                    req.mamba_cache_index = None
-
-                if req.status == RequestStatus.CANCELED:
-                    logger.info(
-                        f"Request {req.request_id[:8]}... canceled: {req.finish_reason}"
-                    )
-                elif req.status == RequestStatus.FAILED:
-                    logger.error(
-                        f"Request {req.request_id[:8]}... failed: {req.finish_reason}"
-                    )
-                elif req.status == RequestStatus.TIMEOUT:
-                    logger.error(
-                        f"Request {req.request_id[:8]}... timed out: {req.finish_reason}"
-                    )
+            if req.is_finished():
+                self._complete_terminal_request(req)
             else:
-                # Still running, put back in running queue
                 self.running_queue.sync_q.put(req)
+
+    def _complete_chunked_requests(self, requests: List[InferenceRequest]) -> None:
+        for req in requests:
+            if req.is_finished():
+                self._complete_terminal_request(req)
+            else:
+                self._active_requests.append(req)
+
+    def _complete_terminal_request(self, request: InferenceRequest) -> None:
+        delay_free_blocks = False
+        if self.connector is not None:
+            delay_free_blocks, _ = self.connector.request_finished(
+                request, request.block_table, self.block_size
+            )
+
+        if request.request_id in self.remote_kv_requests:
+            self.pending_kv_decode_blocks -= (
+                request.sampling_params.max_tokens + self.block_size - 1
+            ) // self.block_size
+            self.remote_kv_requests.pop(request.request_id, None)
+            if request.request_id in self.finished_receiving_kv_req_ids:
+                self.finished_receiving_kv_req_ids.discard(request.request_id)
+                self.failed_receiving_kv_req_ids.discard(request.request_id)
+            else:
+                delay_free_blocks = True
+        if request.block_table and not delay_free_blocks:
+            self.cache_manager.free_blocks(request.block_table)
+        elif request.block_table and delay_free_blocks:
+            self.pending_free_blocks[request.request_id] = list(request.block_table)
+        if self.mamba_cache_manager is not None:
+            self.mamba_cache_manager.free(request.mamba_cache_index)
+            request.mamba_cache_index = None
+
+        if request.status == RequestStatus.CANCELED:
+            logger.info(
+                f"Request {request.request_id[:8]}... canceled: {request.finish_reason}"
+            )
+        elif request.status == RequestStatus.FAILED:
+            logger.error(
+                f"Request {request.request_id[:8]}... failed: {request.finish_reason}"
+            )
+        elif request.status == RequestStatus.TIMEOUT:
+            logger.error(
+                f"Request {request.request_id[:8]}... timed out: "
+                f"{request.finish_reason}"
+            )
 
     def can_accept_request(
         self,

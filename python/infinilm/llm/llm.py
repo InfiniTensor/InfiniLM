@@ -8,7 +8,6 @@ This module provides:
 
 import asyncio
 import logging
-import os
 import threading
 import time
 import uuid
@@ -28,7 +27,7 @@ from infinilm.llm.request import (
     TokenOutput,
 )
 from infinilm.llm.sampling_params import SamplingParams
-from infinilm.llm.scheduler import Scheduler
+from infinilm.llm.scheduler import Scheduler, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
@@ -41,6 +40,7 @@ class LLMEngine:
     def __init__(self, config: EngineConfig):
         self.config = config
         hf_config = read_hf_config(config.model_path)
+        llm_config = hf_config.get("text_config", hf_config)
         has_mamba_cache = model_uses_mamba_cache(hf_config)
         if has_mamba_cache and config.enable_prefix_caching:
             model_type = hf_config["model_type"]
@@ -49,6 +49,66 @@ class LLMEngine:
                 f"{model_type!r} yet. Restart with "
                 "--disable-prefix-caching."
             )
+
+        if config.enable_chunked_prefill:
+            if config.cache_type != "paged":
+                raise RuntimeError(
+                    "Chunked prefill requires paged KV cache. Restart with "
+                    "--enable-paged-attn."
+                )
+            if has_mamba_cache:
+                raise RuntimeError(
+                    "Chunked prefill does not support Mamba or hybrid cache models yet."
+                )
+            if config.draft_model_path is not None:
+                raise RuntimeError(
+                    "Chunked prefill does not support speculative decoding yet."
+                )
+            if config.kv_transfer_config and config.kv_transfer_config.kv_connector:
+                raise RuntimeError(
+                    "Chunked prefill does not support KV transfer or PD "
+                    "disaggregation yet."
+                )
+            if config.tensor_parallel_size != 1:
+                raise RuntimeError(
+                    "Chunked prefill currently requires tensor_parallel_size=1."
+                )
+            if config.use_mla and config.attn_backend == "flash-attn":
+                raise RuntimeError(
+                    "Chunked prefill does not support MLA with flash-attn yet."
+                )
+            if config.attn_backend not in {
+                "paged-attn",
+                "flash-attn",
+            }:
+                raise RuntimeError(
+                    "Chunked prefill does not support attention backend "
+                    f"{config.attn_backend!r} yet."
+                )
+            sliding_window = llm_config.get("sliding_window")
+            layer_types = llm_config.get("layer_types") or []
+            has_local_attention = any(
+                "sliding" in str(layer_type).lower()
+                or "local" in str(layer_type).lower()
+                for layer_type in layer_types
+            )
+            if sliding_window not in (None, False, 0) or has_local_attention:
+                raise RuntimeError(
+                    "Chunked prefill does not support sliding-window or local "
+                    "attention cache layouts yet."
+                )
+
+        if config.cache_type == "paged":
+            max_position_embeddings = llm_config.get(
+                "max_position_embeddings", config.max_cache_len
+            )
+            if config.max_num_batched_tokens is None:
+                if config.enable_chunked_prefill:
+                    raise ValueError(
+                        "Chunked prefill requires max_num_batched_tokens. Pass "
+                        "--max-num-batched-tokens with a positive value."
+                    )
+                config.max_num_batched_tokens = max_position_embeddings
 
         self.model_runner = ModelRunner(config)
 
@@ -80,29 +140,19 @@ class LLMEngine:
                     f"KV Connector created: {config.kv_transfer_config.kv_connector} "
                     f"(role={config.kv_transfer_config.kv_role})"
                 )
-            llm_config = self.model_runner.model_engine.hf_config
-            if "text_config" in llm_config:
-                llm_config = llm_config["text_config"]
 
-            max_position_embeddings = llm_config.get(
-                "max_position_embeddings", config.max_cache_len
-            )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
-
-            max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
-            )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
-                max_num_batched_tokens=max_num_batched_tokens,
+                max_num_batched_tokens=config.max_num_batched_tokens,
                 connector=connector,
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                enable_chunked_prefill=config.enable_chunked_prefill,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
@@ -114,6 +164,11 @@ class LLMEngine:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
         self.cache_type = config.cache_type
+        self._update_scheduler_output = (
+            self._update_chunked_scheduler_output
+            if config.enable_chunked_prefill
+            else self._update_legacy_scheduler_output
+        )
 
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_runner.eos_token_id or []
@@ -147,14 +202,11 @@ class LLMEngine:
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
-        pending = self._update_requests(
-            scheduler_output.scheduled_requests,
-            sampled_token_ids,
-        )
+        pending = self._update_scheduler_output(scheduler_output, sampled_token_ids)
 
         # Return False (no immediate work) only when no requests were scheduled
         # and no KV transfers completed in this step.
-        if not scheduler_output.scheduled_requests:
+        if scheduler_output.num_requests == 0:
             if not runner_output.kv_connector_output or (
                 not getattr(runner_output.kv_connector_output, "finished_sending", None)
                 and not getattr(
@@ -178,8 +230,6 @@ class LLMEngine:
             )
         pending = []
         for req, token_ids in zip(requests, sampled_token_ids):
-            # The model successfully consumed the request's current logical tokens.
-            # Commit this boundary before observing a concurrent client abort.
             pre_output_computed_tokens = req.get_total_length()
             self.scheduler.commit_computed_tokens(req, pre_output_computed_tokens)
 
@@ -187,8 +237,6 @@ class LLMEngine:
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
                 )
-                # close() may have set _aborted=True without setting a terminal status
-                # (status still RUNNING).
                 if not req.is_finished():
                     req.mark_canceled()
                 continue
@@ -201,60 +249,9 @@ class LLMEngine:
 
             num_appended_tokens = 0
             for token_id in token_ids:
-                if req.is_finished():
+                if not self._append_output_token(req, token_id, pending):
                     break
-                req.append_generated_token_id(token_id)
                 num_appended_tokens += 1
-                pending_tokens = req.generated_token_ids[req._token_decode_offset :]
-                delta = self.tokenizer.decode(pending_tokens)
-                holds_back = bool(delta) and delta.endswith("\ufffd")
-
-                last_committed_text = req.generated_text
-
-                if not holds_back:
-                    req.generated_text = last_committed_text + delta
-                    req._token_decode_offset = len(req.generated_token_ids)
-
-                is_finished = self._check_request_finished(req, token_id)
-
-                # vLLM-style replacement character handling is primarily relevant for streaming.
-                # For offline generation (no output queue), keep the fast incremental path.
-                if req._output_queue is None:
-                    if is_finished:
-                        req.mark_finished(req.finish_reason)
-
-                else:
-                    if holds_back and not is_finished:
-                        token_text = ""
-                    else:
-                        if is_finished and req.finish_reason in (
-                            FinishReason.EOS_TOKEN,
-                            FinishReason.LENGTH,
-                            FinishReason.STOP_STRING,
-                        ):
-                            token_text = ""
-                        else:
-                            token_text = req.generated_text[req._text_output_offset :]
-                            if token_text:
-                                req._text_output_offset = len(req.generated_text)
-
-                        if is_finished:
-                            req.mark_finished(req.finish_reason)
-
-                    output = TokenOutput(
-                        request_id=req.request_id,
-                        token_id=token_id,
-                        token_text=token_text,
-                        finished=is_finished,
-                        finish_reason=req.finish_reason if is_finished else None,
-                        generated_text=req.generated_text,
-                    )
-                    if req.is_aborted():
-                        logger.info(
-                            f"Request {req.request_id} aborted before putting token"
-                        )
-                        continue
-                    pending.append((req.output_queue.async_q, output))
 
             post_output_computed_tokens = pre_output_computed_tokens + min(
                 num_appended_tokens,
@@ -265,6 +262,132 @@ class LLMEngine:
 
         self.scheduler.complete_requests(requests)
         return pending
+
+    def _update_legacy_scheduler_output(
+        self,
+        scheduler_output: SchedulerOutput,
+        sampled_token_ids: list[int | list[int]],
+    ) -> List[tuple]:
+        return self._update_requests(
+            scheduler_output.scheduled_requests,
+            sampled_token_ids,
+        )
+
+    def _update_chunked_scheduler_output(
+        self,
+        scheduler_output: SchedulerOutput,
+        sampled_token_ids: list[int | list[int]],
+    ) -> List[tuple]:
+        work_items = scheduler_output.work_items
+        expected_outputs = sum(work.requires_sampling for work in work_items)
+        if len(sampled_token_ids) != expected_outputs:
+            raise RuntimeError(
+                "model output count does not match the sampling work count: "
+                f"expected={expected_outputs}, outputs={len(sampled_token_ids)}"
+            )
+        if any(not isinstance(token_id, int) for token_id in sampled_token_ids):
+            raise RuntimeError("chunked model output must contain scalar token IDs")
+
+        for work in work_items:
+            req = work.request
+            req.num_computed_tokens = work.end_token
+            req.num_local_cached_tokens = work.end_token
+            self.scheduler.commit_computed_tokens(req, work.end_token)
+
+        pending = []
+        sampled_tokens = iter(sampled_token_ids)
+        for work in work_items:
+            req = work.request
+            token_id = next(sampled_tokens) if work.requires_sampling else None
+
+            if req.is_aborted():
+                logger.info(
+                    f"Request {req.request_id} aborted by client, skipping update"
+                )
+                if not req.is_finished():
+                    req.mark_canceled()
+                continue
+
+            if token_id is None:
+                continue
+            try:
+                self._append_output_token(req, token_id, pending)
+            except Exception:
+                logger.exception(
+                    "Failed to process output for request %s",
+                    req.request_id,
+                )
+                req.mark_failed()
+                if req._output_queue is not None:
+                    pending.append(
+                        (
+                            req.output_queue.async_q,
+                            TokenOutput(
+                                request_id=req.request_id,
+                                token_id=-1,
+                                token_text="",
+                                finished=True,
+                                finish_reason=req.finish_reason,
+                                generated_text=req.generated_text,
+                            ),
+                        )
+                    )
+
+        self.scheduler.complete_requests([work.request for work in work_items])
+        return pending
+
+    def _append_output_token(
+        self,
+        req: InferenceRequest,
+        token_id: int,
+        pending: List[tuple],
+    ) -> bool:
+        if req.is_finished():
+            return False
+
+        req.append_generated_token_id(token_id)
+        pending_tokens = req.generated_token_ids[req._token_decode_offset :]
+        delta = self.tokenizer.decode(pending_tokens)
+        holds_back = bool(delta) and delta.endswith("\ufffd")
+        if not holds_back:
+            req.generated_text += delta
+            req._token_decode_offset = len(req.generated_token_ids)
+
+        is_finished = self._check_request_finished(req, token_id)
+        if req._output_queue is None:
+            if is_finished:
+                req.mark_finished(req.finish_reason)
+            return True
+
+        if holds_back and not is_finished:
+            token_text = ""
+        elif is_finished and req.finish_reason in (
+            FinishReason.EOS_TOKEN,
+            FinishReason.LENGTH,
+            FinishReason.STOP_STRING,
+        ):
+            token_text = ""
+        else:
+            token_text = req.generated_text[req._text_output_offset :]
+            if token_text:
+                req._text_output_offset = len(req.generated_text)
+
+        if is_finished:
+            req.mark_finished(req.finish_reason)
+
+        output = TokenOutput(
+            request_id=req.request_id,
+            token_id=token_id,
+            token_text=token_text,
+            finished=is_finished,
+            finish_reason=req.finish_reason if is_finished else None,
+            generated_text=req.generated_text,
+        )
+        if req.is_aborted():
+            logger.info(f"Request {req.request_id} aborted before putting token")
+        else:
+            pending.append((req.output_queue.async_q, output))
+        return True
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
         """Check if request generation is finished."""
@@ -351,6 +474,8 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        enable_chunked_prefill: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
     ):
         """Initialize LLM.
 
@@ -369,9 +494,14 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
-            attn_backend: Attention backend to use ('default', 'flash-attn').
+            attn_backend: Attention backend to use: 'default', 'flash-attn', or
+                'paged-attn'.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            enable_prefix_caching: Whether to reuse KV cache across requests.
+            enable_chunked_prefill: Whether to split prompt processing across steps.
+            max_num_batched_tokens: Maximum query tokens scheduled in one model
+                step when chunked prefill is enabled.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -398,6 +528,8 @@ class LLM:
             skip_load=skip_load,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            enable_chunked_prefill=enable_chunked_prefill,
+            max_num_batched_tokens=max_num_batched_tokens,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -565,6 +697,8 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        enable_chunked_prefill: bool = False,
+        max_num_batched_tokens: Optional[int] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -583,12 +717,17 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
-            attn_backend: Attention backend to use ('default', 'flash-attn').
+            attn_backend: Attention backend to use: 'default', 'flash-attn', or
+                'paged-attn'.
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            enable_prefix_caching: Whether to reuse KV cache across requests.
+            enable_chunked_prefill: Whether to split prompt processing across steps.
+            max_num_batched_tokens: Maximum query tokens scheduled in one model
+                step when chunked prefill is enabled.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -615,6 +754,8 @@ class AsyncLLMEngine:
             weight_load_mode=weight_load_mode,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            enable_chunked_prefill=enable_chunked_prefill,
+            max_num_batched_tokens=max_num_batched_tokens,
         )
         self.engine = LLMEngine(config)
         self.config = config

@@ -195,7 +195,7 @@ class InferenceRequest:
         self.num_local_cached_tokens: int = (
             0  # Number of cached tokens visible to the current model step
         )
-        self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
+        self.num_computed_tokens: int = 0  # Total computed boundary, local + remote
         self.num_blocks: int = 0
         # Incremental hashes for complete logical token blocks.
         self._block_hashes: List[BlockHash] = []
@@ -259,6 +259,20 @@ class InferenceRequest:
 
     def get_all_token_ids(self) -> List[int]:
         return list(self._prompt_token_ids) + self._generated_token_ids
+
+    def get_token_slice(self, start: int, end: int) -> Sequence[int]:
+        """Return the existing logical tokens in [start, end)."""
+        total_length = self.get_total_length()
+        if not 0 <= start <= end <= total_length:
+            raise ValueError(
+                f"invalid token range [{start}, {end}) for length {total_length}"
+            )
+        if end <= self.prompt_length:
+            return self._prompt_token_ids[start:end]
+        if start < self.prompt_length:
+            raise RuntimeError("scheduled token range crosses the prompt boundary")
+        offset = self.prompt_length
+        return self._generated_token_ids[start - offset : end - offset]
 
     def initialize_block_hashes(
         self, block_size: int, enable_prefix_caching: bool
