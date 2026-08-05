@@ -1,5 +1,28 @@
+import base64
+import binascii
+import hashlib
+from io import BytesIO
 from typing import List, Union
+
 from PIL import Image
+
+
+def _load_image(image_url):
+    if isinstance(image_url, str) and image_url.startswith("data:image/"):
+        try:
+            _, encoded = image_url.split(",", 1)
+        except ValueError as exc:
+            raise ValueError("Invalid data image URL.") from exc
+
+        try:
+            image_data = base64.b64decode(encoded, validate=True)
+        except binascii.Error as exc:
+            raise ValueError("Invalid base64 image data.") from exc
+
+        image_id = f"data:image:{hashlib.sha256(image_data).hexdigest()}"
+        return Image.open(BytesIO(image_data)).convert("RGB"), image_id
+
+    return Image.open(image_url).convert("RGB"), image_url
 
 
 def has_multimodal_inputs(messages: Union[List[dict], dict]) -> bool:
@@ -40,9 +63,9 @@ def resolve_multimodal_inputs(messages: Union[List[dict], dict]):
             if item.get("type") == "text":
                 pass
             elif item.get("type") == "image_url":
-                # TODO support other image url formats
-                images.append(Image.open(item["image_url"]["url"]))
-                image_urls.append(item["image_url"]["url"])
+                image, image_id = _load_image(item["image_url"]["url"])
+                images.append(image)
+                image_urls.append(image_id)
             elif item.get("type") == "video_url":
                 video = item["video_url"]["url"]
                 videos.append(video)
