@@ -7,10 +7,12 @@
 #include "../models/model_factory.hpp"
 #include "compiler/general_compiler.hpp"
 #include "distributed/distributed.hpp"
+#include "infinicore/device_event.hpp"
 #include "rank_barrier.hpp"
 
 #include <any>
 #include <condition_variable>
+#include <deque>
 #include <mutex>
 #include <random>
 #include <string>
@@ -79,13 +81,19 @@ public:
 
         float top_p{1};
 
+        // GPU relay dependency from the previous sampled token. This is not exposed to Python.
+        std::shared_ptr<infinicore::DeviceEvent> wait_event;
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
+
+        infinilm::InfinilmModel::Input to_compiled_model_input() const;
     };
 
     struct Output {
         infinicore::Tensor output_ids;
         infinicore::Tensor logits;
         infinicore::Tensor hidden_states;
+        std::shared_ptr<infinicore::DeviceEvent> ready_event;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -126,11 +134,20 @@ public:
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
 
+    // Request worker shutdown. This only signals the worker and returns immediately.
+    void request_close();
+
+    // Join the worker thread after shutdown has been requested.
+    void join();
+
     // Request worker shutdown and join the thread.
     void close();
 
     // Thread-safe accessor for last output produced by RUN.
     Output get_output();
+
+    // Release completed asynchronous input references at request boundaries.
+    void retire_completed_inputs();
 
     std::string info() const;
 
@@ -138,6 +155,16 @@ private:
     void thread_loop();
 
 private:
+    struct InflightInputRefs {
+        std::shared_ptr<infinicore::DeviceEvent> ready_event;
+        std::shared_ptr<infinilm::InfinilmModel::Input> converted_input;
+        std::shared_ptr<Input> source_input;
+    };
+
+    // Worker-thread-owned references awaiting actual device completion.
+    std::deque<InflightInputRefs> inflight_input_refs_;
+    std::size_t input_retire_poll_count_{0};
+
     // Worker properties
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config_;
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;

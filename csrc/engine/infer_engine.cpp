@@ -203,17 +203,64 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     return input;
 }
 
+infinilm::InfinilmModel::Input
+InferEngine::Input::to_compiled_model_input() const {
+    // CUDA-graph inputs already own fixed device buffers. Preserve each
+    // runtime tensor on its current device so PagedCompiler can stage CPU
+    // metadata directly into those buffers and relay sampled GPU token IDs
+    // without an intermediate device allocation/copy.
+    return {
+        input_ids,
+        position_ids,
+        past_sequence_lengths,
+        total_sequence_lengths,
+        input_offsets,
+        cu_seqlens,
+        block_tables,
+        slot_mapping,
+        mamba_init_state_indices,
+        mamba_final_state_indices,
+        pixel_values,
+        image_bound,
+        tgt_sizes,
+        image_grid_thw,
+        image_req_ids,
+        visual_token_ranges,
+        target_hidden_states};
+}
+
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    Input local_input = input;
+    if (last_output_ready_event_ && local_input.input_ids.has_value() && local_input.input_ids.value()->device().getType() != infinicore::Device::Type::CPU) {
+        // Decode feeds the previous sampled GPU tensor back as input. Keep the
+        // worker stream ordered without forcing a host synchronization.
+        local_input.wait_event = last_output_ready_event_;
+    }
+
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
-        worker->run(input);
+        worker->run(local_input);
     }
     // Wait for all workers
     for (auto &worker : workers_) {
         worker->wait();
     }
 
-    return workers_[0]->get_output();
+    auto output = workers_[0]->get_output();
+    last_rank_ready_events_.clear();
+    last_rank_ready_events_.reserve(workers_.size());
+    if (output.ready_event) {
+        last_rank_ready_events_.push_back(output.ready_event);
+    }
+    for (size_t i = 1; i < workers_.size(); ++i) {
+        auto rank_output = workers_[i]->get_output();
+        if (rank_output.ready_event) {
+            last_rank_ready_events_.push_back(rank_output.ready_event);
+        }
+    }
+    last_output_ids_ = output.output_ids;
+    last_output_ready_event_ = output.ready_event;
+    return output;
 }
 
 void InferEngine::compile() {
@@ -227,16 +274,36 @@ void InferEngine::compile() {
     for (auto &worker : workers_) {
         worker->wait();
     }
+    // Keep graph-registered allreduce buffers alive with the compiled CUDA graph.
+    // Prefill/decode backend selection should be explicit instead of unregistering here.
 }
 
 //------------------------------------------------------
 // Destructor
 //------------------------------------------------------
 InferEngine::~InferEngine() {
-    // Close all workers
-    for (auto &worker : workers_) {
-        worker->close();
+    close();
+}
+
+void InferEngine::close() {
+    if (closed_) {
+        return;
     }
+    closed_ = true;
+    sync_last_output();
+    last_rank_ready_events_.clear();
+    last_output_ready_event_.reset();
+    last_saved_output_event_.reset();
+    last_output_ids_.reset();
+    request_output_refs_.clear();
+    for (auto &worker : workers_) {
+        worker->request_close();
+    }
+    for (auto &worker : workers_) {
+        worker->join();
+    }
+    workers_.clear();
+    barrier_.reset();
 }
 
 const distributed::DistConfig &InferEngine::get_dist_config() const {
@@ -254,7 +321,68 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
         worker->wait();
     }
     cache_config_ = new_config->unique_copy();
+    reset_request_state();
     this->compile();
+}
+
+void InferEngine::reset_request_state() {
+    sync_last_output();
+    last_rank_ready_events_.clear();
+    last_output_ready_event_.reset();
+    last_output_ids_.reset();
+    last_saved_output_event_.reset();
+    request_output_refs_.clear();
+}
+
+void InferEngine::sync_last_output() {
+    if (!last_rank_ready_events_.empty()) {
+        for (const auto &event : last_rank_ready_events_) {
+            if (event && event->is_recorded()) {
+                event->synchronize();
+            }
+        }
+    } else if (last_output_ready_event_) {
+        last_output_ready_event_->synchronize();
+    }
+    if (last_saved_output_event_) {
+        last_saved_output_event_->synchronize();
+    }
+    for (auto &worker : workers_) {
+        worker->retire_completed_inputs();
+    }
+    request_output_refs_.clear();
+}
+
+void InferEngine::copy_last_output_to(infinicore::Tensor dst) {
+    if (!last_output_ids_) {
+        throw std::runtime_error("No previous output tensor is available to copy");
+    }
+    if (!dst) {
+        throw std::runtime_error("Destination output tensor is empty");
+    }
+    if (dst->shape() != last_output_ids_->shape()) {
+        throw std::runtime_error(
+            "Cannot copy output with different shape. Src: " + last_output_ids_->info() + " Dst: " + dst->info());
+    }
+    if (!(dst->device() == last_output_ids_->device())) {
+        throw std::runtime_error(
+            "Destination output tensor must be on the same device as the sampled token. Src: " + last_output_ids_->info() + " Dst: " + dst->info());
+    }
+
+    infinicore::context::setDevice(dst->device());
+    if (last_saved_output_event_ && last_saved_output_event_->is_recorded() && last_saved_output_event_->query()) {
+        request_output_refs_.clear();
+    }
+    if (last_output_ready_event_) {
+        infinicore::context::streamWaitEvent(
+            infinicore::context::getStream(), last_output_ready_event_->get());
+    }
+    dst->copy_from(last_output_ids_);
+    request_output_refs_.push_back(last_output_ids_);
+    if (!last_saved_output_event_ || !(last_saved_output_event_->device() == dst->device())) {
+        last_saved_output_event_ = std::make_shared<infinicore::DeviceEvent>(dst->device());
+    }
+    last_saved_output_event_->record(infinicore::context::getStream());
 }
 
 std::vector<std::vector<infinicore::Tensor>> InferEngine::get_kv_cache() {

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from infinilm.config.kv_transfer import KVTransferConfig
 
@@ -15,6 +15,7 @@ class EngineConfig:
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
+        tp_device_ids: Optional explicit logical devices for tensor parallelism.
         pipeline_parallel_size: Number of pipeline stages.
         pipeline_parallel_stage: Pipeline stage index for this engine.
         master_addr: Address used to bootstrap distributed communication.
@@ -32,6 +33,9 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
+        enable_async_token_handoff: Async token handoff preference. `None`
+            selects compatible paged NVIDIA decode paths automatically,
+            `True` enables the feature, and `False` disables it.
         attn_backend: Attention backend to use ('default', 'flash-attn').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -45,6 +49,7 @@ class EngineConfig:
     device: str = "cuda"
     dtype: str = "float16"
     tensor_parallel_size: int = 1
+    tp_device_ids: Optional[List[int]] = None
     pipeline_parallel_size: int = 1
     pipeline_parallel_stage: int = 0
     master_addr: str = "127.0.0.1"
@@ -61,6 +66,7 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    enable_async_token_handoff: Optional[bool] = None
     attn_backend: str = "default"
     use_mla: bool = False
     weight_load_mode: str = "async"
@@ -80,6 +86,21 @@ class EngineConfig:
             )
         if not 1 <= self.master_port <= 65535:
             raise ValueError("master_port must be in [1, 65535]")
+
+        if self.tp_device_ids is not None:
+            if len(self.tp_device_ids) != self.tensor_parallel_size:
+                raise ValueError(
+                    "`tp_device_ids` must contain exactly "
+                    f"{self.tensor_parallel_size} device IDs."
+                )
+            if len(set(self.tp_device_ids)) != len(self.tp_device_ids):
+                raise ValueError(
+                    "`tp_device_ids` must not contain duplicate device IDs."
+                )
+            if any(device_id < 0 for device_id in self.tp_device_ids):
+                raise ValueError(
+                    "`tp_device_ids` must contain non-negative device IDs."
+                )
 
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")

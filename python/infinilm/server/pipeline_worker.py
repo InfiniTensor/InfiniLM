@@ -19,6 +19,7 @@ def run_worker(cfg: BaseConfig) -> None:
         device=cfg.get_device_str(cfg.device),
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        tp_device_ids=cfg.tp_device_ids,
         pipeline_parallel_size=cfg.pp,
         pipeline_parallel_stage=cfg.node_rank,
         master_addr=cfg.master_addr,
@@ -33,11 +34,13 @@ def run_worker(cfg: BaseConfig) -> None:
         top_p=cfg.top_p,
         top_k=cfg.top_k,
         enable_graph=cfg.enable_graph,
+        enable_async_token_handoff=cfg.enable_async_token_handoff,
         attn_backend=cfg.attn,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         skip_load=cfg.skip_load,
         use_legacy_moe=cfg.use_legacy_moe,
+        enable_prefix_caching=cfg.enable_prefix_caching,
     )
 
     runner = ModelRunner(config, initialize_processor=False)

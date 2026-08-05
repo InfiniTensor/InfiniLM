@@ -165,6 +165,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return {nullptr, nullptr};
             }
             auto &graph_input = result->second.input;
+            if (graph_input.input_ids.value()->dtype() != input.input_ids.value()->dtype()) {
+                // Cross-device `Tensor::copy_from` does not convert dtypes.
+                // Falling back avoids interpreting CPU `I64` token IDs as
+                // packed GPU `I32` values.
+                return {nullptr, nullptr};
+            }
 
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());

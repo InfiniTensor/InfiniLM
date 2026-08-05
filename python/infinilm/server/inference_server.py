@@ -10,7 +10,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import List, Optional
 
 import uvicorn
 from fastapi import FastAPI, Request
@@ -98,6 +98,7 @@ class InferenceServer:
         device: str = "cuda",
         dtype: str = "float16",
         tensor_parallel_size: int = 1,
+        tp_device_ids: Optional[List[int]] = None,
         pipeline_parallel_size: int = 1,
         pipeline_parallel_stage: int = 0,
         master_addr: str = "127.0.0.1",
@@ -117,6 +118,7 @@ class InferenceServer:
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
+        enable_async_token_handoff: Optional[bool] = None,
         attn_backend: str = "default",
         use_mla: bool = False,
         weight_load_mode: str = "async",
@@ -131,6 +133,7 @@ class InferenceServer:
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
+            tp_device_ids: Optional explicit logical devices for tensor parallelism.
             moe_ep_backend: MoE expert-parallel backend.
             moe_ep_size: MoE expert-parallel size.
             use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
@@ -146,6 +149,9 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            enable_async_token_handoff: Async token handoff preference. `None`
+                automatically selects compatible paged NVIDIA decode paths;
+                `True` enables it and `False` disables it.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -158,6 +164,7 @@ class InferenceServer:
         self.device = device
         self.dtype = dtype
         self.tensor_parallel_size = tensor_parallel_size
+        self.tp_device_ids = tp_device_ids
         self.pipeline_parallel_size = pipeline_parallel_size
         self.pipeline_parallel_stage = pipeline_parallel_stage
         self.master_addr = master_addr
@@ -177,6 +184,7 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.enable_async_token_handoff = enable_async_token_handoff
         self.attn_backend = attn_backend
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
@@ -203,6 +211,7 @@ class InferenceServer:
                 device=self.device,
                 dtype=self.dtype,
                 tensor_parallel_size=self.tensor_parallel_size,
+                tp_device_ids=self.tp_device_ids,
                 pipeline_parallel_size=self.pipeline_parallel_size,
                 pipeline_parallel_stage=self.pipeline_parallel_stage,
                 master_addr=self.master_addr,
@@ -220,6 +229,7 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                enable_async_token_handoff=self.enable_async_token_handoff,
                 attn_backend=self.attn_backend,
                 use_mla=self.use_mla,
                 weight_load_mode=self.weight_load_mode,
@@ -229,6 +239,12 @@ class InferenceServer:
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
+            handoff_mode = (
+                "auto"
+                if self.enable_async_token_handoff is None
+                else ("on" if self.enable_async_token_handoff else "off")
+            )
+            logger.info("  async_token_handoff: %s", handoff_mode)
             yield
             self.engine.stop()
 
@@ -633,6 +649,7 @@ def main():
         device=device,
         dtype=cfg.dtype,
         tensor_parallel_size=cfg.tp,
+        tp_device_ids=cfg.tp_device_ids,
         pipeline_parallel_size=cfg.pp,
         pipeline_parallel_stage=cfg.node_rank,
         master_addr=cfg.master_addr,
@@ -652,6 +669,7 @@ def main():
         host=cfg.host,
         port=cfg.port,
         enable_graph=cfg.enable_graph,
+        enable_async_token_handoff=cfg.enable_async_token_handoff,
         attn_backend=cfg.attn,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,

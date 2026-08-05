@@ -247,9 +247,9 @@ std::vector<infinicore::Tensor> RankWorker::get_kv_cache() {
 }
 
 //------------------------------------------------------
-// close -- request shutdown and join thread
+// request_close -- request shutdown without waiting for the thread
 //------------------------------------------------------
-void RankWorker::close() {
+void RankWorker::request_close() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         should_exit_ = true;
@@ -257,10 +257,23 @@ void RankWorker::close() {
         job_cmd_ = Command::STOP;
     }
     cv_.notify_all();
+}
 
+//------------------------------------------------------
+// join -- wait for worker thread shutdown
+//------------------------------------------------------
+void RankWorker::join() {
     if (thread_.joinable()) {
         thread_.join();
     }
+}
+
+//------------------------------------------------------
+// close -- request shutdown and join thread
+//------------------------------------------------------
+void RankWorker::close() {
+    request_close();
+    join();
 }
 
 //------------------------------------------------------
@@ -269,6 +282,14 @@ void RankWorker::close() {
 RankWorker::Output RankWorker::get_output() {
     std::lock_guard<std::mutex> lock(mutex_);
     return output_;
+}
+
+void RankWorker::retire_completed_inputs() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    while (!inflight_input_refs_.empty()
+           && inflight_input_refs_.front().ready_event->query()) {
+        inflight_input_refs_.pop_front();
+    }
 }
 
 //------------------------------------------------------
@@ -416,12 +437,35 @@ void RankWorker::thread_loop() {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
+                        // InfiniCore's block allocator is not stream ordered, so
+                        // input references must outlive their asynchronous device
+                        // work. Polling a CUDA event on every decode step adds a
+                        // visible host-side bubble, though. Retire a completed
+                        // batch periodically instead; at most one interval of
+                        // already-completed references remains in the queue.
+                        constexpr std::size_t kInputRetirePollInterval = 64;
+                        if (++input_retire_poll_count_ >= kInputRetirePollInterval) {
+                            input_retire_poll_count_ = 0;
+                            while (!inflight_input_refs_.empty() && inflight_input_refs_.front().ready_event->query()) {
+                                inflight_input_refs_.pop_front();
+                            }
+                        }
+
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        if (local_args.wait_event) {
+                            infinicore::context::setDevice(rank_info_.device);
+                            infinicore::context::streamWaitEvent(
+                                infinicore::context::getStream(), local_args.wait_event->get());
+                        }
+                        auto source_input_refs = std::make_shared<Input>(local_args);
+                        std::shared_ptr<InfinilmModel::Input> model_args;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                            model_args = std::make_shared<InfinilmModel::Input>(
+                                source_input_refs->to_compiled_model_input());
+                            auto [graph, output] = compiler_->get_compiled(*model_args);
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
@@ -429,14 +473,20 @@ void RankWorker::thread_loop() {
                         }
                         // Fall back to eager mode
                         if (!logits) {
-                            auto model_args = local_args.to_model_input(rank_info_.device);
-                            auto model_output = model_->forward(model_args);
+                            model_args = std::make_shared<InfinilmModel::Input>(
+                                source_input_refs->to_model_input(rank_info_.device));
+                            auto model_output = model_->forward(*model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
                         }
 
+                        if (!model_args) {
+                            throw std::runtime_error("RUN did not materialize model inputs");
+                        }
+
+                        infinicore::Tensor output_ids;
+
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
-                            infinicore::Tensor output_ids;
                             if (rank_info_.pp_stage == 0 && rank_info_.tp_rank == 0) {
                                 // The last PP stage samples tokens. Return them
                                 // directly to stage-0/rank-0, which owns the
@@ -455,10 +505,19 @@ void RankWorker::thread_loop() {
                                 output_ids = output_ids->to(infinicore::Device::cpu());
                                 infinicore::context::syncStream();
                             }
+                            auto ready_event = std::make_shared<infinicore::DeviceEvent>(
+                                rank_info_.device);
+                            ready_event->record(infinicore::context::getStream());
+                            inflight_input_refs_.push_back(InflightInputRefs{
+                                ready_event,
+                                std::move(model_args),
+                                std::move(source_input_refs),
+                            });
                             output_ = Output{
                                 output_ids,
                                 logits,
-                                hidden_states};
+                                hidden_states,
+                                ready_event};
                             job_done_ = true;
                             cv_.notify_all();
                             continue;
@@ -479,8 +538,11 @@ void RankWorker::thread_loop() {
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
                             const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+                            const size_t n_out = sample_all_positions
+                                                   ? static_cast<size_t>(input_offsets[n_req])
+                                                   : n_req;
+                            output_ids = infinicore::Tensor::empty(
+                                {n_out}, infinicore::DataType::I64, rank_info_.device);
 
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
@@ -499,16 +561,25 @@ void RankWorker::thread_loop() {
                                     output_ids,
                                     0,
                                     rank_info_.world_comm);
+
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                                infinicore::context::syncStream();
                             }
-
-                            output_ids = output_ids->to(infinicore::Device::cpu());
-
-                            infinicore::context::syncStream();
-
-                            auto out{Output{output_ids, logits, hidden_states}};
-
-                            output_ = std::move(out);
                         }
+
+                        // Every TP rank records completion of its own stream. At a
+                        // request boundary the engine must drain all ranks before
+                        // speculative KV state is rolled back and reused.
+                        auto ready_event = std::make_shared<infinicore::DeviceEvent>(
+                            rank_info_.device);
+                        ready_event->record(infinicore::context::getStream());
+                        inflight_input_refs_.push_back(InflightInputRefs{
+                            ready_event,
+                            std::move(model_args),
+                            std::move(source_input_refs),
+                        });
+                        output_ = Output{
+                            output_ids, logits, hidden_states, ready_event};
 
                         job_done_ = true;
                     }
@@ -570,6 +641,9 @@ void RankWorker::thread_loop() {
             }
         } // while
         // Some clean up should be done before exiting the thread
+        infinicore::context::setDevice(rank_info_.device);
+        infinicore::context::syncStream();
+        inflight_input_refs_.clear();
         compiler_.reset();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.

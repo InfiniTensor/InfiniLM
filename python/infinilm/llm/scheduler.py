@@ -4,6 +4,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 
 import logging
 import queue
+from dataclasses import dataclass
 from typing import List, Optional
 
 import janus
@@ -36,6 +37,17 @@ class SpeculativeCacheOps:
         return self._cache_manager.truncate_blocks(block_table, keep_tokens)
 
 
+@dataclass
+class DecodeLookaheadState:
+    """Tentative paged-cache state for one request in the next decode batch."""
+
+    request: InferenceRequest
+    base_total_length: int
+    projected_total_length: int
+    block_table: List[int]
+    slot_mapping: List[int]
+
+
 class SchedulerOutput:
     """Scheduler output containing scheduled requests and execution phase info."""
 
@@ -50,6 +62,7 @@ class SchedulerOutput:
         self.is_prefill = is_prefill
         self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
+        self.decode_lookahead_states: Optional[List[DecodeLookaheadState]] = None
 
 
 class Scheduler:
@@ -107,6 +120,167 @@ class Scheduler:
             )
             request.status = RequestStatus.WAITING
             self.waiting_queue.sync_q.put(request)
+
+    def prepare_decode_lookahead(
+        self, scheduler_output: SchedulerOutput
+    ) -> Optional[SchedulerOutput]:
+        """Tentatively reserve the next decode slot for a stable request batch.
+
+        The sampled token is not available on the host yet, so block hashes are
+        deliberately left uncommitted. The caller must later call either
+        commit_decode_lookahead() or rollback_decode_lookahead().
+        """
+        if (
+            self.connector is not None
+            or self.has_mamba_cache
+            or scheduler_output.num_requests < 1
+            or not self.waiting_queue.sync_q.empty()
+            or not self.running_queue.sync_q.empty()
+            or self.remote_kv_requests
+        ):
+            return None
+
+        requests = list(scheduler_output.scheduled_requests)
+        if len({req.request_id for req in requests}) != len(requests):
+            return None
+
+        for req in requests:
+            if (
+                req.is_finished()
+                or req.is_aborted()
+                or not req.block_table
+                or req.sampling_params.stop
+                or req.sampling_params.stop_token_ids
+            ):
+                return None
+
+            # The token currently in flight has not been appended to the
+            # request yet. If any member is guaranteed to exhaust max_tokens,
+            # let the normal scheduler retire the whole batch and rebuild the
+            # active set instead of executing a decode that must be discarded.
+            max_tokens = req.sampling_params.max_tokens
+            if max_tokens is not None and (
+                req.get_num_generated_tokens() + 1 >= max_tokens
+            ):
+                return None
+
+        states: List[DecodeLookaheadState] = []
+        try:
+            for req in requests:
+                base_total_length = req.get_total_length()
+                projected_total_length = base_total_length + 1
+                block_table, slots = self.speculative_cache_ops.append_verify_slots(
+                    list(req.block_table),
+                    projected_total_length,
+                    1,
+                )
+                states.append(
+                    DecodeLookaheadState(
+                        request=req,
+                        base_total_length=base_total_length,
+                        projected_total_length=projected_total_length,
+                        block_table=block_table,
+                        slot_mapping=slots,
+                    )
+                )
+        except Exception:
+            for state in states:
+                self.speculative_cache_ops.rollback_to_length(
+                    state.block_table,
+                    state.base_total_length,
+                )
+            raise
+
+        lookahead = SchedulerOutput(
+            scheduled_requests=requests,
+            is_prefill=False,
+            speculative_cache_ops=self.speculative_cache_ops,
+        )
+        lookahead.decode_lookahead_states = states
+        return lookahead
+
+    def decode_lookahead_still_valid(self, lookahead: SchedulerOutput) -> bool:
+        """Return whether a tentative decode may bypass the normal scheduler."""
+        states = lookahead.decode_lookahead_states
+        if (
+            not states
+            or len(states) != lookahead.num_requests
+            or len(states) != len(lookahead.scheduled_requests)
+        ):
+            return False
+
+        # Preserve scheduler policy: newly waiting work or another running
+        # request takes priority over the stable active-set fast path.
+        if (
+            not self.waiting_queue.sync_q.empty()
+            or not self.running_queue.sync_q.empty()
+            or self.remote_kv_requests
+        ):
+            return False
+
+        for req, state in zip(lookahead.scheduled_requests, states):
+            if (
+                req is not state.request
+                or req.is_finished()
+                or req.is_aborted()
+                or req.get_total_length() != state.projected_total_length
+            ):
+                return False
+        return True
+
+    def commit_decode_lookahead(self, lookahead: SchedulerOutput) -> None:
+        """Publish a prepared slot after the sampled token is known.
+
+        Full-block hashes are intentionally not registered here: the sampled
+        token has not run through the next forward yet, so its KV entry does not
+        exist. finalize_executed_decode_lookahead() registers hashes only after
+        that GPU step has completed.
+        """
+        states = lookahead.decode_lookahead_states
+        if not states or len(states) != lookahead.num_requests:
+            raise RuntimeError("decode lookahead is missing its cache state")
+
+        # Validate the complete batch before mutating any live request.
+        for req, state in zip(lookahead.scheduled_requests, states):
+            if req is not state.request:
+                raise RuntimeError("decode lookahead request order changed")
+            if req.get_total_length() != state.projected_total_length:
+                raise RuntimeError(
+                    "decode lookahead length changed before commit for "
+                    f"{req.request_id}: expected {state.projected_total_length}, "
+                    f"got {req.get_total_length()}"
+                )
+
+        for state in states:
+            req = state.request
+            req.block_table = state.block_table
+            req.slot_mapping = state.slot_mapping
+            req.num_blocks = len(state.block_table)
+            req.num_local_cached_tokens = state.projected_total_length - 1
+
+    def finalize_executed_decode_lookahead(
+        self, scheduler_output: SchedulerOutput
+    ) -> None:
+        """Register cache hashes after a lookahead forward has produced its KV."""
+        states = scheduler_output.decode_lookahead_states
+        if not states:
+            return
+
+        for state in states:
+            req = state.request
+            self.commit_computed_tokens(req, state.projected_total_length)
+
+    def rollback_decode_lookahead(self, lookahead: SchedulerOutput) -> None:
+        """Release blocks tentatively allocated by prepare_decode_lookahead()."""
+        states = lookahead.decode_lookahead_states
+        if not states:
+            return
+        for state in states:
+            self.speculative_cache_ops.rollback_to_length(
+                state.block_table,
+                state.base_total_length,
+            )
+        lookahead.decode_lookahead_states = None
 
     def _exceeds_token_budget(
         self,
