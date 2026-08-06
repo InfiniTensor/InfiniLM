@@ -50,6 +50,17 @@ void write_pos_embed(void *dst, infinicore::DataType dtype, const float *src, si
     }
     throw std::runtime_error("Unsupported dtype in write_pos_embed");
 }
+
+infinicore::Tensor build_2d_sincos_pos_embed_cpu(size_t h,
+                                                 size_t w,
+                                                 size_t embed_dim,
+                                                 infinicore::DataType dtype) {
+    std::vector<float> buf(h * w * embed_dim);
+    compute_2d_sincos_pos_embed(buf.data(), embed_dim, h, w);
+    auto embedding_cpu = infinicore::Tensor::zeros({h, w, embed_dim}, dtype, infinicore::Device::cpu());
+    write_pos_embed(embedding_cpu->data(), embedding_cpu->dtype(), buf.data(), buf.size());
+    return embedding_cpu;
+}
 } // namespace
 
 ResamplerAttention::ResamplerAttention(size_t embed_dim,
@@ -147,11 +158,8 @@ Resampler::Resampler(size_t num_queries,
     // Initialize full 2d embeddings with max size, calculate on cpu and copy to gpu
     size_t num_patches = image_size_ / patch_size_;
     INFINICORE_NN_BUFFER_INIT(embedding_table, ({num_patches, num_patches, embed_dim_}, dtype, device_));
-    std::vector<float> buf(num_patches * num_patches * embed_dim_);
-    compute_2d_sincos_pos_embed(buf.data(), embed_dim_, num_patches, num_patches);
-    auto embedding_table_cpu = infinicore::Tensor::zeros({num_patches, num_patches, embed_dim_}, dtype, infinicore::Device::cpu());
-    write_pos_embed(embedding_table_cpu->data(), embedding_table_cpu->dtype(), buf.data(), num_patches * num_patches * embed_dim_);
-    embedding_table_->copy_from(embedding_table_cpu);
+    auto embedding_table_init = build_2d_sincos_pos_embed_cpu(num_patches, num_patches, embed_dim_, dtype);
+    embedding_table_->copy_from(embedding_table_init);
 }
 
 infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
@@ -176,7 +184,15 @@ infinicore::Tensor Resampler::forward(const infinicore::Tensor &x,
         auto tgt_h = static_cast<size_t>(tgt_sizes_ptr[b * 2]);
         auto tgt_w = static_cast<size_t>(tgt_sizes_ptr[b * 2 + 1]);
 
-        auto src_embeddings = embedding_table_->narrow({{0, 0, tgt_h}, {1, 0, tgt_w}});
+        infinicore::Tensor src_embeddings;
+        const size_t table_h = embedding_table_->size(0);
+        const size_t table_w = embedding_table_->size(1);
+        if (tgt_h <= table_h && tgt_w <= table_w) {
+            src_embeddings = embedding_table_->narrow({{0, 0, tgt_h}, {1, 0, tgt_w}});
+        } else {
+            auto dynamic_cpu = build_2d_sincos_pos_embed_cpu(tgt_h, tgt_w, embed_dim_, kv->dtype());
+            src_embeddings = dynamic_cpu->to(kv->device());
+        }
         auto tgt_embeddings = pos_embeddings->narrow({{0, b, 1}, {1, 0, tgt_h * tgt_w}})->view({tgt_h, tgt_w, embed_dim_});
         tgt_embeddings->copy_from(src_embeddings);
     }
