@@ -12,8 +12,6 @@
 # =============================================================================
 
 import infinicore
-import transformers
-from transformers import AutoTokenizer
 from tokenizers import decoders as _dec
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.distributed import DistConfig
@@ -26,6 +24,7 @@ import numpy as np
 from infinilm.cache import StaticKVCacheConfig, PagedKVCacheConfig
 from packaging import version
 from infinilm.base_config import BaseConfig
+from infinilm.processors import AutoInfinilmProcessor
 
 from PIL import Image
 import torch
@@ -72,7 +71,8 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        create tokenizer
     # ---------------------------------------------------------------------------- #
-    tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+    text_processor = AutoInfinilmProcessor.from_pretrained(model_path)
+    tokenizer = text_processor.get_tokenizer()
 
     processor = None
     if image_path is not None:
@@ -83,24 +83,6 @@ def test(
                 model_path, trust_remote_code=True
             )
             tokenizer = processor.tokenizer
-
-    if "llama" == model.model_type:
-        backend = getattr(tokenizer, "backend_tokenizer", None)
-        target = getattr(backend, "_tokenizer", backend)
-        norm = getattr(target, "normalizer", None)
-        dec = getattr(target, "decoder", None)
-        sn = repr(norm)[:800] if norm is not None else ""
-        sd = repr(dec)[:800] if dec is not None else ""
-        has_prepend = "Prepend" in sn
-        has_strip = "Strip" in sd
-        if has_prepend and has_strip:
-            target.decoder = _dec.Sequence(
-                [
-                    _dec.Replace("▁", " "),
-                    _dec.ByteFallback(),
-                    _dec.Fuse(),
-                ]
-            )
 
     # ---------------------------------------------------------------------------- #
     #                        tokenize
@@ -119,7 +101,7 @@ def test(
 
     if hasattr(tokenizer, "chat_template") and tokenizer.chat_template is not None:
         input_contents = [
-            tokenizer.apply_chat_template(
+            text_processor.apply_chat_template(
                 conversation=[{"role": "user", "content": prompt}],
                 add_generation_prompt=True,
                 tokenize=False,
@@ -152,21 +134,12 @@ def test(
         else:
             raise ValueError(f"Unsupported multimodal model_type: {model.model_type}")
     else:
-        if version.parse(transformers.__version__) < version.parse("5.0.0"):
-            # Ideally this is solved by upgrading transformers. However, doing so causes version mismatch between transformers and mlu pytorch on devices with Phytium CPU. So a branch is temporarily used.
-            input_ids_list = [
-                tokenizer.encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
-                )["input_ids"]
-                for text in input_contents
-            ]
-        else:
-            input_ids_list = [
-                tokenizer._encode_plus(
-                    text, truncation=True, max_length=2048, add_special_tokens=True
-                )["input_ids"]
-                for text in input_contents
-            ]
+        input_ids_list = [
+            tokenizer.encode(
+                text, truncation=True, max_length=2048, add_special_tokens=True
+            )
+            for text in input_contents
+        ]
 
     # ---------------------------------------------------------------------------- #
     #                       Create KVCache
