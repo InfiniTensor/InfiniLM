@@ -96,6 +96,107 @@ class MiniCPMVProcessor(InfinilmProcessor):
             **kwargs,
         )
 
+    def _get_mm_prefill_cache(self, processed_inputs: dict):
+        import torch
+
+        mm_prefill_cache = processed_inputs.get("_mm_prefill_cache")
+        if mm_prefill_cache is not None:
+            return mm_prefill_cache
+
+        flat_pixel_values = []
+        for pixel_value_group in processed_inputs["pixel_values"]:
+            flat_pixel_values.extend(
+                tensor.flatten(end_dim=1)
+                .permute(1, 0)
+                .to(self.pixel_values_dtype)
+                .contiguous()
+                for tensor in pixel_value_group
+            )
+
+        if flat_pixel_values:
+            pixel_values_tensor = torch.nn.utils.rnn.pad_sequence(
+                flat_pixel_values, batch_first=True, padding_value=0.0
+            )
+            batch_size, max_patch_len, _ = pixel_values_tensor.shape
+            pixel_values_tensor = (
+                pixel_values_tensor.permute(0, 2, 1)
+                .reshape(batch_size, 3, -1, max_patch_len)
+                .contiguous()
+            )
+        else:
+            pixel_values_tensor = torch.empty(
+                (0, 3, 0, 0), dtype=self.pixel_values_dtype
+            )
+
+        tgt_sizes_list = [
+            tgt_size.to(torch.int64)
+            for tgt_size in processed_inputs["tgt_sizes"]
+            if isinstance(tgt_size, torch.Tensor)
+        ]
+        if tgt_sizes_list:
+            tgt_sizes_tensor = torch.vstack(tgt_sizes_list).contiguous()
+        else:
+            tgt_sizes_tensor = torch.empty((0, 2), dtype=torch.int64)
+
+        mm_prefill_cache = {
+            "num_patches": len(flat_pixel_values),
+            "pixel_values_tensor": pixel_values_tensor,
+            "tgt_sizes_tensor": tgt_sizes_tensor,
+            "image_bound": [
+                bound.to(torch.int64) for bound in processed_inputs["image_bound"]
+            ],
+            "suffix_cache": {},
+            "shifted_bound_cache": {},
+        }
+        processed_inputs["_mm_prefill_cache"] = mm_prefill_cache
+        return mm_prefill_cache
+
+    def _get_mm_prefill_suffix(self, mm_prefill_cache: dict, num_cached_patch: int):
+        suffix_cache = mm_prefill_cache["suffix_cache"]
+        suffix = suffix_cache.get(num_cached_patch)
+        if suffix is not None:
+            return suffix
+
+        pixel_values_tensor = mm_prefill_cache["pixel_values_tensor"][num_cached_patch:]
+        if not pixel_values_tensor.is_contiguous():
+            pixel_values_tensor = pixel_values_tensor.contiguous()
+
+        tgt_sizes_tensor = mm_prefill_cache["tgt_sizes_tensor"][num_cached_patch:]
+        if not tgt_sizes_tensor.is_contiguous():
+            tgt_sizes_tensor = tgt_sizes_tensor.contiguous()
+
+        suffix = (pixel_values_tensor, tgt_sizes_tensor)
+        suffix_cache[num_cached_patch] = suffix
+        return suffix
+
+    def _get_shifted_image_bound(
+        self, mm_prefill_cache: dict, num_cached_patch: int, num_cached: int
+    ):
+        import torch
+
+        cache_key = (num_cached_patch, int(num_cached))
+        shifted_bound = mm_prefill_cache["shifted_bound_cache"].get(cache_key)
+        if shifted_bound is not None:
+            return shifted_bound
+
+        shifted_bounds = []
+        for bound in mm_prefill_cache["image_bound"]:
+            bound = bound[num_cached_patch:, :]
+            if len(bound) > 0:
+                bound = bound - int(num_cached)
+            shifted_bounds.append(bound)
+
+        batch_size = len(shifted_bounds)
+        max_ranges = max((len(bound) for bound in shifted_bounds), default=0)
+        shifted_bound = torch.zeros((batch_size, max_ranges, 2), dtype=torch.int64)
+
+        for i, bound in enumerate(shifted_bounds):
+            if len(bound) > 0:
+                shifted_bound[i, : len(bound), :] = bound
+
+        mm_prefill_cache["shifted_bound_cache"][cache_key] = shifted_bound
+        return shifted_bound
+
     @override
     def build_model_inputs(
         self,
@@ -151,68 +252,27 @@ class MiniCPMVProcessor(InfinilmProcessor):
                     req.processed_inputs is not None
                     and "pixel_values" in req.processed_inputs
                 ):
-                    import torch
-
+                    mm_prefill_cache = self._get_mm_prefill_cache(req.processed_inputs)
                     num_cached_patch = (
-                        (req.processed_inputs["image_bound"][0][:, 1] <= num_cached)
+                        (mm_prefill_cache["image_bound"][0][:, 1] <= num_cached)
                         .sum()
                         .item()
                     )
 
-                    # if all patches are already cached, skip processing multimodal inputs and return text-only inputs for this request
-                    if num_cached_patch < len(req.processed_inputs["pixel_values"]):
-                        # 1. pixel_values
-                        all_pixel_values = []
-                        pixel_values = req.processed_inputs["pixel_values"]
-                        tgt_sizes = req.processed_inputs["tgt_sizes"]
-                        image_bound = req.processed_inputs["image_bound"]
-                        for pv in pixel_values:
-                            all_pixel_values.extend(
-                                [
-                                    t.flatten(end_dim=1)
-                                    .permute(1, 0)
-                                    .to(self.pixel_values_dtype)
-                                    for i, t in enumerate(pv)
-                                    if i >= num_cached_patch
-                                ]
+                    # If all patches are already cached, skip multimodal inputs and
+                    # reuse the text-only path for this prefill chunk.
+                    if num_cached_patch < mm_prefill_cache["num_patches"]:
+                        pixel_values_tensor, tgt_sizes_tensor = (
+                            self._get_mm_prefill_suffix(
+                                mm_prefill_cache, num_cached_patch
                             )
-
-                        pixel_values_tensor = torch.nn.utils.rnn.pad_sequence(
-                            all_pixel_values, batch_first=True, padding_value=0.0
-                        )
-                        B, L, _ = pixel_values_tensor.shape
-                        pixel_values_tensor = (
-                            pixel_values_tensor.permute(0, 2, 1)
-                            .reshape(B, 3, -1, L)
-                            .contiguous()
                         )
                         pixel_values_infini = infinicore.from_torch(pixel_values_tensor)
-
-                        # 2. tgt_sizes
-                        all_tgt_sizes = [
-                            tgt_size
-                            for i, tgt_size in enumerate(tgt_sizes)
-                            if isinstance(tgt_size, torch.Tensor)
-                            and i >= num_cached_patch
-                        ]
-
-                        tgt_sizes_tensor = torch.vstack(all_tgt_sizes).to(torch.int64)
-
                         tgt_sizes_infini = infinicore.from_torch(tgt_sizes_tensor)
 
-                        # 3. image_bound
-                        batch_size = len(image_bound)
-                        max_ranges = max(len(b) for b in image_bound)
-
-                        bound = torch.zeros(
-                            (batch_size, max_ranges, 2), dtype=torch.int64
+                        bound = self._get_shifted_image_bound(
+                            mm_prefill_cache, num_cached_patch, num_cached
                         )
-
-                        for i, bnd in enumerate(image_bound):
-                            bnd = bnd[num_cached_patch:, :]
-                            if len(bnd) > 0:
-                                bound[i, : len(bnd), :] = bnd
-
                         image_bound_infini = infinicore.from_torch(bound)
 
                         def append_mm_data(mm_data__: dict, key__: str, value__):

@@ -50,14 +50,24 @@ void MiniCPMVModel::replace_embeddings(infinicore::Tensor inputs_embeds,
     auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
     auto vision_len = vision_hidden->size(0);
+    auto out_len = static_cast<int64_t>(out_slice->size(0));
     for (size_t patch = 0; patch < vision_len; ++patch) {
         auto patch_embed = vision_hidden->narrow({{0, patch, 1}})->squeeze(0);
         auto bound = bound_slice->narrow({{0, patch, 1}});
         auto bound_ptr = reinterpret_cast<const int64_t *>(bound->data());
-        auto start = bound_ptr[0];
-        auto end = bound_ptr[1];
+        int64_t start = bound_ptr[0];
+        int64_t end = bound_ptr[1];
 
-        out_slice->narrow({{0, size_t(start), size_t(end - start)}})->copy_from(patch_embed);
+        int64_t dst_start = std::max<int64_t>(start, 0);
+        int64_t dst_end = std::min<int64_t>(end, out_len);
+        if (dst_end <= dst_start) {
+            continue;
+        }
+
+        size_t src_start = static_cast<size_t>(dst_start - start);
+        size_t copy_len = static_cast<size_t>(dst_end - dst_start);
+        auto patch_slice = patch_embed->narrow({{0, src_start, copy_len}});
+        out_slice->narrow({{0, static_cast<size_t>(dst_start), copy_len}})->copy_from(patch_slice);
     }
 }
 
