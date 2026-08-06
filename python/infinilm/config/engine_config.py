@@ -63,6 +63,7 @@ class EngineConfig:
     enable_graph: bool = False
     attn_backend: str = "default"
     use_mla: bool = False
+    pre_transpose: bool = False
     weight_load_mode: str = "async"
     skip_load: bool = False
     use_legacy_moe: bool = False

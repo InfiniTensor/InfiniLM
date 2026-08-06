@@ -40,6 +40,7 @@ def test(
     weight_load_mode="async",
     use_legacy_moe=False,
     enable_prefix_caching=True,
+    pre_transpose=False,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -75,6 +76,7 @@ def test(
         weight_load_mode=weight_load_mode,
         use_legacy_moe=use_legacy_moe,
         enable_prefix_caching=enable_prefix_caching,
+        pre_transpose=pre_transpose,
     )
 
     conversations = [
@@ -182,4 +184,5 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         use_legacy_moe=cfg.use_legacy_moe,
         enable_prefix_caching=cfg.enable_prefix_caching,
+        pre_transpose=cfg.pre_transpose,
     )

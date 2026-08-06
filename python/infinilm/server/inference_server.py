@@ -123,6 +123,7 @@ class InferenceServer:
         ignore_eos: bool = False,
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
+        pre_transpose: bool = False,
     ):
         """Initialize inference server.
 
@@ -183,6 +184,7 @@ class InferenceServer:
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
+        self.pre_transpose = pre_transpose
 
         self.engine: AsyncLLMEngine = None
 
@@ -225,6 +227,7 @@ class InferenceServer:
                 weight_load_mode=self.weight_load_mode,
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
+                pre_transpose=self.pre_transpose,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -658,6 +661,7 @@ def main():
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
+        pre_transpose=cfg.pre_transpose,
     )
     server.start()
 

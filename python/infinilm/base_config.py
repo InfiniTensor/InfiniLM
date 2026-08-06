@@ -77,6 +77,7 @@ class BaseConfig:
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
+        self.pre_transpose = self.args.pre_transpose
         self.num_blocks = self.args.num_blocks
         self.block_size = self.args.block_size
         self.max_cache_len = self.args.max_cache_len
@@ -251,6 +252,11 @@ class BaseConfig:
             choices=["default", "paged-attn", "flash-attn"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
+        self.parser.add_argument(
+            "--pre-transpose",
+            action="store_true",
+            help="enable weight pre-transposition optimization (Ascend)",
+        )
         self.parser.add_argument(
             "--use-mla",
             action="store_true",
