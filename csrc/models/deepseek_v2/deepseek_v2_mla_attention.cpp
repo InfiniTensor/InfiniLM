@@ -6,6 +6,7 @@
 #include "../../utils.hpp"
 #include "deepseek_v2_utils.hpp"
 #include "infinicore/context/context.hpp"
+#include "infinicore/graph/graph.hpp"
 #include "infinicore/ops/bmm_strided.hpp"
 #include "infinicore/ops/broadcast_to.hpp"
 #include "infinicore/ops/cast.hpp"
@@ -26,14 +27,46 @@
 
 namespace infinilm::models::deepseek_v2 {
 namespace {
+class DsaDebugDumpGraphOperator final : public infinicore::graph::GraphOperator {
+public:
+    DsaDebugDumpGraphOperator(infinicore::Tensor tensor, std::string filename)
+        : tensor_(std::move(tensor)), filename_(std::move(filename)) {}
+
+    void run() const override {
+        tensor_->debug(filename_);
+    }
+
+    bool is_device_graph_capture_safe() const override {
+        return false;
+    }
+
+private:
+    infinicore::Tensor tensor_;
+    std::string filename_;
+};
+
+size_t debug_dump_layer() {
+    const char *value = std::getenv("INFINILM_GLM_DEBUG_DUMP_LAYER");
+    return value == nullptr ? 0 : static_cast<size_t>(std::strtoull(value, nullptr, 10));
+}
+
 void debug_dump_dsa(const infinicore::Tensor &tensor, const std::string &name, size_t layer_idx) {
-    if (layer_idx != 0 || std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
+    if (layer_idx != debug_dump_layer()
+        || std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
         return;
     }
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (rank.tp_rank == 0) {
-        tensor->debug("/tmp/glmdbg_dsa_" + name + ".bin");
+    if (rank.tp_rank != 0) {
+        return;
     }
+    auto filename = "/tmp/glmdbg_dsa_layer_" + std::to_string(layer_idx) + "_"
+                  + name + ".bin";
+    if (infinicore::context::isGraphRecording()) {
+        infinicore::context::addGraphOperator(
+            std::make_shared<DsaDebugDumpGraphOperator>(tensor, std::move(filename)));
+        return;
+    }
+    tensor->debug(filename);
 }
 } // namespace
 
@@ -331,8 +364,12 @@ infinicore::Tensor DeepseekV2MLAAttention::forward(const infinicore::Tensor &pos
     ASSERT(request_ids.has_value());
     ASSERT(attn_metadata.max_context_len.has_value());
 
-    if (hidden_states->device().getType() != infinicore::Device::Type::ILUVATAR) {
-        throw std::runtime_error("DeepseekV2MLAAttention: the vLLM-style MLA cache path currently requires Iluvatar");
+    const bool is_prefill = seq_len != total_sequence_lengths.value()->shape()[0];
+    const auto device_type = hidden_states->device().getType();
+    if (device_type != infinicore::Device::Type::ILUVATAR
+        && device_type != infinicore::Device::Type::HYGON) {
+        throw std::runtime_error(
+            "DeepseekV2MLAAttention: MLA paged-cache backend is unavailable on this device");
     }
     const bool use_fp8_ds_mla = kv_cache->dtype() == infinicore::DataType::U8;
     const bool use_fused_fp8_cache = use_sparse_ && use_fp8_ds_mla
@@ -383,7 +420,6 @@ infinicore::Tensor DeepseekV2MLAAttention::forward(const infinicore::Tensor &pos
     }
     debug_dump_dsa(kv_cache, "mla_cache", layer_idx_);
 
-    const bool is_prefill = seq_len != total_sequence_lengths.value()->shape()[0];
     if (use_sparse_) {
         auto &topk_indices_opt = forward_context.dsa_topk_indices;
         if (!topk_indices_opt.has_value()) {

@@ -29,19 +29,21 @@ private:
 class GlmW4A8Experts final : public infinicore::nn::Module {
 public:
     GlmW4A8Experts(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
+    void process_weights_after_loading() override;
     infinicore::Tensor forward(const infinicore::Tensor &,
                                const infinicore::Tensor &,
                                const infinicore::Tensor &,
-                               std::optional<infinicore::Tensor> = std::nullopt) const;
+                               std::optional<infinicore::Tensor>,
+                               size_t) const;
 
 private:
-    infinicore::Tensor w1_, s1_, w2_, s2_;
+    infinicore::Tensor w1_, s1_, w2_, s2_, marlin_s1_, marlin_s2_;
     size_t hidden_{0}, inter_{0}, nexpert_{0}, topk_{0}, tp_{1};
     infinicclComm_t comm_{nullptr};
 };
 class GlmMoE final : public infinicore::nn::Module {
 public:
-    GlmMoE(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
+    GlmMoE(std::shared_ptr<infinilm::config::ModelConfig>, size_t, const infinicore::Device &);
     infinicore::Tensor forward(const infinicore::Tensor &) const;
 
 private:
@@ -49,5 +51,6 @@ private:
     INFINICORE_NN_MODULE(GlmW4A8Experts, experts);
     INFINICORE_NN_MODULE(GlmDenseMLP, shared_experts);
     bool shared_{false};
+    size_t layer_idx_{0};
 };
 } // namespace infinilm::models::glm_moe_dsa

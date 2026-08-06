@@ -63,7 +63,7 @@ public:
     Output forward(const Input &) const override;
     void reset_cache(const cache::CacheConfig *) override;
     size_t max_decode_graph_batch_size() const override {
-        return 16;
+        return max_decode_graph_batch_size_;
     }
     size_t decode_graph_batch_size(size_t batch_size) const override {
         // Exact graphs avoid dummy-request padding in the latency-sensitive
@@ -79,6 +79,7 @@ private:
     INFINICORE_NN_MODULE(GlmModel, model);
     INFINICORE_NN_MODULE(GlmVocabLMHead, lm_head);
     bool is_output_stage_{true};
+    size_t max_decode_graph_batch_size_{16};
     mutable std::vector<infinicore::Tensor> graph_microbatch_constants_;
 };
 std::shared_ptr<infinilm::config::ModelConfig> create_glm_config(std::shared_ptr<infinilm::config::ModelConfig>);

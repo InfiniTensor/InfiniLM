@@ -2,6 +2,8 @@
 
 #include "infinicore/ops/dynamic_scaled_int8_quant.hpp"
 #include "infinicore/ops/mul_scalar.hpp"
+#include "infinicore/ops/prepare_glm_w4a16_awq.hpp"
+#include "infinicore/ops/scaled_mm_w4a16_awq.hpp"
 #include "infinicore/ops/scaled_mm_w4a8.hpp"
 
 #include <cmath>
@@ -72,6 +74,43 @@ infinicore::Tensor run_w4a8_forward(const ParamsMap &params,
                                     float alpha) {
     auto weight = params.at("weight");
     auto weight_scale = params.at("weight_scale");
+    auto zeros_it = params.find("weight_zeros");
+    if (zeros_it != params.end()) {
+        const size_t in_features = weight->size(0);
+        const size_t out_features = weight->size(1) * 2;
+        if (weight_scale->ndim() != 2
+            || weight_scale->shape()
+                   != std::vector<size_t>{in_features / 64, out_features}
+            || weight_scale->dtype() != infinicore::DataType::BF16) {
+            throw std::runtime_error("GlmW4A8Runtime invalid prepared AWQ scales");
+        }
+        auto x = input->is_contiguous() ? input : input->contiguous();
+        if (x->dtype() != infinicore::DataType::BF16
+            || x->size(x->ndim() - 1) != in_features) {
+            throw std::runtime_error("GlmW4A8Runtime prepared AWQ expects BF16 input");
+        }
+        std::vector<size_t> output_shape = x->shape();
+        size_t m = 1;
+        for (size_t i = 0; i + 1 < output_shape.size(); ++i) {
+            m *= output_shape[i];
+        }
+        auto x2d = x->ndim() == 2 ? x : x->view({m, in_features});
+        auto effective_scale = weight_scale;
+        if (std::fabs(alpha - 1.0f) > 1e-7f) {
+            effective_scale = infinicore::op::mul_scalar(weight_scale, alpha);
+        }
+        std::optional<infinicore::Tensor> bias;
+        if (has_bias) {
+            bias = params.at("bias");
+        }
+        auto out = infinicore::op::scaled_mm_w4a16_awq(
+            x2d, weight, zeros_it->second, effective_scale, bias);
+        if (output_shape.size() == 2) {
+            return out;
+        }
+        output_shape.back() = out_features;
+        return out->view(output_shape);
+    }
     if (weight->ndim() != 2 || weight->dtype() != infinicore::DataType::I8) {
         throw std::runtime_error("GlmW4A8Runtime expects int8 runtime weight [in,out/2]");
     }
@@ -124,6 +163,7 @@ std::vector<SplitParam> split_runtime_params(
     auto w_it = params.find("weight");
     auto s_it = params.find("weight_scale");
     auto b_it = params.find("bias");
+    auto z_it = params.find("weight_zeros");
     for (const auto &s : splits) {
         if ((s.start % 2) != 0 || (s.size % 2) != 0) {
             throw std::runtime_error("GlmW4A8Runtime split requires even output offsets/sizes");
@@ -132,10 +172,22 @@ std::vector<SplitParam> split_runtime_params(
                           infinicore::nn::Parameter(
                               w_it->second->narrow({{1, s.start / 2, s.size / 2}}),
                               1, tp_rank, tp_size, s.num_shards)});
-        result.push_back({s.prefix + ".weight_scale",
-                          infinicore::nn::Parameter(
-                              s_it->second->narrow({{0, s.start, s.size}}),
-                              0, tp_rank, tp_size, s.num_shards)});
+        if (z_it != params.end()) {
+            result.push_back({s.prefix + ".weight_scale",
+                              infinicore::nn::Parameter(
+                                  s_it->second->narrow({{1, s.start, s.size}}),
+                                  1, tp_rank, tp_size, s.num_shards)});
+            result.push_back({s.prefix + ".weight_zeros",
+                              infinicore::nn::Parameter(
+                                  z_it->second->narrow(
+                                      {{1, s.start / 2, s.size / 2}}),
+                                  1, tp_rank, tp_size, s.num_shards)});
+        } else {
+            result.push_back({s.prefix + ".weight_scale",
+                              infinicore::nn::Parameter(
+                                  s_it->second->narrow({{0, s.start, s.size}}),
+                                  0, tp_rank, tp_size, s.num_shards)});
+        }
         if (b_it != params.end()) {
             result.push_back({s.prefix + ".bias",
                               infinicore::nn::Parameter(
@@ -205,8 +257,30 @@ std::shared_ptr<BaseQuantization> GlmW4A8::process_weights_after_loading(
     int /*split_dim*/) const {
     auto weight = params.at("weight");
     const size_t out_features = weight->size(0);
-    params["weight"] = repack_out_khalf_to_k_outhalf_cpu(weight, device);
-    params["weight_scale"] = normalize_scale(params.at("weight_scale"), out_features, device);
+    if (device.getType() == infinicore::Device::Type::HYGON) {
+        const size_t in_features = weight->size(1) * 2;
+        auto channel_scales = params.at("weight_scale");
+        if (channel_scales->dtype() != infinicore::DataType::F32
+            || channel_scales->shape() != std::vector<size_t>{out_features, 1}
+            || !channel_scales->is_contiguous()) {
+            throw std::runtime_error(
+                "GlmW4A8 Hygon expects contiguous weight_scale [out,1]");
+        }
+        auto qweight = infinicore::Tensor::empty(
+            {in_features, out_features / 2}, infinicore::DataType::I8, device);
+        auto qzeros = infinicore::Tensor::empty(
+            {in_features / 64, out_features / 2}, infinicore::DataType::I8, device);
+        auto scales = infinicore::Tensor::empty(
+            {in_features / 64, out_features}, infinicore::DataType::BF16, device);
+        infinicore::op::prepare_glm_w4a16_awq_(
+            qweight, qzeros, scales, weight, channel_scales);
+        params["weight"] = std::move(qweight);
+        params["weight_zeros"] = std::move(qzeros);
+        params["weight_scale"] = std::move(scales);
+    } else {
+        params["weight"] = repack_out_khalf_to_k_outhalf_cpu(weight, device);
+        params["weight_scale"] = normalize_scale(params.at("weight_scale"), out_features, device);
+    }
     return std::make_shared<GlmW4A8Runtime>(get_config());
 }
 

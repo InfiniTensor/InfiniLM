@@ -4,6 +4,7 @@
 #include "../models_registry.hpp"
 #include "glm_dsa_allocate_cache_tensors.hpp"
 #include "infinicore/context/context.hpp"
+#include "infinicore/graph/graph.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
@@ -16,15 +17,43 @@
 #include <vector>
 namespace infinilm::models::glm_moe_dsa {
 namespace {
+class DebugDumpGraphOperator final : public infinicore::graph::GraphOperator {
+public:
+    DebugDumpGraphOperator(infinicore::Tensor tensor, std::string filename)
+        : tensor_(std::move(tensor)), filename_(std::move(filename)) {}
+
+    void run() const override {
+        tensor_->debug(filename_);
+    }
+
+    bool is_device_graph_capture_safe() const override {
+        return false;
+    }
+
+private:
+    infinicore::Tensor tensor_;
+    std::string filename_;
+};
+
 void debug_dump(const infinicore::Tensor &tensor, const std::string &name) {
     if (std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
         return;
     }
+    const bool all_ranks = std::getenv("INFINILM_GLM_DEBUG_DUMP_ALL_RANKS") != nullptr;
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (rank.global_rank != 0) {
+    if (!all_ranks && rank.global_rank != 0) {
         return;
     }
-    tensor->debug("/tmp/glmdbg_" + name + ".bin");
+    const std::string rank_prefix = all_ranks
+                                      ? "rank_" + std::to_string(rank.global_rank) + "_"
+                                      : "";
+    auto filename = "/tmp/glmdbg_" + rank_prefix + name + ".bin";
+    if (infinicore::context::isGraphRecording()) {
+        infinicore::context::addGraphOperator(
+            std::make_shared<DebugDumpGraphOperator>(tensor, std::move(filename)));
+        return;
+    }
+    tensor->debug(filename);
 }
 
 infinicore::Tensor i32_tensor_on_device(
@@ -48,7 +77,7 @@ GlmDecoder::GlmDecoder(std::shared_ptr<infinilm::config::ModelConfig> c, size_t 
     INFINICORE_NN_MODULE_INIT(self_attn, c, i, d);
     moe_ = i >= c->get_or<size_t>("first_k_dense_replace", 0);
     if (moe_) {
-        moe_mlp_ = register_module<GlmMoE>("mlp", c, d);
+        moe_mlp_ = register_module<GlmMoE>("mlp", c, i, d);
     } else {
         dense_mlp_ = register_module<GlmDenseMLP>("mlp", c, d);
     }
@@ -56,10 +85,12 @@ GlmDecoder::GlmDecoder(std::shared_ptr<infinilm::config::ModelConfig> c, size_t 
 void GlmDecoder::forward(const infinicore::Tensor &p, infinicore::Tensor &x, infinicore::Tensor &r) const {
     input_layernorm_->forward_inplace(x, r);
     debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_input_norm");
+    debug_dump(r, "layer_" + std::to_string(layer_idx_) + "_input_residual");
     x = self_attn_->forward(p, x);
     debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_attn");
     post_attention_layernorm_->forward_inplace(x, r);
     debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_post_attn_norm");
+    debug_dump(r, "layer_" + std::to_string(layer_idx_) + "_post_attn_residual");
     x = moe_ ? moe_mlp_->forward(x) : dense_mlp_->forward(x);
     debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_mlp");
 }
@@ -295,7 +326,9 @@ infinilm::InfinilmModel::Output GlmForCausalLM::forward(const Input &i) const {
         if (!is_output_stage_) {
             return {x};
         }
-        return {lm_head_->forward(select_logits_input(x, i))};
+        auto logits = lm_head_->forward(select_logits_input(x, i));
+        debug_dump(logits, "logits");
+        return {logits};
     }
     if (!i.input_ids.has_value() || !i.position_ids.has_value()
         || !i.input_offsets.has_value() || !i.request_ids.has_value()
@@ -428,7 +461,9 @@ infinilm::InfinilmModel::Output GlmForCausalLM::forward(const Input &i) const {
     if (!is_output_stage_) {
         return {local_output};
     }
-    return {lm_head_->forward(output_hidden)};
+    auto logits = lm_head_->forward(output_hidden);
+    debug_dump(logits, "logits");
+    return {logits};
 }
 
 void GlmForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {

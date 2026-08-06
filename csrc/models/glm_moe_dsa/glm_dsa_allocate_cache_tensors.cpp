@@ -54,13 +54,17 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
     }
     const size_t kv_lora_rank = model_config->get<size_t>("kv_lora_rank");
     const size_t rope_dim = model_config->get<size_t>("qk_rope_head_dim");
-    const bool use_vendor_shadow = std::getenv("INFINILM_GLM_FP8_SPARSE_VENDOR") != nullptr;
     const size_t vendor_cache_stride = kv_lora_rank + rope_dim;
-    const size_t mla_cache_stride = kv_lora_rank + 4 * sizeof(float)
-                                  + rope_dim * sizeof(uint16_t);
     const size_t index_dim = model_config->get<size_t>("index_head_dim");
     const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
     const auto &device = rank_info.device;
+    const bool use_fp8_mla = device.getType() == infinicore::Device::Type::ILUVATAR;
+    const bool use_vendor_shadow = use_fp8_mla
+                                && std::getenv("INFINILM_GLM_FP8_SPARSE_VENDOR") != nullptr;
+    const size_t mla_cache_stride = use_fp8_mla
+                                      ? kv_lora_rank + 4 * sizeof(float)
+                                            + rope_dim * sizeof(uint16_t)
+                                      : vendor_cache_stride;
 
     GlmDsaCacheTensors caches;
     caches.mla.reserve(num_layers);
@@ -79,7 +83,8 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
         }
         auto mla = infinicore::Tensor::empty(
             {paged_config->num_blocks(), paged_config->block_size(), mla_cache_stride},
-            infinicore::DataType::U8,
+            use_fp8_mla ? infinicore::DataType::U8
+                        : infinicore::DataType::BF16,
             device);
         set_zeros(mla);
         caches.mla.push_back(std::move(mla));
@@ -110,13 +115,16 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
         }
         spdlog::info(
             "GLM DSA paged cache: physical_blocks={}, kernel_block_size={}, "
-            "mla_layout=fp8_ds_mla({}+4xfp32+{}xbf16={}B), "
+            "mla_layout={}({} units, {}B/token), "
             "index_dim={}+fp32_scale, layers=[{},{}), indexer_layers={}, "
             "indexer_cache_tp_ranks={}, vendor_shadow={}, "
             "vendor_token_bytes={}",
             paged_config->num_blocks(),
             paged_config->block_size(),
-            kv_lora_rank, rope_dim, mla_cache_stride,
+            use_fp8_mla ? "fp8_ds_mla" : "bf16",
+            mla_cache_stride,
+            use_fp8_mla ? mla_cache_stride
+                        : mla_cache_stride * sizeof(uint16_t),
             index_dim,
             layer_start,
             layer_end,

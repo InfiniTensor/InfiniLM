@@ -4,6 +4,7 @@
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding_factory.hpp"
 #include "../../utils.hpp"
+#include "infinicore/graph/graph.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/broadcast_to.hpp"
 #include "infinicore/ops/cast.hpp"
@@ -21,15 +22,45 @@
 
 namespace infinilm::models::deepseek_v2 {
 namespace {
+class IndexerDebugDumpGraphOperator final : public infinicore::graph::GraphOperator {
+public:
+    IndexerDebugDumpGraphOperator(infinicore::Tensor tensor, std::string filename)
+        : tensor_(std::move(tensor)), filename_(std::move(filename)) {}
+
+    void run() const override {
+        tensor_->debug(filename_);
+    }
+
+    bool is_device_graph_capture_safe() const override {
+        return false;
+    }
+
+private:
+    infinicore::Tensor tensor_;
+    std::string filename_;
+};
+
+size_t debug_dump_layer() {
+    const char *value = std::getenv("INFINILM_GLM_DEBUG_DUMP_LAYER");
+    return value == nullptr ? 0 : static_cast<size_t>(std::strtoull(value, nullptr, 10));
+}
+
 void debug_dump_indexer(const infinicore::Tensor &tensor,
                         const std::string &name,
                         size_t layer_idx) {
-    if (layer_idx != 0 || std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
+    if (layer_idx != debug_dump_layer()
+        || std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
         return;
     }
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    tensor->debug("/tmp/glmdbg_indexer_" + name + "_rank_"
-                  + std::to_string(rank.tp_rank) + ".bin");
+    auto filename = "/tmp/glmdbg_indexer_layer_" + std::to_string(layer_idx) + "_"
+                  + name + "_rank_" + std::to_string(rank.tp_rank) + ".bin";
+    if (infinicore::context::isGraphRecording()) {
+        infinicore::context::addGraphOperator(
+            std::make_shared<IndexerDebugDumpGraphOperator>(tensor, std::move(filename)));
+        return;
+    }
+    tensor->debug(filename);
 }
 } // namespace
 
