@@ -16,22 +16,27 @@ struct CudaFusedMoeRunnerOutput {
 
 class CudaFusedMoeRunner final : public MoeRunnerCore {
 public:
-    CudaFusedMoeRunner(size_t num_local_experts,
-                       size_t hidden_size,
-                       size_t intermediate_size_per_partition,
-                       size_t align_block_size);
+    CudaFusedMoeRunner(
+        size_t num_local_experts,
+        size_t hidden_size,
+        size_t intermediate_size_per_partition,
+        size_t align_block_size);
 
-    CombineInput run(const DispatchOutput &dispatch_output,
-                     const MoeWeights &weights,
-                     MoeWorkspace &workspace) const override;
+    CombineInput run(
+        const DispatchOutput &dispatch_output,
+        const MoeWeights &weights,
+        MoeWorkspace &workspace) const override;
 
 private:
-    CudaFusedMoeRunnerInput prepare_runner_input(const DispatchOutput &dispatch_output,
-                                                 MoeWorkspace &workspace) const;
+    CudaFusedMoeRunnerInput prepare_runner_input(
+        const DispatchOutput &dispatch_output,
+        MoeWorkspace &workspace,
+        size_t block_size) const;
 
-    CudaFusedMoeRunnerOutput run_fused_core(const CudaFusedMoeRunnerInput &runner_input,
-                                            const MoeWeights &weights,
-                                            MoeWorkspace &workspace) const;
+    CudaFusedMoeRunnerOutput run_fused_core(
+        const CudaFusedMoeRunnerInput &runner_input,
+        const MoeWeights &weights,
+        MoeWorkspace &workspace) const;
 
     size_t num_local_experts_ = 0;
     size_t hidden_size_ = 0;

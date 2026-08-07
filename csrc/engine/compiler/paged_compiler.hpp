@@ -18,6 +18,8 @@ private:
 
     infinicore::Tensor block_tables_holder_;
 
+    bool decode_graph_needs_runtime_state_reset_ = true;
+
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;

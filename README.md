@@ -159,6 +159,15 @@
         > 注意：`--cache-dir` 应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录，而不是直接指向这些子目录
 
   - 试验中功能
+    - 单次加载模型测试多组长度
+      ```bash
+      python examples/bench.py --device nvidia --model=<model-path> --batch-size=4 --input-len=2048,4096 --output-len=512,128 --warmup
+      ```
+      `--input-len` 和 `--output-len` 按位置组成 `(2048, 512)`、
+      `(4096, 128)` 两个 case，不生成笛卡尔积。任意一侧只有一个值时，
+      该值会广播到另一侧的所有长度；两个参数都只有一个值时，行为与原单
+      case 命令一致。模型只加载一次，每个不同的 `(batch_size, input_len)`
+      prefill shape 各 warmup 一次。
     - Warm Up
       ```bash
       python examples/bench.py --device nvidia --model=<model-path> --warmup

@@ -75,6 +75,10 @@ void BaseLinear::reset_runtime_state() const {
     quantization_->reset_runtime_state();
 }
 
+bool BaseLinear::needs_runtime_state_reset() const {
+    return quantization_->needs_runtime_state_reset();
+}
+
 // Backward compatible accessors
 
 infinicore::Tensor BaseLinear::weight() const {

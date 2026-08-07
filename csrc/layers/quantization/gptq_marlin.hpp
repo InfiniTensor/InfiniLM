@@ -31,6 +31,7 @@ public:
         int tp_rank, int tp_size, int tp_num_heads) const override;
 
     void reset_runtime_state() const override;
+    bool needs_runtime_state_reset() const override { return true; }
 
 private:
     infinicore::Tensor get_workspace(

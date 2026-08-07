@@ -47,6 +47,7 @@ public:
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization() const { return quantization_; }
     void process_weights_after_loading() override;
     void reset_runtime_state() const override;
+    bool needs_runtime_state_reset() const;
 
     // Split fused linear parameters into named sub-parameters
     std::vector<infinilm::quantization::SplitParam> split_params(

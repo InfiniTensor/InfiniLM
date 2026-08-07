@@ -73,11 +73,24 @@ public:
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
 
+        /// Shifted causal-LM labels. Present only for explicit NLL scoring.
+        std::optional<infinicore::Tensor> labels;
+
+        /// First logits/label position included in NLL scoring.
+        size_t score_start{0};
+
+        /// Compute token NLL instead of sampling output IDs.
+        bool return_nll{false};
+
         float temperature{1};
 
         int top_k{50};
 
         float top_p{1};
+
+        /// Validate invariants shared by Python and native callers before a
+        /// request is dispatched to any rank worker.
+        void validate() const;
 
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
@@ -86,6 +99,8 @@ public:
         infinicore::Tensor output_ids;
         infinicore::Tensor logits;
         infinicore::Tensor hidden_states;
+        infinicore::Tensor nll;
+        size_t scored_tokens{0};
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
