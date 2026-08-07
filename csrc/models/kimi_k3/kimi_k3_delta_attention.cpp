@@ -8,26 +8,23 @@
 #include <infinicore/ops/sigmoid.hpp>
 #include <infinicore/ops/silu.hpp>
 
+#include <array>
 #include <cmath>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace infinilm::models::kimi_k3 {
 
 KimiK3ShortConv::KimiK3ShortConv(size_t full_channels,
                                  size_t kernel_size,
-                                 size_t layer_idx,
-                                 size_t state_channel_offset,
                                  const infinicore::DataType &dtype,
-                                 const infinicore::Device &device)
-    : layer_idx_(layer_idx),
-      state_channel_offset_(state_channel_offset) {
+                                 const infinicore::Device &device) {
     const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
     if (full_channels % static_cast<size_t>(rank_info.tp_size) != 0) {
         throw std::runtime_error("KimiK3ShortConv: channels must be divisible by tp_size");
     }
-    local_channels_ = full_channels / static_cast<size_t>(rank_info.tp_size);
     weight_ = infinicore::nn::Parameter(
         {full_channels, 1, kernel_size},
         dtype,
@@ -36,22 +33,6 @@ KimiK3ShortConv::KimiK3ShortConv(size_t full_channels,
         rank_info.tp_rank,
         rank_info.tp_size);
     this->register_parameter("weight", weight_);
-}
-
-infinicore::Tensor KimiK3ShortConv::forward(const infinicore::Tensor &input) const {
-    auto &context = global_state::get_forward_context();
-    auto &metadata = context.mamba_metadata;
-    auto state = context.conv_state_vec.at(layer_idx_)
-                     ->narrow({{1, state_channel_offset_, local_channels_}});
-    auto output = infinicore::op::causal_conv1d(
-        input,
-        state,
-        weight_,
-        std::nullopt,
-        metadata.input_offsets.value(),
-        metadata.init_state_indices.value(),
-        metadata.final_state_indices.value());
-    return infinicore::op::silu(output);
 }
 
 KimiK3DeltaAttention::KimiK3DeltaAttention(
@@ -64,7 +45,7 @@ KimiK3DeltaAttention::KimiK3DeltaAttention(
     const auto &linear_config = model_config->get_config_json().at("linear_attn_config");
     const size_t num_heads = linear_config.at("num_heads").get<size_t>();
     head_dim_ = linear_config.at("head_dim").get<size_t>();
-    const size_t kernel_size = linear_config.at("short_conv_kernel_size").get<size_t>();
+    conv_kernel_size_ = linear_config.at("short_conv_kernel_size").get<size_t>();
     gate_lower_bound_ = linear_config.value("gate_lower_bound", -5.0f);
     const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
     if (num_heads % static_cast<size_t>(rank_info.tp_size) != 0) {
@@ -74,18 +55,28 @@ KimiK3DeltaAttention::KimiK3DeltaAttention(
     local_projection_size_ = local_num_heads_ * head_dim_;
     const size_t projection_size = num_heads * head_dim_;
 
-    INFINICORE_NN_MODULE_INIT(q_proj, hidden_size, projection_size, false, dtype, device,
-                              rank_info.tp_rank, rank_info.tp_size);
-    INFINICORE_NN_MODULE_INIT(k_proj, hidden_size, projection_size, false, dtype, device,
-                              rank_info.tp_rank, rank_info.tp_size);
-    INFINICORE_NN_MODULE_INIT(v_proj, hidden_size, projection_size, false, dtype, device,
-                              rank_info.tp_rank, rank_info.tp_size);
-    INFINICORE_NN_MODULE_INIT(q_conv1d, projection_size, kernel_size, layer_idx, 0,
-                              dtype, device);
-    INFINICORE_NN_MODULE_INIT(k_conv1d, projection_size, kernel_size, layer_idx,
-                              local_projection_size_, dtype, device);
-    INFINICORE_NN_MODULE_INIT(v_conv1d, projection_size, kernel_size, layer_idx,
-                              2 * local_projection_size_, dtype, device);
+    auto register_fn = [this](const std::string &name, infinicore::nn::Parameter parameter) {
+        this->register_parameter(name, std::move(parameter));
+    };
+    qkv_proj_ = std::make_shared<infinilm::layers::linear::QKVParallelLinear>(
+        hidden_size,
+        head_dim_,
+        num_heads,
+        num_heads,
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        register_fn,
+        nullptr,
+        false,
+        dtype,
+        device,
+        rank_info);
+    INFINICORE_NN_MODULE_INIT(q_conv1d, projection_size, conv_kernel_size_, dtype, device);
+    INFINICORE_NN_MODULE_INIT(k_conv1d, projection_size, conv_kernel_size_, dtype, device);
+    INFINICORE_NN_MODULE_INIT(v_conv1d, projection_size, conv_kernel_size_, dtype, device);
+    packed_conv_weight_ = infinicore::Tensor::empty(
+        {3 * local_projection_size_, 1, conv_kernel_size_}, dtype, device);
 
     INFINICORE_NN_PARAMETER_INIT(A_log,
                                  ({num_heads}, infinicore::DataType::F32, device,
@@ -106,18 +97,50 @@ KimiK3DeltaAttention::KimiK3DeltaAttention(
                               rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
 }
 
+void KimiK3DeltaAttention::process_weights_after_loading() {
+    qkv_proj_->process_weights_after_loading();
+
+    const std::array<infinicore::Tensor, 3> weights{
+        q_conv1d_->weight(),
+        k_conv1d_->weight(),
+        v_conv1d_->weight(),
+    };
+    for (size_t i = 0; i < weights.size(); ++i) {
+        if (weights[i]->shape() != infinicore::Shape{local_projection_size_, 1, conv_kernel_size_}) {
+            throw std::runtime_error(
+                "KimiK3DeltaAttention: unexpected short convolution weight shape");
+        }
+        packed_conv_weight_->narrow(
+                               {{0, i * local_projection_size_, local_projection_size_}})
+            ->copy_from(weights[i]);
+    }
+}
+
+void KimiK3DeltaAttention::reset_runtime_state() const {
+    qkv_proj_->reset_runtime_state();
+}
+
 infinicore::Tensor KimiK3DeltaAttention::forward(
     const infinicore::Tensor &hidden_states) const {
     const auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
     const size_t seq_len = shape[1];
     auto input = hidden_states;
-    auto q_projected = q_proj_->forward(input);
-    auto q = q_conv1d_->forward(q_projected);
-    auto k_projected = k_proj_->forward(input);
-    auto k = k_conv1d_->forward(k_projected);
-    auto v_projected = v_proj_->forward(input);
-    auto v = v_conv1d_->forward(v_projected);
+    auto qkv_projected = qkv_proj_->forward(input);
+    auto &context = global_state::get_forward_context();
+    auto &metadata = context.mamba_metadata;
+    auto qkv = infinicore::op::causal_conv1d(
+        qkv_projected,
+        context.conv_state_vec.at(layer_idx_),
+        packed_conv_weight_,
+        std::nullopt,
+        metadata.input_offsets.value(),
+        metadata.init_state_indices.value(),
+        metadata.final_state_indices.value());
+    qkv = infinicore::op::silu(qkv);
+    auto q = qkv->narrow({{2, 0, local_projection_size_}});
+    auto k = qkv->narrow({{2, local_projection_size_, local_projection_size_}});
+    auto v = qkv->narrow({{2, 2 * local_projection_size_, local_projection_size_}});
     auto f_a = f_a_proj_->forward(input);
     auto gate_decay_projected = f_b_proj_->forward(f_a);
     auto gate_decay = gate_decay_projected->view(
@@ -129,8 +152,6 @@ infinicore::Tensor KimiK3DeltaAttention::forward(
     auto k_heads = k->view({batch_size, seq_len, local_num_heads_, head_dim_});
     auto v_heads = v->view({batch_size, seq_len, local_num_heads_, head_dim_});
 
-    auto &context = global_state::get_forward_context();
-    auto &metadata = context.mamba_metadata;
     auto dt_bias = dt_bias_->view({local_num_heads_, head_dim_});
     auto output = infinicore::op::kimi_delta_attention(
         q_heads,

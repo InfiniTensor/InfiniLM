@@ -19,13 +19,14 @@ public:
                        size_t layer_idx,
                        const infinicore::Device &device);
 
-    std::pair<infinicore::Tensor, infinicore::Tensor>
-    forward(const infinicore::Tensor &hidden_states,
-            const infinicore::Tensor &block_residual) const;
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+                               const infinicore::Tensor &block_residual_storage,
+                               size_t &block_residual_count) const;
 
 private:
     infinicore::Tensor apply_attn_res(const infinicore::Tensor &prefix_sum,
-                                      const infinicore::Tensor &block_residual,
+                                      const infinicore::Tensor &block_residual_storage,
+                                      size_t block_residual_count,
                                       const std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> &proj,
                                       const std::shared_ptr<infinicore::nn::RMSNorm> &norm) const;
 
