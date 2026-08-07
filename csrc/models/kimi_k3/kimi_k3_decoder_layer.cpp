@@ -2,9 +2,9 @@
 
 #include <algorithm>
 #include <infinicore/ops/add.hpp>
-#include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/matmul.hpp>
 #include <infinicore/ops/softmax.hpp>
+#include <stdexcept>
 #include <vector>
 
 namespace infinilm::models::kimi_k3 {
@@ -51,12 +51,19 @@ KimiK3DecoderLayer::KimiK3DecoderLayer(
 
 infinicore::Tensor KimiK3DecoderLayer::apply_attn_res(
     const infinicore::Tensor &prefix_sum,
-    const infinicore::Tensor &block_residual,
+    const infinicore::Tensor &block_residual_storage,
+    size_t block_residual_count,
     const std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> &proj,
     const std::shared_ptr<infinicore::nn::RMSNorm> &norm) const {
     const auto shape = prefix_sum->shape();
     auto prefix_2d = prefix_sum->view({shape[0] * shape[1], hidden_size_});
-    auto values = infinicore::op::cat({block_residual, prefix_2d->unsqueeze(1)}, 1);
+    if (block_residual_count >= block_residual_storage->size(1)) {
+        throw std::runtime_error("KimiK3DecoderLayer: block residual scratch slot is unavailable");
+    }
+    auto values = block_residual_storage->narrow(
+        {{1, 0, block_residual_count + 1}});
+    values->narrow({{1, block_residual_count, 1}})
+        ->copy_from(prefix_2d->unsqueeze(1));
     auto normalized = norm->forward(values);
     auto scores = proj->forward(normalized);
     infinicore::op::softmax_(scores, scores, 1);
@@ -66,33 +73,40 @@ infinicore::Tensor KimiK3DecoderLayer::apply_attn_res(
         ->view(shape);
 }
 
-std::pair<infinicore::Tensor, infinicore::Tensor>
-KimiK3DecoderLayer::forward(const infinicore::Tensor &hidden_states,
-                            const infinicore::Tensor &block_residual) const {
+infinicore::Tensor KimiK3DecoderLayer::forward(
+    const infinicore::Tensor &hidden_states,
+    const infinicore::Tensor &block_residual_storage,
+    size_t &block_residual_count) const {
     const auto shape = hidden_states->shape();
     auto prefix_sum = hidden_states;
     auto current = hidden_states;
-    auto residuals = block_residual;
 
-    if (residuals->size(1) > 0) {
-        current = apply_attn_res(prefix_sum, residuals,
+    if (block_residual_count > 0) {
+        current = apply_attn_res(prefix_sum, block_residual_storage,
+                                 block_residual_count,
                                  self_attention_res_proj_, self_attention_res_norm_);
     }
     bool reset_prefix = layer_idx_ % attn_res_block_size_ == 0;
     if (reset_prefix) {
+        if (block_residual_count + 1 >= block_residual_storage->size(1)) {
+            throw std::runtime_error("KimiK3DecoderLayer: block residual storage is full");
+        }
         auto prefix_2d = prefix_sum->view({shape[0] * shape[1], hidden_size_});
-        residuals = infinicore::op::cat({residuals, prefix_2d->unsqueeze(1)}, 1);
+        block_residual_storage->narrow({{1, block_residual_count, 1}})
+            ->copy_from(prefix_2d->unsqueeze(1));
+        ++block_residual_count;
     }
 
     current = input_layernorm_->forward(current);
     current = is_kda_ ? delta_attn_->forward(current) : mla_attn_->forward(current);
     prefix_sum = reset_prefix ? current : infinicore::op::add(prefix_sum, current);
 
-    current = apply_attn_res(prefix_sum, residuals, mlp_res_proj_, mlp_res_norm_);
+    current = apply_attn_res(prefix_sum, block_residual_storage,
+                             block_residual_count, mlp_res_proj_, mlp_res_norm_);
     current = post_attention_layernorm_->forward(current);
     current = use_moe_ ? block_sparse_moe_->forward(current) : mlp_->forward(current);
     prefix_sum = infinicore::op::add(prefix_sum, current);
-    return {prefix_sum, residuals};
+    return prefix_sum;
 }
 
 } // namespace infinilm::models::kimi_k3

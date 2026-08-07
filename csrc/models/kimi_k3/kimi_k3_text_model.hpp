@@ -27,7 +27,8 @@ public:
 private:
     struct PipelineState {
         infinicore::Tensor hidden_states;
-        infinicore::Tensor block_residual;
+        infinicore::Tensor block_residual_storage;
+        size_t block_residual_count;
     };
 
     PipelineState initial_state(const infinicore::Tensor &first_stage_hidden) const;
@@ -35,7 +36,8 @@ private:
     infinicore::Tensor recv_sharded_last_dim(const infinicore::Shape &shape) const;
     void send_sharded_last_dim(const infinicore::Tensor &tensor) const;
     infinicore::Tensor apply_output_attn_res(const infinicore::Tensor &hidden_states,
-                                             const infinicore::Tensor &block_residual) const;
+                                             const infinicore::Tensor &block_residual_storage,
+                                             size_t block_residual_count) const;
 
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
     INFINICORE_NN_MODULE_VEC(KimiK3DecoderLayer, layers);
@@ -52,6 +54,7 @@ private:
     size_t tp_rank_{0};
     size_t local_layer_begin_{0};
     size_t local_layer_end_{0};
+    size_t block_residual_capacity_{0};
     infinicore::Device device_;
 };
 

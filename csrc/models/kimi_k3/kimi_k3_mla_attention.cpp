@@ -3,15 +3,39 @@
 #include "../../global_state/global_state.hpp"
 
 #include <infinicore/ops/broadcast_to.hpp>
-#include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/mul.hpp>
-#include <infinicore/ops/pad.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 
 #include <cmath>
 #include <stdexcept>
 
 namespace infinilm::models::kimi_k3 {
+namespace {
+
+std::pair<infinicore::Tensor, infinicore::Tensor> pack_key_value(
+    const infinicore::Tensor &k_nope,
+    const infinicore::Tensor &k_rot,
+    const infinicore::Tensor &value,
+    size_t q_head_dim) {
+    auto packed_shape = k_nope->shape();
+    const size_t last_dim = packed_shape.size() - 1;
+    packed_shape[last_dim] = q_head_dim;
+
+    auto key = infinicore::Tensor::empty(
+        packed_shape, k_nope->dtype(), k_nope->device());
+    key->narrow({{last_dim, 0, k_nope->size(last_dim)}})
+        ->copy_from(k_nope);
+    key->narrow({{last_dim, k_nope->size(last_dim), k_rot->size(last_dim)}})
+        ->copy_from(k_rot);
+
+    auto padded_value = infinicore::Tensor::zeros(
+        packed_shape, value->dtype(), value->device());
+    padded_value->narrow({{last_dim, 0, value->size(last_dim)}})
+        ->copy_from(value);
+    return {key, padded_value};
+}
+
+} // namespace
 
 KimiK3MLAAttention::KimiK3MLAAttention(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -103,9 +127,8 @@ infinicore::Tensor KimiK3MLAAttention::forward(
             k_rot->view({batch_size, seq_len, 1, qk_rope_head_dim_}),
             {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len),
              static_cast<int64_t>(local_num_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
-        auto key = infinicore::op::cat({k_nope, k_rot_heads}, 3);
-        auto value_padded = infinicore::op::pad(
-            value, {0, static_cast<int>(q_head_dim_ - v_head_dim_)}, "constant", 0.0);
+        auto [key, value_padded] = pack_key_value(
+            k_nope, k_rot_heads, value, q_head_dim_);
         auto output = trim_value_padding(attn_->forward(q, key, value_padded));
         output = infinicore::op::mul(output, infinicore::op::sigmoid(g_proj_->forward(input)));
         return o_proj_->forward(output);
@@ -119,9 +142,8 @@ infinicore::Tensor KimiK3MLAAttention::forward(
         k_rot->view({seq_len, 1, qk_rope_head_dim_}),
         {static_cast<int64_t>(seq_len), static_cast<int64_t>(local_num_heads_),
          static_cast<int64_t>(qk_rope_head_dim_)});
-    auto key = infinicore::op::cat({k_nope, k_rot_heads}, 2);
-    auto value_padded = infinicore::op::pad(
-        value, {0, static_cast<int>(q_head_dim_ - v_head_dim_)}, "constant", 0.0);
+    auto [key, value_padded] = pack_key_value(
+        k_nope, k_rot_heads, value, q_head_dim_);
     auto output = trim_value_padding(attn_->forward(q, key, value_padded));
     output = infinicore::op::mul(output, infinicore::op::sigmoid(g_proj_->forward(input)));
     return o_proj_->forward(output);

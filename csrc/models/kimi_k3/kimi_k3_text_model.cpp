@@ -4,7 +4,6 @@
 
 #include "../../global_state/global_state.hpp"
 
-#include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/distributed/allgather.hpp>
 #include <infinicore/ops/distributed/send_recv.hpp>
 #include <infinicore/ops/matmul.hpp>
@@ -30,6 +29,7 @@ KimiK3TextModel::KimiK3TextModel(
     tp_size_ = static_cast<size_t>(rank_info.tp_size);
     tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
     std::tie(local_layer_begin_, local_layer_end_) = kimi_k3_pipeline_layer_range(num_layers, pp_size_, pp_stage_);
+    block_residual_capacity_ = (local_layer_end_ + attn_res_block_size_ - 1) / attn_res_block_size_ + 1;
 
     if (is_first_pp_stage()) {
         INFINICORE_NN_MODULE_INIT(embed_tokens,
@@ -61,17 +61,26 @@ infinicore::Tensor KimiK3TextModel::embed_tokens(
 KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
     const infinicore::Tensor &first_stage_hidden) const {
     const auto shape = first_stage_hidden->shape();
+    auto block_residual_storage = infinicore::Tensor::empty(
+        {shape[0] * shape[1], block_residual_capacity_, hidden_size_}, dtype_, device_);
     if (is_first_pp_stage()) {
         return {
             first_stage_hidden,
-            infinicore::Tensor::empty(
-                {shape[0] * shape[1], 0, hidden_size_}, dtype_, device_),
+            block_residual_storage,
+            0,
         };
     }
     const size_t prior_block_count = (local_layer_begin_ + attn_res_block_size_ - 1) / attn_res_block_size_;
+    auto received_hidden = recv_sharded_last_dim(
+        {shape[0], shape[1], hidden_size_});
+    auto received_residuals = recv_sharded_last_dim(
+        {shape[0] * shape[1], prior_block_count, hidden_size_});
+    block_residual_storage->narrow({{1, 0, prior_block_count}})
+        ->copy_from(received_residuals);
     return {
-        recv_sharded_last_dim({shape[0], shape[1], hidden_size_}),
-        recv_sharded_last_dim({shape[0] * shape[1], prior_block_count, hidden_size_}),
+        received_hidden,
+        block_residual_storage,
+        prior_block_count,
     };
 }
 
@@ -123,15 +132,22 @@ void KimiK3TextModel::send_sharded_last_dim(
 
 void KimiK3TextModel::send_pipeline_state(const PipelineState &state) const {
     send_sharded_last_dim(state.hidden_states);
-    send_sharded_last_dim(state.block_residual);
+    auto block_residual = state.block_residual_storage
+                              ->narrow({{1, 0, state.block_residual_count}})
+                              ->contiguous();
+    send_sharded_last_dim(block_residual);
 }
 
 infinicore::Tensor KimiK3TextModel::apply_output_attn_res(
     const infinicore::Tensor &hidden_states,
-    const infinicore::Tensor &block_residual) const {
+    const infinicore::Tensor &block_residual_storage,
+    size_t block_residual_count) const {
     const auto shape = hidden_states->shape();
     auto hidden_2d = hidden_states->view({shape[0] * shape[1], hidden_size_});
-    auto values = infinicore::op::cat({block_residual, hidden_2d->unsqueeze(1)}, 1);
+    auto values = block_residual_storage->narrow(
+        {{1, 0, block_residual_count + 1}});
+    values->narrow({{1, block_residual_count, 1}})
+        ->copy_from(hidden_2d->unsqueeze(1));
     auto normalized = output_attn_res_norm_->forward(values);
     auto scores = output_attn_res_proj_->forward(normalized);
     infinicore::op::softmax_(scores, scores, 1);
@@ -156,13 +172,19 @@ infinicore::Tensor KimiK3TextModel::forward_embeds(
     const infinicore::Tensor &inputs_embeds) const {
     auto state = initial_state(inputs_embeds);
     for (const auto &layer : layers_) {
-        std::tie(state.hidden_states, state.block_residual) = layer->forward(state.hidden_states, state.block_residual);
+        state.hidden_states = layer->forward(
+            state.hidden_states,
+            state.block_residual_storage,
+            state.block_residual_count);
     }
     if (!is_last_pp_stage()) {
         send_pipeline_state(state);
         return state.hidden_states;
     }
-    auto output = apply_output_attn_res(state.hidden_states, state.block_residual);
+    auto output = apply_output_attn_res(
+        state.hidden_states,
+        state.block_residual_storage,
+        state.block_residual_count);
     return norm_->forward(output);
 }
 
