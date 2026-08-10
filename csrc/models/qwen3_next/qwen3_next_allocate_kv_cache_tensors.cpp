@@ -32,8 +32,10 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     const size_t linear_num_value_heads = text_config->get<size_t>("linear_num_value_heads");
     const size_t linear_value_head_dim = text_config->get<size_t>("linear_value_head_dim");
 
-    const auto &dtype{text_config->get_dtype()};
-    const auto &kv_cache_dtype{text_config->get_kv_cache_dtype()};
+    const auto dtype{text_config->get_dtype()};
+    const auto kv_cache_dtype{text_config->get_kv_cache_dtype()};
+    const auto mamba_ssm_dtype = text_config->get_or<std::string>("mamba_ssm_dtype", "");
+    const auto ssm_dtype = mamba_ssm_dtype.empty() ? dtype : parse_dtype(mamba_ssm_dtype);
     const std::vector<std::string> layer_types = text_config->get<std::vector<std::string>>("layer_types");
 
     std::vector<infinicore::Tensor> kv_cache_vec;
@@ -57,7 +59,7 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             linear_value_head_dim,
             linear_num_key_heads,
             linear_num_value_heads,
-            dtype,
+            ssm_dtype,
             pool_size);
 
         kv_cache_vec.emplace_back();
