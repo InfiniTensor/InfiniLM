@@ -16,12 +16,9 @@ namespace infinilm::models::ernie4_5_vl {
 
 struct Ernie45MropeCache {
     std::vector<int> section{22, 22, 20};
-    infinicore::Tensor sin_h;
-    infinicore::Tensor cos_h;
-    infinicore::Tensor sin_w;
-    infinicore::Tensor cos_w;
-    infinicore::Tensor sin_t;
-    infinicore::Tensor cos_t;
+    infinicore::Tensor cos_sin_h;
+    infinicore::Tensor cos_sin_w;
+    infinicore::Tensor cos_sin_t;
 };
 
 std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(std::shared_ptr<infinilm::config::ModelConfig> model_config,

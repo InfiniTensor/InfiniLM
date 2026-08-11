@@ -93,9 +93,9 @@ void PagedCompiler::compile() {
 
             if (has_mamba_state) {
                 input.mamba_init_state_indices = infinicore::Tensor::empty(
-                    {b}, infinicore::DataType::I32, infinicore::context::getDevice());
+                    {b}, infinicore::DataType::kInt32, infinicore::context::getDevice());
                 input.mamba_final_state_indices = infinicore::Tensor::empty(
-                    {b}, infinicore::DataType::I32, infinicore::context::getDevice());
+                    {b}, infinicore::DataType::kInt32, infinicore::context::getDevice());
                 std::vector<int32_t> init_state_indices_vec(b, 0);
                 std::vector<int32_t> final_state_indices_vec(b, 1);
                 infinicore::context::memcpyH2D(

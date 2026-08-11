@@ -165,7 +165,7 @@ Ernie45MoE::Ernie45MoE(std::shared_ptr<infinilm::config::ModelConfig> model_conf
             num_expert_groups = config_json["moe_num_experts"].size();
         }
         const size_t num_experts = model_config->get<size_t>("num_experts");
-        e_score_correction_bias_ = infinicore::nn::Parameter({num_expert_groups, num_experts}, infinicore::DataType::F32, device);
+        e_score_correction_bias_ = infinicore::nn::Parameter({num_expert_groups, num_experts}, infinicore::DataType::kFloat32, device);
         this->register_parameter("moe_statics.e_score_correction_bias", e_score_correction_bias_);
     }
 

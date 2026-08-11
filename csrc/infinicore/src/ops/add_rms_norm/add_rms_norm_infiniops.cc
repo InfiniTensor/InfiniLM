@@ -3,7 +3,8 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/add_rms_norm.h"
+#include "base/copy.h"
+#include "base/fused_add_rms_norm.h"
 
 #include <optional>
 
@@ -16,6 +17,7 @@ struct PlannedMeta {
     TensorMeta out, residual, a, b, weight;
     graph::GraphTensor out_tensor, residual_tensor, a_tensor, b_tensor, weight_tensor;
     float epsilon;
+    bool copy_input, copy_residual;
 };
 
 } // namespace
@@ -35,7 +37,9 @@ void *plan(Tensor out, Tensor residual, const Tensor &a, const Tensor &b, const 
         graph::GraphTensor(a),
         graph::GraphTensor(b),
         graph::GraphTensor(weight),
-        epsilon};
+        epsilon,
+        out->data() != a->data(),
+        residual->data() != b->data()};
 }
 
 void run(void *planned_meta) {
@@ -45,15 +49,23 @@ void run(void *planned_meta) {
     handle.set_stream(context::getStream());
     infini::ops::Config config;
 
-    infini::ops::AddRmsNorm::Call(
+    auto out = planned->out.tensor(planned->out_tensor);
+    auto residual = planned->residual.tensor(planned->residual_tensor);
+
+    if (planned->copy_input) {
+        infini::ops::Copy::Call(handle, config, planned->a.tensor(planned->a_tensor), false, out);
+    }
+    if (planned->copy_residual) {
+        infini::ops::Copy::Call(handle, config, planned->b.tensor(planned->b_tensor), false, residual);
+    }
+
+    infini::ops::FusedAddRmsNorm::Call(
         handle,
         config,
-        planned->a.tensor(planned->a_tensor),
-        planned->b.tensor(planned->b_tensor),
-        planned->weight.tensor(planned->weight_tensor),
-        std::optional<float>{planned->epsilon},
-        planned->out.tensor(planned->out_tensor),
-        planned->residual.tensor(planned->residual_tensor));
+        out,
+        residual,
+        std::optional<infini::ops::Tensor>{planned->weight.tensor(planned->weight_tensor)},
+        planned->epsilon);
 }
 
 void cleanup(void **planned_meta_ptr) {

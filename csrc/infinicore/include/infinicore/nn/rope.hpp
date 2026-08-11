@@ -92,9 +92,10 @@ public:
     std::string extra_repr() const;
 
 protected:
-    // Buffers (sin and cos cache tables) - not exposed in state_dict
+    // RoPE cache tables are not exposed in state_dict.
     INFINICORE_NN_BUFFER(sin_cache);
     INFINICORE_NN_BUFFER(cos_cache);
+    INFINICORE_NN_BUFFER(cos_sin_cache);
 
 private:
     void initialize_cache();

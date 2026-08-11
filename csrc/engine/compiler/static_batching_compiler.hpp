@@ -25,6 +25,7 @@ private:
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
+        size_t cache_page_size;
     };
 
     std::unordered_map<

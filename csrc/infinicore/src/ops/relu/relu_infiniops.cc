@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/relu_infinilm.h"
+#include "base/relu.h"
 
 namespace infinicore::op::relu_impl::infiniops {
 namespace {
@@ -20,7 +20,7 @@ void calculate(Tensor output, Tensor input) {
 
     TensorMeta output_meta(output);
     TensorMeta input_meta(input);
-    infini::ops::ReluInfinilm::Call(
+    infini::ops::Relu::Call(
         handle,
         config,
         input_meta.tensor(input),
