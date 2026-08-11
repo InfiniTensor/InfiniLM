@@ -2,6 +2,7 @@
 
 #include "../../../utils.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/mha_varlen.hpp"
 
 namespace infinilm::layers::attention::backends {
 
