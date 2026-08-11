@@ -129,15 +129,15 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
             graph_input.past_sequence_lengths.value()->copy_from(input.past_sequence_lengths.value());
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
 
-            INFINICORE_ASSERT(input.past_sequence_lengths.value()->device().type() == infinicore::Device::Type::kCpu);
-            INFINICORE_ASSERT(input.past_sequence_lengths.value()->dtype() == infinicore::DataType::kInt32);
-            INFINICORE_ASSERT(input.past_sequence_lengths.value()->numel() == batch_size);
+            ASSERT(input.past_sequence_lengths.value()->device().type() == infinicore::Device::Type::kCpu);
+            ASSERT(input.past_sequence_lengths.value()->dtype() == infinicore::DataType::kInt32);
+            ASSERT(input.past_sequence_lengths.value()->numel() == batch_size);
             const auto *past_sequence_lengths = reinterpret_cast<const int32_t *>(
                 input.past_sequence_lengths.value()->data());
             std::vector<int64_t> slot_mapping(batch_size);
             for (size_t i = 0; i < batch_size; ++i) {
-                INFINICORE_ASSERT(past_sequence_lengths[i] >= 0);
-                INFINICORE_ASSERT(static_cast<size_t>(past_sequence_lengths[i]) < result->second.cache_page_size);
+                ASSERT(past_sequence_lengths[i] >= 0);
+                ASSERT(static_cast<size_t>(past_sequence_lengths[i]) < result->second.cache_page_size);
                 slot_mapping[i] = static_cast<int64_t>(
                     i * result->second.cache_page_size + static_cast<size_t>(past_sequence_lengths[i]));
             }
