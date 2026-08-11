@@ -127,6 +127,28 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 for token in tokens:
                     self.assertIn(token, source)
 
+    def test_gemm_call_matches_canonical_infiniops_schema(self) -> None:
+        source = read_source("csrc/infinicore/src/ops/gemm/gemm_infiniops.cc")
+        call = function_body(source, "void run(void *planned_meta)")
+
+        bias = call.index("std::optional<infini::ops::Tensor>{}")
+        alpha = call.index("std::optional<float>{planned->alpha}")
+        beta = call.index("std::optional<float>{planned->beta}")
+        self.assertLess(bias, alpha)
+        self.assertLess(alpha, beta)
+
+    def test_qwen3_rejects_unsupported_linear_bias(self) -> None:
+        source = read_source("csrc/models/qwen3/qwen3_for_causal_lm.cpp")
+        factory = function_body(source, "create_qwen3_model_config(")
+
+        self.assertIn('get_or<bool>("attention_bias", true)', factory)
+        self.assertIn('get_or<bool>("attention_output_bias", false)', factory)
+        self.assertIn('get_or<bool>("mlp_bias", false)', factory)
+        self.assertIn(
+            "linear bias is unsupported by the canonical InfiniOps Gemm backend",
+            factory,
+        )
+
     def test_empty_operator_dispatch_throws(self) -> None:
         source = read_source(
             "csrc/infinicore/include/infinicore/ops/common/dispatcher.hpp"
@@ -200,6 +222,26 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         readme = read_source("README.md")
         self.assertIn("currently supports `qwen3`", readme)
 
+        xmake = read_source("xmake.lua")
+        target_start = xmake.index('target("_infinilm")')
+        target_end = xmake.index("target_end()", target_start)
+        model_target = xmake[target_start:target_end]
+        self.assertIn(
+            'add_files("csrc/**.cpp|infinicore/**.cpp|models/**.cpp")',
+            model_target,
+        )
+        self.assertIn(
+            'add_files("csrc/**.cc|infinicore/**.cc|models/**.cc")',
+            model_target,
+        )
+        self.assertEqual(
+            set(re.findall(r'"(csrc/models/[^"\n]+)"', model_target)),
+            {"csrc/models/*.cpp", "csrc/models/qwen3/*.cpp"},
+        )
+        self.assertNotIn('add_files("csrc/**.cpp")', model_target)
+        self.assertNotIn('add_files("csrc/**.cc")', model_target)
+        self.assertNotIn('remove_files("csrc/infinicore/', model_target)
+
         static_attention = read_source("csrc/layers/attention/backends/static_attn.cpp")
         self.assertNotIn("if (false)", static_attention)
         self.assertNotIn("op::flash_attention", static_attention)
@@ -249,7 +291,35 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 ):
                     self.assertIn(token, validator_body)
 
-    def test_communication_group_gates_rank_initialization(self) -> None:
+    def test_linear_packed_preserves_pretransposed_weight_layout(self) -> None:
+        header = read_source("csrc/infinicore/include/infinicore/ops/linear.hpp")
+        source = read_source("csrc/infinicore/src/ops/linear/linear.cc")
+        packed = function_body(source, "void linear_packed_(")
+
+        self.assertIn("Tensor linear_packed(", header)
+        self.assertIn("void linear_packed_(", header)
+        self.assertIn("gemm_(", packed)
+        self.assertIn("packed_weight, alpha, beta", packed)
+        self.assertNotIn("packed_weight->permute", packed)
+
+    def test_pipeline_send_recv_is_eager_and_uses_modern_infiniccl(self) -> None:
+        header = read_source(
+            "csrc/infinicore/include/infinicore/ops/distributed/send_recv.hpp"
+        )
+        source = read_source("csrc/infinicore/src/ops/distributed/send_recv.cc")
+
+        self.assertNotIn("GraphOperator", header)
+        self.assertIn("context::isGraphRecording()", source)
+        self.assertIn("throw std::runtime_error", source)
+        for operation in ("Send", "Recv"):
+            with self.subTest(operation=operation):
+                self.assertIn(f'"infiniccl{operation}"', source)
+                self.assertIn(f"infiniccl{operation}(", source)
+        self.assertGreaterEqual(source.count("detail::toInfinicclDataType"), 3)
+        self.assertEqual(source.count("detail::checkInfiniccl("), 2)
+        self.assertNotIn("infiniDtype_t", source)
+
+    def test_communication_group_initialization_is_synchronized(self) -> None:
         source = read_source("csrc/engine/distributed/communication_group.cpp")
         initializer = function_body(source, "void initializeCommunicators")
         constructor = function_body(source, "CommunicationGroup::CommunicationGroup")
@@ -558,6 +628,8 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("indices->dtype() == DataType::kInt64", adapter)
         self.assertIn("std::optional<infini::ops::Tensor>", adapter)
         self.assertIn('std::string{"joint"}', adapter)
+        self.assertIn("indices->as_strided({1}, {1})", adapter)
+        self.assertNotIn("indices->view({1})", adapter)
         self.assertNotIn("base/cast.h", adapter)
         self.assertNotIn("infini::ops::Cast", adapter)
         self.assertNotIn("RandomSampleInfinilm", adapter)
@@ -601,6 +673,15 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("x->ndim() == pos->ndim() + 2", rope)
         self.assertIn("x->size(x->ndim() - 1)", rope)
         self.assertIn(": head_dim_", rope)
+
+        rope_source = read_source("csrc/infinicore/src/nn/rope.cc")
+        rope_header = read_source("csrc/infinicore/include/infinicore/nn/rope.hpp")
+        self.assertIn("RoPE::forward(Tensor q_out,", rope_source)
+        self.assertNotIn("RoPE::forward(const Tensor &q_out,", rope_source)
+        self.assertRegex(
+            rope_header,
+            re.compile(r"forward\(Tensor q_out,\s*Tensor k_out,"),
+        )
 
         ernie = read_source("csrc/models/ernie4_5_vl/ernie4_5_attention.cpp")
         axis_positions = function_body(
