@@ -590,6 +590,7 @@ class AsyncLLMEngine:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         pre_transpose: bool = False,
+        skip_load: bool = False,
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
@@ -616,6 +617,7 @@ class AsyncLLMEngine:
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
+            skip_load: Whether to skip loading model weights.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
         config = EngineConfig(
@@ -645,6 +647,7 @@ class AsyncLLMEngine:
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             pre_transpose=pre_transpose,
+            skip_load=skip_load,
             weight_load_mode=weight_load_mode,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
