@@ -62,6 +62,7 @@
 #include "ops/rms_norm.hpp"
 #include "ops/rope.hpp"
 #include "ops/rot.hpp"
+#include "ops/rotary_embedding.hpp"
 #include "ops/rotg.hpp"
 #include "ops/rotm.hpp"
 #include "ops/rotmg.hpp"

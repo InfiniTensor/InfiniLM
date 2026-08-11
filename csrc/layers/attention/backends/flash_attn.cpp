@@ -97,8 +97,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
     infinicore::op::paged_caching_(
-        k_cache_layer->permute({0, 2, 1, 3}), // permute to BHSD for paged_caching_
-        v_cache_layer->permute({0, 2, 1, 3}),
+        k_cache_layer,
+        v_cache_layer,
         key,
         value,
         slot_mapping);

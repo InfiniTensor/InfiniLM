@@ -56,10 +56,35 @@ class BuildInfiniStackTest(unittest.TestCase):
     def test_operator_set_is_stable(self):
         operators = build_infini_stack.read_operator_set()
 
-        self.assertEqual(len(operators), 23)
-        self.assertEqual(operators, sorted(set(operators)))
-        self.assertIn("paged_attention_infinilm", operators)
-        self.assertIn("rotary_embedding_infinilm", operators)
+        self.assertEqual(
+            operators,
+            [
+                "add",
+                "argmax",
+                "causal_softmax",
+                "convolution",
+                "copy",
+                "embedding",
+                "fill",
+                "flash_attn_varlen_func",
+                "flash_attn_with_kvcache",
+                "fused_add_rms_norm",
+                "gelu",
+                "gemm",
+                "mul",
+                "relu",
+                "reshape_and_cache_flash",
+                "rms_norm",
+                "rotary_embedding",
+                "sigmoid",
+                "silu",
+                "silu_and_mul",
+                "softmax",
+                "top_k_top_p_sampling_from_logits",
+                "topk_softmax",
+            ],
+        )
+        self.assertTrue(all("_infinilm" not in operator for operator in operators))
 
     def test_invalid_operator_set_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -247,6 +272,9 @@ class BuildInfiniStackTest(unittest.TestCase):
         configure = commands[0]
         self.assertIn(f"-DINFINI_RT_ROOT={Path('build/prefix')}", configure)
         self.assertIn("-DINFINI_OPS_OPS=add,rms_norm", configure)
+        self.assertIn("-DWITH_LINKED=ON", configure)
+        self.assertIn("-DWITH_TORCH=ON", configure)
+        self.assertIn("-DINFINI_OPS_TORCH_OPS=argmax", configure)
         self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=80", configure)
         self.assertEqual(commands[1][3:5], ["--target", "infiniops"])
         self.assertEqual(commands[-1], ["cmake", "--install", str(Path("build/ops"))])

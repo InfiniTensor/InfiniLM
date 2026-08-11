@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/gelu_infinilm.h"
+#include "base/gelu.h"
 
 #include <string>
 
@@ -22,7 +22,7 @@ void calculate(Tensor output, Tensor input) {
 
     TensorMeta output_meta(output);
     TensorMeta input_meta(input);
-    infini::ops::GeluInfinilm::Call(
+    infini::ops::Gelu::Call(
         handle,
         config,
         input_meta.tensor(input),

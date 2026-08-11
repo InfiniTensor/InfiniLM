@@ -3,7 +3,9 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/gelutanh_infinilm.h"
+#include "base/gelu.h"
+
+#include <string>
 
 namespace infinicore::op::gelutanh_impl::infiniops {
 namespace {
@@ -20,10 +22,11 @@ void calculate(Tensor output, Tensor input) {
 
     TensorMeta output_meta(output);
     TensorMeta input_meta(input);
-    infini::ops::GelutanhInfinilm::Call(
+    infini::ops::Gelu::Call(
         handle,
         config,
         input_meta.tensor(input),
+        std::string{"tanh"},
         output_meta.tensor(output));
 }
 

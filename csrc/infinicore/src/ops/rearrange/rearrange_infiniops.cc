@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/rearrange_infinilm.h"
+#include "base/copy.h"
 
 namespace infinicore::op::rearrange_impl::infiniops {
 namespace {
@@ -25,8 +25,8 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     infini::ops::Config config;
-    infini::ops::RearrangeInfinilm::Call(
-        handle, config, planned->x.tensor(planned->x_tensor), planned->y.tensor(planned->y_tensor));
+    infini::ops::Copy::Call(
+        handle, config, planned->x.tensor(planned->x_tensor), false, planned->y.tensor(planned->y_tensor));
 }
 
 void cleanup(void **planned_meta_ptr) {

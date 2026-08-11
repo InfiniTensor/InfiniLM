@@ -377,10 +377,11 @@ infinicore::Tensor VideoNSAAttention::forward(const infinicore::Tensor &position
     auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
-    auto k_cache_for_nsa = is_flash_attn ? k_cache_layer->permute({0, 2, 1, 3}) : k_cache_layer;
-    auto v_cache_for_nsa = is_flash_attn ? v_cache_layer->permute({0, 2, 1, 3}) : v_cache_layer;
+    infinicore::op::paged_caching_(k_cache_layer, v_cache_layer, k_reshaped, v_reshaped, attn_metadata.slot_mapping.value());
 
-    infinicore::op::paged_caching_(k_cache_for_nsa, v_cache_for_nsa, k_reshaped, v_reshaped, attn_metadata.slot_mapping.value());
+    // NSA kernels consume BHSD while the shared paged cache is BSHD.
+    auto k_cache_for_nsa = k_cache_layer->permute({0, 2, 1, 3});
+    auto v_cache_for_nsa = v_cache_layer->permute({0, 2, 1, 3});
 
     if (can_use_paged_decode_nsa) {
         auto gate_hidden = g_proj_1_->forward(hidden_states_mutable);

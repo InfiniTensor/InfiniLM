@@ -105,15 +105,18 @@ infinicore::Tensor StaticAttentionImpl::forward_graph_(
     ASSERT(attn_metadata.block_tables.has_value());
     ASSERT(attn_metadata.past_sequence_lengths.has_value());
     ASSERT(attn_metadata.total_sequence_lengths.has_value());
+    ASSERT(attn_metadata.slot_mapping.has_value());
 
-    auto k_cache = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
-    auto v_cache = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
-    infinicore::op::kv_caching_(
+    auto k_cache = kv_cache->narrow({{0, 0, 1}})->squeeze(0)->permute({0, 2, 1, 3});
+    auto v_cache = kv_cache->narrow({{0, 1, 1}})->squeeze(0)->permute({0, 2, 1, 3});
+    auto key_decode = key->permute({0, 2, 1, 3})->squeeze(1);
+    auto value_decode = value->permute({0, 2, 1, 3})->squeeze(1);
+    infinicore::op::paged_caching_(
         k_cache,
         v_cache,
-        key,
-        value,
-        attn_metadata.past_sequence_lengths.value());
+        key_decode,
+        value_decode,
+        attn_metadata.slot_mapping.value());
 
     auto q_decode = query->contiguous()->view({query->size(0), query->size(1), query->size(3)});
     auto output = infinicore::Tensor::empty(q_decode->shape(), q_decode->dtype(), q_decode->device());

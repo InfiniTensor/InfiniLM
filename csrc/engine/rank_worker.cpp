@@ -448,11 +448,11 @@ void RankWorker::thread_loop() {
                                                        : n_req;
                                 output_ids = infinicore::op::distributed::recv(
                                     {n_out},
-                                    infinicore::DataType::I64,
+                                    infinicore::DataType::kInt64,
                                     rank_info_.device,
                                     (rank_info_.pp_size - 1) * rank_info_.tp_size,
                                     rank_info_.world_comm);
-                                output_ids = output_ids->to(infinicore::Device::cpu());
+                                output_ids = output_ids->to(infinicore::Device{infinicore::Device::Type::kCpu});
                                 infinicore::context::syncStream();
                             }
                             output_ = Output{

@@ -3,6 +3,7 @@
 #include "../utils.hpp"
 #include "infinicore/ops/mrope.hpp"
 #include "infinicore/ops/rope.hpp"
+#include "infinicore/ops/rotary_embedding.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -12,6 +13,24 @@
 #include <vector>
 
 namespace infinicore::nn {
+namespace {
+
+template <typename T>
+std::vector<T> combine_cos_sin_cache(const std::vector<T> &cos,
+                                     const std::vector<T> &sin,
+                                     size_t max_seq_len,
+                                     size_t cache_dim) {
+    std::vector<T> combined(max_seq_len * cache_dim * 2);
+    for (size_t pos = 0; pos < max_seq_len; ++pos) {
+        std::copy_n(cos.begin() + pos * cache_dim, cache_dim,
+                    combined.begin() + pos * cache_dim * 2);
+        std::copy_n(sin.begin() + pos * cache_dim, cache_dim,
+                    combined.begin() + (pos * 2 + 1) * cache_dim);
+    }
+    return combined;
+}
+
+} // namespace
 
 RoPE::RoPE(size_t head_dim,
            size_t rotary_dim,
@@ -58,6 +77,12 @@ void RoPE::initialize_cache() {
     INFINICORE_NN_BUFFER_INIT(sin_cache, ({max_seq_len_, cache_dim}, dtype_, device_));
     INFINICORE_NN_BUFFER_INIT(cos_cache, ({max_seq_len_, cache_dim}, dtype_, device_));
 
+#ifdef ENABLE_INFINIOPS_API
+    if (device_.type() == Device::Type::kNvidia && !mrope_section_) {
+        INFINICORE_NN_BUFFER_INIT(cos_sin_cache, ({max_seq_len_, rotary_dim_}, dtype_, device_));
+    }
+#endif
+
     // Pre-compute sin and cos values
     // Frequency generation always uses GPT-J style (theta^(-2j/rotary_dim)).
     // The rotation algorithm (algo_) controls how dimensions are paired in the kernel.
@@ -95,6 +120,11 @@ void RoPE::initialize_cache() {
         auto cos_f32_cpu = Tensor::from_blob(cos_data.data(), {max_seq_len_, cache_dim}, DataType::kFloat32, cpu_device);
         sin_cache_->copy_from(sin_f32_cpu);
         cos_cache_->copy_from(cos_f32_cpu);
+        if (cos_sin_cache_) {
+            auto combined = combine_cos_sin_cache(cos_data, sin_data, max_seq_len_, cache_dim);
+            auto combined_cpu = Tensor::from_blob(combined.data(), {max_seq_len_, rotary_dim_}, DataType::kFloat32, cpu_device);
+            cos_sin_cache_->copy_from(combined_cpu);
+        }
     } else if (dtype_ == DataType::kBFloat16) {
         // Convert F32 to BF16 using the same conversion as Python's ml_dtypes.bfloat16
         // This uses round-to-nearest-even (matching _f32_to_bf16 implementation)
@@ -112,6 +142,11 @@ void RoPE::initialize_cache() {
         // copy_from handles cross-device copying to target device
         sin_cache_->copy_from(sin_bf16_cpu);
         cos_cache_->copy_from(cos_bf16_cpu);
+        if (cos_sin_cache_) {
+            auto combined = combine_cos_sin_cache(cos_bf16_data, sin_bf16_data, max_seq_len_, cache_dim);
+            auto combined_cpu = Tensor::from_blob(combined.data(), {max_seq_len_, rotary_dim_}, DataType::kBFloat16, cpu_device);
+            cos_sin_cache_->copy_from(combined_cpu);
+        }
     } else if (dtype_ == DataType::kFloat16) {
         // Convert F32 to F16
         std::vector<fp16_t> sin_f16_data(max_seq_len_ * cache_dim);
@@ -127,6 +162,11 @@ void RoPE::initialize_cache() {
 
         sin_cache_->copy_from(sin_f16_cpu);
         cos_cache_->copy_from(cos_f16_cpu);
+        if (cos_sin_cache_) {
+            auto combined = combine_cos_sin_cache(cos_f16_data, sin_f16_data, max_seq_len_, cache_dim);
+            auto combined_cpu = Tensor::from_blob(combined.data(), {max_seq_len_, rotary_dim_}, DataType::kFloat16, cpu_device);
+            cos_sin_cache_->copy_from(combined_cpu);
+        }
     } else {
         throw std::runtime_error(
             "RoPE cache dtype conversion not yet supported for dtype: "
@@ -147,6 +187,24 @@ Tensor RoPE::forward(const Tensor &x, const Tensor &pos, bool in_place) const {
             y->copy_from(x);
         }
     }
+
+#ifdef ENABLE_INFINIOPS_API
+    if (cos_sin_cache_) {
+        if (!in_place) {
+            y->copy_from(x);
+        }
+        op::rotary_embedding_(pos,
+                              y,
+                              std::nullopt,
+                              cos_sin_cache_,
+                              static_cast<int64_t>(
+                                  x->ndim() == pos->ndim() + 2
+                                      ? x->size(x->ndim() - 1)
+                                      : head_dim_),
+                              algo_ == Algo::GPT_NEOX);
+        return y;
+    }
+#endif
 
     size_t ndim = x->ndim();
     op::rope_(y->narrow({{ndim - 1, 0, rotary_dim_}}),
@@ -214,6 +272,26 @@ std::pair<Tensor, Tensor> RoPE::forward(const Tensor &q_out,
                                         const Tensor &k,
                                         const Tensor &positions) const {
     if (!mrope_section_.has_value()) {
+#ifdef ENABLE_INFINIOPS_API
+        if (cos_sin_cache_) {
+            if (q_out->data() != q->data()) {
+                q_out->copy_from(q);
+            }
+            if (k_out->data() != k->data()) {
+                k_out->copy_from(k);
+            }
+            op::rotary_embedding_(positions,
+                                  q_out,
+                                  k_out,
+                                  cos_sin_cache_,
+                                  static_cast<int64_t>(
+                                      q_out->ndim() == positions->ndim() + 2
+                                          ? q_out->size(q_out->ndim() - 1)
+                                          : head_dim_),
+                                  algo_ == Algo::GPT_NEOX);
+            return {q_out, k_out};
+        }
+#endif
         auto apply_standard = [this, &positions](Tensor out, const Tensor &in) {
             if (rotary_dim_ < head_dim_) {
                 out->copy_from(in);

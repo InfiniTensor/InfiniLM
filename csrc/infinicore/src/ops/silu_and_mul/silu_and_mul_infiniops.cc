@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/silu_and_mul_infinilm.h"
+#include "base/silu_and_mul.h"
 
 namespace infinicore::op::silu_and_mul_impl::infiniops {
 namespace {
@@ -25,7 +25,7 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     infini::ops::Config config;
-    infini::ops::SiluAndMulInfinilm::Call(
+    infini::ops::SiluAndMul::Call(
         handle, config, planned->input.tensor(planned->input_tensor), planned->output.tensor(planned->output_tensor));
 }
 

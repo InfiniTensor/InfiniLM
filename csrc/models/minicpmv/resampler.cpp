@@ -57,7 +57,8 @@ infinicore::Tensor build_2d_sincos_pos_embed_cpu(size_t h,
                                                  infinicore::DataType dtype) {
     std::vector<float> buf(h * w * embed_dim);
     compute_2d_sincos_pos_embed(buf.data(), embed_dim, h, w);
-    auto embedding_cpu = infinicore::Tensor::zeros({h, w, embed_dim}, dtype, infinicore::Device::cpu());
+    auto embedding_cpu = infinicore::Tensor::zeros(
+        {h, w, embed_dim}, dtype, infinicore::Device{infinicore::Device::Type::kCpu});
     write_pos_embed(embedding_cpu->data(), embedding_cpu->dtype(), buf.data(), buf.size());
     return embedding_cpu;
 }
