@@ -266,13 +266,26 @@ class BuildInfiniStackTest(unittest.TestCase):
             "Release",
             8,
             "sm_80",
-            ["add", "rms_norm"],
+            [
+                "add",
+                "flash_attn_varlen_func",
+                "flash_attn_with_kvcache",
+                "rms_norm",
+            ],
         )
 
         configure = commands[0]
         self.assertIn(f"-DINFINI_RT_ROOT={Path('build/prefix')}", configure)
-        self.assertIn("-DINFINI_OPS_OPS=add,rms_norm", configure)
+        self.assertIn(
+            "-DINFINI_OPS_OPS="
+            "add,flash_attn_varlen_func,flash_attn_with_kvcache,rms_norm",
+            configure,
+        )
         self.assertIn("-DWITH_LINKED=ON", configure)
+        self.assertIn(
+            "-DINFINI_OPS_LINKED_OPS=flash_attn_varlen_func,flash_attn_with_kvcache",
+            configure,
+        )
         self.assertIn("-DWITH_TORCH=ON", configure)
         self.assertIn("-DINFINI_OPS_TORCH_OPS=argmax", configure)
         self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=80", configure)

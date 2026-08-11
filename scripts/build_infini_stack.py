@@ -10,6 +10,10 @@ from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OPERATOR_SET = PROJECT_ROOT / "scripts/configs/infiniops_ops.txt"
+LINKED_OPERATORS = (
+    "flash_attn_varlen_func",
+    "flash_attn_with_kvcache",
+)
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -159,6 +163,7 @@ def build_infiniops_commands(
         "-DWITH_CPU=ON",
         "-DWITH_NVIDIA=ON",
         "-DWITH_LINKED=ON",
+        f"-DINFINI_OPS_LINKED_OPS={','.join(LINKED_OPERATORS)}",
         "-DWITH_TORCH=ON",
         "-DINFINI_OPS_TORCH_OPS=argmax",
         "-DAUTO_DETECT_DEVICES=OFF",
