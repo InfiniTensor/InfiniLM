@@ -45,6 +45,7 @@ void run(void *planned_meta) {
         config,
         planned->a.tensor(planned->a_tensor),
         planned->b.tensor(planned->b_tensor),
+        std::optional<infini::ops::Tensor>{},
         std::optional<float>{planned->alpha},
         std::optional<float>{planned->beta},
         std::optional<int>{},
