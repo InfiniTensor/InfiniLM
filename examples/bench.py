@@ -373,6 +373,10 @@ class TestModel:
 if __name__ == "__main__":
     cfg = BaseConfig()
 
+    if cfg.enable_linear_allreduce:
+        os.environ["INFINI_ENABLE_LINEAR_ALLREDUCE"] = "1"
+        print("[INFO] MatMul+AllReduce fusion enabled (--enable-linear-allreduce)")
+
     device_str = cfg.get_device_str(cfg.device)
 
     _PAGED_KV_BLOCK_SIZE = cfg.block_size
