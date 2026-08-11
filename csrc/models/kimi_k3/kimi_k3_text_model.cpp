@@ -71,12 +71,21 @@ KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
         };
     }
     const size_t prior_block_count = (local_layer_begin_ + attn_res_block_size_ - 1) / attn_res_block_size_;
-    auto received_hidden = recv_sharded_last_dim(
-        {shape[0], shape[1], hidden_size_});
-    auto received_residuals = recv_sharded_last_dim(
-        {shape[0] * shape[1], prior_block_count, hidden_size_});
-    block_residual_storage->narrow({{1, 0, prior_block_count}})
-        ->copy_from(received_residuals);
+    const size_t token_count = shape[0] * shape[1];
+    // Transfer all PP state in one message. Keeping state items as the leading
+    // dimension leaves the received hidden-state slice contiguous.
+    auto received_state = recv_sharded_last_dim(
+        {prior_block_count + 1, token_count, hidden_size_});
+    if (prior_block_count > 0) {
+        auto received_residuals = received_state
+                                      ->narrow({{0, 0, prior_block_count}})
+                                      ->permute({1, 0, 2});
+        block_residual_storage->narrow({{1, 0, prior_block_count}})
+            ->copy_from(received_residuals);
+    }
+    auto received_hidden = received_state
+                               ->narrow({{0, prior_block_count, 1}})
+                               ->view({shape[0], shape[1], hidden_size_});
     return {
         received_hidden,
         block_residual_storage,
@@ -112,30 +121,37 @@ infinicore::Tensor KimiK3TextModel::recv_sharded_last_dim(
     return restored->view(shape);
 }
 
-void KimiK3TextModel::send_sharded_last_dim(
-    const infinicore::Tensor &tensor) const {
+void KimiK3TextModel::send_pipeline_state(const PipelineState &state) const {
     const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
-    const auto shape = tensor->shape();
-    if (hidden_size_ % tp_size_ != 0 || shape.back() != hidden_size_) {
-        throw std::runtime_error("KimiK3TextModel: invalid PP send shape");
+    const auto shape = state.hidden_states->shape();
+    if (hidden_size_ % tp_size_ != 0 || shape.size() != 3 || shape.back() != hidden_size_) {
+        throw std::runtime_error("KimiK3TextModel: invalid PP state shape");
     }
     const size_t shard_hidden = hidden_size_ / tp_size_;
-    size_t outer = tensor->numel() / hidden_size_;
-    auto local = tensor->view({outer, hidden_size_})
-                     ->narrow({{1, tp_rank_ * shard_hidden, shard_hidden}})
-                     ->contiguous();
+    const size_t token_count = shape[0] * shape[1];
+    auto local = infinicore::Tensor::empty(
+        {state.block_residual_count + 1, token_count, shard_hidden},
+        dtype_, device_);
+
+    if (state.block_residual_count > 0) {
+        auto residual_shard = state.block_residual_storage
+                                  ->narrow({{1, 0, state.block_residual_count},
+                                            {2, tp_rank_ * shard_hidden, shard_hidden}})
+                                  ->permute({1, 0, 2});
+        local->narrow({{0, 0, state.block_residual_count}})
+            ->copy_from(residual_shard);
+    }
+    auto hidden_shard = state.hidden_states
+                            ->view({token_count, hidden_size_})
+                            ->narrow({{1, tp_rank_ * shard_hidden, shard_hidden}});
+    local->narrow({{0, state.block_residual_count, 1}})
+        ->view({token_count, shard_hidden})
+        ->copy_from(hidden_shard);
+
     infinicore::op::distributed::send(
-        local,
+        local->view({local->numel() / shard_hidden, shard_hidden}),
         static_cast<int>((pp_stage_ + 1) * tp_size_ + tp_rank_),
         rank_info.world_comm);
-}
-
-void KimiK3TextModel::send_pipeline_state(const PipelineState &state) const {
-    send_sharded_last_dim(state.hidden_states);
-    auto block_residual = state.block_residual_storage
-                              ->narrow({{1, 0, state.block_residual_count}})
-                              ->contiguous();
-    send_sharded_last_dim(block_residual);
 }
 
 infinicore::Tensor KimiK3TextModel::apply_output_attn_res(

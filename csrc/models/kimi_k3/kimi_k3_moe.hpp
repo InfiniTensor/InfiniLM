@@ -2,7 +2,6 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/linear/linear.hpp"
-#include "../../layers/moe/common/moe_types.hpp"
 #include "../../layers/moe/router/topk_router.hpp"
 
 #include <infiniccl.h>
@@ -41,23 +40,17 @@ public:
     KimiK3Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                   const infinicore::Device &device);
 
-    const infinilm::layers::moe::MoeWeights &moe_weights() const;
     const KimiK3Mxfp4MoeWeights &mxfp4_weights() const;
-    bool uses_mxfp4() const { return uses_mxfp4_; }
 
 private:
-    void register_bfloat16_experts();
     void register_mxfp4_experts();
 
-    infinilm::layers::moe::MoeWeights moe_weights_;
     KimiK3Mxfp4MoeWeights mxfp4_weights_;
     size_t num_experts_{0};
     size_t hidden_size_{0};
     size_t local_intermediate_size_{0};
     size_t tp_rank_{0};
     size_t tp_size_{1};
-    bool uses_mxfp4_{false};
-    infinicore::DataType dtype_;
     infinicore::Device device_;
 };
 
@@ -76,7 +69,6 @@ private:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, routed_expert_norm);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, routed_expert_up_proj);
     INFINICORE_NN_MODULE(KimiK3MLP, shared_experts);
-    bool use_legacy_moe_{false};
     int tp_size_{1};
     infinicclComm_t communicator_{nullptr};
 };

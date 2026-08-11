@@ -34,7 +34,6 @@ private:
     PipelineState initial_state(const infinicore::Tensor &first_stage_hidden) const;
     void send_pipeline_state(const PipelineState &state) const;
     infinicore::Tensor recv_sharded_last_dim(const infinicore::Shape &shape) const;
-    void send_sharded_last_dim(const infinicore::Tensor &tensor) const;
     infinicore::Tensor apply_output_attn_res(const infinicore::Tensor &hidden_states,
                                              const infinicore::Tensor &block_residual_storage,
                                              size_t block_residual_count) const;

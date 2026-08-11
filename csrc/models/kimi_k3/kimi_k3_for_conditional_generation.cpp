@@ -100,9 +100,6 @@ create_kimi_k3_model_config(std::shared_ptr<infinilm::config::ModelConfig> model
             config[it.key()] = it.value();
         }
     }
-    const auto quantization = text_config.value("quantization_config", nlohmann::json());
-    config["kimi_k3_mxfp4_experts"] = quantization.is_object()
-                                   && quantization.value("format", "") == "mxfp4-pack-quantized";
     // K3's compressed-tensors ignore list leaves attention, shared MLPs,
     // vision, and the LM head in BF16. Routed experts load MXFP4 explicitly.
     config["quantization_config"] = nullptr;
