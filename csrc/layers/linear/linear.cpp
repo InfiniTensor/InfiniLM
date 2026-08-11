@@ -1,7 +1,11 @@
 #include "linear.hpp"
+#include "infinicore/device.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
+#include "infinicore/ops/linear_allreduce.hpp"
+#include <cstdlib>
 #include <optional>
+#include <string>
 
 namespace infinilm::nn {
 
@@ -85,6 +89,27 @@ RowParallelLinear::RowParallelLinear(size_t in_features, size_t out_features,
 }
 
 infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
+    const char *env = std::getenv("INFINI_ENABLE_LINEAR_ALLREDUCE");
+    bool runtime_on = (env != nullptr);
+    bool is_ascend = (device_.getType() == infinicore::Device::Type::ASCEND);
+    bool is_tp = (tp_size_ > 1);
+    bool has_comm = (communicator_ != nullptr);
+    bool dtype_ok = (dtype_ == infinicore::DataType::F16
+                     || dtype_ == infinicore::DataType::BF16);
+    bool take_fuse = (runtime_on && is_ascend && is_tp && has_comm && dtype_ok);
+
+    if (take_fuse) {
+        infinicore::Tensor raw_weight = weight();
+        std::optional<infinicore::Tensor> bias_opt;
+        if (has_bias_) {
+            bias_opt = bias();
+        }
+        auto output = infinicore::op::linear_allreduce(
+            input, raw_weight, bias_opt,
+            INFINICCL_SUM, communicator_);
+        return output;
+    }
+
     auto output = BaseLinear::forward(input);
 
     if ((tp_size_ > 1) && (communicator_ != nullptr)) {
