@@ -52,15 +52,15 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "gelu/gelu_infiniops.cc": 1,
             "gelutanh/gelutanh_infiniops.cc": 1,
             "gemm/gemm_infiniops.cc": 3,
-            "kv_caching/kv_caching_infiniops.cc": 3,
-            "paged_attention/paged_attention_infiniops.cc": 3,
-            "paged_attention_prefill/paged_attention_prefill_infiniops.cc": 1,
+            "mha_kvcache/mha_kvcache_infiniops.cc": 3,
+            "mul/mul_infiniops.cc": 3,
+            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 3,
             "paged_caching/paged_caching_infiniops.cc": 3,
             "random_sample/random_sample_infiniops.cc": 1,
             "rearrange/rearrange_infiniops.cc": 3,
             "relu/relu_infiniops.cc": 1,
             "rms_norm/rms_norm_infiniops.cc": 3,
-            "rope/rope_infiniops.cc": 3,
+            "rotary_embedding/rotary_embedding_infiniops.cc": 3,
             "sigmoid/sigmoid_infiniops.cc": 3,
             "silu/silu_infiniops.cc": 1,
             "silu_and_mul/silu_and_mul_infiniops.cc": 3,
@@ -79,7 +79,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             with self.subTest(adapter=relative_path):
                 source = read_source(f"csrc/infinicore/src/ops/{relative_path}")
                 self.assertEqual(
-                    source.count("registerSupportedDevices("), expected_count
+                    source.count("registerSupportedDevices(")
+                    + source.count(".registerDevice("),
+                    expected_count,
                 )
 
         rearrange = read_source(
@@ -92,6 +94,38 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         ):
             self.assertIn(f"Rearrange::{dispatcher}", rearrange)
         self.assertNotIn("InfiniCore/InfiniOp implementation active", rearrange)
+
+    def test_infiniops_adapters_do_not_use_infinilm_suffixed_apis(self) -> None:
+        ops_root = ROOT / "csrc/infinicore/src/ops"
+        for path in ops_root.glob("*/*_infiniops.cc"):
+            with self.subTest(adapter=path.relative_to(ops_root).as_posix()):
+                source = path.read_text(encoding="utf-8")
+                self.assertNotRegex(
+                    source, re.compile(r'#include\s+"base/[^"\n]*_infinilm\.h"')
+                )
+                self.assertNotRegex(
+                    source, re.compile(r"infini::ops::[A-Za-z0-9_]*Infinilm")
+                )
+
+        allowlist = read_source("scripts/configs/infiniops_ops.txt")
+        self.assertNotIn("_infinilm", allowlist)
+
+    def test_infiniops_adapter_temporaries_keep_owning_tensors(self) -> None:
+        cases = {
+            "paged_caching/paged_caching_infiniops.cc": (
+                "Tensor scale_owner;",
+                "context::memcpyH2D(scale->data(), &one, sizeof(one), false)",
+            ),
+            "swiglu/swiglu_infiniops.cc": ("Tensor packed_owner;",),
+            "topksoftmax/topksoftmax_infiniops.cc": (
+                "Tensor token_expert_indices_owner;",
+            ),
+        }
+        for relative_path, tokens in cases.items():
+            with self.subTest(adapter=relative_path):
+                source = read_source(f"csrc/infinicore/src/ops/{relative_path}")
+                for token in tokens:
+                    self.assertIn(token, source)
 
     def test_empty_operator_dispatch_throws(self) -> None:
         source = read_source(
@@ -217,7 +251,13 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
 
     def test_communication_group_gates_rank_initialization(self) -> None:
         source = read_source("csrc/engine/distributed/communication_group.cpp")
+        initializer = function_body(source, "void initializeCommunicators")
         constructor = function_body(source, "CommunicationGroup::CommunicationGroup")
+
+        self.assertIn("initializeCommunicators(", constructor)
+        self.assertIn("communicators_", constructor)
+        self.assertIn("world_communicators_", constructor)
+        self.assertNotIn("infinicclCommInitRank", constructor)
 
         for token in (
             "std::mutex start_mutex",
@@ -225,21 +265,21 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "bool start = false",
             "bool cancel = false",
         ):
-            self.assertIn(token, constructor)
+            self.assertIn(token, initializer)
 
-        wait = constructor.index("start_cv.wait")
-        init = constructor.index("infinicclCommInitRank")
+        wait = initializer.index("start_cv.wait")
+        init = initializer.index("infinicclCommInitRank")
         self.assertLess(wait, init)
-        self.assertIn("if (cancel)", constructor[wait:init])
+        self.assertIn("if (cancel)", initializer[wait:init])
 
-        release = constructor.index("start = true", init)
-        release_notify = constructor.index("start_cv.notify_all()", release)
-        join = constructor.index("worker.join()", release_notify)
+        release = initializer.index("start = true", init)
+        release_notify = initializer.index("start_cv.notify_all()", release)
+        join = initializer.index("worker.join()", release_notify)
         self.assertLess(release, release_notify)
         self.assertLess(release_notify, join)
 
-        failure = constructor.rindex("catch (...)")
-        failure_path = constructor[failure:]
+        failure = initializer.rindex("catch (...)")
+        failure_path = initializer[failure:]
         cancel = failure_path.index("cancel = true")
         cancel_notify = failure_path.index("start_cv.notify_all()")
         cancel_join = failure_path.index("worker.join()")
@@ -411,6 +451,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "position_ids": "kInt64",
             "past_sequence_lengths": "kInt32",
             "total_sequence_lengths": "kInt32",
+            "slot_mapping": "kInt64",
         }
         for field, dtype in expected_dtypes.items():
             with self.subTest(field=field):
@@ -458,26 +499,151 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             source,
             "infinicore::Tensor StaticAttentionImpl::forward_graph_(",
         )
-        self.assertIn("infinicore::op::kv_caching_", graph_forward)
+        self.assertIn("infinicore::op::paged_caching_", graph_forward)
         self.assertIn("infinicore::op::paged_attention_", graph_forward)
+        self.assertNotIn("infinicore::op::kv_caching_", graph_forward)
         self.assertNotIn("Device::Type::kCpu", graph_forward)
+
+    def test_static_graph_uses_dynamic_canonical_cache_slots(self) -> None:
+        compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
+        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
+        replay_body = function_body(
+            compiler,
+            "StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(",
+        )
+        graph_forward = function_body(
+            read_source("csrc/layers/attention/backends/static_attn.cpp"),
+            "infinicore::Tensor StaticAttentionImpl::forward_graph_(",
+        )
+
+        self.assertIn("kv_cache->size(3) % 256", compiler)
+        self.assertIn("kv_cache->size(1) != batch_size", compiler)
+        self.assertRegex(
+            compile_body,
+            re.compile(
+                r"input\.slot_mapping\s*=\s*infinicore::Tensor::empty"
+                r"\(\{b\}, infinicore::DataType::kInt64,"
+            ),
+        )
+        self.assertIn("i * cache_page_size", compile_body)
+        self.assertIn("past_sequence_lengths[i]", replay_body)
+        self.assertIn("result->second.cache_page_size", replay_body)
+        self.assertIn("graph_input.slot_mapping.value()->data()", replay_body)
+        self.assertIn("infinicore::op::paged_caching_", graph_forward)
+        self.assertIn("attn_metadata.slot_mapping.value()", graph_forward)
+        self.assertIn("permute({0, 2, 1, 3})", graph_forward)
+        self.assertNotIn("infinicore::op::kv_caching_", graph_forward)
+
+    def test_random_sampling_uses_only_canonical_infiniops(self) -> None:
+        wrapper = read_source("csrc/infinicore/src/ops/random_sample/random_sample.cc")
+        adapter = read_source(
+            "csrc/infinicore/src/ops/random_sample/random_sample_infiniops.cc"
+        )
+
+        self.assertIn("infini::ops::Argmax::Call", wrapper)
+        for sentinel in (
+            "random_value != 0.0f",
+            "top_p != 0.0f",
+            "top_k != 1",
+            "temperature != 0.0f",
+        ):
+            self.assertIn(sentinel, wrapper)
+        self.assertIn("base/top_k_top_p_sampling_from_logits.h", adapter)
+        self.assertIn("infini::ops::TopKTopPSamplingFromLogits::Call", adapter)
+        self.assertIn("infini::ops::Fill::Call", adapter)
+        self.assertIn("infini::ops::Mul::Call", adapter)
+        self.assertIn("1.0f / temperature", adapter)
+        self.assertIn("const bool greedy = random_value == 0.0f", adapter)
+        self.assertIn("top_k_value = greedy ? 1", adapter)
+        self.assertIn("indices->dtype() == DataType::kInt64", adapter)
+        self.assertIn("std::optional<infini::ops::Tensor>", adapter)
+        self.assertIn('std::string{"joint"}', adapter)
+        self.assertNotIn("base/cast.h", adapter)
+        self.assertNotIn("infini::ops::Cast", adapter)
+        self.assertNotIn("RandomSampleInfinilm", adapter)
+        self.assertNotIn("random_sample_infinilm.h", adapter)
+
+    def test_canonical_rope_preserves_static_batch_positions(self) -> None:
+        static_calls = (
+            (
+                "csrc/layers/attention/attention.cpp",
+                "infinicore::Tensor Attention::forward_static_(",
+            ),
+            (
+                "csrc/models/qwen3/qwen3_attention.cpp",
+                "infinicore::Tensor Qwen3Attention::forward_static_(",
+            ),
+            (
+                "csrc/models/qwen3_next/qwen3_next_attention.cpp",
+                "infinicore::Tensor Qwen3NextAttention::forward_static_(",
+            ),
+        )
+        for relative_path, signature in static_calls:
+            with self.subTest(source=relative_path):
+                body = function_body(read_source(relative_path), signature)
+                self.assertIn("pos_ids_for_rope = position_ids->contiguous()", body)
+                self.assertNotIn(
+                    "position_ids->narrow({{0, 0, 1}})",
+                    body,
+                )
+
+        deepseek = function_body(
+            read_source("csrc/models/deepseek_v2/deepseek_v2_attention.cpp"),
+            "infinicore::Tensor DeepseekV2Attention::forward_static_(",
+        )
+        self.assertIn("pos_ids = position_ids->contiguous()", deepseek)
+        self.assertNotIn("position_ids_for_rope_(position_ids)", deepseek)
+
+        rope = function_body(
+            read_source("csrc/infinicore/src/nn/rope.cc"),
+            "Tensor RoPE::forward(const Tensor &x,",
+        )
+        self.assertIn("x->ndim() == pos->ndim() + 2", rope)
+        self.assertIn("x->size(x->ndim() - 1)", rope)
+        self.assertIn(": head_dim_", rope)
+
+        ernie = read_source("csrc/models/ernie4_5_vl/ernie4_5_attention.cpp")
+        axis_positions = function_body(
+            ernie, "infinicore::Tensor axis_positions_for_rope("
+        )
+        grouped = function_body(ernie, "void apply_grouped_rope_one(")
+        self.assertIn(
+            "position_ids->narrow({{2, axis, 1}})",
+            axis_positions,
+        )
+        self.assertIn(
+            "view({pos_shape[0], pos_shape[1]})",
+            axis_positions,
+        )
+        self.assertIn("infinicore::op::rotary_embedding_(", grouped)
+        self.assertIn("static_cast<int64_t>(group_pairs * 2)", grouped)
+        self.assertIn("cos_sin_cache", grouped)
+        self.assertNotIn("infinicore::op::rope_(", ernie)
+        self.assertNotIn("infinicore/ops/rope.hpp", ernie)
 
     def test_static_graph_falls_back_for_unsupported_attention_configs(self) -> None:
         source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
         self.assertIn("bool supports_static_graph_kv_cache(", source)
-        self.assertIn("bool supports_static_graph_attention()", source)
-        cache_check = function_body(
-            source, "bool supports_static_graph_kv_cache("
+        self.assertIn("bool supports_static_graph_attention(size_t batch_size)", source)
+        cache_check = function_body(source, "bool supports_static_graph_kv_cache(")
+        page_size = function_body(
+            source, "std::optional<size_t> static_graph_cache_page_size("
         )
-        capability = function_body(source, "bool supports_static_graph_attention()")
+        capability = function_body(
+            source, "bool supports_static_graph_attention(size_t batch_size)"
+        )
         compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
 
         self.assertIn("Device::Type::kNvidia", capability)
-        self.assertIn("get_forward_context().kv_cache_vec", capability)
-        self.assertIn("kv_cache_vec.empty()", capability)
-        self.assertIn("std::all_of(", capability)
-        self.assertNotIn("kv_cache_vec.front()", capability)
-        self.assertNotIn("kv_cache_vec[0]", capability)
+        self.assertIn(
+            "static_graph_cache_page_size(batch_size).has_value()", capability
+        )
+        self.assertIn("get_forward_context().kv_cache_vec", page_size)
+        self.assertIn("for (const auto &kv_cache : kv_cache_vec)", page_size)
+        self.assertIn("kv_cache->size(1) != batch_size", page_size)
+        self.assertIn("kv_cache->size(3) == 0", page_size)
+        self.assertIn("kv_cache->size(3) % 256 != 0", page_size)
+        self.assertIn("kv_cache->size(3) != *page_size", page_size)
         self.assertIn("kv_cache.empty()", cache_check)
         self.assertIn("kv_cache->ndim() != 5", cache_check)
         self.assertIn("kv_cache->size(0) != 2", cache_check)
@@ -491,9 +657,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         for forbidden in ("get_dtype()", "get_kv_cache_dtype()", "get_head_dim()"):
             self.assertNotIn(forbidden, capability)
         self.assertIn("compiled_map_.clear()", compile_body)
-        self.assertIn("if (!supports_static_graph_attention())", compile_body)
+        self.assertIn("if (!supports_static_graph_attention(b))", compile_body)
         self.assertLess(
-            compile_body.index("if (!supports_static_graph_attention())"),
+            compile_body.index("if (!supports_static_graph_attention(b))"),
             compile_body.index("GraphRecordingGuard recording"),
         )
 

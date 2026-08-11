@@ -206,7 +206,7 @@ private:
         return infinicore::op::add(residual, hidden_states);
     }
 
-    infinicore::DataType dtype_{infinicore::DataType::F32};
+    infinicore::DataType dtype_{infinicore::DataType::kFloat32};
     size_t hidden_size_{0};
     size_t pp_size_{1};
     size_t pp_stage_{0};

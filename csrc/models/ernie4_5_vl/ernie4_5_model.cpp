@@ -35,7 +35,7 @@ Ernie45Model::Ernie45Model(std::shared_ptr<infinilm::config::ModelConfig> model_
 void Ernie45Model::replace_embeddings(infinicore::Tensor inputs_embeds,
                                       const infinicore::Tensor &vision_hidden,
                                       const infinicore::Tensor &image_bound) const {
-    auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
+    auto bounds_cpu = image_bound->to(infinicore::Device{infinicore::Device::Type::kCpu});
     auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
     const int64_t start = bounds[0];
     const int64_t end = bounds[1];
@@ -79,12 +79,14 @@ void Ernie45Model::apply_image_embeddings(infinicore::Tensor inputs_embeds,
         throw std::runtime_error("Ernie45Model: input_offsets is required for multimodal replacement");
     }
 
-    auto input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
+    auto input_offsets_cpu = input.input_offsets.value()->to(
+        infinicore::Device{infinicore::Device::Type::kCpu});
     auto *offsets = reinterpret_cast<const int32_t *>(input_offsets_cpu->data());
     std::vector<size_t> visual_token_ranges;
     for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
         const size_t req_id = image_req_ids[image_idx];
-        auto bounds_cpu = image_bound[image_idx]->to(infinicore::Device::cpu());
+        auto bounds_cpu = image_bound[image_idx]->to(
+            infinicore::Device{infinicore::Device::Type::kCpu});
         auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
         const size_t packed_start = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[0]);
         const size_t packed_end = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[1]);

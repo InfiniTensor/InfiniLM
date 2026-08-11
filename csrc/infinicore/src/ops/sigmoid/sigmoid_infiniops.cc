@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/sigmoid_infinilm.h"
+#include "base/sigmoid.h"
 
 namespace infinicore::op::sigmoid_impl::infiniops {
 namespace {
@@ -35,7 +35,7 @@ void run(void *planned_meta) {
     handle.set_stream(context::getStream());
     infini::ops::Config config;
 
-    infini::ops::SigmoidInfinilm::Call(
+    infini::ops::Sigmoid::Call(
         handle,
         config,
         planned->input.tensor(planned->input_tensor),

@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/softmax_infinilm.h"
+#include "base/softmax.h"
 
 #include <optional>
 
@@ -22,7 +22,7 @@ void calculate(Tensor output, Tensor input, int axis) {
 
     TensorMeta output_meta(output);
     TensorMeta input_meta(input);
-    infini::ops::SoftmaxInfinilm::Call(
+    infini::ops::Softmax::Call(
         handle,
         config,
         input_meta.tensor(input),

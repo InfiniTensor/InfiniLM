@@ -106,7 +106,19 @@ infinicore::Tensor DeepseekV2Attention::forward_static_(const infinicore::Tensor
     auto k_nope = kv->narrow({{3, 0, qk_nope_head_dim_}});
     auto value_states = kv->narrow({{3, qk_nope_head_dim_, v_head_dim_}})->contiguous();
 
-    auto pos_ids = position_ids_for_rope_(position_ids);
+    const auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids;
+    if (pos_shape.size() == 2) {
+        ASSERT_EQ(pos_shape[0], batch_size);
+        ASSERT_EQ(pos_shape[1], seq_len);
+        pos_ids = position_ids->contiguous();
+    } else if (pos_shape.size() == 1) {
+        ASSERT_EQ(batch_size, 1);
+        ASSERT_EQ(pos_shape[0], seq_len);
+        pos_ids = position_ids->contiguous()->view({1, seq_len});
+    } else {
+        throw std::runtime_error("DeepseekV2Attention: unexpected position_ids shape");
+    }
     q_pe = rotary_emb_->forward(q_pe, pos_ids, true);
     auto k_pe_broadcast = infinicore::op::broadcast_to(k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_}),
                                                        {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});

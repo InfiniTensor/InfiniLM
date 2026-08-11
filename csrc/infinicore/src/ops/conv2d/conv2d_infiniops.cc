@@ -3,7 +3,7 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/conv_infinilm.h"
+#include "base/convolution.h"
 
 #include <optional>
 #include <vector>
@@ -48,15 +48,17 @@ void calculate(Tensor output,
         bias_meta.emplace(bias);
     }
 
-    infini::ops::ConvInfinilm::Call(
+    infini::ops::Convolution::Call(
         handle,
         config,
         input_meta.tensor(input),
         weight_meta.tensor(weight),
         bias_meta ? std::optional<infini::ops::Tensor>{bias_meta->tensor(bias)} : std::nullopt,
-        toInt64Vector(pads, n),
         toInt64Vector(strides, n),
+        toInt64Vector(pads, n),
         toInt64Vector(dilations, n),
+        false,
+        std::vector<int64_t>(n, 0),
         int64_t{1},
         output_meta.tensor(output));
 }
