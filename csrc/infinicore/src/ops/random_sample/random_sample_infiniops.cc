@@ -106,7 +106,8 @@ void calculate(
             cpu);
     }
 
-    auto output = indices->view({1});
+    // InfiniCore accepts a scalar result, while InfiniOps requires [batch].
+    auto output = indices->as_strided({1}, {1});
     const std::optional<int64_t> seed{seed_from_random_value(random_value)};
     const std::optional<int64_t> offset{0};
     infini::ops::TopKTopPSamplingFromLogits::Call(
