@@ -41,11 +41,16 @@ Then build and install InfiniLM:
 python3 -m pip install . --no-build-isolation
 ```
 
-Automated migration coverage is limited to NVIDIA, dense non-quantized Qwen3,
-and the default static attention implementation. Other platforms and
-configurations remain gated for later validation.
+Current migration validation is limited to NVIDIA A100 and dense,
+non-quantized Qwen3 configurations without linear bias. Qwen3-0.6B has passed
+static and paged attention, eager and graph execution, single-request and
+batch-2 inference, greedy and non-greedy sampling, TP2, PP2, and combined
+TP2+PP2. Paged attention was validated with the default 256-token block size.
 
-The modern operator closure currently supports `qwen3` within that boundary.
+Only `qwen3` can be instantiated by the modern model factory. Other model
+families, quantized models, and biased Qwen3 configurations remain gated.
+Other platforms and custom paged-cache block sizes have not yet been
+validated.
 
 ## Inference
 
@@ -58,7 +63,7 @@ python examples/test_infer.py --device nvidia --model=/path/to/model
 For tensor-parallel inference:
 
 ```shell
-python examples/test_infer.py --device nvidia --model=/path/to/model --tp=4 --batch-size=16
+python examples/test_infer.py --device nvidia --model=/path/to/model --tp=2 --batch-size=2
 ```
 
 Start the OpenAI-compatible server:
