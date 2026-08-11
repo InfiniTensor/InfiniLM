@@ -266,8 +266,8 @@ std::pair<Tensor, Tensor> RoPE::forward(const Tensor &q, const Tensor &k, const 
     return {q_out->view(q->shape()), k_out->view(k->shape())};
 }
 
-std::pair<Tensor, Tensor> RoPE::forward(const Tensor &q_out,
-                                        const Tensor &k_out,
+std::pair<Tensor, Tensor> RoPE::forward(Tensor q_out,
+                                        Tensor k_out,
                                         const Tensor &q,
                                         const Tensor &k,
                                         const Tensor &positions) const {

@@ -72,8 +72,8 @@ public:
     /**
      * @brief Apply MRoPE to q and k into caller-provided outputs.
      */
-    std::pair<Tensor, Tensor> forward(const Tensor &q_out,
-                                      const Tensor &k_out,
+    std::pair<Tensor, Tensor> forward(Tensor q_out,
+                                      Tensor k_out,
                                       const Tensor &q,
                                       const Tensor &k,
                                       const Tensor &positions) const;
