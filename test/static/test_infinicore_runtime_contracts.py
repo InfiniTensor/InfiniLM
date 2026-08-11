@@ -220,7 +220,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(config_creation, rank_workers)
 
         readme = read_source("README.md")
-        self.assertIn("currently supports `qwen3`", readme)
+        self.assertIn(
+            "Only `qwen3` can be instantiated by the modern model factory",
+            readme,
+        )
 
         xmake = read_source("xmake.lua")
         target_start = xmake.index('target("_infinilm")')
