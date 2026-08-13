@@ -73,10 +73,13 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
-        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
-    } else if (pos_shape.size() == 1) {
+        ASSERT_EQ(pos_shape[0], batch_size);
+        ASSERT_EQ(pos_shape[1], seq_len);
         pos_ids_for_rope = position_ids->contiguous();
+    } else if (pos_shape.size() == 1) {
+        ASSERT_EQ(batch_size, 1);
+        ASSERT_EQ(pos_shape[0], seq_len);
+        pos_ids_for_rope = position_ids->contiguous()->view({1, seq_len});
     } else {
         throw std::runtime_error("infinilm::layers::attention::Attention: Unexpected position_ids shape");
     }
@@ -145,9 +148,9 @@ void init_kv_cache_quant_params(std::function<void(const std::string &, infinico
     case infinilm::quantization::KVQuantAlgo::NONE:
         break;
     case infinilm::quantization::KVQuantAlgo::INT8:
-        kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
+        kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::kFloat32, device, 0, 0, 1);
         register_fn("kv_cache_k_scale", kv_cache_k_scale);
-        kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
+        kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::kFloat32, device, 0, 0, 1);
         register_fn("kv_cache_v_scale", kv_cache_v_scale);
         break;
     default:

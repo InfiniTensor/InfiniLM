@@ -2,6 +2,7 @@
 
 #include "../../../utils.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/mha_varlen.hpp"
 
 namespace infinilm::layers::attention::backends {
 
@@ -25,6 +26,7 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
                                                const infinilm::global_state::AttentionMetadata &attn_metadata) const {
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
     auto input_offsets = attn_metadata.input_offsets;
+    auto cu_seqlens = attn_metadata.cu_seqlens;
     auto block_tables = attn_metadata.block_tables;
     auto slot_mapping = attn_metadata.slot_mapping;
     ASSERT(block_tables.has_value());
@@ -39,14 +41,19 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     // 2. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
-        infinicore::op::paged_attention_prefill_(
+        ASSERT(input_offsets.has_value());
+        ASSERT(cu_seqlens.has_value());
+        const auto max_seqlen_k = block_tables.value()->size(1) * k_total->size(1);
+        infinicore::op::mha_varlen_(
             attn_output,
             query,
             k_total,
             v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
             input_offsets.value(),
+            cu_seqlens.value(),
+            block_tables.value(),
+            static_cast<int>(seq_len),
+            static_cast<int>(max_seqlen_k),
             std::nullopt,
             scale_);
     } else {
