@@ -1,4 +1,5 @@
 import json
+import operator
 import os
 import time
 from dataclasses import dataclass
@@ -16,6 +17,45 @@ _MODEL_DEFAULTS = {
     "gpt2": {"torch_dtype": "float32"},
     "mistral": {"torch_dtype": "bfloat16"},
 }
+
+
+def _validate_nll_score_inputs(input_ids, labels, score_start):
+    """Validate an explicit batch-1, shifted-token NLL request."""
+    for name, tensor in (("input_ids", input_ids), ("labels", labels)):
+        if tensor is None:
+            raise TypeError(f"{name} must be an infinicore tensor")
+        missing = [
+            attr
+            for attr in ("ndim", "shape", "dtype", "_underlying")
+            if not hasattr(tensor, attr)
+        ]
+        if missing:
+            raise TypeError(
+                f"{name} must be an infinicore tensor; missing {', '.join(missing)}"
+            )
+        if tensor.dtype != infinicore.int64:
+            raise ValueError(f"{name} must use infinicore.int64 dtype")
+        if tensor.ndim != 2:
+            raise ValueError(f"{name} must be a rank-2 tensor")
+
+    input_shape = tuple(input_ids.shape)
+    label_shape = tuple(labels.shape)
+    if input_shape != label_shape:
+        raise ValueError("input_ids and labels must have identical shapes")
+    if input_shape[0] != 1:
+        raise ValueError("score_nll currently requires batch_size=1")
+
+    if isinstance(score_start, bool):
+        raise TypeError("score_start must be an integer, not bool")
+    try:
+        score_start = operator.index(score_start)
+    except TypeError as error:
+        raise TypeError("score_start must be an integer") from error
+
+    seq_len = input_shape[1]
+    if score_start < 0 or score_start >= seq_len:
+        raise ValueError("score_start must select at least one token")
+    return seq_len, score_start
 
 
 def _apply_torch_dtype_defaults(config: dict) -> dict:
@@ -653,6 +693,98 @@ class InferEngine(_infinilm.InferEngine):
                 )
 
         return output_ids
+
+    def score_nll(self, input_ids, labels, *, score_start=0):
+        """Return summed shifted-token NLL and token count for a batch-1 window.
+
+        This explicit evaluation path bypasses graph replay and never changes the
+        behavior of ``forward``/``generate``. ``input_ids`` and ``labels`` must
+        have the same ``[1, sequence]`` shape; callers perform the causal shift.
+        """
+        try:
+            seq_len, score_start = _validate_nll_score_inputs(
+                input_ids, labels, score_start
+            )
+
+            block_tables = None
+            slot_mapping = None
+            if self.enable_paged_attn:
+                cache_config = self.get_cache_config()
+                if cache_config is None:
+                    raise RuntimeError("paged attention requires a cache configuration")
+                paged_block_size = cache_config.block_size()
+                max_blocks_per_batch = (
+                    seq_len + paged_block_size - 1
+                ) // paged_block_size
+                if max_blocks_per_batch > cache_config.num_blocks():
+                    raise ValueError(
+                        "NLL sequence requires more paged KV-cache blocks than "
+                        "the current cache configuration provides"
+                    )
+                block_tables = infinicore.from_list(
+                    [list(range(max_blocks_per_batch))],
+                    dtype=infinicore.int32,
+                )
+                slot_mapping = infinicore.from_list(
+                    list(range(seq_len)), dtype=infinicore.int64
+                )
+                position_ids = infinicore.from_list(
+                    list(range(seq_len)), dtype=infinicore.int64
+                )
+            else:
+                position_ids = infinicore.from_list(
+                    [list(range(seq_len))], dtype=infinicore.int64
+                )
+            past_kv_lengths = infinicore.from_list([0], dtype=infinicore.int32)
+            total_kv_lengths = infinicore.from_list(
+                [seq_len], dtype=infinicore.int32
+            )
+            cu_seqlens = infinicore.from_list(
+                [0, seq_len], dtype=infinicore.int32
+            )
+            input_offsets = infinicore.from_list(
+                [0, seq_len], dtype=infinicore.int32
+            )
+
+            output = super().forward(
+                super().Input(
+                    input_ids._underlying,
+                    position_ids=position_ids._underlying,
+                    past_sequence_lengths=past_kv_lengths._underlying,
+                    total_sequence_lengths=total_kv_lengths._underlying,
+                    input_offsets=input_offsets._underlying,
+                    cu_seqlens=cu_seqlens._underlying,
+                    block_tables=(
+                        block_tables._underlying
+                        if block_tables is not None
+                        else None
+                    ),
+                    slot_mapping=(
+                        slot_mapping._underlying
+                        if slot_mapping is not None
+                        else None
+                    ),
+                    labels=labels._underlying,
+                    score_start=score_start,
+                    return_nll=True,
+                )
+            )
+            token_nll = infinicore.Tensor(output.nll).to_numpy()
+            scored_tokens = int(output.scored_tokens)
+            expected_scored_tokens = seq_len - score_start
+            if scored_tokens != expected_scored_tokens:
+                raise RuntimeError(
+                    "score_nll returned an invalid scored-token count: "
+                    f"expected {expected_scored_tokens}, got {scored_tokens}"
+                )
+            if token_nll.size != expected_scored_tokens:
+                raise RuntimeError(
+                    "score_nll returned a token-loss vector with an invalid size"
+                )
+            return float(token_nll.astype("float64").sum()), scored_tokens
+        except BaseException as e:
+            handle_oom_and_exit(e)
+            raise
 
     def reset_cache(self, cache_config):
         infinicore.sync_device()

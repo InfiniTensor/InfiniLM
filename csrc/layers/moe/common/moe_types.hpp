@@ -2,6 +2,7 @@
 
 #include "topk_output.hpp"
 
+#include "infinicore/ops/hygon_moe_marlin.hpp"
 #include "infinicore/tensor.hpp"
 
 #include <cstddef>
@@ -18,6 +19,12 @@ enum class CombineInputFormat {
     Standard,
     DeepEPNormal,
     DeepEPLL,
+};
+
+enum class MoeWeightBackend {
+    Dense,
+    HygonW16A16Marlin,
+    HygonW8A8Marlin,
 };
 
 struct DispatchOutput {
@@ -53,6 +60,9 @@ struct CombineInput {
 struct MoeWeights {
     infinicore::Tensor packed_w13;
     infinicore::Tensor packed_w2;
+    infinicore::Tensor packed_w13_scale;
+    infinicore::Tensor packed_w2_scale;
+    MoeWeightBackend backend = MoeWeightBackend::Dense;
 
     bool empty() const {
         return !packed_w13 && !packed_w2;
@@ -60,6 +70,19 @@ struct MoeWeights {
 
     bool has_packed_dense_weights() const {
         return packed_w13 && packed_w2;
+    }
+
+    bool has_packed_w8a8_marlin_weights() const {
+        return packed_w13 && packed_w2
+            && packed_w13_scale && packed_w2_scale;
+    }
+
+    bool is_hygon_w16a16_marlin() const {
+        return backend == MoeWeightBackend::HygonW16A16Marlin;
+    }
+
+    bool is_hygon_w8a8_marlin() const {
+        return backend == MoeWeightBackend::HygonW8A8Marlin;
     }
 };
 
@@ -69,6 +92,7 @@ struct MoeWorkspace {
     infinicore::Tensor ep_gathered_topk_ids;
     infinicore::Tensor ep_reduced_hidden_states;
     infinicore::Tensor fused_moe_output;
+    infinicore::op::HygonMoeMarlinWorkspace hygon_marlin;
 
     infinicore::Tensor sorted_token_ids;
     infinicore::Tensor expert_ids;
@@ -84,7 +108,6 @@ struct MoeWorkspace {
     size_t expert_ids_capacity = 0;
     size_t ep_gathered_tokens_capacity = 0;
     size_t ep_reduced_tokens_capacity = 0;
-    size_t fused_moe_output_tokens_capacity = 0;
     size_t blockscale_offsets_capacity = 0;
     size_t permutation_capacity = 0;
     size_t prepared_num_experts = 0;
