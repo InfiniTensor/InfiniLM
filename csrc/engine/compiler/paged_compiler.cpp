@@ -57,12 +57,20 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
 
 void PagedCompiler::compile() {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
+        compiled_map_decode_.clear();
+        const auto tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
+        if (tp_size > 1) {
+            spdlog::info(
+                "Paged decode graph capture is disabled under tensor parallel execution; using eager decode (tp_size={}).",
+                tp_size);
+            return;
+        }
+
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
 
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
-        compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks * max_batch_size}, infinicore::DataType::kInt32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
@@ -163,6 +171,10 @@ void PagedCompiler::compile() {
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
+        if (infinilm::global_state::get_tensor_model_parallel_world_size() > 1) {
+            return {nullptr, nullptr};
+        }
+
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
 
