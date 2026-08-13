@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <stdexcept>
 #include <vector>
 
 namespace infinilm::engine {
@@ -227,23 +226,6 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             model_->reset_runtime_state();
 
             auto graph = std::get<0>(result->second.compiled);
-            if (graph != nullptr) {
-                const auto &runtime_seq_lens = input.total_sequence_lengths.value();
-                if (runtime_seq_lens->device().getType()
-                        != infinicore::Device::Type::CPU
-                    || runtime_seq_lens->dtype() != infinicore::DataType::I32
-                    || runtime_seq_lens->shape().size() != 1
-                    || runtime_seq_lens->shape()[0] != batch_size) {
-                    throw std::runtime_error(
-                        "PagedCompiler expected CPU int32 "
-                        "total_sequence_lengths for graph replay");
-                }
-                graph->bind_host_int_array(
-                    graph_input.total_sequence_lengths.value(),
-                    reinterpret_cast<const int32_t *>(
-                        runtime_seq_lens->data()),
-                    batch_size);
-            }
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
 
             return std::make_tuple(graph, shared_output);
