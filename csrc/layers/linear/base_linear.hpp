@@ -58,6 +58,8 @@ public:
 
 protected:
     infinicore::Tensor compute_linear(infinicore::Tensor &input) const;
+    infinicore::Tensor compute_linear_allreduce(
+        infinicore::Tensor &input, infinicclComm_t communicator) const;
 
     size_t in_features_;
     size_t out_features_;
