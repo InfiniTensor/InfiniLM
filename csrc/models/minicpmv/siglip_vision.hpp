@@ -65,7 +65,7 @@ private:
     infinilm::backends::AttentionBackend attention_backend_;
 
     INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::nn::Linear, out_proj);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
 };
 
 class SiglipMLP : public infinicore::nn::Module {
@@ -78,8 +78,8 @@ public:
 
 private:
     std::string activation_;
-    INFINICORE_NN_MODULE(infinilm::nn::Linear, fc1);
-    INFINICORE_NN_MODULE(infinilm::nn::Linear, fc2);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc1);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc2);
 };
 
 class SiglipEncoderLayer : public infinicore::nn::Module {

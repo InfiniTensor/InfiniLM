@@ -15,7 +15,7 @@ Qwen35FusedQKVLinear::Qwen35FusedQKVLinear(size_t hidden_size,
                                            const infinicore::DataType &dtype,
                                            const infinicore::Device &device,
                                            engine::distributed::RankInfo rank_info)
-    : infinilm::nn::ColumnParallelLinear(
+    : infinilm::layers::linear::ColumnParallelLinear(
         hidden_size,
         num_q_head * head_dim * 2 + num_kv_head * head_dim * calculate_kv_replicas(num_kv_head, rank_info.tp_size) * 2,
         quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,

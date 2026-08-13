@@ -4,7 +4,7 @@
 
 namespace infinilm::models::qwen3_5 {
 
-class Qwen35FusedQKVLinear : public infinilm::nn::ColumnParallelLinear {
+class Qwen35FusedQKVLinear : public infinilm::layers::linear::ColumnParallelLinear {
 public:
     Qwen35FusedQKVLinear(size_t hidden_size,
                          size_t head_dim,
