@@ -107,8 +107,8 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                     source, re.compile(r"infini::ops::[A-Za-z0-9_]*Infinilm")
                 )
 
-        allowlist = read_source("scripts/configs/infiniops_ops.txt")
-        self.assertNotIn("_infinilm", allowlist)
+        operator_config = read_source("scripts/configs/infiniops_ops.json")
+        self.assertNotIn("_infinilm", operator_config)
 
     def test_infiniops_adapter_temporaries_keep_owning_tensors(self) -> None:
         cases = {
@@ -623,6 +623,18 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             self.assertIn(sentinel, wrapper)
         self.assertIn("base/top_k_top_p_sampling_from_logits.h", adapter)
         self.assertIn("infini::ops::TopKTopPSamplingFromLogits::Call", adapter)
+        self.assertIn("active_implementation_indices", adapter)
+        self.assertIn("INFINICORE_ASSERT(!indices.empty())", adapter)
+        self.assertIn("sampling_config.set_implementation_index", adapter)
+        self.assertRegex(adapter, re.compile(r"Fill::Call\(\s*handle,\s*config,"))
+        self.assertRegex(adapter, re.compile(r"Mul::Call\(\s*handle,\s*config,"))
+        self.assertRegex(
+            adapter,
+            re.compile(
+                r"TopKTopPSamplingFromLogits::Call\(\s*handle,"
+                r"\s*sampling_config,"
+            ),
+        )
         self.assertIn("infini::ops::Fill::Call", adapter)
         self.assertIn("infini::ops::Mul::Call", adapter)
         self.assertIn("1.0f / temperature", adapter)

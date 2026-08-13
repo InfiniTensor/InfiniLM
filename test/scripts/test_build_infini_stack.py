@@ -53,11 +53,11 @@ class BuildInfiniStackTest(unittest.TestCase):
         )
         return run, write_manifest
 
-    def test_operator_set_is_stable(self):
-        operators = build_infini_stack.read_operator_set()
+    def test_operator_config_is_stable(self):
+        config = build_infini_stack.read_operator_config()
 
         self.assertEqual(
-            operators,
+            list(config),
             [
                 "add",
                 "argmax",
@@ -84,15 +84,23 @@ class BuildInfiniStackTest(unittest.TestCase):
                 "topk_softmax",
             ],
         )
-        self.assertTrue(all("_infinilm" not in operator for operator in operators))
+        self.assertEqual(
+            config["top_k_top_p_sampling_from_logits"]["implementations"], [16]
+        )
+        self.assertEqual(config["argmax"]["implementations"], [8])
+        self.assertEqual(config["flash_attn_varlen_func"]["implementations"], [16])
+        self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], [16])
+        self.assertEqual(config["topk_softmax"]["implementations"], [0])
+        self.assertEqual(config["add"]["implementations"], [0])
+        self.assertTrue(all("_infinilm" not in operator for operator in config))
 
-    def test_invalid_operator_set_is_rejected(self):
+    def test_invalid_operator_config_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "ops.txt"
-            path.write_text("rms_norm\nadd\nadd\n", encoding="utf-8")
+            path = Path(directory) / "ops.json"
+            path.write_text('{"add": {"implementations": [32]}}', encoding="utf-8")
 
-            with self.assertRaisesRegex(ValueError, "duplicates"):
-                build_infini_stack.read_operator_set(path)
+            with self.assertRaisesRegex(ValueError, "between 0 and 31"):
+                build_infini_stack.read_operator_config(path)
 
     def test_parse_gitlink(self):
         output = "160000 commit abcdef1234567890\tsubmodules/InfiniRT\n"
@@ -266,28 +274,20 @@ class BuildInfiniStackTest(unittest.TestCase):
             "Release",
             8,
             "sm_80",
-            [
-                "add",
-                "flash_attn_varlen_func",
-                "flash_attn_with_kvcache",
-                "rms_norm",
-            ],
+            Path("ops.json"),
         )
 
         configure = commands[0]
         self.assertIn(f"-DINFINI_RT_ROOT={Path('build/prefix')}", configure)
-        self.assertIn(
-            "-DINFINI_OPS_OPS="
-            "add,flash_attn_varlen_func,flash_attn_with_kvcache,rms_norm",
-            configure,
-        )
+        self.assertIn(f"-DINFINI_OPS_OPS={Path('ops.json')}", configure)
         self.assertIn("-DWITH_LINKED=ON", configure)
-        self.assertIn(
-            "-DINFINI_OPS_LINKED_OPS=flash_attn_varlen_func,flash_attn_with_kvcache",
-            configure,
-        )
         self.assertIn("-DWITH_TORCH=ON", configure)
-        self.assertIn("-DINFINI_OPS_TORCH_OPS=argmax", configure)
+        self.assertFalse(
+            any(option.startswith("-DINFINI_OPS_LINKED_OPS=") for option in configure)
+        )
+        self.assertFalse(
+            any(option.startswith("-DINFINI_OPS_TORCH_OPS=") for option in configure)
+        )
         self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=80", configure)
         self.assertEqual(commands[1][3:5], ["--target", "infiniops"])
         self.assertEqual(commands[-1], ["cmake", "--install", str(Path("build/ops"))])
@@ -478,7 +478,10 @@ class BuildInfiniStackTest(unittest.TestCase):
                     "InfiniOps": "ops-sha",
                     "InfiniCCL": "ccl-sha",
                 },
-                ["add", "rms_norm"],
+                {
+                    "add": {"implementations": [0]},
+                    "rms_norm": {"implementations": [0]},
+                },
                 Path("prefix"),
                 "Release",
                 "sm_80,sm_90a",
@@ -493,6 +496,10 @@ class BuildInfiniStackTest(unittest.TestCase):
             self.assertEqual(manifest["submodules"]["InfiniRT"], "rt-sha")
             self.assertEqual(manifest["submodules"]["InfiniCCL"], "ccl-sha")
             self.assertEqual(manifest["operators"], ["add", "rms_norm"])
+            self.assertEqual(
+                manifest["operator_implementations"],
+                {"add": [0], "rms_norm": [0]},
+            )
             self.assertEqual(manifest["install_prefix"], str(Path("prefix")))
             self.assertEqual(manifest["build_type"], "Release")
             self.assertEqual(manifest["cuda_arch"], "sm_80,sm_90a")

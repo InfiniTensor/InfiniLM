@@ -82,7 +82,7 @@ InfiniLM will own these files:
 
 ```text
 scripts/build_infini_stack.py
-scripts/configs/infiniops_ops.txt
+scripts/configs/infiniops_ops.json
 test/scripts/test_build_infini_stack.py
 ```
 

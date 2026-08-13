@@ -9,11 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-OPERATOR_SET = PROJECT_ROOT / "scripts/configs/infiniops_ops.txt"
-LINKED_OPERATORS = (
-    "flash_attn_varlen_func",
-    "flash_attn_with_kvcache",
-)
+OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -21,16 +17,33 @@ SUBMODULES = {
 }
 
 
-def read_operator_set(path: Path = OPERATOR_SET) -> List[str]:
-    operators = [line.strip() for line in path.read_text(encoding="utf-8").splitlines()]
-    operators = [operator for operator in operators if operator]
-    if not operators:
-        raise ValueError(f"Operator set is empty: {path}")
-    if len(operators) != len(set(operators)):
-        raise ValueError(f"Operator set contains duplicates: {path}")
-    if operators != sorted(operators):
-        raise ValueError(f"Operator set must be sorted: {path}")
-    return operators
+def read_operator_config(path: Path = OPERATOR_CONFIG) -> Dict[str, Dict[str, object]]:
+    config = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict) or not config:
+        raise ValueError(f"Operator config must be a non-empty object: {path}")
+    if list(config) != sorted(config):
+        raise ValueError(f"Operator config must be sorted: {path}")
+    for operator, selection in config.items():
+        if not isinstance(operator, str) or not operator:
+            raise ValueError(f"Operator names must be non-empty strings: {path}")
+        if not isinstance(selection, dict) or set(selection) != {"implementations"}:
+            raise ValueError(
+                f"Operator {operator!r} must define only 'implementations': {path}"
+            )
+        implementations = selection["implementations"]
+        if (
+            not isinstance(implementations, list)
+            or not implementations
+            or any(
+                type(slot) is not int or not 0 <= slot < 32 for slot in implementations
+            )
+            or len(implementations) != len(set(implementations))
+        ):
+            raise ValueError(
+                f"Operator {operator!r} implementations must be unique "
+                f"integers between 0 and 31: {path}"
+            )
+    return config
 
 
 def parse_gitlink(output: str, relative_path: Path) -> str:
@@ -152,7 +165,7 @@ def build_infiniops_commands(
     build_type: str,
     jobs: int,
     cuda_arch: Optional[str],
-    operators: Sequence[str],
+    operator_config: Path,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -163,14 +176,12 @@ def build_infiniops_commands(
         "-DWITH_CPU=ON",
         "-DWITH_NVIDIA=ON",
         "-DWITH_LINKED=ON",
-        f"-DINFINI_OPS_LINKED_OPS={','.join(LINKED_OPERATORS)}",
         "-DWITH_TORCH=ON",
-        "-DINFINI_OPS_TORCH_OPS=argmax",
         "-DAUTO_DETECT_DEVICES=OFF",
         "-DAUTO_DETECT_BACKENDS=OFF",
         "-DGENERATE_PYTHON_BINDINGS=OFF",
         f"-DINFINI_RT_ROOT={prefix}",
-        f"-DINFINI_OPS_OPS={','.join(operators)}",
+        f"-DINFINI_OPS_OPS={operator_config}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
@@ -263,7 +274,7 @@ def write_manifest(
     infinilm_revision: str,
     infinicore_revision: str,
     revisions: Mapping[str, str],
-    operators: Sequence[str],
+    operator_config: Mapping[str, Mapping[str, object]],
     prefix: Path,
     build_type: str,
     cuda_arch: Optional[str],
@@ -278,7 +289,11 @@ def write_manifest(
         "infinilm": infinilm_revision,
         "install_prefix": str(prefix),
         "jobs": jobs,
-        "operators": list(operators),
+        "operators": list(operator_config),
+        "operator_implementations": {
+            operator: selection["implementations"]
+            for operator, selection in operator_config.items()
+        },
         "submodules": dict(revisions),
         "test": test,
     }
@@ -362,7 +377,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     build_root = resolve_from_project(args.build_root)
     prefix = build_root / "prefix"
     manifest_path = build_root / "manifest.json"
-    operators = read_operator_set()
+    operator_config = read_operator_config()
     revisions = {
         name: validate_submodule(infinicore_root, relative_path)
         for name, relative_path in SUBMODULES.items()
@@ -376,7 +391,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"InfiniRT: {revisions['InfiniRT']}")
     print(f"InfiniOps: {revisions['InfiniOps']}")
     print(f"InfiniCCL: {revisions['InfiniCCL']}")
-    print(f"Operators ({len(operators)}): {','.join(operators)}")
+    print(f"Operators ({len(operator_config)}): {','.join(operator_config)}")
 
     if not args.dry_run:
         manifest_path.unlink(missing_ok=True)
@@ -402,7 +417,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.build_type,
         args.jobs,
         args.cuda_arch,
-        operators,
+        OPERATOR_CONFIG,
     ):
         run(command, PROJECT_ROOT, integration_env, args.dry_run)
 
@@ -423,7 +438,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             infinilm_revision,
             infinicore_revision,
             revisions,
-            operators,
+            operator_config,
             prefix,
             args.build_type,
             args.cuda_arch,
