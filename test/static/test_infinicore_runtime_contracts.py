@@ -559,6 +559,40 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("Device::Type::CPU", compiler)
         self.assertNotIn("DataType::I32", compiler)
 
+    def test_paged_decode_graph_falls_back_to_eager_under_tensor_parallelism(
+        self,
+    ) -> None:
+        source = read_source("csrc/engine/compiler/paged_compiler.cpp")
+        compile_body = function_body(source, "void PagedCompiler::compile()")
+        replay_body = function_body(
+            source,
+            "PagedCompiler::Compiled PagedCompiler::get_compiled(",
+        )
+
+        tp_size_lookup = compile_body.index("get_tensor_model_parallel_world_size()")
+        compile_guard = compile_body.index("if (tp_size > 1)")
+        compile_guard_body = function_body(compile_body, "if (tp_size > 1)")
+        self.assertLess(
+            compile_body.index("compiled_map_decode_.clear()"), compile_guard
+        )
+        self.assertLess(tp_size_lookup, compile_guard)
+        self.assertLess(compile_guard, compile_body.index("size_t nblocks"))
+        self.assertLess(
+            compile_guard, compile_body.index("GraphRecordingGuard recording")
+        )
+        self.assertLess(compile_guard, compile_body.index("barrier_->wait()"))
+        self.assertIn("using eager decode", compile_body)
+        self.assertIn("return;", compile_guard_body)
+
+        replay_guard = replay_body.index("get_tensor_model_parallel_world_size() > 1")
+        replay_guard_body = function_body(
+            replay_body,
+            "if (infinilm::global_state::get_tensor_model_parallel_world_size() > 1)",
+        )
+        self.assertLess(replay_guard, replay_body.index("size_t batch_size"))
+        self.assertLess(replay_guard, replay_body.index("graph_input.input_ids"))
+        self.assertIn("return {nullptr, nullptr};", replay_guard_body)
+
     def test_static_graph_compile_inputs_are_deterministic(self) -> None:
         source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
         compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
