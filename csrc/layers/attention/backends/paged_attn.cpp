@@ -37,7 +37,8 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    const size_t value_head_dim = value->size(value->ndim() - 1);
+    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, value_head_dim}, query->dtype(), query->device());
     if (is_prefill) {
         infinicore::op::paged_attention_prefill_(
             attn_output,
@@ -60,7 +61,7 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
             std::nullopt,
             scale_);
     }
-    attn_output = attn_output->view({1, seq_len, num_heads_ * head_dim_});
+    attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
     return attn_output;
 }
 
@@ -71,6 +72,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cac
                                                                                           const infinicore::Tensor slot_mapping) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});
     infinicore::op::paged_caching_(
         k_cache_layer,
         v_cache_layer,

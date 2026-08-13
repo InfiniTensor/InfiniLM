@@ -64,8 +64,12 @@ KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
     auto block_residual_storage = infinicore::Tensor::empty(
         {shape[0] * shape[1], block_residual_capacity_, hidden_size_}, dtype_, device_);
     if (is_first_pp_stage()) {
+        auto hidden_scratch = block_residual_storage
+                                  ->narrow({{1, 0, 1}})
+                                  ->view(shape);
+        hidden_scratch->copy_from(first_stage_hidden);
         return {
-            first_stage_hidden,
+            hidden_scratch,
             block_residual_storage,
             0,
         };
@@ -76,16 +80,12 @@ KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
     // dimension leaves the received hidden-state slice contiguous.
     auto received_state = recv_sharded_last_dim(
         {prior_block_count + 1, token_count, hidden_size_});
-    if (prior_block_count > 0) {
-        auto received_residuals = received_state
-                                      ->narrow({{0, 0, prior_block_count}})
-                                      ->permute({1, 0, 2});
-        block_residual_storage->narrow({{1, 0, prior_block_count}})
-            ->copy_from(received_residuals);
-    }
-    auto received_hidden = received_state
-                               ->narrow({{0, prior_block_count, 1}})
-                               ->view({shape[0], shape[1], hidden_size_});
+    block_residual_storage
+        ->narrow({{1, 0, prior_block_count + 1}})
+        ->copy_from(received_state->permute({1, 0, 2}));
+    auto received_hidden = block_residual_storage
+                               ->narrow({{1, prior_block_count, 1}})
+                               ->view(shape);
     return {
         received_hidden,
         block_residual_storage,
@@ -133,20 +133,11 @@ void KimiK3TextModel::send_pipeline_state(const PipelineState &state) const {
         {state.block_residual_count + 1, token_count, shard_hidden},
         dtype_, device_);
 
-    if (state.block_residual_count > 0) {
-        auto residual_shard = state.block_residual_storage
-                                  ->narrow({{1, 0, state.block_residual_count},
-                                            {2, tp_rank_ * shard_hidden, shard_hidden}})
-                                  ->permute({1, 0, 2});
-        local->narrow({{0, 0, state.block_residual_count}})
-            ->copy_from(residual_shard);
-    }
-    auto hidden_shard = state.hidden_states
-                            ->view({token_count, hidden_size_})
-                            ->narrow({{1, tp_rank_ * shard_hidden, shard_hidden}});
-    local->narrow({{0, state.block_residual_count, 1}})
-        ->view({token_count, shard_hidden})
-        ->copy_from(hidden_shard);
+    auto state_shard = state.block_residual_storage
+                           ->narrow({{1, 0, state.block_residual_count + 1},
+                                     {2, tp_rank_ * shard_hidden, shard_hidden}})
+                           ->permute({1, 0, 2});
+    local->copy_from(state_shard);
 
     infinicore::op::distributed::send(
         local->view({local->numel() / shard_hidden, shard_hidden}),
@@ -159,15 +150,13 @@ infinicore::Tensor KimiK3TextModel::apply_output_attn_res(
     const infinicore::Tensor &block_residual_storage,
     size_t block_residual_count) const {
     const auto shape = hidden_states->shape();
-    auto hidden_2d = hidden_states->view({shape[0] * shape[1], hidden_size_});
     auto values = block_residual_storage->narrow(
         {{1, 0, block_residual_count + 1}});
-    values->narrow({{1, block_residual_count, 1}})
-        ->copy_from(hidden_2d->unsqueeze(1));
     auto normalized = output_attn_res_norm_->forward(values);
     auto scores = output_attn_res_proj_->forward(normalized);
     infinicore::op::softmax_(scores, scores, 1);
-    auto score_matrix = scores->permute({0, 2, 1})->contiguous();
+    auto score_matrix = scores->view(
+        {scores->size(0), scores->size(2), scores->size(1)});
     return infinicore::op::matmul(score_matrix, values)
         ->squeeze(1)
         ->view(shape);

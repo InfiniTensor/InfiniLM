@@ -46,6 +46,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto shape = q_reshaped->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[2];
+    size_t value_head_dim = v_reshaped->size(3);
 
     auto past_sequence_lengths = attn_metadata.past_sequence_lengths;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
@@ -61,7 +62,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
         attn_output = infinicore::op::flash_attention(q_reshaped, k_total, v_total, total_sequence_lengths.value(), scale_, true);
         attn_output = attn_output->permute({0, 2, 1, 3})
                           ->contiguous()
-                          ->view({batch_size, seq_len, num_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+                          ->view({batch_size, seq_len, num_heads_ * value_head_dim}); // [bs, seq_len, n_q_head * value_head_dim]
     } else {
         size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device::cpu())->data())[0];
 
@@ -81,7 +82,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
         size_t ngroup = num_heads_ / num_kv_heads_;
         auto Q = q_reshaped->contiguous()->view({batch_size * num_kv_heads_, ngroup * seq_len, head_dim_});
         auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
-        auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
+        auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, value_head_dim});
 
         auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
@@ -90,12 +91,12 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
         auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, seq_len, total_seq_len});
         infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
 
-        auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, head_dim]
+        auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, value_head_dim]
 
-        attn_output = out->view({batch_size, num_heads_, seq_len, head_dim_})
+        attn_output = out->view({batch_size, num_heads_, seq_len, value_head_dim})
                           ->permute({0, 2, 1, 3})
                           ->contiguous()
-                          ->view({batch_size, seq_len, num_heads_ * head_dim_}); // [bs, seq_len, n_q_head * head_dim]
+                          ->view({batch_size, seq_len, num_heads_ * value_head_dim}); // [bs, seq_len, n_q_head * value_head_dim]
     }
     return attn_output;
 }
@@ -110,6 +111,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_ca
     auto update_len = key->size(2);
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(3)}});
 
     size_t max_batch_size = k_cache_layer->size(0);
     size_t max_seq_len = k_cache_layer->size(2);

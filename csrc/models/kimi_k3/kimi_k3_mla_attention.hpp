@@ -20,8 +20,6 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 private:
-    infinicore::Tensor trim_value_padding(const infinicore::Tensor &output) const;
-
     size_t layer_idx_{0};
     size_t q_lora_rank_{0};
     size_t kv_lora_rank_{0};

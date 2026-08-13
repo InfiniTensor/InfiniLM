@@ -2,7 +2,6 @@
 
 #include "../../global_state/global_state.hpp"
 
-#include <infinicore/ops/broadcast_to.hpp>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 
@@ -12,27 +11,34 @@
 namespace infinilm::models::kimi_k3 {
 namespace {
 
-std::pair<infinicore::Tensor, infinicore::Tensor> pack_key_value(
-    const infinicore::Tensor &k_nope,
+infinicore::Tensor build_key(
+    const infinicore::Tensor &kv_b,
     const infinicore::Tensor &k_rot,
-    const infinicore::Tensor &value,
-    size_t q_head_dim) {
-    auto packed_shape = k_nope->shape();
-    const size_t last_dim = packed_shape.size() - 1;
-    packed_shape[last_dim] = q_head_dim;
+    size_t num_heads,
+    size_t qk_nope_head_dim,
+    size_t qk_rope_head_dim) {
+    auto key_shape = kv_b->shape();
+    const size_t head_axis = key_shape.size() - 2;
+    const size_t feature_dim = key_shape.size() - 1;
+    key_shape[feature_dim] = qk_nope_head_dim + qk_rope_head_dim;
 
-    auto key = infinicore::Tensor::empty(
-        packed_shape, k_nope->dtype(), k_nope->device());
-    key->narrow({{last_dim, 0, k_nope->size(last_dim)}})
-        ->copy_from(k_nope);
-    key->narrow({{last_dim, k_nope->size(last_dim), k_rot->size(last_dim)}})
-        ->copy_from(k_rot);
+    auto key = infinicore::Tensor::empty(key_shape, kv_b->dtype(), kv_b->device());
+    key->narrow({{feature_dim, 0, qk_nope_head_dim}})
+        ->copy_from(kv_b->narrow({{feature_dim, 0, qk_nope_head_dim}}));
 
-    auto padded_value = infinicore::Tensor::zeros(
-        packed_shape, value->dtype(), value->device());
-    padded_value->narrow({{last_dim, 0, value->size(last_dim)}})
-        ->copy_from(value);
-    return {key, padded_value};
+    auto k_rot_shape = key_shape;
+    k_rot_shape[head_axis] = num_heads;
+    k_rot_shape[feature_dim] = qk_rope_head_dim;
+    infinicore::Strides k_rot_strides(key_shape.size());
+    for (size_t i = 0; i < head_axis; ++i) {
+        k_rot_strides[i] = k_rot->stride(i);
+    }
+    k_rot_strides[head_axis] = 0;
+    k_rot_strides[feature_dim] = k_rot->stride(k_rot->ndim() - 1);
+    auto k_rot_heads = k_rot->as_strided(k_rot_shape, k_rot_strides);
+    key->narrow({{feature_dim, qk_nope_head_dim, qk_rope_head_dim}})
+        ->copy_from(k_rot_heads);
+    return key;
 }
 
 } // namespace
@@ -91,15 +97,6 @@ KimiK3MLAAttention::KimiK3MLAAttention(
         kv_cache_v_scale_);
 }
 
-infinicore::Tensor KimiK3MLAAttention::trim_value_padding(
-    const infinicore::Tensor &output) const {
-    const auto shape = output->shape();
-    return output->view({shape[0], shape[1], local_num_heads_, q_head_dim_})
-        ->narrow({{3, 0, v_head_dim_}})
-        ->contiguous()
-        ->view({shape[0], shape[1], local_num_heads_ * v_head_dim_});
-}
-
 infinicore::Tensor KimiK3MLAAttention::forward(
     const infinicore::Tensor &hidden_states) const {
     const auto shape = hidden_states->shape();
@@ -121,30 +118,17 @@ infinicore::Tensor KimiK3MLAAttention::forward(
     if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN) {
         q = q->view({batch_size, seq_len, local_num_heads_, q_head_dim_});
         kv = kv->view({batch_size, seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
-        auto k_nope = kv->narrow({{3, 0, qk_nope_head_dim_}});
-        auto value = kv->narrow({{3, qk_nope_head_dim_, v_head_dim_}});
-        auto k_rot_heads = infinicore::op::broadcast_to(
-            k_rot->view({batch_size, seq_len, 1, qk_rope_head_dim_}),
-            {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len),
-             static_cast<int64_t>(local_num_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
-        auto [key, value_padded] = pack_key_value(
-            k_nope, k_rot_heads, value, q_head_dim_);
-        auto output = trim_value_padding(attn_->forward(q, key, value_padded));
-        output = infinicore::op::mul(output, infinicore::op::sigmoid(g_proj_->forward(input)));
-        return o_proj_->forward(output);
+    } else {
+        q = q->view({seq_len, local_num_heads_, q_head_dim_});
+        kv = kv->view({seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
+        k_rot = k_rot->squeeze(0);
     }
 
-    q = q->view({seq_len, local_num_heads_, q_head_dim_});
-    kv = kv->view({seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
-    auto k_nope = kv->narrow({{2, 0, qk_nope_head_dim_}});
-    auto value = kv->narrow({{2, qk_nope_head_dim_, v_head_dim_}});
-    auto k_rot_heads = infinicore::op::broadcast_to(
-        k_rot->view({seq_len, 1, qk_rope_head_dim_}),
-        {static_cast<int64_t>(seq_len), static_cast<int64_t>(local_num_heads_),
-         static_cast<int64_t>(qk_rope_head_dim_)});
-    auto [key, value_padded] = pack_key_value(
-        k_nope, k_rot_heads, value, q_head_dim_);
-    auto output = trim_value_padding(attn_->forward(q, key, value_padded));
+    const size_t feature_dim = kv->ndim() - 1;
+    auto key = build_key(
+        kv, k_rot, local_num_heads_, qk_nope_head_dim_, qk_rope_head_dim_);
+    auto value = kv->narrow({{feature_dim, qk_nope_head_dim_, v_head_dim_}});
+    auto output = attn_->forward(q, key, value);
     output = infinicore::op::mul(output, infinicore::op::sigmoid(g_proj_->forward(input)));
     return o_proj_->forward(output);
 }
