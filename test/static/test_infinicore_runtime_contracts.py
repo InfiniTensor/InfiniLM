@@ -539,6 +539,26 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("std::vector<int32_t> total_sequence_lengths_vec", compile_body)
         self.assertIn("b * sizeof(int32_t)", compile_body)
 
+    def test_paged_graph_replay_updates_sequence_lengths_on_device(self) -> None:
+        compiler = read_source("csrc/engine/compiler/paged_compiler.cpp")
+        replay_body = function_body(
+            compiler,
+            "PagedCompiler::Compiled PagedCompiler::get_compiled(",
+        )
+
+        copy_expression = (
+            "graph_input.total_sequence_lengths.value()->copy_from("
+            "input.total_sequence_lengths.value())"
+        )
+        self.assertIn(copy_expression, replay_body)
+        self.assertLess(
+            replay_body.index(copy_expression), replay_body.index("auto graph")
+        )
+        self.assertNotIn("bind_host_int_array", compiler)
+        self.assertNotIn("getType()", compiler)
+        self.assertNotIn("Device::Type::CPU", compiler)
+        self.assertNotIn("DataType::I32", compiler)
+
     def test_static_graph_compile_inputs_are_deterministic(self) -> None:
         source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
         compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
