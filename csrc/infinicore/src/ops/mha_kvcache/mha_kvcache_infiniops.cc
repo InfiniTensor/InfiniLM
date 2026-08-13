@@ -131,7 +131,7 @@ void run(void *planned_meta) {
         planned->block_table.tensor(planned->block_table_tensor)};
     const std::optional<infini::ops::Tensor> alibi_slopes = planned->alibi_slopes
                                                               ? std::optional<infini::ops::Tensor>{
-                                                                    planned->alibi_slopes->tensor(*planned->alibi_slopes_tensor)}
+                                                                  planned->alibi_slopes->tensor(*planned->alibi_slopes_tensor)}
                                                               : std::nullopt;
 
     infini::ops::FlashAttnWithKvcache::Call(
