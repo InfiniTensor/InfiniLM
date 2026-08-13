@@ -57,6 +57,14 @@ void calculate(
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     infini::ops::Config config;
+    infini::ops::Config sampling_config;
+    static const auto implementation_index = []() {
+        const auto indices = infini::ops::TopKTopPSamplingFromLogits::active_implementation_indices(
+            infini::ops::Device::Type::kNvidia);
+        INFINICORE_ASSERT(!indices.empty());
+        return indices.front();
+    }();
+    sampling_config.set_implementation_index(implementation_index);
 
     auto logits_2d = logits->view({1, logits->numel()});
     Tensor sampled_logits = logits_2d;
@@ -112,7 +120,7 @@ void calculate(
     const std::optional<int64_t> offset{0};
     infini::ops::TopKTopPSamplingFromLogits::Call(
         handle,
-        config,
+        sampling_config,
         TensorMeta(sampled_logits).tensor(sampled_logits),
         top_k_tensor,
         top_p_tensor,
