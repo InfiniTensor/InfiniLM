@@ -11,7 +11,16 @@ namespace infinilm::engine {
 namespace {
 
 bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_context) {
-    return forward_context.mamba_state_pool_size > 0;
+    auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
+        for (const auto &state : state_vec) {
+            if (state) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    return has_state(forward_context.conv_state_vec) || has_state(forward_context.ssm_state_vec);
 }
 
 } // namespace
@@ -52,6 +61,7 @@ void PagedCompiler::compile() {
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
+
         const auto &model_config = model_->get_model_config();
         const size_t position_id_axes = model_config == nullptr
                                           ? 1
@@ -59,29 +69,8 @@ void PagedCompiler::compile() {
         if (position_id_axes == 0) {
             throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
         }
-        auto compile_batch_sizes = decode_batch_sizes_;
+
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
-        if (has_mamba_state) {
-            if (forward_context.mamba_state_pool_size < 2) {
-                throw std::runtime_error(
-                    "PagedCompiler: mamba state pool must reserve row 0 and at least one request row");
-            }
-            const size_t max_mamba_batch_size = std::min(
-                max_batch_size, forward_context.mamba_state_pool_size - 1);
-            compile_batch_sizes.erase(
-                std::remove_if(
-                    compile_batch_sizes.begin(),
-                    compile_batch_sizes.end(),
-                    [max_mamba_batch_size](size_t b) {
-                        return b > max_mamba_batch_size;
-                    }),
-                compile_batch_sizes.end());
-            if (compile_batch_sizes.empty()) {
-                return;
-            }
-            max_batch_size = *std::max_element(
-                compile_batch_sizes.begin(), compile_batch_sizes.end());
-        }
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
@@ -90,14 +79,11 @@ void PagedCompiler::compile() {
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
-            // Models declare their position-id axes explicitly. Single-axis
-            // models retain the traditional [b] layout.
             input.position_ids = infinicore::Tensor::empty(
                 position_id_axes > 1
                     ? std::vector<size_t>{position_id_axes, b}
                     : std::vector<size_t>{b},
-                infinicore::DataType::I64,
-                infinicore::context::getDevice());
+                infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());
             set_zeros(input.position_ids.value());
@@ -168,7 +154,7 @@ void PagedCompiler::compile() {
             infinicore::context::syncStream();
         }
 
-        for (size_t b : compile_batch_sizes) {
+        for (size_t b : decode_batch_sizes_) {
             auto input = make_decode_input(b);
 
             barrier_->wait();

@@ -2,30 +2,42 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/linear/linear.hpp"
-#include "../../layers/mlp/mlp.hpp"
-#include "../../layers/moe/sparse_moe_block.hpp"
-#include "infinicore/nn/module.hpp"
+#include "../../layers/moe/experts/fused_moe_experts.hpp"
+#include "../../layers/moe/fused_moe.hpp"
+#include "../../layers/moe/router/topk_router.hpp"
 
-#include <cstddef>
 #include <memory>
 
 namespace infinilm::models::qwen3_next {
 
-class Qwen3NextSparseMoeBlock : public infinilm::layers::moe::SparseMoeBlock {
+class Qwen3NextSharedExpert : public infinicore::nn::Module {
 public:
-    Qwen3NextSparseMoeBlock(
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const infinicore::Device &device);
-    Qwen3NextSparseMoeBlock(
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        size_t layer_idx,
-        const infinicore::Device &device);
+    Qwen3NextSharedExpert(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::mlp::MLP, shared_expert);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, shared_expert_gate);
+    std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
+};
+
+class Qwen3NextSparseMoeBlock : public infinicore::nn::Module {
+public:
+    Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                            const infinicore::Device &device);
+    Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                            size_t layer_idx,
+                            const infinicore::Device &device);
+
+    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+
+protected:
+    std::shared_ptr<infinilm::layers::moe::TopKRouter> gate_;
+    std::shared_ptr<infinilm::layers::moe::FusedMoeExperts> experts_;
+    std::shared_ptr<infinilm::layers::moe::FusedMoE> fused_moe_;
+    std::shared_ptr<Qwen3NextSharedExpert> shared_expert_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> shared_expert_gate_;
 };
 
 } // namespace infinilm::models::qwen3_next

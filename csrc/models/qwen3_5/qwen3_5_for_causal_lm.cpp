@@ -1,12 +1,40 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
-#include "../../config/hybrid_model_config.hpp"
-
 #include "../models_registry.hpp"
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace infinilm::models::qwen3_5 {
+
+Qwen35ForCausalLM::Qwen35ForCausalLM(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    const infinicore::Device &device) {
+    model_config_ = model_config;
+    const size_t hidden_size = model_config->get<size_t>("hidden_size");
+    const size_t vocab_size = model_config->get<size_t>("vocab_size");
+    const auto &dtype = model_config->get_dtype();
+
+    INFINICORE_NN_MODULE_INIT(model, model_config, device);
+    INFINICORE_NN_MODULE_INIT(
+        lm_head, hidden_size, vocab_size, false, dtype, device);
+}
+
+InfinilmModel::Output Qwen35ForCausalLM::forward(
+    const InfinilmModel::Input &input) const {
+    auto hidden_states = model_->forward(input);
+    return {lm_head_->forward(hidden_states)};
+}
+
+void Qwen35ForCausalLM::reset_cache(
+    const cache::CacheConfig *cache_config) {
+    if (cache_config == nullptr) {
+        cache_config_.reset();
+    } else {
+        cache_config_ = cache_config->unique_copy();
+    }
+    model_->reset_cache(cache_config);
+}
 
 std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     nlohmann::json &config_json = model_config->get_config_json();
@@ -41,7 +69,25 @@ std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std:
     if (!config_json.contains("partial_rotary_factor") && config_json.contains("rope_parameters") && config_json["rope_parameters"].is_object() && config_json["rope_parameters"].contains("partial_rotary_factor")) {
         config_json["partial_rotary_factor"] = config_json["rope_parameters"]["partial_rotary_factor"];
     }
-    infinilm::config::prepare_hybrid_model_config(model_config);
+    if (!config_json.contains("layer_types")) {
+        const size_t full_attention_interval = model_config->get<size_t>("full_attention_interval");
+        if (full_attention_interval == 0) {
+            throw std::runtime_error("Qwen3.5 full_attention_interval must be positive");
+        }
+        const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+        std::vector<std::string> layer_types;
+        layer_types.reserve(num_hidden_layers);
+        for (size_t i = 0; i < num_hidden_layers; ++i) {
+            layer_types.push_back(
+                (i + 1) % full_attention_interval == 0
+                    ? "full_attention"
+                    : "linear_attention");
+        }
+        config_json["layer_types"] = std::move(layer_types);
+    }
+    if (!config_json.contains("attention_bias")) {
+        config_json["attention_bias"] = false;
+    }
     return model_config;
 }
 

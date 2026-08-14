@@ -1,7 +1,7 @@
 #include "qwen3_5_model.hpp"
 
-#include "../../cache/hybrid_cache.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../qwen3_next/qwen3_next_allocate_kv_cache_tensors.hpp"
 
 #include <cstdint>
 #include <stdexcept>
@@ -108,18 +108,20 @@ void Qwen35ModelBase::replace_image_embeddings(infinicore::Tensor &inputs_embeds
 
 void Qwen35ModelBase::reset_cache(const cache::CacheConfig *cache_config) {
     auto &forward_context = infinilm::global_state::get_forward_context();
-    forward_context.clear_model_caches();
+    forward_context.kv_cache_vec.clear();
+    forward_context.conv_state_vec.clear();
+    forward_context.ssm_state_vec.clear();
     if (nullptr == cache_config) {
         return;
     }
 
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
 
-    auto cache_vectors = infinilm::cache::allocate_hybrid_cache_tensors(cache_config, model_config_, attention_backend);
+    auto cache_vectors = infinilm::models::qwen3_next::qwen3_next_allocate_cache_tensors(
+        cache_config, model_config_, attention_backend);
     forward_context.kv_cache_vec = std::move(cache_vectors.kv_cache_tensors);
     forward_context.conv_state_vec = std::move(cache_vectors.conv_state_tensors);
     forward_context.ssm_state_vec = std::move(cache_vectors.ssm_state_tensors);
-    forward_context.mamba_state_pool_size = cache_vectors.mamba_state_pool_size;
 }
 
 } // namespace infinilm::models::qwen3_5

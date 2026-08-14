@@ -1,7 +1,6 @@
 import unittest
 
 import torch
-
 from infinilm.infer_engine import _infer_position_id_axes
 from infinilm.modeling_utils import _remap_qwen3_5_moe
 
@@ -11,11 +10,7 @@ class PositionIdAxesTest(unittest.TestCase):
         self.assertEqual(_infer_position_id_axes({"text_config": {}}), 1)
 
     def test_infers_axes_from_mrope_section(self):
-        config = {
-            "text_config": {
-                "rope_parameters": {"mrope_section": [11, 11, 10]}
-            }
-        }
+        config = {"text_config": {"rope_parameters": {"mrope_section": [11, 11, 10]}}}
         self.assertEqual(_infer_position_id_axes(config), 3)
 
     def test_explicit_axes_take_precedence(self):
@@ -61,9 +56,7 @@ class Qwen35MoeWeightRemapTest(unittest.TestCase):
         self.assertTrue(
             torch.equal(remapped[f"{prefix}0.up_proj.weight"], gate_up[0, 3:])
         )
-        self.assertTrue(
-            torch.equal(remapped[f"{prefix}1.down_proj.weight"], down[1])
-        )
+        self.assertTrue(torch.equal(remapped[f"{prefix}1.down_proj.weight"], down[1]))
         self.assertNotIn(f"{prefix}gate_up_proj", remapped)
         self.assertNotIn(f"{prefix}down_proj", remapped)
 
