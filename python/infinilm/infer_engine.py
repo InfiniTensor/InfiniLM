@@ -147,6 +147,7 @@ class InferEngine(_infinilm.InferEngine):
 
         if device is None:
             device = infinicore.device()
+        self.device_type = device.type
         if distributed_config is None:
             distributed_config = DistConfig(1)
         self.distributed_config = distributed_config

@@ -3,6 +3,7 @@
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
+#include "infinicore/ops/moe_fused_dense_ascend.hpp"
 
 #include <sstream>
 #include <stdexcept>
@@ -14,11 +15,15 @@ namespace infinilm::layers::moe {
 CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
                                        size_t hidden_size,
                                        size_t intermediate_size_per_partition,
-                                       size_t align_block_size)
+                                       size_t align_block_size,
+                                       size_t global_num_experts,
+                                       size_t local_expert_start)
     : num_local_experts_(num_local_experts),
       hidden_size_(hidden_size),
       intermediate_size_per_partition_(intermediate_size_per_partition),
-      align_block_size_(align_block_size) {}
+      align_block_size_(align_block_size),
+      global_num_experts_(global_num_experts),
+      local_expert_start_(local_expert_start) {}
 
 namespace {
 
@@ -98,6 +103,15 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
         throw std::runtime_error("MoE runner requires topk_ids to be a 2D tensor");
     }
     const size_t num_pairs = topk_shape[0] * topk_shape[1];
+    const auto device = topk_ids->device();
+    if (device.getType() == infinicore::Device::Type::ASCEND) {
+        return CudaFusedMoeRunnerInput{
+            dispatch_output.hidden_states,
+            dispatch_output.topk_output,
+            MoeRoutingMetadata{},
+        };
+    }
+
     const size_t block_size = align_block_size_;
     const size_t align_num_experts = num_local_experts_ + 1;
     const size_t max_num_tokens_padded = num_pairs < align_num_experts
@@ -105,7 +119,6 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
                                            : num_pairs + align_num_experts * (block_size - 1);
     const size_t sorted_token_ids_capacity = ((max_num_tokens_padded + 3) / 4) * 4;
     const size_t max_num_blocks = (max_num_tokens_padded + block_size - 1) / block_size;
-    const auto device = topk_ids->device();
 
     if (!workspace.sorted_token_ids || workspace.sorted_token_ids_capacity < sorted_token_ids_capacity) {
         if (infinicore::context::isGraphRecording()) {
@@ -168,6 +181,34 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
     if (!weights.has_packed_dense_weights()) {
         throw std::runtime_error("MoE fused dense runner requires load-time packed w13/w2 weights");
     }
+    const bool ascend = runner_input.hidden_states->device().getType()
+                     == infinicore::Device::Type::ASCEND;
+    if (ascend) {
+        check_packed_weight_tensor(
+            weights.packed_w13, "w13", runner_input.hidden_states->device(),
+            runner_input.hidden_states->dtype(),
+            {num_local_experts_, hidden_size_, intermediate_size_per_partition_ * 2});
+        check_packed_weight_tensor(
+            weights.packed_w2, "w2", runner_input.hidden_states->device(),
+            runner_input.hidden_states->dtype(),
+            {num_local_experts_, intermediate_size_per_partition_, hidden_size_});
+        ensure_tensor(
+            workspace.fused_moe_output,
+            runner_input.hidden_states->shape(),
+            runner_input.hidden_states->dtype(),
+            runner_input.hidden_states->device());
+        workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
+        infinicore::op::moe_fused_dense_ascend_(
+            workspace.fused_moe_output, runner_input.hidden_states,
+            weights.packed_w13, weights.packed_w2,
+            runner_input.topk_output.topk_weights,
+            runner_input.topk_output.topk_ids, global_num_experts_,
+            local_expert_start_, num_local_experts_);
+        return CudaFusedMoeRunnerOutput{
+            workspace.fused_moe_output,
+        };
+    }
+
     check_packed_weight_tensor(
         weights.packed_w13,
         "w13",

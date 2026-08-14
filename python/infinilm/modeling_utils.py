@@ -101,12 +101,16 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
 
 
 def load_state_dict(
-    checkpoint_file: Union[str, os.PathLike], device="cpu", dtype=torch.bfloat16
+    checkpoint_file: Union[str, os.PathLike],
+    device="cpu",
+    dtype=torch.bfloat16,
+    preserve_qwen_gdn_fp32: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
     """
 
+    checkpoint_file = os.fspath(checkpoint_file)
     if not checkpoint_file.endswith(".safetensors"):
         return {}
 
@@ -125,12 +129,24 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
-            preserve_fp32 = k.endswith(".e_score_correction_bias")
-            if tensor.is_floating_point() and not preserve_fp32:
-                tensor = tensor.to(device=device, dtype=dtype)
-            else:
-                tensor = tensor.to(device=device)
+            # Router correction bias is FP32 on every backend. Qwen3.5 GDN
+            # parameters are FP32 only on Ascend, matching the C++ module.
+            force_fp32 = k.endswith(".e_score_correction_bias") or (
+                preserve_qwen_gdn_fp32
+                and k.endswith(
+                    (
+                        ".linear_attn.A_log",
+                        ".linear_attn.dt_bias",
+                        ".linear_attn.norm.weight",
+                    )
+                )
+            )
+            target_dtype = torch.float32 if force_fp32 else dtype
+            tensor = (
+                tensor.to(device=device, dtype=target_dtype)
+                if tensor.is_floating_point()
+                else tensor.to(device=device)
+            )
             state_dict[k] = tensor
 
     return state_dict
@@ -157,7 +173,12 @@ def get_model_state_dict(
     model_param = {}
     for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
         model_param.update(
-            load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
+            load_state_dict(
+                file_path,
+                device=torch_device,
+                dtype=torch_dtype,
+                preserve_qwen_gdn_fp32=device.type == "npu",
+            )
         )
 
     # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
@@ -199,6 +220,10 @@ def load_model_state_dict_by_file(
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
+    preserve_qwen_gdn_fp32 = (
+        model_type in ("qwen3_5", "qwen3_5_moe", "qwen3_next")
+        and getattr(model, "device_type", None) == "npu"
+    )
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -237,12 +262,22 @@ def load_model_state_dict_by_file(
             #          Load weights from *.safetensors file
             # --------------------------------------------------------- #
             model_param = load_state_dict(
-                file_path, device=torch_device, dtype=torch_dtype
+                file_path,
+                device=torch_device,
+                dtype=torch_dtype,
+                preserve_qwen_gdn_fp32=preserve_qwen_gdn_fp32,
             )
 
             # Apply model-specific weight remapping
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
+
+            if model_type == "qwen3_5_moe":
+                model_param = {
+                    key: tensor
+                    for key, tensor in model_param.items()
+                    if ".mlp.experts." not in key or key in model_key_set
+                }
 
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
@@ -358,6 +393,7 @@ def load_model_state_dict_by_tensor(
     print(" load weights ......")
     t1 = time.time()
 
+    model_type = model.hf_config.get("model_type", "")
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
     model_key_set = set(model_keys)
@@ -374,7 +410,20 @@ def load_model_state_dict_by_tensor(
 
             with safe_open(file_path, "pt", "cpu") as f:
                 for name in f.keys():
-                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
+                    preserve_fp32 = (
+                        model_type in ("qwen3_5", "qwen3_5_moe", "qwen3_next")
+                        and getattr(model, "device_type", None) == "npu"
+                        and name.endswith(
+                            (
+                                ".linear_attn.A_log",
+                                ".linear_attn.dt_bias",
+                                ".linear_attn.norm.weight",
+                            )
+                        )
+                    )
+                    tensor = f.get_tensor(name).to(
+                        dtype=torch.float32 if preserve_fp32 else torch_dtype
+                    )
 
                     if name == "model.embed_tokens.weight":
                         embed_tokens_torch_unscaled = tensor
@@ -758,7 +807,21 @@ def _remap_qwen3_5(state_dict, config):
     to_drop = []
     to_add = {}
     for key, tensor in state_dict.items():
-        if key in (
+        if key.endswith(".mlp.experts.gate_up_proj"):
+            prefix = key[: -len("gate_up_proj")]
+            gate, up = tensor.chunk(2, dim=1)
+            for expert_id in range(tensor.shape[0]):
+                expert_prefix = prefix + str(expert_id)
+                to_add[expert_prefix + ".gate_proj.weight"] = gate[expert_id]
+                to_add[expert_prefix + ".up_proj.weight"] = up[expert_id]
+            to_drop.append(key)
+        elif key.endswith(".mlp.experts.down_proj"):
+            prefix = key[: -len("down_proj")]
+            for expert_id in range(tensor.shape[0]):
+                expert_prefix = prefix + str(expert_id)
+                to_add[expert_prefix + ".down_proj.weight"] = tensor[expert_id]
+            to_drop.append(key)
+        elif key in (
             "model.norm.weight",
             "model.language_model.norm.weight",
         ) or key.endswith(norm_weight_suffixes):
@@ -995,6 +1058,7 @@ _WEIGHT_REMAPPER = {
     "gpt2": _remap_gpt2,
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
+    "qwen3_5_moe": _remap_qwen3_5,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_next": _remap_qwen3_next,

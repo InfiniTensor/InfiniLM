@@ -34,7 +34,9 @@ FusedMoE::FusedMoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         expert_placement.local_num_experts,
         hidden_size,
         intermediate_size_per_partition,
-        model_config->get_or<size_t>("moe_align_block_size", 16));
+        model_config->get_or<size_t>("moe_align_block_size", 16),
+        num_experts,
+        expert_placement.local_expert_start);
     dispatcher_->initialize(device, workspace_);
 }
 

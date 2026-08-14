@@ -32,28 +32,42 @@ FusedMoeExperts::FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
     const size_t expert_tp_rank = ep_enabled ? 0 : tp_rank;
     const size_t expert_tp_size = ep_enabled ? 1 : tp_size;
 
-    w13_weight_ = infinicore::nn::Parameter(
-        {num_local_experts, intermediate_size_per_partition_ * 2, hidden_size_},
-        dtype,
-        device);
-    w2_weight_ = infinicore::nn::Parameter(
-        {num_local_experts, hidden_size_, intermediate_size_per_partition_},
-        dtype,
-        device);
+    const bool ascend_native_layout = device.getType() == infinicore::Device::Type::ASCEND;
+    if (ascend_native_layout) {
+        // CANN GMM consumes [E,H,2I] and [E,I,H]. Checkpoint-shaped
+        // parameters are transposed views, so inference never transposes.
+        w13_weight_ = infinicore::nn::Parameter(
+            {num_local_experts, hidden_size_, intermediate_size_per_partition_ * 2},
+            dtype,
+            device);
+        w2_weight_ = infinicore::nn::Parameter(
+            {num_local_experts, intermediate_size_per_partition_, hidden_size_},
+            dtype,
+            device);
+    } else {
+        w13_weight_ = infinicore::nn::Parameter(
+            {num_local_experts, intermediate_size_per_partition_ * 2, hidden_size_},
+            dtype,
+            device);
+        w2_weight_ = infinicore::nn::Parameter(
+            {num_local_experts, hidden_size_, intermediate_size_per_partition_},
+            dtype,
+            device);
+    }
     this->register_parameter("w13_weight", w13_weight_);
     this->register_parameter("w2_weight", w2_weight_);
 
     for (size_t local_expert = 0; local_expert < num_local_experts; ++local_expert) {
         const size_t global_expert = expert_placement.local_expert_start + local_expert;
-        auto gate_weight = w13_weight_
-                               ->narrow({{0, local_expert, 1}, {1, 0, intermediate_size_per_partition_}})
-                               ->squeeze(0);
-        auto up_weight = w13_weight_
-                             ->narrow({{0, local_expert, 1}, {1, intermediate_size_per_partition_, intermediate_size_per_partition_}})
-                             ->squeeze(0);
-        auto down_weight = w2_weight_
-                               ->narrow({{0, local_expert, 1}})
-                               ->squeeze(0);
+        auto local_w13 = w13_weight_->narrow({{0, local_expert, 1}})->squeeze(0);
+        auto local_w2 = w2_weight_->narrow({{0, local_expert, 1}})->squeeze(0);
+        auto gate_weight = ascend_native_layout
+                             ? local_w13->narrow({{1, 0, intermediate_size_per_partition_}})->permute({1, 0})
+                             : local_w13->narrow({{0, 0, intermediate_size_per_partition_}});
+        auto up_weight = ascend_native_layout
+                           ? local_w13->narrow({{1, intermediate_size_per_partition_, intermediate_size_per_partition_}})->permute({1, 0})
+                           : local_w13->narrow({{0, intermediate_size_per_partition_, intermediate_size_per_partition_}});
+        auto down_weight = ascend_native_layout ? local_w2->permute({1, 0}) : local_w2;
 
         const std::string prefix = std::to_string(global_expert) + ".";
         this->register_parameter(

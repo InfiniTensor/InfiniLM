@@ -37,8 +37,8 @@ void Qwen35ForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
 
 std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");
-    if ("qwen3_5" != model_type) {
-        throw std::runtime_error("infinilm::models::qwen3_5::create_qwen3_next_model_config: model_type is not qwen3_5");
+    if ("qwen3_5" != model_type && "qwen3_5_moe" != model_type) {
+        throw std::runtime_error("create_qwen3_5_model_config: unsupported model_type '" + model_type + "'");
     }
 
     nlohmann::json &config_json = model_config->get_config_json();
@@ -76,6 +76,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::
     if (!config_json.contains("attention_bias")) {
         config_json["attention_bias"] = false;
     }
+    if (model_type == "qwen3_5_moe" && !config_json.contains("norm_topk_prob")) {
+        config_json["norm_topk_prob"] = true;
+    }
     return model_config;
 }
 
@@ -84,6 +87,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::
 namespace {
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     qwen3_5,
+    infinilm::models::qwen3_5::Qwen35ForCausalLM,
+    infinilm::models::qwen3_5::create_qwen3_5_model_config);
+INFINILM_REGISTER_CAUSAL_LM_MODEL(
+    qwen3_5_moe,
     infinilm::models::qwen3_5::Qwen35ForCausalLM,
     infinilm::models::qwen3_5::create_qwen3_5_model_config);
 } // namespace

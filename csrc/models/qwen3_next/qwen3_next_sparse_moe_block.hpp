@@ -16,6 +16,8 @@ public:
                           const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    void process_weights_after_loading() override;
+    void reset_runtime_state() const override;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;

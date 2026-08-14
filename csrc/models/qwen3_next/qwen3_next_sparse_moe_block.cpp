@@ -53,6 +53,14 @@ infinicore::Tensor Qwen3NextSharedExpert::forward(const infinicore::Tensor &hidd
     return down_proj_->forward(intermediate);
 }
 
+void Qwen3NextSharedExpert::process_weights_after_loading() {
+    gate_up_proj_->process_weights_after_loading();
+}
+
+void Qwen3NextSharedExpert::reset_runtime_state() const {
+    gate_up_proj_->reset_runtime_state();
+}
+
 Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                                  const infinicore::Device &device)
     : Qwen3NextSparseMoeBlock(model_config, 0, device) {

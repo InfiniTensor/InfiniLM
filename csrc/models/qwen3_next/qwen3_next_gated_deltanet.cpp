@@ -213,10 +213,13 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
         false, false, false, "in_proj_z", "in_proj_a", "in_proj_b",
         register_fn, quantization_method, dtype, device, rank_info);
 
-    INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
-    INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
+    const auto state_parameter_dtype = device.getType() == infinicore::Device::Type::ASCEND
+                                         ? infinicore::DataType::F32
+                                         : dtype;
+    INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, state_parameter_dtype, device, 0, tp_rank, tp_size));
+    INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, state_parameter_dtype, device, 0, tp_rank, tp_size));
 
-    INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, dtype, device);
+    INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, state_parameter_dtype, device);
     out_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "out_proj", value_dim, hidden_size, quantization_method,
         false, dtype, device, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);

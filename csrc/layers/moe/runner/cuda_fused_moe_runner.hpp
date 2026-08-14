@@ -19,7 +19,9 @@ public:
     CudaFusedMoeRunner(size_t num_local_experts,
                        size_t hidden_size,
                        size_t intermediate_size_per_partition,
-                       size_t align_block_size);
+                       size_t align_block_size,
+                       size_t global_num_experts,
+                       size_t local_expert_start);
 
     CombineInput run(const DispatchOutput &dispatch_output,
                      const MoeWeights &weights,
@@ -37,6 +39,8 @@ private:
     size_t hidden_size_ = 0;
     size_t intermediate_size_per_partition_ = 0;
     size_t align_block_size_ = 16;
+    size_t global_num_experts_ = 0;
+    size_t local_expert_start_ = 0;
 };
 
 } // namespace infinilm::layers::moe

@@ -17,7 +17,14 @@ Qwen35DecoderLayer::Qwen35DecoderLayer(std::shared_ptr<infinilm::config::ModelCo
 
     INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(mlp, model_config, device);
+    const std::string model_type = model_config->get<std::string>("model_type");
+    if (model_type == "qwen3_5_moe") {
+        moe_mlp_ = this->register_module<qwen3_next::Qwen3NextSparseMoeBlock>(
+            "mlp", model_config, layer_idx, device);
+    } else {
+        dense_mlp_ = this->register_module<infinilm::layers::MLP>(
+            "mlp", model_config, device);
+    }
 
     const std::vector<std::string> layer_types = model_config->get<std::vector<std::string>>("layer_types");
     layer_type_ = layer_types[layer_idx];
@@ -41,7 +48,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen35DecoderLayer::forward(c
     }
 
     post_attention_layernorm_->forward_inplace(hidden_states, residual);
-    hidden_states = mlp_->forward(hidden_states);
+    hidden_states = moe_mlp_ ? moe_mlp_->forward(hidden_states) : dense_mlp_->forward(hidden_states);
     return std::make_tuple(hidden_states, residual);
 }
 
@@ -58,7 +65,7 @@ infinicore::Tensor Qwen35DecoderLayer::forward(const infinicore::Tensor &positio
 
     residual = hidden_states;
     hidden_states = post_attention_layernorm_->forward(hidden_states);
-    hidden_states = mlp_->forward(hidden_states);
+    hidden_states = moe_mlp_ ? moe_mlp_->forward(hidden_states) : dense_mlp_->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
     return hidden_states;
 }
