@@ -9,7 +9,6 @@
 
 #include <stdexcept>
 
-
 namespace infinilm::layers::causal_lm_templates {
 
 /**
@@ -46,8 +45,8 @@ public:
         tp_size_ = static_cast<size_t>(rank_info.tp_size);
         tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
         vocab_parallel_ = device.getType() == infinicore::Device::Type::HYGON
-            && tp_size_ > 1
-            && vocab_size % tp_size_ == 0;
+                       && tp_size_ > 1
+                       && vocab_size % tp_size_ == 0;
 
         model_ = this->register_module<Model>("model", model_config, device);
         if (is_last_pp_stage()) {
@@ -113,8 +112,7 @@ private:
         const size_t local_vocab_size = local_shape.back();
         const size_t num_rows = local_logits->numel() / local_vocab_size;
         auto local_flat = local_logits->view({num_rows, local_vocab_size});
-        const auto &rank_info =
-            infinilm::global_state::get_tensor_model_parallel_rank_info();
+        const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
         auto gathered = infinicore::op::distributed::allgather(
             local_flat, tp_size_, rank_info.comm);
 

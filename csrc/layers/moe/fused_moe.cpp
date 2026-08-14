@@ -16,11 +16,7 @@ std::shared_ptr<MoeWorkspace> make_workspace(
     const EPConfig &ep_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
     const infinicore::Device &device) {
-    const bool use_hygon_marlin =
-        device.getType() == infinicore::Device::Type::HYGON &&
-        ep_config.backend == EPBackend::Disabled &&
-        (model_config->is_moe_w8a8_marlin_enabled(device) ||
-         model_config->is_moe_w16a16_marlin_enabled(device));
+    const bool use_hygon_marlin = device.getType() == infinicore::Device::Type::HYGON && ep_config.backend == EPBackend::Disabled && (model_config->is_moe_w8a8_marlin_enabled(device) || model_config->is_moe_w16a16_marlin_enabled(device));
     if (!use_hygon_marlin) {
         return std::make_shared<MoeWorkspace>();
     }

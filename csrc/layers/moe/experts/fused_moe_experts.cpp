@@ -26,8 +26,7 @@ FusedMoeExperts::FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
     if (enable_hygon_w16a16_marlin_ && enable_hygon_w8a8_marlin_) {
         throw std::runtime_error("Only one Hygon MoE Marlin weight method can be enabled");
     }
-    if (moe_weight_method != "dense" &&
-        !enable_hygon_w16a16_marlin_ && !enable_hygon_w8a8_marlin_) {
+    if (moe_weight_method != "dense" && !enable_hygon_w16a16_marlin_ && !enable_hygon_w8a8_marlin_) {
         throw std::runtime_error("Unsupported MoE weight method: " + moe_weight_method);
     }
     ASSERT(num_experts_ > 0);
@@ -136,10 +135,7 @@ void FusedMoeExperts::process_weights_after_loading() {
         if (!w13_weight_ || !w2_weight_ || !w13_weight_scale_ || !w2_weight_scale_) {
             throw std::runtime_error("slimquant_marlin MoE weight method requires loaded int8 w13/w2 weights and scales");
         }
-        if (w13_weight_->dtype() != infinicore::DataType::I8 ||
-            w2_weight_->dtype() != infinicore::DataType::I8 ||
-            w13_weight_scale_->dtype() != infinicore::DataType::F32 ||
-            w2_weight_scale_->dtype() != infinicore::DataType::F32) {
+        if (w13_weight_->dtype() != infinicore::DataType::I8 || w2_weight_->dtype() != infinicore::DataType::I8 || w13_weight_scale_->dtype() != infinicore::DataType::F32 || w2_weight_scale_->dtype() != infinicore::DataType::F32) {
             throw std::runtime_error("slimquant_marlin MoE weight method requires int8 weights and fp32 weight scales");
         }
         if (hidden_size_ % 64 != 0 || intermediate_size_per_partition_ % 64 != 0) {
@@ -186,12 +182,10 @@ void FusedMoeExperts::process_weights_after_loading() {
     if (!w13_weight_ || !w2_weight_) {
         throw std::runtime_error("w16a16_marlin MoE weight method requires loaded dense w13/w2 weights");
     }
-    if (w13_weight_->dtype() != infinicore::DataType::F16 &&
-        w13_weight_->dtype() != infinicore::DataType::BF16) {
+    if (w13_weight_->dtype() != infinicore::DataType::F16 && w13_weight_->dtype() != infinicore::DataType::BF16) {
         throw std::runtime_error("w16a16_marlin MoE weight method requires FP16 or BF16 weights");
     }
-    if (hidden_size_ % 32 != 0 || intermediate_size_per_partition_ % 16 != 0 ||
-        (intermediate_size_per_partition_ * 2) % 32 != 0) {
+    if (hidden_size_ % 32 != 0 || intermediate_size_per_partition_ % 16 != 0 || (intermediate_size_per_partition_ * 2) % 32 != 0) {
         throw std::runtime_error("w16a16_marlin MoE weight method requires aligned hidden/intermediate sizes");
     }
 

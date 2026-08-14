@@ -98,8 +98,8 @@ CombineInput CudaFusedMoeRunner::run(
     if (weights.is_hygon_w16a16_marlin()
         || weights.is_hygon_w8a8_marlin()) {
         const auto format = weights.is_hygon_w16a16_marlin()
-            ? infinicore::op::HygonMoeMarlinWeightFormat::W16A16
-            : infinicore::op::HygonMoeMarlinWeightFormat::W8A8;
+                              ? infinicore::op::HygonMoeMarlinWeightFormat::W16A16
+                              : infinicore::op::HygonMoeMarlinWeightFormat::W8A8;
         const infinicore::op::HygonMoeMarlinWeights marlin_weights{
             weights.packed_w13,
             weights.packed_w2,
@@ -121,11 +121,9 @@ CombineInput CudaFusedMoeRunner::run(
 
         MoeRoutingMetadata routing_metadata;
         if (output.has_routing_metadata) {
-            routing_metadata.sorted_token_ids =
-                output.sorted_token_ids;
+            routing_metadata.sorted_token_ids = output.sorted_token_ids;
             routing_metadata.expert_ids = output.expert_ids;
-            routing_metadata.num_tokens_post_padded =
-                output.num_tokens_post_padded;
+            routing_metadata.num_tokens_post_padded = output.num_tokens_post_padded;
         }
         return CombineInput{
             CombineInputFormat::Standard,
@@ -139,8 +137,7 @@ CombineInput CudaFusedMoeRunner::run(
         dispatch_output,
         workspace,
         align_block_size_);
-    auto runner_output =
-        run_fused_core(runner_input, weights, workspace);
+    auto runner_output = run_fused_core(runner_input, weights, workspace);
     return CombineInput{
         CombineInputFormat::Standard,
         runner_output.hidden_states,
@@ -153,8 +150,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(
     const DispatchOutput &dispatch_output,
     MoeWorkspace &workspace,
     size_t block_size) const {
-    const auto &topk_ids =
-        dispatch_output.topk_output.topk_ids;
+    const auto &topk_ids = dispatch_output.topk_output.topk_ids;
     const auto &topk_shape = topk_ids->shape();
     if (topk_shape.size() != 2) {
         throw std::runtime_error(
@@ -162,20 +158,17 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(
     }
     const size_t num_pairs = topk_shape[0] * topk_shape[1];
     const size_t align_num_experts = num_local_experts_ + 1;
-    const size_t max_num_tokens_padded =
-        num_pairs < align_num_experts
-        ? num_pairs * block_size
-        : num_pairs
-            + align_num_experts * (block_size - 1);
-    const size_t sorted_token_ids_capacity =
-        ((max_num_tokens_padded + 3) / 4) * 4;
-    const size_t max_num_blocks =
-        (max_num_tokens_padded + block_size - 1) / block_size;
+    const size_t max_num_tokens_padded = num_pairs < align_num_experts
+                                           ? num_pairs * block_size
+                                           : num_pairs
+                                                 + align_num_experts * (block_size - 1);
+    const size_t sorted_token_ids_capacity = ((max_num_tokens_padded + 3) / 4) * 4;
+    const size_t max_num_blocks = (max_num_tokens_padded + block_size - 1) / block_size;
     const auto device = topk_ids->device();
 
     if (!workspace.sorted_token_ids
         || workspace.sorted_token_ids_capacity
-            < sorted_token_ids_capacity) {
+               < sorted_token_ids_capacity) {
         if (infinicore::context::isGraphRecording()) {
             throw std::runtime_error(
                 "MoE sorted_token_ids workspace was not initialized before graph capture");
@@ -184,8 +177,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(
             {sorted_token_ids_capacity},
             infinicore::DataType::I32,
             device);
-        workspace.sorted_token_ids_capacity =
-            sorted_token_ids_capacity;
+        workspace.sorted_token_ids_capacity = sorted_token_ids_capacity;
     }
     if (!workspace.expert_ids
         || workspace.expert_ids_capacity < max_num_blocks) {
@@ -204,16 +196,14 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(
             throw std::runtime_error(
                 "MoE num_tokens_post_padded workspace was not initialized before graph capture");
         }
-        workspace.num_tokens_post_padded =
-            infinicore::Tensor::empty(
-                {1},
-                infinicore::DataType::I32,
-                device);
+        workspace.num_tokens_post_padded = infinicore::Tensor::empty(
+            {1},
+            infinicore::DataType::I32,
+            device);
     }
 
-    auto sorted_token_ids =
-        workspace.sorted_token_ids->narrow(
-            {{0, 0, sorted_token_ids_capacity}});
+    auto sorted_token_ids = workspace.sorted_token_ids->narrow(
+        {{0, 0, sorted_token_ids_capacity}});
     auto expert_ids = workspace.expert_ids->narrow(
         {{0, 0, max_num_blocks}});
     if (dispatch_output.expert_map) {

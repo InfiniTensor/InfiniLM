@@ -136,12 +136,11 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     }
 
     // 4. Apply Q/K RMSNorm and RoPE.
-    const bool can_use_hygon_fused_rms_rope =
-        qkv_proj_->get_quantization()->get_quant_scheme() == infinilm::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8
-        && q_reshaped->device().getType() == infinicore::Device::Type::HYGON
-        && rotary_emb_->rotary_dim() == head_dim_
-        && !rotary_emb_->mrope_section().has_value()
-        && infinicore::op::rms_rotary_embedding_fuse_available(q_reshaped->device());
+    const bool can_use_hygon_fused_rms_rope = qkv_proj_->get_quantization()->get_quant_scheme() == infinilm::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8
+                                           && q_reshaped->device().getType() == infinicore::Device::Type::HYGON
+                                           && rotary_emb_->rotary_dim() == head_dim_
+                                           && !rotary_emb_->mrope_section().has_value()
+                                           && infinicore::op::rms_rotary_embedding_fuse_available(q_reshaped->device());
     if (can_use_hygon_fused_rms_rope) {
         q_reshaped = q_reshaped->contiguous();
         k_reshaped = k_reshaped->contiguous();

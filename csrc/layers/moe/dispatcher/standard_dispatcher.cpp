@@ -30,8 +30,15 @@ infinicore::Tensor StandardDispatcher::combine(const CombineInput &combine_input
                                                MoeWorkspace &workspace) const {
     (void)workspace;
     if (tp_size_ > 1 && communicator_ != nullptr) {
-        return infinicore::op::distributed::allreduce(
-            combine_input.hidden_states, INFINICCL_SUM, communicator_);
+        if (combine_input.hidden_states->device().getType() == infinicore::Device::Type::HYGON) {
+            return infinicore::op::distributed::allreduce(
+                combine_input.hidden_states, INFINICCL_SUM, communicator_);
+        }
+        infinicore::op::distributed::allreduce_(
+            combine_input.hidden_states,
+            combine_input.hidden_states,
+            INFINICCL_SUM,
+            communicator_);
     }
     return combine_input.hidden_states;
 }

@@ -146,44 +146,6 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 //------------------------------------------------------
 // forward
 //------------------------------------------------------
-void InferEngine::Input::validate() const {
-    if (!return_nll) {
-        if (labels.has_value()) {
-            throw std::invalid_argument("labels require return_nll=true");
-        }
-        if (score_start != 0) {
-            throw std::invalid_argument("score_start requires return_nll=true");
-        }
-        return;
-    }
-
-    if (!input_ids.has_value() || !input_ids.value()) {
-        throw std::invalid_argument("NLL scoring requires input_ids");
-    }
-    if (!labels.has_value() || !labels.value()) {
-        throw std::invalid_argument("NLL scoring requires labels");
-    }
-
-    const auto &ids = input_ids.value();
-    const auto &target = labels.value();
-    if (ids->dtype() != infinicore::DataType::I64
-        || target->dtype() != infinicore::DataType::I64) {
-        throw std::invalid_argument("NLL input_ids and labels must use I64 dtype");
-    }
-    if (ids->ndim() != 2 || target->ndim() != 2) {
-        throw std::invalid_argument("NLL input_ids and labels must be rank-2 tensors");
-    }
-    if (ids->shape() != target->shape()) {
-        throw std::invalid_argument("NLL input_ids and labels must have identical shapes");
-    }
-    if (ids->size(0) != 1) {
-        throw std::invalid_argument("NLL scoring currently requires batch_size=1");
-    }
-    if (score_start >= ids->size(1)) {
-        throw std::invalid_argument("NLL score_start must select at least one token");
-    }
-}
-
 infinilm::InfinilmModel::Input
 InferEngine::Input::to_model_input(infinicore::Device device) const {
 
@@ -222,7 +184,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         image_req_ids,
         visual_token_ranges,
         to_device(target_hidden_states)};
-    input.last_token_only = !sample_all_positions && !return_nll;
+    input.last_token_only = !sample_all_positions;
+
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
@@ -244,10 +207,6 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
-    // Validate before dispatch so malformed NLL requests cannot fail only one
-    // rank and leave the remaining workers waiting at a collective.
-    input.validate();
-
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
         worker->run(input);

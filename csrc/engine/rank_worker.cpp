@@ -418,13 +418,9 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
-                        // Full-position and NLL runs need eager mode because generation
-                        // graphs return last-token logits and omit hidden states. PP graph
-                        // compilation is not supported yet.
-                        if (!local_args.sample_all_positions
-                            && !local_args.return_nll
-                            && compiler_ != nullptr
-                            && rank_info_.pp_size == 1) {
+                        // All-position speculative/MTP runs need eager mode because
+                        // hidden states are not part of compiled graph outputs.
+                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
@@ -437,11 +433,6 @@ void RankWorker::thread_loop() {
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
-                        }
-
-                        if (local_args.return_nll && rank_info_.pp_size > 1) {
-                            throw std::runtime_error(
-                                "NLL scoring with pipeline parallelism is not supported");
                         }
 
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
@@ -473,96 +464,54 @@ void RankWorker::thread_loop() {
                             continue;
                         }
 
-                        // Sampling and scoring both consume replicated full-vocabulary
-                        // logits, so only rank 0 needs to materialize the result.
+                        // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
+                            auto temperature{local_args.temperature};
+                            auto top_p{local_args.top_p};
+                            auto top_k{local_args.top_k};
+
                             const auto &logits_shape{logits->shape()};
-                            if (logits_shape.size() != 3) {
-                                throw std::runtime_error("InferEngine expected rank-3 logits");
-                            }
                             const auto &vocab_size{logits_shape[2]};
                             const auto &total_len{logits_shape[1]};
                             const auto &batch_size{logits_shape[0]};
 
-                            if (local_args.return_nll) {
-                                auto labels = local_args.labels.value()->to(rank_info_.device);
-                                if (labels->dtype() != infinicore::DataType::I64
-                                    || labels->ndim() != 2
-                                    || labels->size(0) != batch_size
-                                    || labels->size(1) != total_len) {
-                                    throw std::runtime_error(
-                                        "NLL labels must be I64 with shape [batch, sequence]");
+                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
+                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+
+                            const bool sample_all_positions = local_args.sample_all_positions;
+                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
+                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+
+                            for (size_t i{0}; i < n_out; ++i) {
+                                size_t score_idx = i;
+                                if (!sample_all_positions) {
+                                    score_idx = total_len == n_req
+                                                  ? i
+                                                  : static_cast<size_t>(input_offsets[i + 1] - 1);
                                 }
-
-                                const auto score_len = total_len - local_args.score_start;
-                                auto score_logits = logits->narrow(
-                                    {{1, local_args.score_start, score_len}});
-                                auto score_labels = labels->narrow(
-                                    {{1, local_args.score_start, score_len}});
-
-                                auto token_nll = infinicore::Tensor::empty(
-                                    score_labels->shape(),
-                                    infinicore::DataType::F32,
-                                    rank_info_.device);
-                                infinicore::op::cross_entropy_(
-                                    token_nll, score_logits, score_labels);
-                                token_nll = token_nll->to(infinicore::Device::cpu());
-                                infinicore::context::syncStream();
-                                output_ = Output{
-                                    infinicore::Tensor{},
-                                    infinicore::Tensor{},
-                                    infinicore::Tensor{},
-                                    token_nll,
-                                    score_len,
-                                };
-                            } else {
-                                auto temperature{local_args.temperature};
-                                auto top_p{local_args.top_p};
-                                auto top_k{local_args.top_k};
-                                auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                                int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
-
-                                const bool sample_all_positions = local_args.sample_all_positions;
-                                const size_t n_out = sample_all_positions
-                                                       ? static_cast<size_t>(input_offsets[n_req])
-                                                       : n_req;
-                                auto output_ids{infinicore::Tensor::empty(
-                                    {n_out}, infinicore::DataType::I64, rank_info_.device)};
-
-                                for (size_t i{0}; i < n_out; ++i) {
-                                    size_t score_idx = i;
-                                    if (!sample_all_positions) {
-                                        score_idx = total_len == n_req
-                                                      ? i
-                                                      : static_cast<size_t>(input_offsets[i + 1] - 1);
-                                    }
-                                    auto score{logits->view({batch_size * total_len, vocab_size})
-                                                   ->narrow({{0, score_idx, 1}})
-                                                   ->view({vocab_size})};
-                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                    infinicore::op::random_sample_(
-                                        out, score, random_val, top_p, top_k, temperature);
-                                }
-
-                                if (rank_info_.pp_size > 1) {
-                                    infinicore::op::distributed::send(
-                                        output_ids,
-                                        0,
-                                        rank_info_.world_comm);
-                                }
-
-                                // Tensor::to(CPU) uses the synchronous D2H contract.
-                                output_ids = output_ids->to(infinicore::Device::cpu());
-                                output_ = Output{
-                                    output_ids,
-                                    logits,
-                                    hidden_states,
-                                    infinicore::Tensor{},
-                                    0,
-                                };
+                                auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                infinicore::op::random_sample_(
+                                    out, score, random_val, top_p, top_k, temperature);
                             }
+
+                            if (rank_info_.pp_size > 1) {
+                                infinicore::op::distributed::send(
+                                    output_ids,
+                                    0,
+                                    rank_info_.world_comm);
+                            }
+
+                            output_ids = output_ids->to(infinicore::Device::cpu());
+
+                            infinicore::context::syncStream();
+
+                            auto out{Output{output_ids, logits, hidden_states}};
+
+                            output_ = std::move(out);
                         }
+
                         job_done_ = true;
                     }
                     cv_.notify_all();

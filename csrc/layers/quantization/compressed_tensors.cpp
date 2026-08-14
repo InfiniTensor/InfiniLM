@@ -53,23 +53,13 @@ bool has_linear_or_moe_target(const nlohmann::json &group) {
 bool is_dynamic_token_w8a8_group(const nlohmann::json &group) {
     auto weights_it = group.find("weights");
     auto input_it = group.find("input_activations");
-    if (weights_it == group.end() || input_it == group.end() ||
-        !weights_it->is_object() || !input_it->is_object()) {
+    if (weights_it == group.end() || input_it == group.end() || !weights_it->is_object() || !input_it->is_object()) {
         return false;
     }
     const auto &weights = *weights_it;
     const auto &input = *input_it;
-    const bool weight_ok =
-        string_field_equals(weights, "type", "int") &&
-        string_field_equals(weights, "strategy", "channel") &&
-        integer_field_equals(weights, "num_bits", 8) &&
-        bool_field_equals(weights, "symmetric", true);
-    const bool input_ok =
-        string_field_equals(input, "type", "int") &&
-        string_field_equals(input, "strategy", "token") &&
-        integer_field_equals(input, "num_bits", 8) &&
-        bool_field_equals(input, "dynamic", true) &&
-        bool_field_equals(input, "symmetric", true);
+    const bool weight_ok = string_field_equals(weights, "type", "int") && string_field_equals(weights, "strategy", "channel") && integer_field_equals(weights, "num_bits", 8) && bool_field_equals(weights, "symmetric", true);
+    const bool input_ok = string_field_equals(input, "type", "int") && string_field_equals(input, "strategy", "token") && integer_field_equals(input, "num_bits", 8) && bool_field_equals(input, "dynamic", true) && bool_field_equals(input, "symmetric", true);
     return weight_ok && input_ok;
 }
 

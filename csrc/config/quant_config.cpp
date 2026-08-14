@@ -18,8 +18,7 @@ bool is_w16a16_marlin_method(const std::string &method) {
 }
 
 bool is_w8a8_marlin_method(const std::string &method) {
-    return method == "slimquant_marlin" || method == "slimquant_compressed_tensors_marlin" ||
-           method == "w8a8_marlin" || method == "hygon_w8a8_marlin";
+    return method == "slimquant_marlin" || method == "slimquant_compressed_tensors_marlin" || method == "w8a8_marlin" || method == "hygon_w8a8_marlin";
 }
 
 bool is_unquantized_config(const nlohmann::json &quantization_config) {
@@ -80,8 +79,7 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
-    } else if (quantization_config["quant_method"] == "w16a16_marlin" ||
-               quantization_config["quant_method"] == "hygon_w16a16_marlin") {
+    } else if (quantization_config["quant_method"] == "w16a16_marlin" || quantization_config["quant_method"] == "hygon_w16a16_marlin") {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
@@ -89,10 +87,6 @@ QuantConfig::get_quantization_method() const {
     // Add other schemes as needed
 
     return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config); // Default case if no matching scheme
-}
-
-std::string QuantConfig::get_moe_weight_method() const {
-    return get_moe_weight_method(infinicore::Device(infinicore::Device::Type::CPU, 0));
 }
 
 std::string QuantConfig::get_moe_weight_method(const infinicore::Device &device) const {
@@ -110,10 +104,6 @@ std::string QuantConfig::get_moe_weight_method(const infinicore::Device &device)
         return "hygon_w16a16_marlin";
     }
     return "dense";
-}
-
-bool QuantConfig::is_moe_w16a16_marlin_enabled() const {
-    return is_w16a16_marlin_method(get_moe_weight_method());
 }
 
 bool QuantConfig::is_moe_w16a16_marlin_enabled(const infinicore::Device &device) const {

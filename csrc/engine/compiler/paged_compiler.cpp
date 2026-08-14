@@ -208,15 +208,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             // Reuse the captured tensor only after validating that the runtime
             // input has the same layout; otherwise fall back to eager mode.
             const auto &runtime_input_offsets = input.input_offsets.value();
-            if (!runtime_input_offsets->is_contiguous() ||
-                runtime_input_offsets->size(0) != batch_size + 1) {
+            if (!runtime_input_offsets->is_contiguous() || runtime_input_offsets->size(0) != batch_size + 1) {
                 return {nullptr, nullptr};
-            }
-            const auto *offsets = reinterpret_cast<const int32_t *>(runtime_input_offsets->data());
-            for (size_t i = 0; i <= batch_size; ++i) {
-                if (offsets[i] != static_cast<int32_t>(i)) {
-                    return {nullptr, nullptr};
-                }
             }
             auto &graph_input = result->second.input;
 
