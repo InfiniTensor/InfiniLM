@@ -58,13 +58,17 @@ str_to_torch_dtype = {
 
 def _is_internal_moe_packed_weight(key: str) -> bool:
     # InfiniLM registers packed MoE parameters internally. HF checkpoints
-    # provide per-expert gate/up/down weights instead, so these packed tensors
-    # are expected missing keys during non-strict checkpoint loading.
-    return (
-        key.endswith(".mlp.experts.w13_weight")
-        or key.endswith(".mlp.experts.w2_weight")
-        or key.endswith(".mlp.experts.w1")
-        or key.endswith(".mlp.experts.w2")
+    # provide per-expert gate/up/down weights and scales, so these internal
+    # packed tensors are expected missing keys during non-strict loading.
+    return key.endswith(
+        (
+            ".mlp.experts.w13_weight",
+            ".mlp.experts.w2_weight",
+            ".mlp.experts.w1",
+            ".mlp.experts.w2",
+            ".mlp.experts.w13_weight_scale",
+            ".mlp.experts.w2_weight_scale",
+        )
     )
 
 
@@ -268,7 +272,10 @@ def load_model_state_dict_by_file(
             # --------------------------------------------------------- #
             model_param_infini = {}
             for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
+                tensor = model_param[key]
+                if key.endswith(".weight_scale") and tensor.dtype != torch.float32:
+                    tensor = tensor.to(torch.float32)
+                model_param_infini[key] = infinicore.from_torch(tensor)
             model.load_state_dict(model_param_infini, strict=False)
             infinicore.sync_device()
             del model_param_infini

@@ -79,6 +79,14 @@ public:
     // Default: raw size is already logical size.
     virtual size_t get_logical_dim_size(size_t raw_size) const { return raw_size; }
 
+    // Optional MoE weight backend selected from the same quantization config as Linear.
+    // Backends can specialize by device while keeping model code independent from
+    // vendor-specific kernel names.
+    virtual std::string get_moe_weight_method(const infinicore::Device &device) const {
+        (void)device;
+        return "dense";
+    }
+
     // Split fused linear parameters into named sub-parameters (for QKV/GateUp)
     // params: the fused linear's registered parameters (by name)
     // splits: description of each shard
@@ -110,6 +118,8 @@ public:
     // make the next launch wait forever. Quantization schemes without such
     // runtime state can keep the default no-op implementation.
     virtual void reset_runtime_state() const {}
+
+    virtual bool needs_runtime_state_reset() const { return false; }
 
     template <typename T>
     T get(const std::string &key) const {

@@ -1,6 +1,7 @@
 #include "infinilm_model.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
+#include "../layers/linear/base_linear.hpp"
 #include "../utils.hpp"
 #include <stdexcept>
 
@@ -104,6 +105,15 @@ void InfinilmModel::reset_runtime_state() const {
     }
 }
 
+bool InfinilmModel::needs_runtime_state_reset() const {
+    for (const auto &[_, sub] : children()) {
+        if (needs_runtime_state_reset_recursive_(sub.get())) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module) {
     for (const auto &[_, sub] : module->children()) {
         process_weights_recursive_(sub.get());
@@ -116,6 +126,20 @@ void InfinilmModel::reset_runtime_state_recursive_(const infinicore::nn::Module 
         reset_runtime_state_recursive_(sub.get());
     }
     module->reset_runtime_state();
+}
+
+bool InfinilmModel::needs_runtime_state_reset_recursive_(const infinicore::nn::Module *module) {
+    if (const auto *linear = dynamic_cast<const infinilm::nn::BaseLinear *>(module)) {
+        if (linear->needs_runtime_state_reset()) {
+            return true;
+        }
+    }
+    for (const auto &[_, sub] : module->children()) {
+        if (needs_runtime_state_reset_recursive_(sub.get())) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace infinilm

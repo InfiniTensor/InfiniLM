@@ -10,6 +10,34 @@
 
 namespace infinilm::layers::moe {
 
+namespace {
+
+std::shared_ptr<MoeWorkspace> make_workspace(
+    const EPConfig &ep_config,
+    const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+    const infinicore::Device &device) {
+    const bool use_hygon_marlin =
+        device.getType() == infinicore::Device::Type::HYGON &&
+        ep_config.backend == EPBackend::Disabled &&
+        (model_config->is_moe_w8a8_marlin_enabled(device) ||
+         model_config->is_moe_w16a16_marlin_enabled(device));
+    if (!use_hygon_marlin) {
+        return std::make_shared<MoeWorkspace>();
+    }
+
+    // Decoder layers execute sequentially on each rank, including graph replay.
+    // Reuse their large Marlin scratch buffers instead of retaining one copy per layer.
+    static thread_local std::weak_ptr<MoeWorkspace> shared_workspace;
+    auto workspace = shared_workspace.lock();
+    if (!workspace) {
+        workspace = std::make_shared<MoeWorkspace>();
+        shared_workspace = workspace;
+    }
+    return workspace;
+}
+
+} // namespace
+
 FusedMoE::FusedMoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
                    size_t layer_id) {
@@ -29,21 +57,22 @@ FusedMoE::FusedMoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         intermediate_size_per_partition = intermediate_size / tp_size;
     }
 
+    workspace_ = make_workspace(ep_config, model_config, device);
     dispatcher_ = make_dispatcher(ep_config, num_experts);
     runner_ = std::make_shared<CudaFusedMoeRunner>(
         expert_placement.local_num_experts,
         hidden_size,
         intermediate_size_per_partition,
         model_config->get_or<size_t>("moe_align_block_size", 16));
-    dispatcher_->initialize(device, workspace_);
+    dispatcher_->initialize(device, *workspace_);
 }
 
 infinicore::Tensor FusedMoE::forward(const infinicore::Tensor &hidden_states,
                                      const TopKOutput &topk_output,
                                      const MoeWeights &weights) const {
-    auto dispatch_output = dispatcher_->dispatch(hidden_states, topk_output, workspace_);
-    auto combine_input = runner_->run(dispatch_output, weights, workspace_);
-    return dispatcher_->combine(combine_input, workspace_);
+    auto dispatch_output = dispatcher_->dispatch(hidden_states, topk_output, *workspace_);
+    auto combine_input = runner_->run(dispatch_output, weights, *workspace_);
+    return dispatcher_->combine(combine_input, *workspace_);
 }
 
 } // namespace infinilm::layers::moe
