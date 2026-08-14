@@ -37,7 +37,7 @@ inline void bind_cache(py::module &m) {
             py::init<size_t, size_t, size_t>(),
             py::arg("num_blocks"),
             py::arg("block_size") = 256,
-            py::arg("max_batch_size") = 512)
+            py::arg("max_batch_size") = 1)
         .def(
             "num_blocks",
             &infinilm::cache::PagedKVCacheConfig::num_blocks)

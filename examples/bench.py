@@ -426,7 +426,12 @@ if __name__ == "__main__":
                 for _, c_ in cases_dict.items()
             ]
         )
-        cache_config = PagedKVCacheConfig(max_num_blocks, paged_kv_block_size)
+        max_batch_size = max(batch_size)
+        cache_config = PagedKVCacheConfig(
+            max_num_blocks,
+            paged_kv_block_size,
+            max_batch_size=max_batch_size,
+        )
     else:
         cache_config = None
 
@@ -469,7 +474,9 @@ if __name__ == "__main__":
                 // paged_kv_block_size
             ) * warmup_batch
             warmup_cache_config = PagedKVCacheConfig(
-                warmup_num_blocks, paged_kv_block_size
+                warmup_num_blocks,
+                paged_kv_block_size,
+                max_batch_size=warmup_batch,
             )
         else:
             warmup_cache_config = StaticKVCacheConfig(
