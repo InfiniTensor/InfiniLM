@@ -1,6 +1,7 @@
 #include "none_quantization.hpp"
 #include "../../global_state/global_state.hpp"
 #include "infinicore/ops/linear.hpp"
+#include "infinicore/ops/linear_allreduce.hpp"
 #include <optional>
 
 namespace infinilm::quantization {
@@ -42,6 +43,34 @@ infinicore::Tensor NoneQuantization::forward(
         return infinicore::op::linear_packed(input_contiguous, weight, bias_opt, alpha);
     }
     return infinicore::op::linear(input_contiguous->contiguous(), weight->contiguous(), bias_opt, alpha);
+}
+
+infinicore::Tensor NoneQuantization::forward_allreduce(
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    infinicclComm_t communicator,
+    float alpha) const {
+    if (alpha != 1.0f) {
+        return BaseQuantization::forward_allreduce(
+            params, input, has_bias, communicator, alpha);
+    }
+
+    auto input_contiguous = input->is_contiguous()
+                              ? input
+                              : input->contiguous();
+    auto weight = params.at("weight");
+    std::optional<infinicore::Tensor> bias_opt;
+    if (has_bias) {
+        bias_opt = params.at("bias");
+    }
+
+    if (weight_prepacked_) {
+        return infinicore::op::linear_allreduce_packed(
+            input_contiguous, weight, bias_opt, communicator);
+    }
+    return infinicore::op::linear_allreduce(
+        input_contiguous, weight->contiguous(), bias_opt, communicator);
 }
 
 std::vector<SplitParam> NoneQuantization::split_params(

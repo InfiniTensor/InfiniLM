@@ -3,6 +3,7 @@
 #include "infinicore/tensor.hpp"
 #include "nlohmann/json.hpp"
 #include "quantization_scheme.hpp"
+#include <infiniccl.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -37,7 +38,7 @@ struct SplitParam {
 
 class BaseQuantization : public std::enable_shared_from_this<BaseQuantization> {
 public:
-    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config) {};
+    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config){};
     virtual ~BaseQuantization() = default;
 
     const nlohmann::json &get_config() const { return quant_config_; }
@@ -50,14 +51,23 @@ public:
         int split_dim, int tp_rank, int tp_size,
         int tp_num_heads,
         const infinicore::DataType &dtype,
-        bool bias) const = 0;
+        bool bias) const
+        = 0;
 
     // Forward pass using the registered parameters
     virtual infinicore::Tensor forward(
         const ParamsMap &params,
         const infinicore::Tensor &input,
         bool has_bias,
-        float alpha = 1.0f) const = 0;
+        float alpha = 1.0f) const
+        = 0;
+
+    virtual infinicore::Tensor forward_allreduce(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        infinicclComm_t communicator,
+        float alpha = 1.0f) const;
 
     // Dimension for fused-split (gate/up, q/k/v) of a column-parallel weight.
     // For NoneQuantization weight [out, in], split is on dim0.
@@ -78,7 +88,8 @@ public:
         const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
         const std::vector<SplitInfo> &splits,
         int narrow_dim,
-        int tp_rank, int tp_size, int tp_num_heads) const = 0;
+        int tp_rank, int tp_size, int tp_num_heads) const
+        = 0;
 
     // Post-loading weight processing (e.g., GPTQ->GPTQ_QY conversion).
     // Returns a replacement quantization object if the scheme changed (e.g. GPTQ -> GPTQ_QY),

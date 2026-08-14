@@ -43,6 +43,17 @@ infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input) const {
     return quantization_->forward(params, input, has_bias_, alpha_);
 }
 
+infinicore::Tensor BaseLinear::compute_linear_allreduce(
+    infinicore::Tensor &input,
+    infinicclComm_t communicator) const {
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+    return quantization_->forward_allreduce(
+        params, input, has_bias_, communicator, alpha_);
+}
+
 infinicore::Tensor BaseLinear::forward(infinicore::Tensor &input) const {
     return compute_linear(input);
 }
@@ -60,7 +71,9 @@ void BaseLinear::process_weights_after_loading() {
     }
 
     auto new_quant = quantization_->process_weights_after_loading(params, device_, split_dim_);
-    if (!new_quant) return;
+    if (!new_quant) {
+        return;
+    }
 
     parameters_.clear();
     for (const auto &[name, tensor] : params) {
@@ -79,43 +92,61 @@ void BaseLinear::reset_runtime_state() const {
 
 infinicore::Tensor BaseLinear::weight() const {
     auto it = parameters_.find("weight");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     it = parameters_.find("qweight");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
 infinicore::Tensor BaseLinear::bias() const {
     auto it = parameters_.find("bias");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
 infinicore::Tensor BaseLinear::weight_scale() const {
     auto it = parameters_.find("weight_scale");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     it = parameters_.find("scales");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
 infinicore::Tensor BaseLinear::weight_zeros() const {
     auto it = parameters_.find("weight_zeros");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     it = parameters_.find("qzeros");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
 infinicore::Tensor BaseLinear::gidx() const {
     auto it = parameters_.find("g_idx");
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
 infinicore::Tensor BaseLinear::get_param(const std::string &name) const {
     auto it = parameters_.find(name);
-    if (it != parameters_.end()) return it->second;
+    if (it != parameters_.end()) {
+        return it->second;
+    }
     return infinicore::Tensor();
 }
 
