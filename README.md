@@ -35,6 +35,14 @@
       pip install -e .
     ```
 
+    使用 CoreX PyTorch 时，需要让 InfiniLM 与 PyTorch/InfiniCore
+    使用相同的 libstdc++ ABI：
+
+    ```bash
+    export INFINILM_CXX11_ABI=0
+    pip install -e .
+    ```
+
   - 单次推理测试
     - llama示例
     ```bash
