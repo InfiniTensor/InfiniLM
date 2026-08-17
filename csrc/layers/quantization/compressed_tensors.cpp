@@ -2,10 +2,68 @@
 #include "infinicore/ops/linear_w8a8i8.hpp"
 #include "infinicore/ops/mul_scalar.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <optional>
+#include <string>
 
 namespace infinilm::quantization {
+namespace {
+
+std::string lower_string(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool string_field_equals(const nlohmann::json &json, const char *key, const char *expected) {
+    auto it = json.find(key);
+    return it != json.end() && it->is_string() && lower_string(it->get<std::string>()) == expected;
+}
+
+bool bool_field_equals(const nlohmann::json &json, const char *key, bool expected) {
+    auto it = json.find(key);
+    return it != json.end() && it->is_boolean() && it->get<bool>() == expected;
+}
+
+bool integer_field_equals(const nlohmann::json &json, const char *key, int expected) {
+    auto it = json.find(key);
+    return it != json.end() && it->is_number_integer() && it->get<int>() == expected;
+}
+
+bool has_linear_or_moe_target(const nlohmann::json &group) {
+    auto targets = group.find("targets");
+    if (targets == group.end() || !targets->is_array()) {
+        return false;
+    }
+    for (const auto &target : *targets) {
+        if (!target.is_string()) {
+            continue;
+        }
+        const auto value = lower_string(target.get<std::string>());
+        if (value == "linear" || value == "fusedmoe") {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool is_dynamic_token_w8a8_group(const nlohmann::json &group) {
+    auto weights_it = group.find("weights");
+    auto input_it = group.find("input_activations");
+    if (weights_it == group.end() || input_it == group.end() || !weights_it->is_object() || !input_it->is_object()) {
+        return false;
+    }
+    const auto &weights = *weights_it;
+    const auto &input = *input_it;
+    const bool weight_ok = string_field_equals(weights, "type", "int") && string_field_equals(weights, "strategy", "channel") && integer_field_equals(weights, "num_bits", 8) && bool_field_equals(weights, "symmetric", true);
+    const bool input_ok = string_field_equals(input, "type", "int") && string_field_equals(input, "strategy", "token") && integer_field_equals(input, "num_bits", 8) && bool_field_equals(input, "dynamic", true) && bool_field_equals(input, "symmetric", true);
+    return weight_ok && input_ok;
+}
+
+} // namespace
 
 std::vector<ParamDescriptor> CompressedTensors::get_param_layout(
     size_t in_features, size_t out_features,
@@ -26,6 +84,26 @@ std::vector<ParamDescriptor> CompressedTensors::get_param_layout(
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
     return descs;
+}
+
+std::string CompressedTensors::get_moe_weight_method(const infinicore::Device &device) const {
+    if (device.getType() != infinicore::Device::Type::HYGON || !quant_config_.is_object()) {
+        return "dense";
+    }
+    if (!string_field_equals(quant_config_, "quant_method", "compressed-tensors")) {
+        return "dense";
+    }
+    auto groups = quant_config_.find("config_groups");
+    if (groups == quant_config_.end() || !groups->is_object()) {
+        return "dense";
+    }
+    for (const auto &item : groups->items()) {
+        const auto &group = item.value();
+        if (group.is_object() && has_linear_or_moe_target(group) && is_dynamic_token_w8a8_group(group)) {
+            return "slimquant_marlin";
+        }
+    }
+    return "dense";
 }
 
 infinicore::Tensor CompressedTensors::forward(

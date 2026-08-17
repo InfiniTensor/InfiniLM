@@ -2,6 +2,7 @@
 #include "../../global_state/global_state.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
+#include "infinicore/ops/rms_rotary_embedding.hpp"
 
 namespace infinilm::models::qwen3 {
 
@@ -121,8 +122,6 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-    q_reshaped = q_norm_->forward(q_reshaped);
-    k_reshaped = k_norm_->forward(k_reshaped);
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
@@ -136,9 +135,31 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
-    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    // 4. Apply Q/K RMSNorm and RoPE.
+    const bool can_use_hygon_fused_rms_rope = qkv_proj_->get_quantization()->get_quant_scheme() == infinilm::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8
+                                           && q_reshaped->device().getType() == infinicore::Device::Type::HYGON
+                                           && rotary_emb_->rotary_dim() == head_dim_
+                                           && !rotary_emb_->mrope_section().has_value()
+                                           && infinicore::op::rms_rotary_embedding_fuse_available(q_reshaped->device());
+    if (can_use_hygon_fused_rms_rope) {
+        q_reshaped = q_reshaped->contiguous();
+        k_reshaped = k_reshaped->contiguous();
+        auto pos_ids_fused = pos_ids_for_rope->is_contiguous() ? pos_ids_for_rope : pos_ids_for_rope->contiguous();
+        infinicore::op::rms_rotary_embedding_fuse_(q_reshaped,
+                                                   k_reshaped,
+                                                   pos_ids_fused,
+                                                   static_cast<int64_t>(head_dim_),
+                                                   rotary_emb_->cos_sin_cache(),
+                                                   rotary_emb_->algo() == infinicore::nn::RoPE::Algo::GPT_NEOX,
+                                                   q_norm_->weight(),
+                                                   k_norm_->weight(),
+                                                   static_cast<float>(q_norm_->eps()));
+    } else {
+        q_reshaped = q_norm_->forward(q_reshaped);
+        k_reshaped = k_norm_->forward(k_reshaped);
+        rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
+        rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    }
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);

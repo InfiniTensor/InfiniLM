@@ -71,13 +71,17 @@ void PagedCompiler::compile() {
         }
 
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        decode_graph_needs_runtime_state_reset_ = model_->needs_runtime_state_reset();
         compiled_map_decode_.clear();
+        // b * ceil(nblocks / b) is at most nblocks + b - 1. All decode
+        // graphs share this holder and only the selected graph runs at once.
         block_tables_holder_ = infinicore::Tensor::empty(
-            {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
+            {nblocks + max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
 
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
+            input.last_token_only = true;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
             input.position_ids = infinicore::Tensor::empty(
                 position_id_axes > 1
@@ -98,7 +102,9 @@ void PagedCompiler::compile() {
             infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
             input.cu_seqlens = infinicore::Tensor::empty({b + 1}, infinicore::DataType::I32, infinicore::context::getDevice());
             infinicore::context::memcpyH2D(input.cu_seqlens.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
-            const size_t block_per_req = nblocks;
+            // Give each request its fair share of the global cache capacity.
+            // Wider runtime tables safely fall back to eager in get_compiled().
+            const size_t block_per_req = (nblocks + b - 1) / b;
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
@@ -150,8 +156,10 @@ void PagedCompiler::compile() {
             // Warmup runs the eager Marlin path and may leave per-layer lock
             // workspaces dirty. Reset before CUDA graph capture so capture
             // starts from the same all-zero lock state as normal execution.
-            model_->reset_runtime_state();
-            infinicore::context::syncStream();
+            if (decode_graph_needs_runtime_state_reset_) {
+                model_->reset_runtime_state();
+                infinicore::context::syncStream();
+            }
         }
 
         for (size_t b : decode_batch_sizes_) {
@@ -164,8 +172,10 @@ void PagedCompiler::compile() {
             // warmup/capture attempts. This reset is intentionally outside
             // graph capture; the current implementation still pays a memset
             // before every graph replay in get_compiled().
-            model_->reset_runtime_state();
-            infinicore::context::syncStream();
+            if (decode_graph_needs_runtime_state_reset_) {
+                model_->reset_runtime_state();
+                infinicore::context::syncStream();
+            }
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
@@ -192,19 +202,28 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             if (result == compiled_map_decode_.end()) {
                 return {nullptr, nullptr};
             }
+
+            // Decode graphs are captured with one token per request, so their
+            // input offsets are the fixed sequence [0, 1, ..., batch_size].
+            // Reuse the captured tensor only after validating that the runtime
+            // input has the same layout; otherwise fall back to eager mode.
+            const auto &runtime_input_offsets = input.input_offsets.value();
+            if (!runtime_input_offsets->is_contiguous() || runtime_input_offsets->size(0) != batch_size + 1) {
+                return {nullptr, nullptr};
+            }
             auto &graph_input = result->second.input;
+
+            const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
+            if (block_per_req > compiled_block_per_req) {
+                // Runtime width exceeds compiled graph slot; fall back before
+                // enqueueing copies that the eager path cannot consume.
+                return {nullptr, nullptr};
+            }
 
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
-            graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
             graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
-
-            const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
-            if (block_per_req > compiled_block_per_req) {
-                // Runtime width exceeds compiled graph slot; fall back to eager path.
-                return {nullptr, nullptr};
-            }
 
             // Initialize only the active graph rows to -1, then overwrite the
             // runtime logical region. Avoid clearing the full preallocated
@@ -230,7 +249,9 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             // one on the same stream before launch. This is correct but costs
             // decode latency; the intended follow-up is a reusable global
             // zero workspace/lock buffer shared by all Marlin layers.
-            model_->reset_runtime_state();
+            if (decode_graph_needs_runtime_state_reset_) {
+                model_->reset_runtime_state();
+            }
 
             auto graph = std::get<0>(result->second.compiled);
             if (graph != nullptr) {

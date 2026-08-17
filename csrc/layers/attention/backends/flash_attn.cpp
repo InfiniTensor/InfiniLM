@@ -41,6 +41,23 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
 
+    if (query->device().getType() == infinicore::Device::Type::HYGON) {
+        return infinicore::op::paged_flash_attention(
+            query,
+            key,
+            value,
+            kv_cache,
+            total_sequence_lengths.value(),
+            input_offsets,
+            cu_seqlens,
+            block_tables.value(),
+            slot_mapping.value(),
+            num_heads_,
+            num_kv_heads_,
+            head_dim_,
+            scale_);
+    }
+
     // 1. update paged kv cache
     auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());
 

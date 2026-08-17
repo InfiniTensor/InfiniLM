@@ -24,7 +24,7 @@ public:
 private:
     std::shared_ptr<BaseDispatcher> dispatcher_;
     std::shared_ptr<MoeRunnerCore> runner_;
-    mutable MoeWorkspace workspace_;
+    std::shared_ptr<MoeWorkspace> workspace_;
 };
 
 } // namespace infinilm::layers::moe

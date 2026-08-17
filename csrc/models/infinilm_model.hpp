@@ -55,6 +55,8 @@ public:
         std::optional<std::vector<size_t>> visual_token_ranges;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
+        /// Return one logit row per request instead of logits for every input token.
+        bool last_token_only{false};
     };
 
     struct Output {
@@ -77,6 +79,8 @@ public:
     void process_weights_after_loading();
     void reset_runtime_state() const;
 
+    bool needs_runtime_state_reset() const;
+
 protected:
     std::vector<infinicore::Tensor> default_allocate_kv_cache_tensors(
         const cache::CacheConfig *cache_config,
@@ -89,5 +93,7 @@ protected:
 private:
     static void process_weights_recursive_(infinicore::nn::Module *module);
     static void reset_runtime_state_recursive_(const infinicore::nn::Module *module);
+
+    static bool needs_runtime_state_reset_recursive_(const infinicore::nn::Module *module);
 };
 } // namespace infinilm

@@ -485,7 +485,9 @@ void RankWorker::thread_loop() {
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
                                 if (!sample_all_positions) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    score_idx = total_len == n_req
+                                                  ? i
+                                                  : static_cast<size_t>(input_offsets[i + 1] - 1);
                                 }
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};

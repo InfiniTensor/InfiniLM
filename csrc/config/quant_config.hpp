@@ -1,9 +1,11 @@
 #pragma once
-#include "../utils.hpp"
 #include "../layers/quantization/quantization.hpp"
+#include "../utils.hpp"
+#include "infinicore/device.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <spdlog/spdlog.h>
+#include <string>
 
 namespace infinilm::config {
 
@@ -15,6 +17,9 @@ public:
     QuantConfig(const nlohmann::json &json);
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const;
+    std::string get_moe_weight_method(const infinicore::Device &device) const;
+    bool is_moe_w16a16_marlin_enabled(const infinicore::Device &device) const;
+    bool is_moe_w8a8_marlin_enabled(const infinicore::Device &device) const;
 
     infinilm::quantization::QuantScheme get_quant_scheme() const {
         if (quantization_method != nullptr) {
