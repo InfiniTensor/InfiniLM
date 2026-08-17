@@ -31,8 +31,8 @@ std::vector<int32_t> tensor_to_i32_vector(const infinicore::Tensor &tensor) {
 
 } // namespace
 
-Qwen35Model::Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         const infinicore::Device &device)
+Qwen35ModelBase::Qwen35ModelBase(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                 const infinicore::Device &device)
     : model_config_(model_config) {
     const auto &dtype{model_config->get_dtype()};
     nlohmann::json &config_json = model_config->get_config_json();
@@ -40,11 +40,10 @@ Qwen35Model::Qwen35Model(std::shared_ptr<infinilm::config::ModelConfig> model_co
     if (config_json.contains("vision_config") && !config_json["vision_config"].is_null()) {
         INFINICORE_NN_MODULE_INIT(visual, config_json["vision_config"], dtype, device);
     }
-    INFINICORE_NN_MODULE_INIT(language_model, model_config, device);
 }
 
-void Qwen35Model::replace_image_embeddings(infinicore::Tensor &inputs_embeds,
-                                           const InfinilmModel::Input &input) const {
+void Qwen35ModelBase::replace_image_embeddings(infinicore::Tensor &inputs_embeds,
+                                               const InfinilmModel::Input &input) const {
     if (!input.pixel_values.has_value() || input.pixel_values->empty()) {
         return;
     }
@@ -107,28 +106,19 @@ void Qwen35Model::replace_image_embeddings(infinicore::Tensor &inputs_embeds,
     }
 }
 
-infinicore::Tensor Qwen35Model::forward(const InfinilmModel::Input &input) const {
-    if (input.pixel_values.has_value() && !input.pixel_values->empty()) {
-        auto inputs_embeds = language_model_->embed_tokens(input.input_ids.value());
-        replace_image_embeddings(inputs_embeds, input);
-        return language_model_->forward_embeds(inputs_embeds, input.position_ids.value());
-    }
-    return language_model_->forward(input);
-}
-
-void Qwen35Model::reset_cache(const cache::CacheConfig *cache_config) {
-    if (nullptr == cache_config) {
-        return;
-    }
-
+void Qwen35ModelBase::reset_cache(const cache::CacheConfig *cache_config) {
     auto &forward_context = infinilm::global_state::get_forward_context();
     forward_context.kv_cache_vec.clear();
     forward_context.conv_state_vec.clear();
     forward_context.ssm_state_vec.clear();
+    if (nullptr == cache_config) {
+        return;
+    }
 
     const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
 
-    auto cache_vectors = infinilm::models::qwen3_next::qwen3_next_allocate_cache_tensors(cache_config, model_config_, attention_backend);
+    auto cache_vectors = infinilm::models::qwen3_next::qwen3_next_allocate_cache_tensors(
+        cache_config, model_config_, attention_backend);
     forward_context.kv_cache_vec = std::move(cache_vectors.kv_cache_tensors);
     forward_context.conv_state_vec = std::move(cache_vectors.conv_state_tensors);
     forward_context.ssm_state_vec = std::move(cache_vectors.ssm_state_tensors);

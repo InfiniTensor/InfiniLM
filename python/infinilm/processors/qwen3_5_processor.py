@@ -10,6 +10,7 @@ from .basic_llm_processor import BasicLLMProcessor
 from .processor import register_processor
 
 
+@register_processor("qwen3_5_moe")
 @register_processor("qwen3_5")
 class Qwen35Processor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):

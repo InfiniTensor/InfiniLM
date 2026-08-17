@@ -62,6 +62,14 @@ void PagedCompiler::compile() {
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
 
+        const auto &model_config = model_->get_model_config();
+        const size_t position_id_axes = model_config == nullptr
+                                          ? 1
+                                          : model_config->get_or<size_t>("position_id_axes", 1);
+        if (position_id_axes == 0) {
+            throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
+        }
+
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
@@ -71,7 +79,11 @@ void PagedCompiler::compile() {
         auto make_decode_input = [&](size_t b) {
             InfinilmModel::Input input;
             input.input_ids = infinicore::Tensor::empty({1, b}, infinicore::DataType::I64, infinicore::context::getDevice());
-            input.position_ids = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+            input.position_ids = infinicore::Tensor::empty(
+                position_id_axes > 1
+                    ? std::vector<size_t>{position_id_axes, b}
+                    : std::vector<size_t>{b},
+                infinicore::DataType::I64, infinicore::context::getDevice());
             input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I32, infinicore::context::getDevice());
             set_zeros(input.input_ids.value());
             set_zeros(input.position_ids.value());
