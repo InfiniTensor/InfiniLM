@@ -50,6 +50,12 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     // 2. Compute attention
     infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
+        const size_t max_query_length = attn_metadata.max_query_length > 0
+                                          ? attn_metadata.max_query_length
+                                          : max_position_embeddings_;
+        const size_t max_sequence_length = attn_metadata.max_sequence_length > 0
+                                             ? attn_metadata.max_sequence_length
+                                             : max_position_embeddings_;
         infinicore::op::mha_varlen_(
             attn_output,
             query,
@@ -58,8 +64,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             input_offsets.value(),
             cu_seqlens.value(),
             block_tables.value(),
-            max_position_embeddings_,
-            max_position_embeddings_,
+            max_query_length,
+            max_sequence_length,
             std::nullopt,
             scale_);
     } else {

@@ -4,6 +4,7 @@
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/device.hpp"
+#include "infinicore/ops/select_last_token_hidden.hpp"
 #include <stdexcept>
 
 namespace infinilm::layers::causal_lm_templates {
@@ -54,7 +55,24 @@ public:
         if (!is_last_pp_stage()) {
             return {infinicore::Tensor(), hidden_states};
         }
-        auto logits = lm_head_->forward(hidden_states);
+
+        auto lm_head_input = hidden_states;
+        if (!input.sample_all_positions && input.input_offsets.has_value()) {
+            const size_t num_requests = input.input_offsets.value()->numel() - 1;
+            const bool is_packed_prefill = hidden_states->ndim() == 3
+                                        && hidden_states->size(0) == 1
+                                        && hidden_states->size(1) > num_requests;
+            if (is_packed_prefill) {
+                lm_head_input = infinicore::Tensor::empty(
+                    {1, num_requests, hidden_states->size(2)},
+                    hidden_states->dtype(),
+                    hidden_states->device());
+                infinicore::op::select_last_token_hidden_(
+                    lm_head_input, hidden_states, input.input_offsets.value());
+            }
+        }
+
+        auto logits = lm_head_->forward(lm_head_input);
         return {logits, hidden_states};
     }
 

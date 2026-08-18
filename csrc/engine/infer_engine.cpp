@@ -1,11 +1,49 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
+#include <algorithm>
+#include <cstdint>
 #include <future>
 #include <stdexcept>
 #include <unordered_set>
 
 namespace infinilm::engine {
+namespace {
+
+size_t max_length_from_offsets(
+    const std::optional<infinicore::Tensor> &offsets,
+    const char *name) {
+    if (!offsets.has_value()) {
+        return 0;
+    }
+
+    auto cpu_offsets = offsets.value();
+    if (cpu_offsets->device().getType() != infinicore::Device::Type::CPU) {
+        cpu_offsets = cpu_offsets->to(infinicore::Device::cpu());
+        infinicore::context::syncStream();
+    }
+
+    if (cpu_offsets->dtype() != infinicore::DataType::I32
+        || cpu_offsets->shape().size() != 1
+        || cpu_offsets->shape()[0] < 2) {
+        throw std::invalid_argument(
+            std::string(name) + " must be a one-dimensional int32 tensor with at least two entries");
+    }
+
+    const auto *values = reinterpret_cast<const int32_t *>(cpu_offsets->data());
+    size_t max_length = 0;
+    for (size_t i = 1; i < cpu_offsets->shape()[0]; ++i) {
+        if (values[i] < values[i - 1]) {
+            throw std::invalid_argument(std::string(name) + " must be nondecreasing");
+        }
+        max_length = std::max(
+            max_length,
+            static_cast<size_t>(values[i] - values[i - 1]));
+    }
+    return max_length;
+}
+
+} // namespace
 
 //------------------------------------------------------
 // Constructor
@@ -166,6 +204,13 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         return result;
     };
 
+    const bool is_prefill = input_ids.has_value()
+                         && total_sequence_lengths.has_value()
+                         && input_ids.value()->numel()
+                                != total_sequence_lengths.value()->numel();
+    const size_t max_query_length = is_prefill ? max_length_from_offsets(input_offsets, "input_offsets") : 0;
+    const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : 0;
+
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
@@ -183,7 +228,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states)};
+        to_device(target_hidden_states),
+        sample_all_positions};
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
@@ -191,7 +237,9 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.input_offsets,
         input.cu_seqlens,
         input.block_tables,
-        input.slot_mapping};
+        input.slot_mapping,
+        max_query_length,
+        max_sequence_length};
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
