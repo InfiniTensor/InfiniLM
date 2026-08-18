@@ -729,9 +729,7 @@ if __name__ == "__main__":
     cases_dict = get_test_cases(
         model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
     )
-    max_benchmark_batch_size = max(
-        case["batch_size"] for case in cases_dict.values()
-    )
+    max_benchmark_batch_size = max(case["batch_size"] for case in cases_dict.values())
     max_benchmark_tokens = max(case["output_len"] for case in cases_dict.values())
     max_benchmark_cache_len = max(
         case["input_len"] + case["output_len"] for case in cases_dict.values()
@@ -754,11 +752,15 @@ if __name__ == "__main__":
         if cfg.warmup:
             warmup_case = next(iter(cases_dict.values()))
             warmup_num_blocks = (
-                warmup_case["input_len"]
-                + _WARMUP_DECODE_LEN
-                + paged_kv_block_size
-                - 1
-            ) // paged_kv_block_size * warmup_case["batch_size"]
+                (
+                    warmup_case["input_len"]
+                    + _WARMUP_DECODE_LEN
+                    + paged_kv_block_size
+                    - 1
+                )
+                // paged_kv_block_size
+                * warmup_case["batch_size"]
+            )
             max_num_blocks = max(max_num_blocks, warmup_num_blocks)
         max_batch_size = max(batch_size)
         cache_config = PagedKVCacheConfig(
@@ -888,9 +890,7 @@ if __name__ == "__main__":
                 *test.prompt_token_segments, target_length=warmup_input_len
             )
             warmup_ids = [warmup_prompt_ids] * warmup_batch
-            input_ids_infini = infinicore.from_list(
-                warmup_ids, dtype=infinicore.int64
-            )
+            input_ids_infini = infinicore.from_list(warmup_ids, dtype=infinicore.int64)
 
             for _ in range(warmup_steps):
                 _ = test.model.generate(
