@@ -48,7 +48,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    auto attn_output = infinicore::Tensor::empty(
+        {seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
         const size_t max_query_length = attn_metadata.max_query_length > 0
                                           ? attn_metadata.max_query_length
@@ -74,7 +75,9 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
         // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
         auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
-        auto attn_out_4d = infinicore::op::mha_kvcache(
+        auto attn_out_4d = attn_output->view({seq_len, 1, num_heads_, head_dim_});
+        infinicore::op::mha_kvcache_(
+            attn_out_4d,
             q_for_fa,
             k_total, // [num_blocks, block_size, num_kv_heads, head_dim]
             v_total,
@@ -82,10 +85,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             block_tables.value(),           // [seq_len, max_num_blocks_per_seq] int32
             std::nullopt,
             scale_);
-        attn_output = attn_out_4d->view({seq_len, num_heads_, head_dim_});
     }
-    attn_output = attn_output->view({1, seq_len, num_heads_ * head_dim_});
-    return attn_output;
+    return attn_output->view({1, seq_len, num_heads_ * head_dim_});
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,

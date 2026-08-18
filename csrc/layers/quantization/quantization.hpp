@@ -7,5 +7,6 @@
 #include "gptq.hpp"
 #include "gptq_marlin.hpp"
 #include "gptq_qy.hpp"
+#include "mxfp4.hpp"
 #include "none_quantization.hpp"
 #include "quantization_scheme.hpp"

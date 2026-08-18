@@ -32,22 +32,39 @@ _TUPLE_MARKER = "__tuple__"
 logger = logging.getLogger(__name__)
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytes:
-    chunks = bytearray()
-    while len(chunks) < size:
-        chunk = sock.recv(size - len(chunks))
-        if not chunk:
+def _recv_exact(sock: socket.socket, size: int) -> bytearray:
+    payload = bytearray(size)
+    view = memoryview(payload)
+    received = 0
+    while received < size:
+        count = sock.recv_into(view[received:])
+        if count == 0:
             raise ConnectionError("pipeline control connection closed")
-        chunks.extend(chunk)
-    return bytes(chunks)
+        received += count
+    return payload
 
 
 def _send_payload(sock: socket.socket, payload: bytes) -> None:
-    sock.sendall(_FRAME_HEADER.pack(len(payload)))
-    sock.sendall(payload)
+    segments = [memoryview(_FRAME_HEADER.pack(len(payload))), memoryview(payload)]
+    if not hasattr(sock, "sendmsg"):
+        for segment in segments:
+            sock.sendall(segment)
+        return
+
+    # Keep the length prefix and payload in one syscall without concatenating
+    # and copying the complete control message into another bytes object.
+    while segments:
+        sent = sock.sendmsg(segments)
+        if sent == 0:
+            raise ConnectionError("pipeline control connection closed")
+        while segments and sent >= len(segments[0]):
+            sent -= len(segments[0])
+            segments.pop(0)
+        if segments and sent:
+            segments[0] = segments[0][sent:]
 
 
-def _recv_payload(sock: socket.socket) -> bytes:
+def _recv_payload(sock: socket.socket) -> bytearray:
     (size,) = _FRAME_HEADER.unpack(_recv_exact(sock, _FRAME_HEADER.size))
     return _recv_exact(sock, size)
 
@@ -60,12 +77,18 @@ def _recv_message(sock: socket.socket) -> Any:
     return pickle.loads(_recv_payload(sock))
 
 
+_FORWARD_OK_PAYLOAD = pickle.dumps({"ok": True}, protocol=pickle.HIGHEST_PROTOCOL)
+
+
 def _tensor_to_numpy(tensor: infinicore.Tensor) -> np.ndarray:
+    owns_temporary_storage = False
     if tensor.device.type != "cpu":
         tensor = tensor.to(infinicore.device("cpu", 0))
         infinicore.sync_device()
+        owns_temporary_storage = True
     if not tensor.is_contiguous():
         tensor = tensor.contiguous()
+        owns_temporary_storage = True
 
     shape = tuple(tensor.shape)
     dtype = np.dtype(infinicore_to_numpy_dtype(tensor.dtype))
@@ -75,9 +98,12 @@ def _tensor_to_numpy(tensor: infinicore.Tensor) -> np.ndarray:
     num_bytes = tensor.numel() * dtype.itemsize
     buffer_type = ctypes.c_ubyte * num_bytes
     buffer = buffer_type.from_address(tensor.data_ptr())
-    return (
-        np.frombuffer(buffer, dtype=dtype, count=tensor.numel()).reshape(shape).copy()
-    )
+    array = np.frombuffer(buffer, dtype=dtype, count=tensor.numel()).reshape(shape)
+    # Normal scheduler inputs are already contiguous CPU tensors and remain
+    # alive until dispatch completes, so pickle can serialize their storage
+    # directly. Preserve a copy only when this function created temporary
+    # tensor storage whose lifetime would otherwise end on return.
+    return array.copy() if owns_temporary_storage else array
 
 
 def _encode(value: Any) -> Any:
@@ -113,22 +139,16 @@ def _parse_endpoint(endpoint: str) -> tuple[str, int]:
     return host, int(port)
 
 
-def _connect_with_retry(endpoint: str, timeout: float = 300.0) -> socket.socket:
+def _connect_with_retry(endpoint: str) -> socket.socket:
     host, port = _parse_endpoint(endpoint)
-    deadline = time.monotonic() + timeout
-    last_error: OSError | None = None
-    while time.monotonic() < deadline:
+    while True:
         try:
             sock = socket.create_connection((host, port), timeout=5.0)
             sock.settimeout(None)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             return sock
-        except OSError as error:
-            last_error = error
+        except OSError:
             time.sleep(0.1)
-    raise ConnectionError(
-        f"failed to connect to pipeline host {endpoint}"
-    ) from last_error
 
 
 class PipelineControlServer:
@@ -273,7 +293,7 @@ class PipelineWorkerClient:
                 try:
                     model_input = _decode(message["model_input"])
                     self._model_runner.model_engine.forward(**model_input)
-                    _send_message(connection, {"ok": True})
+                    _send_payload(connection, _FORWARD_OK_PAYLOAD)
                 except BaseException:
                     error = traceback.format_exc()
                     try:
