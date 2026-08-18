@@ -83,11 +83,14 @@ KimiK3MLAAttention::KimiK3MLAAttention(
                               dtype, device, rank_info.tp_rank, rank_info.tp_size,
                               rank_info.comm);
 
-    attention_backend_ = global_state::get_infinilm_config().attention_backend;
+    const auto attention_backend = global_state::get_infinilm_config().attention_backend;
+    if (attention_backend == backends::AttentionBackend::STATIC_ATTN) {
+        throw std::runtime_error("KimiK3MLAAttention does not support static attention");
+    }
     softmax_scale_ = 1.0f / std::sqrt(static_cast<float>(q_head_dim_));
     attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
         local_num_heads_, q_head_dim_, softmax_scale_, local_num_heads_, layer_idx_,
-        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
+        kv_cache_k_scale_, kv_cache_v_scale_, attention_backend);
     infinilm::layers::attention::init_kv_cache_quant_params(
         [this](const std::string &name, infinicore::nn::Parameter parameter) {
             this->register_parameter(name, std::move(parameter));
@@ -102,7 +105,7 @@ infinicore::Tensor KimiK3MLAAttention::forward(
     const auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
     const size_t seq_len = shape[1];
-    if (attention_backend_ != backends::AttentionBackend::STATIC_ATTN && batch_size != 1) {
+    if (batch_size != 1) {
         throw std::runtime_error("KimiK3MLAAttention: paged attention expects flattened batch size 1");
     }
     auto input = hidden_states;
@@ -115,21 +118,28 @@ infinicore::Tensor KimiK3MLAAttention::forward(
     auto normalized_kv = kv_a_layernorm_->forward(compressed_kv);
     auto kv = kv_b_proj_->forward(normalized_kv);
 
-    if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN) {
-        q = q->view({batch_size, seq_len, local_num_heads_, q_head_dim_});
-        kv = kv->view({batch_size, seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
-    } else {
-        q = q->view({seq_len, local_num_heads_, q_head_dim_});
-        kv = kv->view({seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
-        k_rot = k_rot->squeeze(0);
-    }
+    q = q->view({seq_len, local_num_heads_, q_head_dim_});
+    kv = kv->view({seq_len, local_num_heads_, qk_nope_head_dim_ + v_head_dim_});
+    k_rot = k_rot->squeeze(0);
 
     const size_t feature_dim = kv->ndim() - 1;
     auto key = build_key(
         kv, k_rot, local_num_heads_, qk_nope_head_dim_, qk_rope_head_dim_);
     auto value = kv->narrow({{feature_dim, qk_nope_head_dim_, v_head_dim_}});
-    auto output = attn_->forward(q, key, value);
-    output = infinicore::op::mul(output, infinicore::op::sigmoid(g_proj_->forward(input)));
+    auto padded_output = attn_->forward(q, key, value)
+                             ->view({batch_size, seq_len, local_num_heads_, q_head_dim_});
+    auto output = infinicore::Tensor::empty(
+        {batch_size, seq_len, local_num_heads_, v_head_dim_},
+        padded_output->dtype(),
+        padded_output->device());
+    auto gate = g_proj_->forward(input)
+                    ->view({batch_size, seq_len, local_num_heads_, v_head_dim_});
+    infinicore::op::sigmoid_(gate, gate);
+    infinicore::op::mul_(
+        output,
+        padded_output->narrow({{3, 0, v_head_dim_}}),
+        gate);
+    output = output->view({batch_size, seq_len, local_num_heads_ * v_head_dim_});
     return o_proj_->forward(output);
 }
 

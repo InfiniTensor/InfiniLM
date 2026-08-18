@@ -56,18 +56,16 @@ infinicore::Tensor KimiK3DecoderLayer::apply_attn_res(
     const std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> &proj,
     const std::shared_ptr<infinicore::nn::RMSNorm> &norm) const {
     const auto shape = prefix_sum->shape();
-    auto prefix_2d = prefix_sum->view({shape[0] * shape[1], hidden_size_});
     if (block_residual_count >= block_residual_storage->size(1)) {
         throw std::runtime_error("KimiK3DecoderLayer: block residual scratch slot is unavailable");
     }
     auto values = block_residual_storage->narrow(
         {{1, 0, block_residual_count + 1}});
-    values->narrow({{1, block_residual_count, 1}})
-        ->copy_from(prefix_2d->unsqueeze(1));
     auto normalized = norm->forward(values);
     auto scores = proj->forward(normalized);
     infinicore::op::softmax_(scores, scores, 1);
-    auto score_matrix = scores->permute({0, 2, 1})->contiguous();
+    auto score_matrix = scores->view(
+        {scores->size(0), scores->size(2), scores->size(1)});
     return infinicore::op::matmul(score_matrix, values)
         ->squeeze(1)
         ->view(shape);
@@ -91,21 +89,28 @@ infinicore::Tensor KimiK3DecoderLayer::forward(
         if (block_residual_count + 1 >= block_residual_storage->size(1)) {
             throw std::runtime_error("KimiK3DecoderLayer: block residual storage is full");
         }
-        auto prefix_2d = prefix_sum->view({shape[0] * shape[1], hidden_size_});
-        block_residual_storage->narrow({{1, block_residual_count, 1}})
-            ->copy_from(prefix_2d->unsqueeze(1));
+        // The current scratch slot becomes a persistent block residual. The
+        // attention result will be written into the next scratch slot below.
         ++block_residual_count;
     }
 
     current = input_layernorm_->forward(current);
     current = is_kda_ ? delta_attn_->forward(current) : mla_attn_->forward(current);
-    prefix_sum = reset_prefix ? current : infinicore::op::add(prefix_sum, current);
+    if (reset_prefix) {
+        auto scratch = block_residual_storage
+                           ->narrow({{1, block_residual_count, 1}})
+                           ->view({shape[0], shape[1], hidden_size_});
+        scratch->copy_from(current);
+        prefix_sum = scratch;
+    } else {
+        infinicore::op::add_(prefix_sum, prefix_sum, current);
+    }
 
     current = apply_attn_res(prefix_sum, block_residual_storage,
                              block_residual_count, mlp_res_proj_, mlp_res_norm_);
     current = post_attention_layernorm_->forward(current);
     current = use_moe_ ? block_sparse_moe_->forward(current) : mlp_->forward(current);
-    prefix_sum = infinicore::op::add(prefix_sum, current);
+    infinicore::op::add_(prefix_sum, prefix_sum, current);
     return prefix_sum;
 }
 

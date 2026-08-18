@@ -18,10 +18,12 @@ qwen3_next::AllocatedHybridCache kimi_k3_allocate_cache_tensors(
     if (cache_config == nullptr) {
         return {};
     }
+    if (attention_backend == backends::AttentionBackend::STATIC_ATTN) {
+        throw std::runtime_error("Kimi K3 does not support static attention");
+    }
     const size_t num_layers = model_config->get<size_t>("num_hidden_layers");
     const size_t head_dim = model_config->get<size_t>("head_dim");
     const size_t num_heads = model_config->get<size_t>("num_attention_heads");
-    const size_t max_positions = model_config->get<size_t>("max_position_embeddings");
     const auto &linear = model_config->get_config_json().at("linear_attn_config");
     const size_t linear_head_dim = linear.at("head_dim").get<size_t>();
     const size_t linear_num_heads = linear.at("num_heads").get<size_t>();
@@ -52,34 +54,18 @@ qwen3_next::AllocatedHybridCache kimi_k3_allocate_cache_tensors(
             model_config->get_dtype(), pool_size);
     };
 
-    if (attention_backend == backends::AttentionBackend::STATIC_ATTN) {
-        const auto *config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
-        if (config == nullptr) {
-            throw std::runtime_error("Kimi K3 static attention requires StaticKVCacheConfig");
-        }
-        for (size_t i = local_begin; i < local_end; ++i) {
-            if (is_kda[i]) {
-                allocate_kda(i, config->max_batch_size());
-            } else {
-                kv[i] = cache::StaticKVCache::create_layer_kv_cache(
-                    head_dim, head_dim, num_heads, num_heads,
-                    max_positions, model_config->get_kv_cache_dtype(), *config);
-            }
-        }
-    } else {
-        const auto *config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
-        if (config == nullptr) {
-            throw std::runtime_error("Kimi K3 paged attention requires PagedKVCacheConfig");
-        }
-        const size_t state_pool_size = std::max<size_t>(2, config->num_blocks() / 4);
-        for (size_t i = local_begin; i < local_end; ++i) {
-            if (is_kda[i]) {
-                allocate_kda(i, state_pool_size);
-            } else {
-                kv[i] = cache::PagedKVCache::create_layer_kv_cache(
-                    head_dim, head_dim, num_heads, num_heads,
-                    model_config->get_kv_cache_dtype(), *config);
-            }
+    const auto *config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+    if (config == nullptr) {
+        throw std::runtime_error("Kimi K3 paged attention requires PagedKVCacheConfig");
+    }
+    const size_t state_pool_size = std::max<size_t>(2, config->num_blocks() / 4);
+    for (size_t i = local_begin; i < local_end; ++i) {
+        if (is_kda[i]) {
+            allocate_kda(i, state_pool_size);
+        } else {
+            kv[i] = cache::PagedKVCache::create_layer_kv_cache(
+                head_dim, head_dim, num_heads, num_heads,
+                model_config->get_kv_cache_dtype(), *config);
         }
     }
     return {std::move(kv), std::move(conv), std::move(recurrent)};

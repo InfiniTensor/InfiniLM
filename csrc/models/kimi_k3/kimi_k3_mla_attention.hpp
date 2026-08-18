@@ -29,7 +29,6 @@ private:
     size_t v_head_dim_{0};
     size_t local_num_heads_{0};
     float softmax_scale_{1.0f};
-    backends::AttentionBackend attention_backend_;
 
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, q_a_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_a_layernorm);

@@ -5,31 +5,11 @@
 #include <infinicore/ops/add.hpp>
 #include <infinicore/ops/distributed/allreduce.hpp>
 #include <infinicore/ops/fused_moe_mxfp4.hpp>
-#include <infinicore/ops/mul.hpp>
-#include <infinicore/ops/mul_scalar.hpp>
-#include <infinicore/ops/sigmoid.hpp>
-#include <infinicore/ops/tanh.hpp>
+#include <infinicore/ops/situ_and_mul.hpp>
 #include <stdexcept>
 #include <string>
 
 namespace infinilm::models::kimi_k3 {
-namespace {
-
-infinicore::Tensor situ_and_mul(const infinicore::Tensor &gate,
-                                const infinicore::Tensor &up,
-                                float beta,
-                                float linear_beta) {
-    auto scaled_gate = infinicore::op::mul_scalar(gate, 1.0f / beta);
-    auto situ_gate = infinicore::op::mul_scalar(
-        infinicore::op::mul(infinicore::op::tanh(scaled_gate), infinicore::op::sigmoid(gate)),
-        beta);
-    auto scaled_up = infinicore::op::mul_scalar(up, 1.0f / linear_beta);
-    auto bounded_up = infinicore::op::mul_scalar(infinicore::op::tanh(scaled_up), linear_beta);
-    return infinicore::op::mul(situ_gate, bounded_up);
-}
-
-} // namespace
-
 std::shared_ptr<infinilm::config::ModelConfig>
 make_kimi_k3_subconfig(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
                        size_t hidden_size,
@@ -79,7 +59,7 @@ KimiK3MLP::KimiK3MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config
 infinicore::Tensor KimiK3MLP::forward(const infinicore::Tensor &hidden_states) const {
     auto input = hidden_states;
     auto [gate, up] = gate_up_proj_->forward_split(input);
-    auto activated = situ_and_mul(gate, up, situ_beta_, situ_linear_beta_);
+    auto activated = infinicore::op::situ_and_mul(gate, up, situ_beta_, situ_linear_beta_);
     return down_proj_->forward(activated);
 }
 

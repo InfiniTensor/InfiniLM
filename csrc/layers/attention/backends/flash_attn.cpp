@@ -48,8 +48,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    const size_t value_head_dim = value->size(value->ndim() - 1);
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, value_head_dim}, query->dtype(), query->device());
+    auto attn_output = infinicore::Tensor::empty(
+        {seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
         const size_t max_query_length = attn_metadata.max_query_length > 0
                                           ? attn_metadata.max_query_length
@@ -75,7 +75,7 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
         // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
         auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
-        auto attn_out_4d = attn_output->view({seq_len, 1, num_heads_, value_head_dim});
+        auto attn_out_4d = attn_output->view({seq_len, 1, num_heads_, head_dim_});
         infinicore::op::mha_kvcache_(
             attn_out_4d,
             q_for_fa,
@@ -86,8 +86,7 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             std::nullopt,
             scale_);
     }
-    attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
-    return attn_output;
+    return attn_output->view({1, seq_len, num_heads_ * head_dim_});
 }
 
 std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
@@ -97,7 +96,6 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
                                                                                           const infinicore::Tensor slot_mapping) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
-    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});
     infinicore::op::paged_caching_(
         k_cache_layer->permute({0, 2, 1, 3}), // permute to BHSD for paged_caching_
         v_cache_layer->permute({0, 2, 1, 3}),
