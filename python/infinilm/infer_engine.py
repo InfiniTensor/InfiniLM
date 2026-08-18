@@ -140,7 +140,9 @@ def _infer_position_id_axes(hf_config: dict) -> int:
             raise ValueError("position_id_axes must be positive")
         return axes
 
-    rope_parameters = text_config.get("rope_parameters") or {}
+    rope_parameters = (
+        text_config.get("rope_parameters") or text_config.get("rope_scaling") or {}
+    )
     mrope_section = rope_parameters.get("mrope_section")
     if isinstance(mrope_section, (list, tuple)) and mrope_section:
         return len(mrope_section)
@@ -502,6 +504,8 @@ class InferEngine(_infinilm.InferEngine):
         image_bound=None,
         tgt_sizes=None,
         image_req_ids=None,
+        prompt_position_ids=None,
+        position_id_delta=0,
         _measure_and_log_time=False,
     ):
         eos_token_id = self.eos_token_id
@@ -517,17 +521,31 @@ class InferEngine(_infinilm.InferEngine):
                 "When `batch_size > 1`, `max_new_tokens` must be specified."
             )
 
+        if prompt_position_ids is not None:
+            if not self.enable_paged_attn:
+                raise ValueError(
+                    "Custom prompt position IDs currently require paged attention"
+                )
+            if len(prompt_position_ids) != self.position_id_axes:
+                raise ValueError(
+                    f"Expected {self.position_id_axes} position ID axes, got "
+                    f"{len(prompt_position_ids)}"
+                )
+            if any(len(axis) != initial_seqlen for axis in prompt_position_ids):
+                raise ValueError("Prompt position IDs must match the input length")
+
         if _measure_and_log_time:
             time_measurements = []
 
         block_tables = None
         max_blocks_per_batch = 0
         mamba_state_indices = None
-        if self.has_mamba_cache:
-            if not self.enable_paged_attn:
+        if self.has_mamba_cache and not self.enable_paged_attn:
+            if self.model_type != "mamba":
                 raise RuntimeError(
                     "Low-level generate for mamba-cache models currently requires paged attention"
                 )
+        elif self.has_mamba_cache:
             mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
             if batch_size > mamba_pool_size - 1:
                 raise RuntimeError(
@@ -560,11 +578,32 @@ class InferEngine(_infinilm.InferEngine):
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
-                position_ids_list = (
-                    list(range(past_seq_len, past_seq_len + seq_len)) * batch_size
-                )
-                if self.position_id_axes > 1:
-                    position_ids_list = [position_ids_list] * self.position_id_axes
+                if prompt_position_ids is not None:
+                    if iter == 0:
+                        position_ids_list = [
+                            list(axis) * batch_size for axis in prompt_position_ids
+                        ]
+                    else:
+                        decode_positions = (
+                            list(
+                                range(
+                                    past_seq_len + position_id_delta,
+                                    past_seq_len + position_id_delta + seq_len,
+                                )
+                            )
+                            * batch_size
+                        )
+                        position_ids_list = [
+                            decode_positions for _ in range(self.position_id_axes)
+                        ]
+                else:
+                    position_ids_list = (
+                        list(range(past_seq_len, past_seq_len + seq_len)) * batch_size
+                    )
+                    if self.position_id_axes > 1:
+                        position_ids_list = [
+                            position_ids_list for _ in range(self.position_id_axes)
+                        ]
                 position_ids = infinicore.from_list(
                     position_ids_list, dtype=infinicore.int64
                 )
