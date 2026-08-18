@@ -3,7 +3,6 @@ import re
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -47,9 +46,7 @@ def device_dynamic_decode(
 ) -> float:
     key_cache[past_length] = key
     value_cache[past_length] = value
-    return scalar_attention(
-        query, key_cache[:total_length], value_cache[:total_length]
-    )
+    return scalar_attention(query, key_cache[:total_length], value_cache[:total_length])
 
 
 def host_captured_decode(
@@ -159,7 +156,9 @@ class StaticGraphDynamicMetadataTest(unittest.TestCase):
             compact,
         )
         self.assertIn("set_zeros(input.past_sequence_lengths.value())", compile_body)
-        self.assertIn("input.block_tables = infinicore::Tensor::empty({b, 1}", compile_body)
+        self.assertIn(
+            "input.block_tables = infinicore::Tensor::empty({b, 1}", compile_body
+        )
         self.assertIn("block_tables_vec[i] = static_cast<int32_t>(i)", compile_body)
         for dynamic_input in (
             "input_ids",
