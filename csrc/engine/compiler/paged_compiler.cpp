@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <stdexcept>
 #include <vector>
 
 namespace infinilm::engine {
