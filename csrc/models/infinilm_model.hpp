@@ -55,6 +55,8 @@ public:
         std::optional<std::vector<size_t>> visual_token_ranges;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
+        /// Preserve logits for every packed position for speculative/MTP callers.
+        bool sample_all_positions{false};
     };
 
     struct Output {

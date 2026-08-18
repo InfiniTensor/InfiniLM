@@ -178,6 +178,53 @@ def repeat_prompt(input_ids: list[int], target_length: int):
     return (input_ids * repeat_times)[:target_length]
 
 
+def build_benchmark_prompt_ids(processor, tokenizer, prompt_text: str):
+    """Tokenize a chat prompt while keeping its framing separate from the body."""
+    input_content = processor.apply_chat_template(
+        conversation=[{"role": "user", "content": prompt_text}],
+        add_generation_prompt=True,
+        tokenize=False,
+    )
+    prefix_text, separator, suffix_text = input_content.partition(prompt_text)
+    if not separator:
+        raise ValueError("The chat template did not preserve the benchmark prompt text")
+
+    input_ids = tokenizer.encode(input_content)
+    prefix_ids = tokenizer.encode(prefix_text)
+    suffix_ids = tokenizer.encode(suffix_text, add_special_tokens=False)
+    suffix_start = len(input_ids) - len(suffix_ids) if suffix_ids else len(input_ids)
+
+    if input_ids[: len(prefix_ids)] != prefix_ids:
+        raise ValueError("Unable to identify the tokenized chat-template prefix")
+    if suffix_ids and input_ids[suffix_start:] != suffix_ids:
+        raise ValueError("Unable to identify the tokenized chat-template suffix")
+
+    return prefix_ids, input_ids[len(prefix_ids) : suffix_start], suffix_ids
+
+
+def resize_benchmark_prompt(
+    prefix_ids: list[int],
+    content_ids: list[int],
+    suffix_ids: list[int],
+    target_length: int,
+):
+    """Resize only user content so the assistant generation suffix remains intact."""
+    framing_length = len(prefix_ids) + len(suffix_ids)
+    if target_length < framing_length:
+        raise ValueError(
+            f"input_len={target_length} is shorter than the chat framing "
+            f"({framing_length} tokens)"
+        )
+
+    content_length = target_length - framing_length
+    if content_length and not content_ids:
+        raise ValueError(
+            "Cannot fill the benchmark input because user content is empty"
+        )
+
+    return prefix_ids + repeat_prompt(content_ids, content_length) + suffix_ids
+
+
 class TestModel:
     model: infinicore.nn.Module
     input_ids_list: list[int]
@@ -217,12 +264,12 @@ class TestModel:
         if draft_model_path is not None:
             self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
             self.tokenizer = self.processor.get_tokenizer()
-            input_content = self.processor.apply_chat_template(
-                conversation=[{"role": "user", "content": prompt}],
-                add_generation_prompt=True,
-                tokenize=False,
+            self.prompt_token_segments = build_benchmark_prompt_ids(
+                self.processor,
+                self.tokenizer,
+                prompt,
             )
-            self.input_ids_list = [self.tokenizer.encode(input_content)]
+            self.input_ids_list = [sum(self.prompt_token_segments, [])]
             self.model = None
             return
 
@@ -261,17 +308,12 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        token编码
         # ---------------------------------------------------------------------------- #
-        input_content = self.processor.apply_chat_template(
-            conversation=[{"role": "user", "content": prompt}],
-            add_generation_prompt=True,
-            tokenize=False,
+        self.prompt_token_segments = build_benchmark_prompt_ids(
+            self.processor,
+            self.tokenizer,
+            prompt,
         )
-
-        input_ids_list = [
-            self.tokenizer.encode(
-                input_content,
-            )
-        ]
+        input_ids_list = [sum(self.prompt_token_segments, [])]
 
         self.model = model
         self.input_ids_list = input_ids_list
@@ -295,7 +337,9 @@ class TestModel:
         top_p=1.0,
         temperature=1.0,
     ):
-        input_ids = repeat_prompt(self.input_ids_list[0], target_length=input_len)
+        input_ids = resize_benchmark_prompt(
+            *self.prompt_token_segments, target_length=input_len
+        )
         input_ids_list = [input_ids] * batch_size
 
         # ---------------------------------------------------------------------------- #
