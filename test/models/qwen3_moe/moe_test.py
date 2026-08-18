@@ -1,11 +1,11 @@
-import time
-import torch
-import transformers
-import safetensors
 import os
+import sys
+import time
+
+import safetensors
+import torch
 from transformers import AutoConfig
 from transformers.models import qwen3_moe
-import sys
 
 WARMUPS = 10
 RUNS = 100
@@ -46,6 +46,11 @@ def get_args():
         "--metax",
         action="store_true",
         help="Run metax test",
+    )
+    parser.add_argument(
+        "--mars",
+        action="store_true",
+        help="Run Mars test",
     )
     parser.add_argument(
         "--moore",
@@ -139,14 +144,16 @@ if __name__ == "__main__":
         device = "cuda"
     elif args.metax:
         device = "cuda"
+    elif args.mars:
+        device = "cuda"
     elif args.moore:
         device = "musa"
-        import torch_musa
+        import torch_musa  # noqa: F401 - registers the torch.musa backend
     elif args.iluvatar:
         device = "cuda"
     else:
         print(
-            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
+            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --mars | --moore | --iluvatar] --model_path=<path/to/model_path>"
         )
         sys.exit(1)
 
