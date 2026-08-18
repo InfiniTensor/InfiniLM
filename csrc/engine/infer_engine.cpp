@@ -18,12 +18,13 @@ size_t max_length_from_offsets(
     }
 
     auto cpu_offsets = offsets.value();
-    if (cpu_offsets->device().getType() != infinicore::Device::Type::CPU) {
-        cpu_offsets = cpu_offsets->to(infinicore::Device::cpu());
+    if (cpu_offsets->device().type() != infinicore::Device::Type::kCpu) {
+        cpu_offsets = cpu_offsets->to(
+            infinicore::Device{infinicore::Device::Type::kCpu});
         infinicore::context::syncStream();
     }
 
-    if (cpu_offsets->dtype() != infinicore::DataType::I32
+    if (cpu_offsets->dtype() != infinicore::DataType::kInt32
         || cpu_offsets->shape().size() != 1
         || cpu_offsets->shape()[0] < 2) {
         throw std::invalid_argument(
