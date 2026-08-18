@@ -1,6 +1,7 @@
 #include "static_batching_compiler.hpp"
 #include "../../cache/cache.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../utils.hpp"
 
 namespace infinilm::engine {
 StaticBatchingCompiler::StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
@@ -15,6 +16,9 @@ void StaticBatchingCompiler::compile() {
         input.position_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.past_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
         input.total_sequence_lengths = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
+        set_zeros(input.input_ids.value());
+        set_zeros(input.position_ids.value());
+        set_zeros(input.past_sequence_lengths.value());
         std::vector<int64_t> total_sequence_lengths_vec(b, 1);
         infinicore::context::memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int64_t), false);
 
