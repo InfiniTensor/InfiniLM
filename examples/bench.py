@@ -292,10 +292,44 @@ def resize_benchmark_prompt(
     return prefix_ids + repeat_prompt(content_ids, content_length) + suffix_ids
 
 
-def convert_minicpmv_inputs(model, processed_inputs):
-    """Convert one MiniCPM-V image into reusable low-level input tensors."""
+def convert_multimodal_inputs(model, processor, processed_inputs):
+    """Convert one image into reusable low-level input tensors."""
     if processed_inputs is None:
         return {}
+
+    if model.model_type == "videonsa":
+        import torch
+
+        pixel_values = processed_inputs.get("pixel_values")
+        image_bound = processed_inputs.get("image_bound")
+        image_grid_thw = processed_inputs.get("image_grid_thw")
+        if pixel_values is None or image_bound is None or image_grid_thw is None:
+            raise ValueError("VideoNSA image preprocessing returned incomplete inputs")
+
+        valid_bounds = image_bound[0]
+        valid_bounds = valid_bounds[valid_bounds[:, 1] > valid_bounds[:, 0]]
+        if len(valid_bounds) != len(image_grid_thw):
+            raise ValueError(
+                "VideoNSA image token ranges do not match the preprocessed images"
+            )
+
+        expected_patches = sum(int(grid.prod().item()) for grid in image_grid_thw)
+        if len(pixel_values) != expected_patches:
+            raise ValueError("VideoNSA image patch count does not match image_grid_thw")
+
+        pixel_dtype = getattr(processor, "pixel_values_dtype", torch.bfloat16)
+        return {
+            "pixel_values": infinicore.from_torch(
+                pixel_values.to(dtype=pixel_dtype).contiguous()
+            ),
+            "image_bound": infinicore.from_torch(
+                valid_bounds.unsqueeze(0).to(torch.int64).contiguous()
+            ),
+            "tgt_sizes": infinicore.from_torch(
+                image_grid_thw.to(torch.int64).contiguous()
+            ),
+        }
+
     if model.model_type != "minicpmv":
         raise ValueError(
             f"--image is not supported by bench.py for model_type={model.model_type!r}"
@@ -398,6 +432,7 @@ class TestModel:
         self.processor = processor
         self.tokenizer = tokenizer
         self.prompt_token_segments = prompt_token_segments
+        self.processed_multimodal_inputs = processed_multimodal_inputs
         self.multimodal_inputs = {}
         self.pp = pp
 
@@ -478,8 +513,8 @@ class TestModel:
             weight_load_mode=weight_load_mode,
             pre_transpose=pre_transpose,
         )
-        self.multimodal_inputs = convert_minicpmv_inputs(
-            model, processed_multimodal_inputs
+        self.multimodal_inputs = convert_multimodal_inputs(
+            model, self.processor, processed_multimodal_inputs
         )
 
         # ---------------------------------------------------------------------------- #
@@ -519,16 +554,32 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
 
-    def get_multimodal_inputs(self, batch_size: int):
+    def get_multimodal_inputs(self, batch_size: int, prompt_ids=None):
         if not self.multimodal_inputs:
             return {}
 
-        return {
+        inputs = {
             "pixel_values": [self.multimodal_inputs["pixel_values"]] * batch_size,
             "image_bound": [self.multimodal_inputs["image_bound"]] * batch_size,
             "tgt_sizes": [self.multimodal_inputs["tgt_sizes"]] * batch_size,
             "image_req_ids": list(range(batch_size)),
         }
+        if self.model.model_type == "videonsa":
+            if prompt_ids is None:
+                raise ValueError("VideoNSA multimodal generation requires prompt IDs")
+            position_ids = self.processor._prompt_mrope_positions(
+                prompt_ids, self.processed_multimodal_inputs
+            )
+            if any(len(axis) != len(prompt_ids) for axis in position_ids):
+                raise ValueError("VideoNSA mRoPE positions do not match the prompt")
+            position_id_delta = (
+                max(max(axis) for axis in position_ids) + 1 - len(prompt_ids)
+            )
+            inputs.update(
+                prompt_position_ids=position_ids,
+                position_id_delta=position_id_delta,
+            )
+        return inputs
 
     @property
     def uses_pipeline_parallel(self) -> bool:
@@ -617,7 +668,7 @@ class TestModel:
                 temperature=temperature,
                 stop_on_eos=False,
             ),
-            **self.get_multimodal_inputs(batch_size),
+            **self.get_multimodal_inputs(batch_size, input_ids),
             _measure_and_log_time=True,
         )
         t2 = time.time()
@@ -902,7 +953,7 @@ if __name__ == "__main__":
                         top_p=cfg.top_p,
                         stop_on_eos=False,
                     ),
-                    **test.get_multimodal_inputs(warmup_batch),
+                    **test.get_multimodal_inputs(warmup_batch, warmup_prompt_ids),
                     _measure_and_log_time=False,
                 )
 
