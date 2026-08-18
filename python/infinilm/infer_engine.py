@@ -499,6 +499,7 @@ class InferEngine(_infinilm.InferEngine):
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
+        image_req_ids=None,
         _measure_and_log_time=False,
     ):
         eos_token_id = self.eos_token_id
@@ -642,6 +643,7 @@ class InferEngine(_infinilm.InferEngine):
                 mamba_final_state_indices=mamba_final_state_indices,
                 image_bound=image_bound if iter == 0 else None,
                 tgt_sizes=tgt_sizes if iter == 0 else None,
+                image_req_ids=image_req_ids if iter == 0 else None,
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,
