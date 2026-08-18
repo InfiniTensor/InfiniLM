@@ -1,16 +1,42 @@
-from transformers import AutoConfig, AutoProcessor
+from threading import Lock
+
+from transformers import AutoConfig, AutoImageProcessor, AutoProcessor
 from typing_extensions import override
 
 from .processor import InfinilmProcessor, register_processor
+
+_AUTO_IMAGE_PROCESSOR_REGISTER_LOCK = Lock()
+
+
+def _load_processor_with_legacy_registration(model_dir_path: str):
+    """Load old MiniCPM-V processor code with Transformers 5 compatibility."""
+    with _AUTO_IMAGE_PROCESSOR_REGISTER_LOCK:
+        original_descriptor = AutoImageProcessor.__dict__["register"]
+        original_register = AutoImageProcessor.register
+
+        def compatible_register(config_class, *args, **kwargs):
+            image_processor_class = args[0] if args else None
+            if (
+                isinstance(config_class, str)
+                and getattr(image_processor_class, "__name__", None) == config_class
+            ):
+                # Old MiniCPM-V code performs this redundant name-based
+                # registration, which Transformers 5.13 no longer accepts.
+                return None
+            return original_register(config_class, *args, **kwargs)
+
+        AutoImageProcessor.register = staticmethod(compatible_register)
+        try:
+            return AutoProcessor.from_pretrained(model_dir_path, trust_remote_code=True)
+        finally:
+            AutoImageProcessor.register = original_descriptor
 
 
 @register_processor("minicpmv")
 class MiniCPMVProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
-        self.processor = AutoProcessor.from_pretrained(
-            model_dir_path, trust_remote_code=True
-        )
+        self.processor = _load_processor_with_legacy_registration(model_dir_path)
         self.tokenizer = self.processor.tokenizer
         self.config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
         self.pixel_values_dtype = (

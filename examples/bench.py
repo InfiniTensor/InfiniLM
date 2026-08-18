@@ -178,13 +178,8 @@ def repeat_prompt(input_ids: list[int], target_length: int):
     return (input_ids * repeat_times)[:target_length]
 
 
-def build_benchmark_prompt_ids(processor, tokenizer, prompt_text: str):
-    """Tokenize a chat prompt while keeping its framing separate from the body."""
-    input_content = processor.apply_chat_template(
-        conversation=[{"role": "user", "content": prompt_text}],
-        add_generation_prompt=True,
-        tokenize=False,
-    )
+def split_benchmark_prompt_ids(tokenizer, input_content: str, prompt_text: str):
+    """Split a rendered prompt into framing and repeatable user-content tokens."""
     prefix_text, separator, suffix_text = input_content.partition(prompt_text)
     if not separator:
         raise ValueError("The chat template did not preserve the benchmark prompt text")
@@ -200,6 +195,76 @@ def build_benchmark_prompt_ids(processor, tokenizer, prompt_text: str):
         raise ValueError("Unable to identify the tokenized chat-template suffix")
 
     return prefix_ids, input_ids[len(prefix_ids) : suffix_start], suffix_ids
+
+
+def build_benchmark_prompt_ids(processor, tokenizer, prompt_text: str):
+    """Tokenize a normalized chat prompt while keeping its framing separate."""
+    prompt_text = prompt_text.strip()
+    if not prompt_text:
+        raise ValueError("The benchmark prompt must not be empty")
+
+    input_content = processor.apply_chat_template(
+        conversation=[{"role": "user", "content": prompt_text}],
+        add_generation_prompt=True,
+        tokenize=False,
+    )
+    return split_benchmark_prompt_ids(tokenizer, input_content, prompt_text)
+
+
+def build_multimodal_benchmark_inputs(
+    processor,
+    tokenizer,
+    prompt_text: str,
+    image_path: str,
+):
+    """Prepare one image prompt while keeping its trailing text resizable."""
+    from PIL import Image
+
+    prompt_text = prompt_text.strip()
+    if not prompt_text:
+        raise ValueError("The benchmark prompt must not be empty")
+
+    conversation = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": image_path}},
+                {"type": "text", "text": prompt_text},
+            ],
+        }
+    ]
+    input_content = processor.apply_chat_template(
+        conversation=conversation,
+        add_generation_prompt=True,
+        tokenize=False,
+    )
+    _, content_ids, suffix_ids = split_benchmark_prompt_ids(
+        tokenizer, input_content, prompt_text
+    )
+
+    with Image.open(image_path) as image:
+        processed_inputs = processor(
+            [input_content],
+            images=[[image.convert("RGB")]],
+            return_tensors="pt",
+        )
+
+    processed_ids = processed_inputs["input_ids"][0].tolist()
+    trailing_ids = content_ids + suffix_ids
+    if not trailing_ids or processed_ids[-len(trailing_ids) :] != trailing_ids:
+        raise ValueError(
+            "Unable to identify user text after multimodal prompt processing"
+        )
+
+    prefix_ids = processed_ids[: -len(trailing_ids)]
+    return (prefix_ids, content_ids, suffix_ids), processed_inputs
+
+
+def cli_option_is_set(option: str):
+    return any(
+        argument == option or argument.startswith(f"{option}=")
+        for argument in sys.argv[1:]
+    )
 
 
 def resize_benchmark_prompt(
@@ -225,6 +290,56 @@ def resize_benchmark_prompt(
     return prefix_ids + repeat_prompt(content_ids, content_length) + suffix_ids
 
 
+def convert_minicpmv_inputs(model, processed_inputs):
+    """Convert one MiniCPM-V image into reusable low-level input tensors."""
+    if processed_inputs is None:
+        return {}
+    if model.model_type != "minicpmv":
+        raise ValueError(
+            f"--image is not supported by bench.py for model_type={model.model_type!r}"
+        )
+
+    import torch
+
+    pixel_values = processed_inputs["pixel_values"]
+    image_bound = processed_inputs["image_bound"]
+    tgt_sizes = processed_inputs["tgt_sizes"]
+    if len(pixel_values) != 1:
+        raise ValueError("Expected exactly one preprocessed benchmark image")
+
+    all_pixel_values = [
+        patch.flatten(end_dim=1).permute(1, 0)
+        for patch_group in pixel_values
+        for patch in patch_group
+    ]
+    pixel_values_tensor = torch.nn.utils.rnn.pad_sequence(
+        all_pixel_values, batch_first=True, padding_value=0.0
+    ).to(dtype=infinicore.utils.to_torch_dtype(model.dtype))
+    image_count, length, _ = pixel_values_tensor.shape
+    pixel_values_tensor = (
+        pixel_values_tensor.permute(0, 2, 1)
+        .reshape(image_count, 3, -1, length)
+        .contiguous()
+    )
+
+    all_tgt_sizes = [
+        tgt_size for tgt_size in tgt_sizes if isinstance(tgt_size, torch.Tensor)
+    ]
+    tgt_sizes_tensor = torch.vstack(all_tgt_sizes).to(torch.int64)
+
+    max_ranges = max(len(bound) for bound in image_bound)
+    bound_tensor = torch.zeros((len(image_bound), max_ranges, 2), dtype=torch.int64)
+    for index, bound in enumerate(image_bound):
+        if len(bound) > 0:
+            bound_tensor[index, : len(bound), :] = bound
+
+    return {
+        "pixel_values": infinicore.from_torch(pixel_values_tensor),
+        "image_bound": infinicore.from_torch(bound_tensor),
+        "tgt_sizes": infinicore.from_torch(tgt_sizes_tensor),
+    }
+
+
 class TestModel:
     model: infinicore.nn.Module
     input_ids_list: list[int]
@@ -246,6 +361,11 @@ class TestModel:
         moe_ep_backend="disabled",
         moe_ep_size=1,
         enable_prefix_caching=False,
+        processor=None,
+        tokenizer=None,
+        prompt_token_segments=None,
+        processed_multimodal_inputs=None,
+        prompt_text=None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -260,15 +380,23 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
         self.enable_prefix_caching = enable_prefix_caching
+        self.processor = processor
+        self.tokenizer = tokenizer
+        self.prompt_token_segments = prompt_token_segments
+        self.multimodal_inputs = {}
 
         if draft_model_path is not None:
-            self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
-            self.tokenizer = self.processor.get_tokenizer()
-            self.prompt_token_segments = build_benchmark_prompt_ids(
-                self.processor,
-                self.tokenizer,
-                prompt,
-            )
+            if processed_multimodal_inputs is not None:
+                raise ValueError("Draft-model benchmarks do not support --image")
+            if self.processor is None:
+                self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
+                self.tokenizer = self.processor.get_tokenizer()
+            if self.prompt_token_segments is None:
+                self.prompt_token_segments = build_benchmark_prompt_ids(
+                    self.processor,
+                    self.tokenizer,
+                    prompt if prompt_text is None else prompt_text,
+                )
             self.input_ids_list = [sum(self.prompt_token_segments, [])]
             self.model = None
             return
@@ -292,6 +420,9 @@ class TestModel:
             weight_load_mode=weight_load_mode,
             pre_transpose=pre_transpose,
         )
+        self.multimodal_inputs = convert_minicpmv_inputs(
+            model, processed_multimodal_inputs
+        )
 
         # ---------------------------------------------------------------------------- #
         #                        加载权重
@@ -302,17 +433,19 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        创建 tokenizer
         # ---------------------------------------------------------------------------- #
-        self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
-        self.tokenizer = self.processor.get_tokenizer()
+        if self.processor is None:
+            self.processor = AutoInfinilmProcessor.from_pretrained(model_path)
+            self.tokenizer = self.processor.get_tokenizer()
 
         # ---------------------------------------------------------------------------- #
         #                        token编码
         # ---------------------------------------------------------------------------- #
-        self.prompt_token_segments = build_benchmark_prompt_ids(
-            self.processor,
-            self.tokenizer,
-            prompt,
-        )
+        if self.prompt_token_segments is None:
+            self.prompt_token_segments = build_benchmark_prompt_ids(
+                self.processor,
+                self.tokenizer,
+                prompt if prompt_text is None else prompt_text,
+            )
         input_ids_list = [sum(self.prompt_token_segments, [])]
 
         self.model = model
@@ -327,6 +460,17 @@ class TestModel:
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
+
+    def get_multimodal_inputs(self, batch_size: int):
+        if not self.multimodal_inputs:
+            return {}
+
+        return {
+            "pixel_values": [self.multimodal_inputs["pixel_values"]] * batch_size,
+            "image_bound": [self.multimodal_inputs["image_bound"]] * batch_size,
+            "tgt_sizes": [self.multimodal_inputs["tgt_sizes"]] * batch_size,
+            "image_req_ids": list(range(batch_size)),
+        }
 
     def run(
         self,
@@ -399,6 +543,7 @@ class TestModel:
                 temperature=temperature,
                 stop_on_eos=False,
             ),
+            **self.get_multimodal_inputs(batch_size),
             _measure_and_log_time=True,
         )
         t2 = time.time()
@@ -407,7 +552,17 @@ class TestModel:
             [output_id.to_numpy()[0] for output_id in output_ids]
         )
         if not skip_load:
-            print(self.tokenizer.decode(numpy_output_ids, skip_special_tokens=True))
+            display_output_ids = numpy_output_ids
+            eos_token_id = self.tokenizer.eos_token_id
+            if eos_token_id is not None:
+                eos_positions = np.flatnonzero(numpy_output_ids == eos_token_id)
+                if eos_positions.size > 0:
+                    first_eos = int(eos_positions[0])
+                    display_output_ids = numpy_output_ids[:first_eos]
+                    print(
+                        f"[bench] representative output reached EOS after {first_eos} tokens."
+                    )
+            print(self.tokenizer.decode(display_output_ids, skip_special_tokens=True))
 
         print(
             f"total_time: {round((t2 - t1) * 1000, 2)} ms",
@@ -416,6 +571,12 @@ class TestModel:
 
 if __name__ == "__main__":
     cfg = BaseConfig()
+
+    benchmark_prompt = (
+        cfg.prompt if cli_option_is_set("--prompt") or cfg.image else prompt
+    ).strip()
+    if not benchmark_prompt:
+        raise ValueError("The benchmark prompt must not be empty")
 
     device_str = cfg.get_device_str(cfg.device)
 
@@ -451,6 +612,41 @@ if __name__ == "__main__":
 
     if isinstance(output_len, int):
         output_len = [output_len]
+
+    processor = AutoInfinilmProcessor.from_pretrained(model_path)
+    tokenizer = processor.get_tokenizer()
+    processed_multimodal_inputs = None
+    if cfg.image is not None:
+        prompt_token_segments, processed_multimodal_inputs = (
+            build_multimodal_benchmark_inputs(
+                processor,
+                tokenizer,
+                benchmark_prompt,
+                cfg.image,
+            )
+        )
+    else:
+        prompt_token_segments = build_benchmark_prompt_ids(
+            processor,
+            tokenizer,
+            benchmark_prompt,
+        )
+
+    framing_length = len(prompt_token_segments[0]) + len(prompt_token_segments[2])
+    invalid_input_lens = [length for length in input_len if length < framing_length]
+    if invalid_input_lens:
+        if cli_option_is_set("--input-len"):
+            raise ValueError(
+                f"input_len={invalid_input_lens[0]} is shorter than the chat framing "
+                f"({framing_length} tokens)"
+            )
+        natural_input_len = sum(len(segment) for segment in prompt_token_segments)
+        print(
+            f"[bench] default input_len={input_len[0]} is shorter than the chat "
+            f"framing ({framing_length} tokens); using the natural prompt length "
+            f"{natural_input_len}."
+        )
+        input_len = [natural_input_len]
 
     cases_dict = get_test_cases(
         model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
@@ -498,6 +694,11 @@ if __name__ == "__main__":
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
         enable_prefix_caching=False,
+        processor=processor,
+        tokenizer=tokenizer,
+        prompt_token_segments=prompt_token_segments,
+        processed_multimodal_inputs=processed_multimodal_inputs,
+        prompt_text=benchmark_prompt,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -530,7 +731,9 @@ if __name__ == "__main__":
 
         test.model.reset_cache(warmup_cache_config)
 
-        warmup_prompt_ids = repeat_prompt(test.input_ids_list[0], warmup_input_len)
+        warmup_prompt_ids = resize_benchmark_prompt(
+            *test.prompt_token_segments, target_length=warmup_input_len
+        )
         warmup_ids = [warmup_prompt_ids] * warmup_batch
 
         input_ids_infini = infinicore.from_list(warmup_ids, dtype=infinicore.int64)
@@ -551,6 +754,7 @@ if __name__ == "__main__":
                     top_p=cfg.top_p,
                     stop_on_eos=False,
                 ),
+                **test.get_multimodal_inputs(warmup_batch),
                 _measure_and_log_time=False,
             )
 
