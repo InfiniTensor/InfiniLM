@@ -678,15 +678,16 @@ class TestModel:
         )
         if not skip_load:
             display_output_ids = numpy_output_ids
-            eos_token_id = self.tokenizer.eos_token_id
-            if eos_token_id is not None:
-                eos_positions = np.flatnonzero(numpy_output_ids == eos_token_id)
-                if eos_positions.size > 0:
-                    first_eos = int(eos_positions[0])
-                    display_output_ids = numpy_output_ids[:first_eos]
-                    print(
-                        f"[bench] representative output reached EOS after {first_eos} tokens."
-                    )
+            eos_positions = np.flatnonzero(
+                np.isin(numpy_output_ids, self.model.eos_token_id)
+            )
+            if eos_positions.size > 0:
+                first_eos = int(eos_positions[0])
+                display_output_ids = numpy_output_ids[:first_eos]
+                print(
+                    f"[bench] representative output reached EOS after "
+                    f"{first_eos} tokens; trailing benchmark tokens hidden."
+                )
             print(self.tokenizer.decode(display_output_ids, skip_special_tokens=True))
 
         print(
