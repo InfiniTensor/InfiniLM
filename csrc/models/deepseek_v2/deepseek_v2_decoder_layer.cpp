@@ -24,7 +24,7 @@ DeepseekV2DecoderLayer::DeepseekV2DecoderLayer(std::shared_ptr<infinilm::config:
             && layer_idx >= first_k_dense_replace
             && (moe_layer_freq == 0 || layer_idx % moe_layer_freq == 0);
     if (use_moe_) {
-        moe_mlp_ = this->register_module<DeepseekV2MoE>("mlp", model_config, device);
+        moe_mlp_ = this->register_module<DeepseekV2MoE>("mlp", model_config, layer_idx, device);
     } else {
         dense_mlp_ = this->register_module<DeepseekV2MLP>("mlp", model_config, device);
     }
