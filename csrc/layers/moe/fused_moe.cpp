@@ -1,5 +1,7 @@
 #include "fused_moe.hpp"
 
+#include "../moe/kt_moe_callback.hpp"
+
 #include "dispatcher/dispatcher_factory.hpp"
 #include "ep/ep_config.hpp"
 #include "runner/cuda_fused_moe_runner.hpp"
@@ -12,8 +14,15 @@ namespace infinilm::layers::moe {
 
 FusedMoE::FusedMoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,
-                   size_t layer_id) {
-    (void)layer_id;
+                   size_t layer_id)
+    : layer_id_(layer_id),
+      skip_experts_(model_config->get_or<bool>("use_kt_moe", false)) {
+    if (skip_experts_) {
+        // KT offload: routed experts live on CPU (kt-kernel); skip building
+        // the GPU dispatcher/runner entirely. forward() consults the KT
+        // callback registry.
+        return;
+    }
 
     const EPConfig ep_config = make_ep_config();
     const size_t num_experts = model_config->get<size_t>("num_experts");
@@ -41,6 +50,22 @@ FusedMoE::FusedMoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
 infinicore::Tensor FusedMoE::forward(const infinicore::Tensor &hidden_states,
                                      const TopKOutput &topk_output,
                                      const MoeWeights &weights) const {
+    // KT (KTransformers) branch: delegate routed-expert compute to CPU-GPU
+    // heterogeneous offload before touching GPU weights.
+    {
+        auto kt_cb = infinilm::layers::moe::KTMoECallbackRegistry::instance().get(
+            static_cast<int>(layer_id_));
+        if (kt_cb) {
+            return (*kt_cb)(hidden_states, topk_output.topk_weights, topk_output.topk_ids,
+                            static_cast<int>(layer_id_));
+        }
+        if (skip_experts_) {
+            throw std::runtime_error(
+                "FusedMoE: use_kt_moe is enabled but no KT callback is registered for layer "
+                + std::to_string(layer_id_));
+        }
+    }
+
     auto dispatch_output = dispatcher_->dispatch(hidden_states, topk_output, workspace_);
     auto combine_input = runner_->run(dispatch_output, weights, workspace_);
     return dispatcher_->combine(combine_input, workspace_);
