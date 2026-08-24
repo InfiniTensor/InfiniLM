@@ -26,9 +26,7 @@ jobs:
 
       - name: Install format dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-16
-          pip install black ruff==0.15.20 colorama
+          python -m pip install clang-format==21.1.8 black ruff==0.15.20 colorama
 
       - name: Check Format
         run: |
