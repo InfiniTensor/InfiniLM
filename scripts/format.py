@@ -250,7 +250,7 @@ def main():
         "--check", action="store_true", help="Check files without modifying them."
     )
     parser.add_argument(
-        "--c", default="clang-format-16", help="C formatter (default: clang-format-16)"
+        "--c", default="clang-format", help="C formatter (default: clang-format)"
     )
     parser.add_argument("--py", default="ruff", help="Python formatter (default: ruff)")
     args = parser.parse_args()
