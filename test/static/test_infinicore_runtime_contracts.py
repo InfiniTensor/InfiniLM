@@ -175,6 +175,14 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             ),
         )
 
+        self.assertNotIn("make_shared<infinilm::quantization::MXFP4>", quant_method)
+        self.assertRegex(
+            quant_method,
+            re.compile(
+                r'quant_method == "quark"\)\s*\{\s*' r"throw std::runtime_error"
+            ),
+        )
+
         quant_header = read_source("csrc/config/quant_config.hpp")
         kv_config = function_body(
             quant_header,
@@ -245,6 +253,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn('add_files("csrc/**.cpp")', model_target)
         self.assertNotIn('add_files("csrc/**.cc")', model_target)
         self.assertNotIn('remove_files("csrc/infinicore/', model_target)
+        self.assertIn(
+            'remove_files("csrc/layers/quantization/mxfp4.cpp")', model_target
+        )
 
         static_attention = read_source("csrc/layers/attention/backends/static_attn.cpp")
         self.assertNotIn("if (false)", static_attention)

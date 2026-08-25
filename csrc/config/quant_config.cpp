@@ -24,7 +24,8 @@ QuantConfig::get_quantization_method() const {
         throw std::runtime_error(
             "GPTQ quantization is unsupported until its kernels are available in InfiniOps.");
     } else if (quant_method == "quark") {
-        return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
+        throw std::runtime_error(
+            "MXFP4 quantization is unsupported until its kernels are available in InfiniOps.");
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }
