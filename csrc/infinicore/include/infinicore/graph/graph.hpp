@@ -21,6 +21,7 @@ public:
 class GraphOperator {
 public:
     virtual void run() const = 0;
+    virtual bool is_device_graph_capture_safe() const { return true; }
     virtual ~GraphOperator() = default;
 };
 
@@ -39,7 +40,7 @@ protected:
 
 class Graph {
 private:
-    // Declared first so it outlives operators and the native device graph.
+    // Declared first so it outlives operators and all segment device graphs.
     std::shared_ptr<::infinicore::Runtime> runtime_lease_;
     std::shared_ptr<void> allocation_lease_;
 
@@ -61,7 +62,17 @@ private:
                         std::shared_ptr<void> allocation_lease);
 
     struct DeviceGraph;
-    std::unique_ptr<DeviceGraph> device_graph_;
+    struct Segment {
+        explicit Segment(bool capture_safe);
+        ~Segment() noexcept;
+
+        void run() const;
+
+        bool capture_safe;
+        std::vector<std::shared_ptr<GraphOperator>> ops;
+        std::unique_ptr<DeviceGraph> device_graph_;
+    };
+    std::vector<std::unique_ptr<Segment>> segments_;
 
     friend class ::infinicore::Runtime;
 };

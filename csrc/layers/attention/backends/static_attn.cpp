@@ -46,6 +46,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto shape = q_reshaped->shape();
     size_t batch_size = shape[0];
     size_t seq_len = shape[2];
+    size_t value_head_dim = v_reshaped->size(3);
 
     auto past_sequence_lengths = attn_metadata.past_sequence_lengths;
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
@@ -143,6 +144,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_ca
     auto update_len = key->size(2);
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(3)}});
 
     size_t max_batch_size = k_cache_layer->size(0);
     size_t max_seq_len = k_cache_layer->size(2);
