@@ -30,11 +30,7 @@ inline void bind(py::module &m) {
 
         .def("elapsed_time", &DeviceEvent::elapsed_time, "Calculate elapsed time between this event and another event (in milliseconds)", py::arg("other"))
 
-        .def(
-            "wait", [](const DeviceEvent &event, std::uintptr_t stream) {
-                event.wait(reinterpret_cast<infini::rt::runtime::Stream>(stream));
-            },
-            "Make a stream wait for this event to complete", py::arg("stream") = 0)
+        .def("wait", [](const DeviceEvent &event, std::uintptr_t stream) { event.wait(reinterpret_cast<infini::rt::runtime::Stream>(stream)); }, "Make a stream wait for this event to complete", py::arg("stream") = 0)
 
         .def_property_readonly("device", &DeviceEvent::device, "Get the device where this event was created")
         .def_property_readonly("is_recorded", &DeviceEvent::is_recorded, "Check if the event has been recorded");

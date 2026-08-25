@@ -2,7 +2,6 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -101,9 +100,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
         )
 
     def test_packed_prefill_selects_last_hidden_with_supported_ops(self) -> None:
-        source = read_source(
-            "csrc/layers/causal_lm_templates/text_causal_lm.hpp"
-        )
+        source = read_source("csrc/layers/causal_lm_templates/text_causal_lm.hpp")
         constructor = function_body(source, "TextCausalLM(std::shared_ptr")
         forward = function_body(
             source, "Output forward(const Input &input) const override"

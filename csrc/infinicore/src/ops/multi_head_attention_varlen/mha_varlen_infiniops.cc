@@ -151,11 +151,11 @@ void run(void *planned_meta) {
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> block_table = planned->block_table
                                                              ? std::optional<infini::ops::Tensor>{
-                                                                 planned->block_table->tensor(*planned->block_table_tensor)}
+                                                                   planned->block_table->tensor(*planned->block_table_tensor)}
                                                              : std::nullopt;
     const std::optional<infini::ops::Tensor> alibi_slopes = planned->alibi_slopes
                                                               ? std::optional<infini::ops::Tensor>{
-                                                                  planned->alibi_slopes->tensor(*planned->alibi_slopes_tensor)}
+                                                                    planned->alibi_slopes->tensor(*planned->alibi_slopes_tensor)}
                                                               : std::nullopt;
 
     infini::ops::FlashAttnVarlenFunc::Call(
