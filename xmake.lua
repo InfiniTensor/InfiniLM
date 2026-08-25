@@ -119,6 +119,7 @@ target("_infinilm")
     add_files("csrc/**.cc|infinicore/**.cc|models/**.cc")
     add_files("csrc/models/*.cpp")
     add_files("csrc/models/qwen3/*.cpp")
+    remove_files("csrc/layers/quantization/mxfp4.cpp")
 
     set_installdir("python/infinilm")
 target_end()
