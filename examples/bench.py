@@ -330,6 +330,41 @@ def convert_multimodal_inputs(model, processor, processed_inputs):
             ),
         }
 
+    if model.model_type in {"qwen3_5", "qwen3_5_moe"}:
+        import torch
+
+        pixel_values = processed_inputs.get("pixel_values")
+        image_grid_thw = processed_inputs.get("image_grid_thw")
+        image_bound = processed_inputs.get("image_bound")
+        if pixel_values is None or image_grid_thw is None or image_bound is None:
+            raise ValueError("Qwen3.5 image preprocessing returned incomplete inputs")
+
+        grids = processor._as_grid_list(image_grid_thw)
+        bounds = processor._get_image_bounds(processed_inputs)
+        if bounds is None or len(grids) != 1 or bounds.shape[0] != 1:
+            raise ValueError("Expected exactly one preprocessed Qwen3.5 image")
+
+        if isinstance(pixel_values, list):
+            if len(pixel_values) != 1:
+                raise ValueError("Expected exactly one Qwen3.5 pixel tensor")
+            pixel_values = pixel_values[0]
+        elif not isinstance(pixel_values, torch.Tensor):
+            pixel_values = torch.as_tensor(pixel_values)
+
+        pixel_dtype = getattr(processor, "pixel_values_dtype", None)
+        if pixel_dtype is not None:
+            pixel_values = pixel_values.to(dtype=pixel_dtype)
+
+        return {
+            "pixel_values": infinicore.from_torch(pixel_values.contiguous()),
+            "image_grid_thw": infinicore.from_torch(
+                grids[0].to(torch.int64).contiguous()
+            ),
+            "image_bound": infinicore.from_torch(
+                bounds[0].to(torch.int64).contiguous()
+            ),
+        }
+
     if model.model_type != "minicpmv":
         raise ValueError(
             f"--image is not supported by bench.py for model_type={model.model_type!r}"
@@ -561,9 +596,12 @@ class TestModel:
         inputs = {
             "pixel_values": [self.multimodal_inputs["pixel_values"]] * batch_size,
             "image_bound": [self.multimodal_inputs["image_bound"]] * batch_size,
-            "tgt_sizes": [self.multimodal_inputs["tgt_sizes"]] * batch_size,
             "image_req_ids": list(range(batch_size)),
         }
+        for key in ("tgt_sizes", "image_grid_thw"):
+            if key in self.multimodal_inputs:
+                inputs[key] = [self.multimodal_inputs[key]] * batch_size
+
         if self.model.model_type == "videonsa":
             if prompt_ids is None:
                 raise ValueError("VideoNSA multimodal generation requires prompt IDs")
@@ -578,6 +616,24 @@ class TestModel:
             inputs.update(
                 prompt_position_ids=position_ids,
                 position_id_delta=position_id_delta,
+            )
+        elif self.model.model_type in {"qwen3_5", "qwen3_5_moe"}:
+            if prompt_ids is None:
+                raise ValueError("Qwen3.5 multimodal generation requires prompt IDs")
+
+            class BenchmarkRequest:
+                processed_inputs = self.processed_multimodal_inputs
+
+                def get_input_tokens(self):
+                    return prompt_ids
+
+            request = BenchmarkRequest()
+            position_ids = self.processor._build_mrope_position_ids(
+                request, 0, len(prompt_ids)
+            )
+            inputs.update(
+                prompt_position_ids=position_ids.tolist(),
+                position_id_delta=self.processor._compute_mrope_delta(request),
             )
         return inputs
 
@@ -765,18 +821,31 @@ if __name__ == "__main__":
     framing_length = len(prompt_token_segments[0]) + len(prompt_token_segments[2])
     invalid_input_lens = [length for length in input_len if length < framing_length]
     if invalid_input_lens:
-        if cli_option_is_set("--input-len"):
+        natural_input_len = sum(len(segment) for segment in prompt_token_segments)
+        if cfg.image is not None:
+            adjusted_input_lens = [
+                natural_input_len if length < framing_length else length
+                for length in input_len
+            ]
+            print(
+                f"[bench] requested multimodal input_len={invalid_input_lens[0]} "
+                f"is shorter than the fixed image/chat framing "
+                f"({framing_length} tokens); using natural prompt length "
+                f"{natural_input_len}."
+            )
+            input_len = adjusted_input_lens
+        elif cli_option_is_set("--input-len"):
             raise ValueError(
                 f"input_len={invalid_input_lens[0]} is shorter than the chat framing "
                 f"({framing_length} tokens)"
             )
-        natural_input_len = sum(len(segment) for segment in prompt_token_segments)
-        print(
-            f"[bench] default input_len={input_len[0]} is shorter than the chat "
-            f"framing ({framing_length} tokens); using the natural prompt length "
-            f"{natural_input_len}."
-        )
-        input_len = [natural_input_len]
+        else:
+            print(
+                f"[bench] default input_len={input_len[0]} is shorter than the chat "
+                f"framing ({framing_length} tokens); using the natural prompt length "
+                f"{natural_input_len}."
+            )
+            input_len = [natural_input_len]
 
     cases_dict = get_test_cases(
         model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
