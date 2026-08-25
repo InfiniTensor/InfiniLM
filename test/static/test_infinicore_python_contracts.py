@@ -126,6 +126,10 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
             "xxhash",
         ):
             self.assertIn(f'"{package}"', dependencies)
+        loader = read_source("python/infinicore/lib/__init__.py")
+        self.assertLess(
+            loader.index("import torch"), loader.index("from . import _infinicore")
+        )
 
     def test_device_binding_uses_native_infini_rt_types(self) -> None:
         source = read_source("csrc/infinicore/src/pybind11/device.hpp")
