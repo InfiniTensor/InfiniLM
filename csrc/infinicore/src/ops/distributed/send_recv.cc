@@ -37,7 +37,7 @@ void runSend(const SendPlannedMeta &meta) {
                       reinterpret_cast<void *>(infinicore::context::getStream())));
 }
 
-void runRecv(const RecvPlannedMeta &meta) {
+void runRecv(RecvPlannedMeta &meta) {
     detail::checkInfiniccl(
         "infinicclRecv",
         infinicclRecv(meta.output->data(),
@@ -83,7 +83,7 @@ Recv::~Recv() {
 }
 
 void Recv::run() const {
-    runRecv(*reinterpret_cast<const RecvPlannedMeta *>(planned_meta_));
+    runRecv(*reinterpret_cast<RecvPlannedMeta *>(planned_meta_));
 }
 
 void Recv::execute(Tensor output,

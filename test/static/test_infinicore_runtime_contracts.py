@@ -353,6 +353,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertGreaterEqual(source.count("detail::toInfinicclDataType"), 3)
         self.assertEqual(source.count("detail::checkInfiniccl("), 2)
         self.assertNotIn("infiniDtype_t", source)
+        self.assertIn("void runRecv(RecvPlannedMeta &meta)", source)
+        recv_run = function_body(source, "void Recv::run() const")
+        self.assertIn("reinterpret_cast<RecvPlannedMeta *>(planned_meta_)", recv_run)
+        self.assertNotIn("const RecvPlannedMeta", recv_run)
 
     def test_communication_group_initialization_is_synchronized(self) -> None:
         source = read_source("csrc/engine/distributed/communication_group.cpp")
