@@ -87,6 +87,8 @@ public:
     DataType dtype() const { return dtype_; }
     const std::optional<std::vector<int>> &mrope_section() const { return mrope_section_; }
     bool mrope_interleaved() const { return mrope_interleaved_; }
+    const Tensor &sin_cache() const { return sin_cache_; }
+    const Tensor &cos_cache() const { return cos_cache_; }
 
     // String representation
     std::string extra_repr() const;

@@ -55,6 +55,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "mha_kvcache/mha_kvcache_infiniops.cc": 3,
             "mul/mul_infiniops.cc": 3,
             "multi_head_attention_varlen/mha_varlen_infiniops.cc": 3,
+            "ones/ones_infiniops.cc": 3,
             "paged_caching/paged_caching_infiniops.cc": 3,
             "random_sample/random_sample_infiniops.cc": 1,
             "rearrange/rearrange_infiniops.cc": 3,
@@ -305,17 +306,48 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("packed_weight, alpha, beta", packed)
         self.assertNotIn("packed_weight->permute", packed)
 
-    def test_pipeline_send_recv_is_eager_and_uses_modern_infiniccl(self) -> None:
+    def test_pipeline_send_recv_is_graph_recordable_and_uses_modern_infiniccl(
+        self,
+    ) -> None:
         header = read_source(
             "csrc/infinicore/include/infinicore/ops/distributed/send_recv.hpp"
         )
         source = read_source("csrc/infinicore/src/ops/distributed/send_recv.cc")
+        graph_header = read_source("csrc/infinicore/include/infinicore/graph/graph.hpp")
+        graph_source = read_source("csrc/infinicore/src/graph/graph.cc")
 
-        self.assertNotIn("GraphOperator", header)
-        self.assertIn("context::isGraphRecording()", source)
-        self.assertIn("throw std::runtime_error", source)
+        dispatch = graph_header[
+            graph_header.index("#define INFINICORE_GRAPH_OP_RECORD_OR_RUN") :
+        ]
+        self.assertIn("context::addGraphOperator(___op)", dispatch)
+        add_operator = function_body(
+            graph_source, "void Graph::add_operator(std::shared_ptr<GraphOperator> op)"
+        )
+        self.assertIn("op_list_.push_back(op)", add_operator)
+        self.assertNotIn("rejectGraphRecording", source)
         for operation in ("Send", "Recv"):
             with self.subTest(operation=operation):
+                self.assertIn(
+                    f"class {operation} : public graph::GraphOperator", header
+                )
+                class_start = header.index(f"class {operation}")
+                class_end = header.index("};", class_start)
+                self.assertIn(
+                    "is_device_graph_capture_safe() const override { return false; }",
+                    header[class_start:class_end],
+                )
+                constructor = function_body(source, f"{operation}::{operation}(")
+                self.assertIn("validateTensor", constructor)
+                self.assertIn(f"new {operation}PlannedMeta", constructor)
+                self.assertNotIn(f"infiniccl{operation}(", constructor)
+                execute = function_body(source, f"void {operation}::execute(")
+                self.assertIn(f"INFINICORE_GRAPH_OP_RECORD_OR_RUN({operation}", execute)
+                run = function_body(source, f"void {operation}::run() const")
+                self.assertIn(f"run{operation}", run)
+                destructor = function_body(source, f"{operation}::~{operation}()")
+                self.assertIn(
+                    f"delete reinterpret_cast<{operation}PlannedMeta *>", destructor
+                )
                 self.assertIn(f'"infiniccl{operation}"', source)
                 self.assertIn(f"infiniccl{operation}(", source)
         self.assertGreaterEqual(source.count("detail::toInfinicclDataType"), 3)
@@ -1066,11 +1098,19 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("USE_INFINIRT_GRAPH", runtime_target)
 
         graph_header = read_source("csrc/infinicore/include/infinicore/graph/graph.hpp")
-        lease = graph_header.index("runtime_lease_")
+        runtime_lease = graph_header.index("runtime_lease_")
+        allocation_lease = graph_header.index("allocation_lease_")
         operators = graph_header.index("op_list_")
-        device_graph = graph_header.index("device_graph_")
-        self.assertLess(lease, operators)
-        self.assertLess(lease, device_graph)
+        segments = graph_header.index("segments_")
+        self.assertLess(runtime_lease, operators)
+        self.assertLess(allocation_lease, operators)
+        self.assertLess(runtime_lease, segments)
+        self.assertLess(allocation_lease, segments)
+
+        segment_start = graph_header.index("struct Segment {")
+        segment_end = graph_header.index("segments_", segment_start)
+        segment = graph_header[segment_start:segment_end]
+        self.assertLess(segment.index("ops;"), segment.index("device_graph_;"))
         self.assertIn("friend class ::infinicore::Runtime", graph_header)
 
         runtime_source = read_source("csrc/infinicore/src/context/runtime/runtime.cc")

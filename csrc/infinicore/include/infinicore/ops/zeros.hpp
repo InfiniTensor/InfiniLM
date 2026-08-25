@@ -5,7 +5,9 @@
 #include "common/op.hpp"
 
 namespace infinicore::op {
-INFINICORE_GRAPH_OP_CLASS(Ones, Tensor);
 
-void ones_(Tensor output);
+INFINICORE_GRAPH_OP_CLASS(Zeros, Tensor);
+
+void zeros_(Tensor output);
+
 } // namespace infinicore::op

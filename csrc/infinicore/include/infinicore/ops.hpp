@@ -75,3 +75,4 @@
 #include "ops/swap.hpp"
 #include "ops/swiglu.hpp"
 #include "ops/topksoftmax.hpp"
+#include "ops/zeros.hpp"

@@ -5,9 +5,48 @@
 #include "../utils.hpp"
 
 #include <spdlog/spdlog.h>
+#include <sstream>
 #include <stdexcept>
 
 namespace infinicore {
+namespace {
+std::string shape_to_string(const Shape &shape) {
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < shape.size(); ++i) {
+        if (i != 0) {
+            oss << ",";
+        }
+        oss << shape[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
+std::string strides_to_string(const Strides &strides) {
+    std::ostringstream oss;
+    oss << "[";
+    for (size_t i = 0; i < strides.size(); ++i) {
+        if (i != 0) {
+            oss << ",";
+        }
+        oss << strides[i];
+    }
+    oss << "]";
+    return oss.str();
+}
+
+std::string incompatible_view_message(
+    const Shape &old_shape,
+    const Strides &old_strides,
+    const Shape &new_shape) {
+    return "Incompatible shape for view operation: old_shape="
+         + shape_to_string(old_shape)
+         + " old_strides=" + strides_to_string(old_strides)
+         + " new_shape=" + shape_to_string(new_shape);
+}
+} // namespace
+
 Tensor TensorImpl::squeeze(size_t dim) const {
     // Create new shape with dimension of size one removed at dim
     if (meta_.shape[dim] != 1) {
@@ -133,14 +172,16 @@ Tensor TensorImpl::view(const Shape &new_shape) const {
         // Find which merged dimension contains this new dimension
         while (new_shape[i] > remaining_size) {
             if (++merged_idx >= merged_shape.size()) {
-                throw std::runtime_error("Incompatible shape for view operation.");
+                throw std::runtime_error(
+                    incompatible_view_message(old_shape, old_strides, new_shape));
             }
             current_stride = merged_strides[merged_idx];
             remaining_size = merged_shape[merged_idx];
         }
 
         if (remaining_size % new_shape[i] != 0) {
-            throw std::runtime_error("Incompatible shape for view operation.");
+            throw std::runtime_error(
+                incompatible_view_message(old_shape, old_strides, new_shape));
         };
 
         new_strides[i] = current_stride * (remaining_size / new_shape[i]);

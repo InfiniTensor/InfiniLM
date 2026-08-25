@@ -4,8 +4,6 @@
 
 #include "infinicore/context/context.hpp"
 
-#include <stdexcept>
-
 namespace infinicore::op::distributed {
 namespace {
 
@@ -16,39 +14,90 @@ void validateTensor(const Tensor &tensor) {
     (void)detail::toInfinicclDataType(tensor->dtype());
 }
 
-void rejectGraphRecording() {
-    if (infinicore::context::isGraphRecording()) {
-        throw std::runtime_error(
-            "InfiniCCL point-to-point communication cannot be recorded in a device graph");
-    }
+struct SendPlannedMeta {
+    graph::GraphTensor input;
+    int peer;
+    infinicclComm_t communicator;
+};
+
+struct RecvPlannedMeta {
+    graph::GraphTensor output;
+    int peer;
+    infinicclComm_t communicator;
+};
+
+void runSend(const SendPlannedMeta &meta) {
+    detail::checkInfiniccl(
+        "infinicclSend",
+        infinicclSend(meta.input->data(),
+                      meta.input->numel(),
+                      detail::toInfinicclDataType(meta.input->dtype()),
+                      meta.peer,
+                      meta.communicator,
+                      reinterpret_cast<void *>(infinicore::context::getStream())));
+}
+
+void runRecv(const RecvPlannedMeta &meta) {
+    detail::checkInfiniccl(
+        "infinicclRecv",
+        infinicclRecv(meta.output->data(),
+                      meta.output->numel(),
+                      detail::toInfinicclDataType(meta.output->dtype()),
+                      meta.peer,
+                      meta.communicator,
+                      reinterpret_cast<void *>(infinicore::context::getStream())));
 }
 
 } // namespace
 
-void send(const Tensor &input, int peer, infinicclComm_t communicator) {
+Send::Send(const Tensor &input, int peer, infinicclComm_t communicator) {
     validateTensor(input);
-    rejectGraphRecording();
-    detail::checkInfiniccl(
-        "infinicclSend",
-        infinicclSend(input->data(),
-                      input->numel(),
-                      detail::toInfinicclDataType(input->dtype()),
-                      peer,
-                      communicator,
-                      reinterpret_cast<void *>(infinicore::context::getStream())));
+    planned_meta_ = new SendPlannedMeta{
+        graph::GraphTensor(input), peer, communicator};
+}
+
+Send::~Send() {
+    delete reinterpret_cast<SendPlannedMeta *>(planned_meta_);
+    planned_meta_ = nullptr;
+}
+
+void Send::run() const {
+    runSend(*reinterpret_cast<const SendPlannedMeta *>(planned_meta_));
+}
+
+void Send::execute(const Tensor &input,
+                   int peer,
+                   infinicclComm_t communicator) {
+    INFINICORE_GRAPH_OP_RECORD_OR_RUN(Send, input, peer, communicator);
+}
+
+Recv::Recv(Tensor output, int peer, infinicclComm_t communicator) {
+    validateTensor(output);
+    planned_meta_ = new RecvPlannedMeta{
+        graph::GraphTensor(output), peer, communicator};
+}
+
+Recv::~Recv() {
+    delete reinterpret_cast<RecvPlannedMeta *>(planned_meta_);
+    planned_meta_ = nullptr;
+}
+
+void Recv::run() const {
+    runRecv(*reinterpret_cast<const RecvPlannedMeta *>(planned_meta_));
+}
+
+void Recv::execute(Tensor output,
+                   int peer,
+                   infinicclComm_t communicator) {
+    INFINICORE_GRAPH_OP_RECORD_OR_RUN(Recv, output, peer, communicator);
+}
+
+void send(const Tensor &input, int peer, infinicclComm_t communicator) {
+    Send::execute(input, peer, communicator);
 }
 
 void recv_(Tensor output, int peer, infinicclComm_t communicator) {
-    validateTensor(output);
-    rejectGraphRecording();
-    detail::checkInfiniccl(
-        "infinicclRecv",
-        infinicclRecv(output->data(),
-                      output->numel(),
-                      detail::toInfinicclDataType(output->dtype()),
-                      peer,
-                      communicator,
-                      reinterpret_cast<void *>(infinicore::context::getStream())));
+    Recv::execute(output, peer, communicator);
 }
 
 Tensor recv(const Shape &shape,
