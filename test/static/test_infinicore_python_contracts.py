@@ -259,7 +259,11 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
             self.assertNotIn(f'"{legacy_device}"', benchmark)
             self.assertNotIn(f"--{legacy_device}", readme)
         self.assertIn("raise ValueError", base_config)
-        self.assertNotIn("--attn=flash-attn", readme)
+        self.assertIn(
+            "enable one-time weight pre-transposition for packed GEMM", base_config
+        )
+        self.assertNotIn("weight pre-transposition optimization (Ascend)", base_config)
+        self.assertIn("--attn=flash-attn", readme)
 
         llama_utils = read_source("test/models/llama/utils.py")
         for legacy_dtype in (

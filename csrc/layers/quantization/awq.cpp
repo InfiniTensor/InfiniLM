@@ -35,7 +35,7 @@ infinicore::Tensor AWQ::forward(
     bool,
     float /*alpha*/) const {
     throw std::runtime_error(
-        "AWQ quantization is unsupported until its kernels are available in InfiniOps.");
+        "AWQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense AWQ GEMM path.");
 }
 
 std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
@@ -43,7 +43,7 @@ std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
     const infinicore::Device &,
     int /*split_dim*/) const {
     throw std::runtime_error(
-        "AWQ quantization is unsupported until its kernels are available in InfiniOps.");
+        "AWQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense AWQ GEMM path.");
 }
 
 std::vector<SplitParam> AWQ::split_params(

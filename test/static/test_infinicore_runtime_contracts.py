@@ -160,17 +160,36 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(bias, alpha)
         self.assertLess(alpha, beta)
 
-    def test_qwen3_rejects_unsupported_linear_bias(self) -> None:
+    def test_qwen3_linear_bias_uses_supported_infiniops_composition(
+        self,
+    ) -> None:
         source = read_source("csrc/models/qwen3/qwen3_for_causal_lm.cpp")
         factory = function_body(source, "create_qwen3_model_config(")
 
-        self.assertIn('get_or<bool>("attention_bias", true)', factory)
-        self.assertIn('get_or<bool>("attention_output_bias", false)', factory)
-        self.assertIn('get_or<bool>("mlp_bias", false)', factory)
-        self.assertIn(
-            "linear bias is unsupported by the canonical InfiniOps Gemm backend",
-            factory,
+        self.assertNotIn("linear bias is unsupported", factory)
+        for field in ("attention_bias", "attention_output_bias", "mlp_bias"):
+            self.assertNotIn(field, factory)
+
+        linear = read_source("csrc/infinicore/src/ops/linear/linear.cc")
+        for signature in ("void linear_(", "void linear_packed_("):
+            with self.subTest(signature=signature):
+                body = function_body(linear, signature)
+                gemm = body.index("gemm_(")
+                add = body.index("add_(out_view, out_view, bias.value())")
+                self.assertIn("alpha, 0.0f", body)
+                self.assertNotIn("rearrange_", body)
+                self.assertLess(gemm, add)
+
+        none_quantization = read_source(
+            "csrc/layers/quantization/none_quantization.cpp"
         )
+        layout = function_body(none_quantization, "NoneQuantization::get_param_layout(")
+        self.assertIn("const bool tensor_parallel = split_dim >= 0", layout)
+        self.assertIn("tensor_parallel ? split_dim : 0", layout)
+        self.assertIn("tensor_parallel ? tp_size : 1", layout)
+        self.assertIn("const bool column_parallel = split_dim == 0", layout)
+        self.assertIn('{"bias", {out_features}, dtype, 0', layout)
+        self.assertIn("column_parallel ? tp_size : 1", layout)
 
     def test_empty_operator_dispatch_throws(self) -> None:
         source = read_source(
@@ -196,6 +215,11 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 r"throw std::runtime_error"
             ),
         )
+        self.assertIn("end-to-end activation quantization", quant_method)
+        self.assertIn("dense AWQ GEMM path", quant_method)
+        self.assertIn("dense GPTQ/Marlin GEMM path", quant_method)
+        self.assertIn("InfiniOps-backed MXFP4 execution path", quant_method)
+        self.assertNotIn("until its kernels are available", quant_method)
 
         self.assertNotIn("make_shared<infinilm::quantization::MXFP4>", quant_method)
         self.assertRegex(
@@ -213,22 +237,55 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("KVQuantAlgo::INT8", kv_config)
         self.assertIn("throw std::runtime_error", kv_config)
         self.assertIn("KV cache INT8 quantization is unsupported", kv_config)
+        self.assertIn("require FP16/BF16 KV tensors", kv_config)
+        self.assertIn("no INT8 conversion path", kv_config)
 
         attention_config = read_source("csrc/backends/attention_backends.hpp")
         parse_backend = function_body(
             attention_config,
             "inline AttentionBackend parse_attention_backend",
         )
-        self.assertNotIn("return AttentionBackend::FLASH_ATTN", parse_backend)
+        self.assertRegex(
+            parse_backend,
+            re.compile(
+                r'backend == "flash-attn"\)\s*\{\s*'
+                r"return AttentionBackend::FLASH_ATTN"
+            ),
+        )
         self.assertNotIn("return AttentionBackend::FLASHINFER", parse_backend)
-        for backend in ("flash-attn", "flashinfer"):
-            self.assertRegex(
-                parse_backend,
-                re.compile(
-                    rf'backend == "{backend}"\)\s*\{{\s*'
-                    r"throw std::invalid_argument"
-                ),
-            )
+        self.assertRegex(
+            parse_backend,
+            re.compile(
+                r'backend == "flashinfer"\)\s*\{\s*'
+                r"throw std::invalid_argument"
+            ),
+        )
+        self.assertIn(
+            "selected InfiniOps provider only implements sampling", parse_backend
+        )
+
+        infer_engine = read_source("csrc/engine/infer_engine.cpp")
+        flash_cache_validation = infer_engine.index(
+            "attention_backend_ == backends::AttentionBackend::FLASH_ATTN"
+        )
+        config_creation = infer_engine.index("ConfigFactory::createConfig")
+        rank_workers = infer_engine.index("RankWorker", config_creation)
+        self.assertIn(
+            "dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)",
+            infer_engine,
+        )
+        self.assertIn("device_type != infinicore::Device::Type::kNvidia", infer_engine)
+        self.assertIn("paged_cache_config->num_blocks() == 0", infer_engine)
+        self.assertIn("paged_cache_config->block_size() == 0", infer_engine)
+        self.assertIn("paged_cache_config->block_size() % 256 != 0", infer_engine)
+        self.assertIn("block size divisible by 256", infer_engine)
+        self.assertIn("dtype != infinicore::DataType::kFloat16", infer_engine)
+        self.assertIn("dtype != infinicore::DataType::kBFloat16", infer_engine)
+        self.assertIn(
+            "head_dim == 0 || head_dim > 256 || head_dim % 8 != 0", infer_engine
+        )
+        self.assertLess(flash_cache_validation, config_creation)
+        self.assertLess(flash_cache_validation, rank_workers)
 
     def test_modern_model_support_is_gated_before_rank_workers(self) -> None:
         source = read_source("csrc/config/config_factory.cpp")
@@ -238,8 +295,31 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "ConfigFactory::createConfig",
         )
 
-        self.assertIn('kModernModelTypes{"qwen3"}', create)
-        self.assertIn("supported model types: qwen3", create)
+        supported_model_types = {
+            "baichuan",
+            "chatglm",
+            "fm9g",
+            "fm9g7b",
+            "glm4",
+            "internlm3",
+            "llama",
+            "minicpm",
+            "minicpm4",
+            "qwen2",
+            "qwen3",
+        }
+        modern_types = re.search(r"kModernModelTypes\s*\{([^}]*)\}", create)
+        self.assertIsNotNone(modern_types)
+        self.assertEqual(
+            set(re.findall(r'"([^"]+)"', modern_types.group(1))),
+            supported_model_types,
+        )
+        for model_type in supported_model_types:
+            self.assertIn(model_type, create)
+
+        python_engine = read_source("python/infinilm/infer_engine.py")
+        self.assertIn('config_dict.get("model_type") == "minicpm"', python_engine)
+        self.assertIn('config_dict["model_type"] = "minicpm4"', python_engine)
         self.assertLess(
             create.index("if (it == config_map.end())"),
             create.index("kModernModelTypes.find(model_type)"),
@@ -252,7 +332,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
 
         readme = read_source("README.md")
         self.assertIn(
-            "Only `qwen3` can be instantiated by the modern model factory",
+            "The modern model factory enables `baichuan`, `chatglm`, `fm9g`",
             readme,
         )
 
@@ -270,7 +350,18 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
         self.assertEqual(
             set(re.findall(r'"(csrc/models/[^"\n]+)"', model_target)),
-            {"csrc/models/*.cpp", "csrc/models/qwen3/*.cpp"},
+            {
+                "csrc/models/*.cpp",
+                "csrc/models/baichuan/*.cpp",
+                "csrc/models/chatglm/*.cpp",
+                "csrc/models/fm9g/*.cpp",
+                "csrc/models/glm4/*.cpp",
+                "csrc/models/internlm3/*.cpp",
+                "csrc/models/llama/*.cpp",
+                "csrc/models/minicpm4/*.cpp",
+                "csrc/models/qwen2/*.cpp",
+                "csrc/models/qwen3/*.cpp",
+            },
         )
         self.assertNotIn('add_files("csrc/**.cpp")', model_target)
         self.assertNotIn('add_files("csrc/**.cc")', model_target)
@@ -332,12 +423,22 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         header = read_source("csrc/infinicore/include/infinicore/ops/linear.hpp")
         source = read_source("csrc/infinicore/src/ops/linear/linear.cc")
         packed = function_body(source, "void linear_packed_(")
+        none_quantization = read_source(
+            "csrc/layers/quantization/none_quantization.cpp"
+        )
+        split_params = function_body(
+            none_quantization, "NoneQuantization::split_params("
+        )
 
         self.assertIn("Tensor linear_packed(", header)
         self.assertIn("void linear_packed_(", header)
         self.assertIn("gemm_(", packed)
-        self.assertIn("packed_weight, alpha, beta", packed)
+        self.assertIn("packed_weight, alpha, 0.0f", packed)
+        self.assertIn("add_(out_view, out_view, bias.value())", packed)
         self.assertNotIn("packed_weight->permute", packed)
+        self.assertIn("if (weight_prepacked_)", split_params)
+        self.assertIn("weight_narrow_dim = 1 - narrow_dim", split_params)
+        self.assertIn("static_cast<size_t>(weight_narrow_dim)", split_params)
 
     def test_pipeline_send_recv_is_graph_recordable_and_uses_modern_infiniccl(
         self,

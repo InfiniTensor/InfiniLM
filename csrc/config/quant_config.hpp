@@ -26,7 +26,7 @@ public:
 
     void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
         throw std::runtime_error(
-            "KV cache INT8 quantization is unsupported until its kernels are available in InfiniOps; requested dtype `"
+            "KV cache INT8 quantization is unsupported because the selected InfiniOps attention providers require FP16/BF16 KV tensors and InfiniLM has no INT8 conversion path; requested dtype `"
             + infinicore::toString(kv_cache_dtype) + "`.");
     }
 

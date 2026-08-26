@@ -76,13 +76,15 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             read_source("csrc/layers/quantization/base_quantization.cpp"),
             "infinicore::Tensor BaseQuantization::forward_allreduce(",
         )
-        bias_guard = fallback.index("if (has_bias)")
-        forward = fallback.index("auto output = forward(")
+        forward = fallback.index("auto output = forward(params, input, false, alpha)")
         allreduce = fallback.index("distributed::allreduce_(")
-        self.assertLess(bias_guard, forward)
+        bias_guard = fallback.index("if (has_bias)")
+        add_bias = fallback.index("infinicore::op::add_(")
         self.assertLess(forward, allreduce)
-        self.assertIn("throw std::invalid_argument", fallback)
-        self.assertIn("requires a bias-aware backend override", fallback)
+        self.assertLess(allreduce, bias_guard)
+        self.assertLess(bias_guard, add_bias)
+        self.assertIn('params.at("bias")', fallback)
+        self.assertNotIn("throw", fallback)
         self.assertIn("infinicclSum", fallback)
 
         base_quantization = read_source(
