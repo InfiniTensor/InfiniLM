@@ -41,8 +41,7 @@ void *plan(Tensor output, const Tensor &input) {
     const auto total_seq_len = shape[shape.size() - 1];
     INFINICORE_ASSERT(seq_len <= total_seq_len);
 
-    const bool reuses_input = output->data() == input->data() &&
-                              output->strides() == input->strides();
+    const bool reuses_input = output->data() == input->data() && output->strides() == input->strides();
     const bool needs_mask = seq_len != 1 || !reuses_input;
     std::optional<Tensor> mask;
     if (needs_mask) {
