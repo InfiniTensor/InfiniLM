@@ -111,8 +111,30 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         operator_config = read_source("scripts/configs/infiniops_ops.json")
         self.assertNotIn("_infinilm", operator_config)
 
+    def test_causal_softmax_uses_composed_infiniops_operators(self) -> None:
+        source = read_source(
+            "csrc/infinicore/src/ops/causal_softmax/causal_softmax_infiniops.cc"
+        )
+
+        self.assertNotIn('#include "base/causal_softmax.h"', source)
+        self.assertNotIn("infini::ops::CausalSoftmax::Call", source)
+        for operator in ("Fill", "Triu", "Tril", "Add", "Softmax"):
+            self.assertIn(f"infini::ops::{operator}::Call", source)
+        call_offsets = [
+            source.index(f"infini::ops::{operator}::Call")
+            for operator in ("Fill", "Triu", "Tril", "Add", "Softmax")
+        ]
+        self.assertEqual(call_offsets, sorted(call_offsets))
+        self.assertIn("torch_config.set_implementation_index(8)", source)
+        self.assertIn("total_seq_len - seq_len + 1", source)
+        self.assertIn("static_cast<int64_t>(-1)", source)
+        self.assertIn("output->strides() == input->strides()", source)
+
     def test_infiniops_adapter_temporaries_keep_owning_tensors(self) -> None:
         cases = {
+            "causal_softmax/causal_softmax_infiniops.cc": (
+                "std::optional<Tensor> mask_owner;",
+            ),
             "paged_caching/paged_caching_infiniops.cc": (
                 "Tensor scale_owner;",
                 "context::memcpyH2D(scale->data(), &one, sizeof(one), false)",

@@ -1,7 +1,6 @@
 {
   "add": {"implementations": [0]},
   "argmax": {"implementations": [8]},
-  "causal_softmax": {"implementations": [0]},
   "convolution": {"implementations": [0]},
   "copy": {"implementations": [0]},
   "embedding": {"implementations": [0]},
@@ -21,5 +20,7 @@
   "silu_and_mul": {"implementations": [0]},
   "softmax": {"implementations": [0]},
   "top_k_top_p_sampling_from_logits": {"implementations": [16]},
-  "topk_softmax": {"implementations": [0]}
+  "topk_softmax": {"implementations": [0]},
+  "tril": {"implementations": [8]},
+  "triu": {"implementations": [8]}
 }
