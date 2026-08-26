@@ -37,7 +37,9 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::RmsNorm>(
+        planned->y.device.type());
 
     infini::ops::RmsNorm::Call(
         handle,

@@ -69,9 +69,10 @@ InferEngine::InferEngine(
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
     }
     if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
-        if (device_type != infinicore::Device::Type::kNvidia) {
+        if (device_type != infinicore::Device::Type::kNvidia
+            && device_type != infinicore::Device::Type::kMetax) {
             throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA devices");
+                "flash-attn is only available on NVIDIA and MetaX devices");
         }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {

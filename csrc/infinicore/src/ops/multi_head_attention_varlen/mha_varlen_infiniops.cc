@@ -25,7 +25,9 @@ bool is_supported(const Tensor &out,
                   const std::optional<Tensor> &alibi_slopes) {
     const bool paged = block_table.has_value();
     const auto dtype = q->dtype();
-    if (out->device().type() != Device::Type::kNvidia
+    const auto device_type = out->device().type();
+    if ((device_type != Device::Type::kNvidia
+         && device_type != Device::Type::kMetax)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -145,8 +147,9 @@ void run(void *planned_meta) {
     auto *planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
-    config.set_implementation_index(16);
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::FlashAttnVarlenFunc>(
+        planned->q.device.type());
 
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> block_table = planned->block_table
@@ -194,6 +197,12 @@ static bool registered = []() {
         Device::Type::kNvidia, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kNvidia, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kMetax, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kMetax, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kMetax, &cleanup);
     return true;
 }();
 

@@ -27,7 +27,8 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Fill>(
+        planned->output.device.type());
     const auto output = planned->output.tensor(planned->output_tensor);
     infini::ops::Fill::Call(handle, config, output, 1.0, output);
 }

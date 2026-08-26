@@ -16,7 +16,12 @@ bool tryGreedyWithInfiniOps(
     Tensor indices, Tensor logits,
     float random_value, float top_p, int top_k, float temperature) {
     const auto dtype = logits->dtype();
-    if (logits->device().type() != Device::Type::kNvidia
+    const auto device_type = logits->device().type();
+    if ((device_type != Device::Type::kNvidia
+         && device_type != Device::Type::kMetax
+         && device_type != Device::Type::kIluvatar
+         && device_type != Device::Type::kCambricon
+         && device_type != Device::Type::kAscend)
         || (random_value != 0.0f
             && top_p != 0.0f
             && top_k != 1
@@ -33,16 +38,18 @@ bool tryGreedyWithInfiniOps(
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
-    config.set_implementation_index(8);
+    const infiniops::TensorMeta logits_meta(logits);
+    const infiniops::TensorMeta indices_meta(indices);
+    auto argmax_config = infiniops::defaultConfigForDevice<infini::ops::Argmax>(
+        logits_meta.device.type());
     const std::optional<int64_t> no_dim;
     infini::ops::Argmax::Call(
         handle,
-        config,
-        infiniops::TensorMeta(logits).tensor(logits),
+        argmax_config,
+        logits_meta.tensor(logits),
         no_dim,
         false,
-        infiniops::TensorMeta(indices).tensor(indices));
+        indices_meta.tensor(indices));
     return true;
 }
 #endif

@@ -24,7 +24,8 @@ void run(void *planned_meta) {
     auto planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Copy>(
+        planned->y.device.type());
     infini::ops::Copy::Call(
         handle, config, planned->x.tensor(planned->x_tensor), false, planned->y.tensor(planned->y_tensor));
 }

@@ -4,6 +4,7 @@
 #include "infinicore/tensor.hpp"
 
 #include <stdexcept>
+#include <string>
 
 #include "config.h"
 #include "data_type.h"
@@ -54,6 +55,10 @@ inline infini::ops::Device toInfiniOpsDevice(const Device &device) {
         return infini::ops::Device{infini::ops::Device::Type::kMoore, static_cast<int>(device.index())};
     case Device::Type::kIluvatar:
         return infini::ops::Device{infini::ops::Device::Type::kIluvatar, static_cast<int>(device.index())};
+    case Device::Type::kCambricon:
+        return infini::ops::Device{infini::ops::Device::Type::kCambricon, static_cast<int>(device.index())};
+    case Device::Type::kAscend:
+        return infini::ops::Device{infini::ops::Device::Type::kAscend, static_cast<int>(device.index())};
     default:
         throw std::runtime_error("InfiniOps backend does not support this device type.");
     }
@@ -65,10 +70,26 @@ inline bool isSupportedDevice(Device::Type device_type) {
     case Device::Type::kMetax:
     case Device::Type::kMoore:
     case Device::Type::kIluvatar:
+    case Device::Type::kCambricon:
+    case Device::Type::kAscend:
         return true;
     default:
         return false;
     }
+}
+
+template <typename Operator>
+infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type) {
+    const auto implementation_indices = Operator::active_implementation_indices(device_type);
+    if (implementation_indices.empty()) {
+        throw std::runtime_error(
+            "InfiniOps operator has no active implementation for device '"
+            + std::string(infini::ops::Device::StringFromType(device_type)) + "'.");
+    }
+
+    infini::ops::Config config;
+    config.set_implementation_index(implementation_indices.front());
+    return config;
 }
 
 template <typename Dispatcher, typename Function>
@@ -77,6 +98,8 @@ void registerSupportedDevices(Dispatcher &dispatcher, Function function) {
     dispatcher.registerDevice(Device::Type::kMetax, function);
     dispatcher.registerDevice(Device::Type::kMoore, function);
     dispatcher.registerDevice(Device::Type::kIluvatar, function);
+    dispatcher.registerDevice(Device::Type::kCambricon, function);
+    dispatcher.registerDevice(Device::Type::kAscend, function);
 }
 
 struct TensorMeta {

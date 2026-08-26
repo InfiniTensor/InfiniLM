@@ -56,15 +56,14 @@ void calculate(
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
-    infini::ops::Config sampling_config;
-    static const auto implementation_index = []() {
-        const auto indices = infini::ops::TopKTopPSamplingFromLogits::active_implementation_indices(
-            infini::ops::Device::Type::kNvidia);
-        INFINICORE_ASSERT(!indices.empty());
-        return indices.front();
-    }();
-    sampling_config.set_implementation_index(implementation_index);
+    const TensorMeta logits_meta(logits);
+    const auto device_type = logits_meta.device.type();
+    auto fill_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Fill>(
+        device_type);
+    auto mul_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Mul>(
+        device_type);
+    auto sampling_config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::TopKTopPSamplingFromLogits>(device_type);
 
     auto logits_2d = logits->view({1, logits->numel()});
     Tensor sampled_logits = logits_2d;
@@ -77,13 +76,13 @@ void calculate(
         const TensorMeta inverse_temperature_meta(inverse_temperature);
         infini::ops::Fill::Call(
             handle,
-            config,
+            fill_config,
             inverse_temperature_meta.tensor(inverse_temperature),
             static_cast<double>(1.0f / temperature),
             inverse_temperature_meta.tensor(inverse_temperature));
         infini::ops::Mul::Call(
             handle,
-            config,
+            mul_config,
             TensorMeta(logits_2d).tensor(logits_2d),
             inverse_temperature_meta.tensor(inverse_temperature),
             TensorMeta(scaled_logits).tensor(scaled_logits));

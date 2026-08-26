@@ -52,16 +52,16 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "gelu/gelu_infiniops.cc": 1,
             "gelutanh/gelutanh_infiniops.cc": 1,
             "gemm/gemm_infiniops.cc": 3,
-            "mha_kvcache/mha_kvcache_infiniops.cc": 3,
+            "mha_kvcache/mha_kvcache_infiniops.cc": 6,
             "mul/mul_infiniops.cc": 3,
-            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 3,
+            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 6,
             "ones/ones_infiniops.cc": 3,
             "paged_caching/paged_caching_infiniops.cc": 3,
             "random_sample/random_sample_infiniops.cc": 1,
             "rearrange/rearrange_infiniops.cc": 3,
             "relu/relu_infiniops.cc": 1,
             "rms_norm/rms_norm_infiniops.cc": 3,
-            "rotary_embedding/rotary_embedding_infiniops.cc": 3,
+            "rotary_embedding/rotary_embedding_infiniops.cc": 15,
             "sigmoid/sigmoid_infiniops.cc": 3,
             "silu/silu_infiniops.cc": 1,
             "silu_and_mul/silu_and_mul_infiniops.cc": 3,
@@ -111,6 +111,27 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         operator_config = read_source("scripts/configs/infiniops_ops.json")
         self.assertNotIn("_infinilm", operator_config)
 
+    def test_infiniops_adapters_select_an_active_implementation(self) -> None:
+        bridge = read_source("csrc/infinicore/src/ops/infiniops_impl.hpp")
+        self.assertIn("Operator::active_implementation_indices(device_type)", bridge)
+        self.assertIn("implementation_indices.empty()", bridge)
+        self.assertIn("implementation_indices.front()", bridge)
+        self.assertIn("no active implementation for device", bridge)
+
+        ops_root = ROOT / "csrc/infinicore/src/ops"
+        adapter_paths = list(ops_root.glob("*/*_infiniops.cc"))
+        adapter_paths.append(ops_root / "random_sample/random_sample.cc")
+        for path in adapter_paths:
+            with self.subTest(adapter=path.relative_to(ops_root).as_posix()):
+                source = path.read_text(encoding="utf-8")
+                if "infini::ops::" not in source or "::Call(" not in source:
+                    continue
+                self.assertIn("defaultConfigForDevice<", source)
+                self.assertNotRegex(
+                    source, re.compile(r"infini::ops::Config\s+[A-Za-z0-9_]+\s*;")
+                )
+                self.assertNotIn(".set_implementation_index(", source)
+
     def test_causal_softmax_uses_composed_infiniops_operators(self) -> None:
         source = read_source(
             "csrc/infinicore/src/ops/causal_softmax/causal_softmax_infiniops.cc"
@@ -125,7 +146,11 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             for operator in ("Fill", "Triu", "Tril", "Add", "Softmax")
         ]
         self.assertEqual(call_offsets, sorted(call_offsets))
-        self.assertIn("torch_config.set_implementation_index(8)", source)
+        for operator in ("Fill", "Triu", "Tril", "Add", "Softmax"):
+            self.assertRegex(
+                source,
+                re.compile(rf"defaultConfigForDevice<\s*infini::ops::{operator}>"),
+            )
         self.assertIn("total_seq_len - seq_len + 1", source)
         self.assertIn("static_cast<int64_t>(-1)", source)
         self.assertIn("output->strides() == input->strides()", source)
@@ -847,11 +872,14 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             self.assertIn(sentinel, wrapper)
         self.assertIn("base/top_k_top_p_sampling_from_logits.h", adapter)
         self.assertIn("infini::ops::TopKTopPSamplingFromLogits::Call", adapter)
-        self.assertIn("active_implementation_indices", adapter)
-        self.assertIn("INFINICORE_ASSERT(!indices.empty())", adapter)
-        self.assertIn("sampling_config.set_implementation_index", adapter)
-        self.assertRegex(adapter, re.compile(r"Fill::Call\(\s*handle,\s*config,"))
-        self.assertRegex(adapter, re.compile(r"Mul::Call\(\s*handle,\s*config,"))
+        for operator in ("Fill", "Mul", "TopKTopPSamplingFromLogits"):
+            self.assertRegex(
+                adapter,
+                re.compile(rf"defaultConfigForDevice<\s*infini::ops::{operator}>"),
+            )
+        self.assertNotIn("set_implementation_index", adapter)
+        self.assertRegex(adapter, re.compile(r"Fill::Call\(\s*handle,\s*fill_config,"))
+        self.assertRegex(adapter, re.compile(r"Mul::Call\(\s*handle,\s*mul_config,"))
         self.assertRegex(
             adapter,
             re.compile(

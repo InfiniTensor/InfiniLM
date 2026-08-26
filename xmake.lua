@@ -2,6 +2,9 @@ add_requires("pybind11")
 
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 local CUDA_ROOT = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
+local NEUWARE_ROOT = os.getenv("NEUWARE_HOME") or "/usr/local/neuware"
+local ASCEND_ROOT = os.getenv("ASCEND_HOME_PATH") or os.getenv("ASCEND_TOOLKIT_HOME") or os.getenv("ASCEND_HOME") or "/usr/local/Ascend/ascend-toolkit/latest"
+local OPERATOR_CALLS_HEADER = INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"
 
 set_toolchains("gcc")
 
@@ -25,6 +28,14 @@ add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
 if os.isdir(CUDA_ROOT .. "/include") then
     add_includedirs(CUDA_ROOT .. "/include")
+end
+if os.isdir(NEUWARE_ROOT .. "/include") then
+    add_includedirs(NEUWARE_ROOT .. "/include")
+    add_linkdirs(NEUWARE_ROOT .. "/lib64")
+end
+if os.isdir(ASCEND_ROOT .. "/include") then
+    add_includedirs(ASCEND_ROOT .. "/include")
+    add_linkdirs(ASCEND_ROOT .. "/lib64")
 end
 
 target("infinicore_runtime")
@@ -66,6 +77,36 @@ target("infinicore_runtime")
     remove_files("csrc/infinicore/src/ops/*/*_flashattn.cc")
     remove_files("csrc/infinicore/src/ops/*/*_hygon.cc")
     remove_files("csrc/infinicore/src/ops/*/*_moore.cc")
+
+    on_load(function (target)
+        if not os.isfile(OPERATOR_CALLS_HEADER) then
+            return
+        end
+        local operator_calls = io.readfile(OPERATOR_CALLS_HEADER)
+        for _, sourcefile in ipairs(os.files("csrc/infinicore/src/ops/*/*_infiniops.cc")) do
+            local source = io.readfile(sourcefile)
+            local missing_call = false
+            for operator_name in source:gmatch('#include%s+"base/([^"]+)%.h"') do
+                if not operator_calls:find('base/' .. operator_name .. '.h', 1, true) then
+                    missing_call = true
+                    break
+                end
+            end
+            if not missing_call then
+                for operator_type in source:gmatch("infini::ops::([%w_]+)::Call") do
+                    local operator_instantiation =
+                        "Operator<::infini::ops::" .. operator_type .. ">"
+                    if not operator_calls:find(operator_instantiation, 1, true) then
+                        missing_call = true
+                        break
+                    end
+                end
+            end
+            if missing_call then
+                target:remove("files", sourcefile)
+            end
+        end
+    end)
 
     set_installdir("python/infinicore")
 target_end()

@@ -21,7 +21,9 @@ bool is_supported(const Tensor &out,
                   const Tensor &block_table,
                   const std::optional<Tensor> &alibi_slopes) {
     const auto dtype = q->dtype();
-    if (out->device().type() != Device::Type::kNvidia
+    const auto device_type = out->device().type();
+    if ((device_type != Device::Type::kNvidia
+         && device_type != Device::Type::kMetax)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -121,8 +123,9 @@ void run(void *planned_meta) {
     auto *planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
-    config.set_implementation_index(16);
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::FlashAttnWithKvcache>(
+        planned->q.device.type());
 
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> cache_seqlens{
@@ -169,6 +172,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kNvidia, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kNvidia, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kNvidia, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMetax, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMetax, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMetax, &cleanup);
     return true;
 }();
 

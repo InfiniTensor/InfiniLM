@@ -65,9 +65,17 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config native_config;
-    infini::ops::Config torch_config;
-    torch_config.set_implementation_index(8);
+    const auto device_type = planned->output.device.type();
+    auto fill_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Fill>(
+        device_type);
+    auto triu_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Triu>(
+        device_type);
+    auto tril_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Tril>(
+        device_type);
+    auto add_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Add>(
+        device_type);
+    auto softmax_config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::Softmax>(device_type);
 
     auto input = planned->input.tensor(planned->input_tensor);
     auto output = planned->output.tensor(planned->output_tensor);
@@ -77,28 +85,28 @@ void run(void *planned_meta) {
 
         infini::ops::Fill::Call(
             handle,
-            native_config,
+            fill_config,
             mask,
             -std::numeric_limits<double>::infinity(),
             mask);
 
         infini::ops::Triu::Call(
             handle,
-            torch_config,
+            triu_config,
             mask,
             planned->mask_diagonal,
             mask);
 
         infini::ops::Tril::Call(
             handle,
-            torch_config,
+            tril_config,
             input,
             planned->score_diagonal,
             output);
 
         infini::ops::Add::Call(
             handle,
-            native_config,
+            add_config,
             output,
             mask,
             output);
@@ -106,7 +114,7 @@ void run(void *planned_meta) {
 
     infini::ops::Softmax::Call(
         handle,
-        native_config,
+        softmax_config,
         output,
         static_cast<int64_t>(-1),
         std::optional<infini::ops::DataType>{},

@@ -47,21 +47,24 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto copy_config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::Copy>(planned->out.device.type());
+    auto fused_add_rms_norm_config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::FusedAddRmsNorm>(planned->out.device.type());
 
     auto out = planned->out.tensor(planned->out_tensor);
     auto residual = planned->residual.tensor(planned->residual_tensor);
 
     if (planned->copy_input) {
-        infini::ops::Copy::Call(handle, config, planned->a.tensor(planned->a_tensor), false, out);
+        infini::ops::Copy::Call(handle, copy_config, planned->a.tensor(planned->a_tensor), false, out);
     }
     if (planned->copy_residual) {
-        infini::ops::Copy::Call(handle, config, planned->b.tensor(planned->b_tensor), false, residual);
+        infini::ops::Copy::Call(handle, copy_config, planned->b.tensor(planned->b_tensor), false, residual);
     }
 
     infini::ops::FusedAddRmsNorm::Call(
         handle,
-        config,
+        fused_add_rms_norm_config,
         out,
         residual,
         std::optional<infini::ops::Tensor>{planned->weight.tensor(planned->weight_tensor)},
