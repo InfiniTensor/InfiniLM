@@ -1,8 +1,7 @@
 #include "base_quantization.hpp"
 
+#include "infinicore/ops/add.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
-
-#include <stdexcept>
 
 namespace infinilm::quantization {
 
@@ -12,14 +11,12 @@ infinicore::Tensor BaseQuantization::forward_allreduce(
     bool has_bias,
     infinicclComm_t communicator,
     float alpha) const {
-    if (has_bias) {
-        throw std::invalid_argument(
-            "BaseQuantization::forward_allreduce requires a bias-aware backend override");
-    }
-
-    auto output = forward(params, input, has_bias, alpha);
+    auto output = forward(params, input, false, alpha);
     infinicore::op::distributed::allreduce_(
         output, output, infinicclSum, communicator);
+    if (has_bias) {
+        infinicore::op::add_(output, output, params.at("bias"));
+    }
     return output;
 }
 

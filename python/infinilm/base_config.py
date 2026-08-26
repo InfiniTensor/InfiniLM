@@ -255,7 +255,7 @@ class BaseConfig:
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",
-            help="enable weight pre-transposition optimization (Ascend)",
+            help="enable one-time weight pre-transposition for packed GEMM",
         )
         self.parser.add_argument(
             "--use-mla",

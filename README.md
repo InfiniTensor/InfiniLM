@@ -42,15 +42,27 @@ python3 -m pip install . --no-build-isolation
 ```
 
 Current migration validation is limited to NVIDIA A100 and dense,
-non-quantized Qwen3 configurations without linear bias. Qwen3-0.6B has passed
-static and paged attention, eager and graph execution, single-request and
-batch-2 inference, greedy and non-greedy sampling, TP2, PP2, and combined
-TP2+PP2. Paged attention was validated with the default 256-token block size.
+non-quantized configurations. Real-weight, two-token static-attention smoke
+tests have passed for the Baichuan, ChatGLM, FM9G, GLM4, InternLM3, Llama,
+MiniCPM4 (`model_type=minicpm` normalized to `minicpm4`), Qwen2, and Qwen3
+model families.
 
-Only `qwen3` can be instantiated by the modern model factory. Other model
-families, quantized models, and biased Qwen3 configurations remain gated.
-Other platforms and custom paged-cache block sizes have not yet been
-validated.
+Qwen3-0.6B has also passed paged attention, eager and graph execution,
+single-request and batch-2 inference, greedy and non-greedy sampling, TP2,
+PP2, and combined TP2+PP2. Explicit FlashAttention passed eager and graph
+execution on Qwen3-0.6B and BF16 TP4 inference on Qwen3-32B. FlashAttention
+also passed eager and graph execution on Llama-3.2-3B. It requires NVIDIA, an
+FP16 or BF16 model, a head dimension divisible by 8 and no greater than 256,
+and a paged KV cache whose block size is a nonzero multiple of 256.
+
+Qwen3-0.6B with attention, attention-output, and MLP bias enabled passed TP1
+and TP2 static and explicit FlashAttention inference, one-time weight
+pre-transposition, and TP1 segmented graph replay.
+
+The modern model factory enables `baichuan`, `chatglm`, `fm9g`, `fm9g7b`,
+`glm4`, `internlm3`, `llama`, `minicpm`, `minicpm4`, `qwen2`, and
+`qwen3`. GPT-2, Mistral, MoE and multimodal families, and quantized models
+remain gated. Other platforms have not yet been validated.
 
 When using CoreX PyTorch, export `INFINILM_CXX11_ABI=0` before installing
 InfiniLM so that PyTorch, InfiniLM, and the installed Infini stack use the same
@@ -85,6 +97,13 @@ built as part of InfiniLM:
 
 ```shell
 python examples/bench.py --device nvidia --model=/path/to/model --enable-paged-attn --enable-graph
+```
+
+Select the linked InfiniOps FlashAttention providers explicitly with a paged
+KV cache:
+
+```shell
+python examples/test_infer.py --device nvidia --model=/path/to/model --enable-paged-attn --attn=flash-attn
 ```
 
 ## Development

@@ -1,4 +1,5 @@
 #include "infer_engine.hpp"
+#include "../cache/kv_cache.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 #include <algorithm>
@@ -67,12 +68,45 @@ InferEngine::InferEngine(
     if (weight_load_mode_ != "async" && weight_load_mode_ != "sync") {
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
     }
+    if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
+        if (device_type != infinicore::Device::Type::kNvidia) {
+            throw std::invalid_argument(
+                "flash-attn is only available on NVIDIA devices");
+        }
+        const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+        if (paged_cache_config == nullptr) {
+            throw std::invalid_argument(
+                "flash-attn requires a paged KV cache configuration");
+        }
+        if (paged_cache_config->num_blocks() == 0) {
+            throw std::invalid_argument(
+                "flash-attn requires at least one paged KV cache block");
+        }
+        if (paged_cache_config->block_size() == 0
+            || paged_cache_config->block_size() % 256 != 0) {
+            throw std::invalid_argument(
+                "flash-attn requires a nonzero paged KV cache block size divisible by 256");
+        }
+    }
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
+    if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
+        const auto dtype = model_config_->get_dtype();
+        if (dtype != infinicore::DataType::kFloat16
+            && dtype != infinicore::DataType::kBFloat16) {
+            throw std::invalid_argument(
+                "flash-attn requires a float16 or bfloat16 model dtype");
+        }
+        const size_t head_dim = model_config_->get_head_dim();
+        if (head_dim == 0 || head_dim > 256 || head_dim % 8 != 0) {
+            throw std::invalid_argument(
+                "flash-attn requires head_dim to be a positive multiple of 8 no greater than 256");
+        }
+    }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
         attention_backend,
         this->model_config_,

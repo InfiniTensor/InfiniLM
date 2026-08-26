@@ -10,12 +10,6 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_model_config(std::sh
     if ("qwen3" != model_type) {
         throw std::runtime_error("infinilm::models::qwen3::create_qwen3_model_config: model_type is not qwen3");
     }
-    if (model_config->get_or<bool>("attention_bias", true)
-        || model_config->get_or<bool>("attention_output_bias", false)
-        || model_config->get_or<bool>("mlp_bias", false)) {
-        throw std::invalid_argument(
-            "infinilm::models::qwen3::create_qwen3_model_config: linear bias is unsupported by the canonical InfiniOps Gemm backend");
-    }
     return model_config;
 }
 

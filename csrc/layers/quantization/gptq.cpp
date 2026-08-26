@@ -34,7 +34,7 @@ infinicore::Tensor GPTQ::forward(
     bool /*has_bias*/,
     float /*alpha*/) const {
     throw std::runtime_error(
-        "GPTQ quantization is unsupported until its kernels are available in InfiniOps.");
+        "GPTQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense GPTQ/Marlin GEMM path.");
 }
 
 std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
@@ -42,7 +42,7 @@ std::shared_ptr<BaseQuantization> GPTQ::process_weights_after_loading(
     const infinicore::Device &,
     int) const {
     throw std::runtime_error(
-        "GPTQ quantization is unsupported until its kernels are available in InfiniOps.");
+        "GPTQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense GPTQ/Marlin GEMM path.");
 }
 
 std::vector<SplitParam> GPTQ::split_params(
