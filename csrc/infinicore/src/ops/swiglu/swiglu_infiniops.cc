@@ -56,23 +56,26 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto copy_config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Copy>(
+        planned->c.device.type());
+    auto silu_and_mul_config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::SiluAndMul>(planned->c.device.type());
 
     infini::ops::Copy::Call(
         handle,
-        config,
+        copy_config,
         planned->b.tensor(planned->b_tensor),
         false,
         planned->gate.tensor(planned->gate_tensor));
     infini::ops::Copy::Call(
         handle,
-        config,
+        copy_config,
         planned->a.tensor(planned->a_tensor),
         false,
         planned->up.tensor(planned->up_tensor));
     infini::ops::SiluAndMul::Call(
         handle,
-        config,
+        silu_and_mul_config,
         planned->packed.tensor(planned->packed_tensor),
         planned->c.tensor(planned->c_tensor));
 }

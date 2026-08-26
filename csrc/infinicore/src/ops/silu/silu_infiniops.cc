@@ -16,7 +16,9 @@ void calculate(Tensor output, Tensor input) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Silu>(
+        ::infinicore::op::infiniops::toInfiniOpsDevice(output->device())
+            .type());
 
     TensorMeta output_meta(output);
     TensorMeta input_meta(input);

@@ -39,7 +39,9 @@ void run(void *planned_meta) {
     auto planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::TopkSoftmax>(
+        planned->values.device.type());
     infini::ops::TopkSoftmax::Call(
         handle,
         config,

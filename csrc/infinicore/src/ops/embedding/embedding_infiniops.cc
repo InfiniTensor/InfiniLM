@@ -35,7 +35,9 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::Embedding>(
+        planned->out.device.type());
 
     infini::ops::Embedding::Call(
         handle,

@@ -33,7 +33,8 @@ void run(void *planned_meta) {
     auto *planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<infini::ops::Mul>(
+        planned->out.device.type());
     infini::ops::Mul::Call(
         handle,
         config,

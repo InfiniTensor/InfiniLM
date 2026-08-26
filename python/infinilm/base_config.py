@@ -555,10 +555,10 @@ class BaseConfig:
             "nvidia": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
-            "metax": "cuda",
+            "metax": "metax",
             "moore": "musa",
-            "iluvatar": "cuda",
-            "hygon": "cuda",
+            "iluvatar": "iluvatar",
+            "hygon": "hygon",
         }
         device = device.lower()
         if device == "auto":

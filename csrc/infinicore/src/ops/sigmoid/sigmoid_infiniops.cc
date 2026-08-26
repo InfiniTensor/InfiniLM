@@ -33,7 +33,9 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
+        infini::ops::Sigmoid>(
+        planned->output.device.type());
 
     infini::ops::Sigmoid::Call(
         handle,

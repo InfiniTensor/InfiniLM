@@ -156,6 +156,102 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
         self.assertLess(fallback, eager)
         self.assertLess(eager, sampling)
 
+    def test_current_infiniops_backend_bridges_are_registered(self) -> None:
+        bridge = read_source("csrc/infinicore/src/ops/infiniops_impl.hpp")
+        for device in ("kCambricon", "kAscend"):
+            with self.subTest(device=device):
+                self.assertIn(f"case Device::Type::{device}:", bridge)
+                self.assertIn(
+                    f"dispatcher.registerDevice(Device::Type::{device}, function)",
+                    bridge,
+                )
+
+        rope = read_source("csrc/infinicore/src/nn/rope.cc")
+        rotary = read_source(
+            "csrc/infinicore/src/ops/rotary_embedding/rotary_embedding_infiniops.cc"
+        )
+        for device in (
+            "kNvidia",
+            "kMetax",
+            "kIluvatar",
+            "kCambricon",
+            "kAscend",
+        ):
+            with self.subTest(device=device):
+                self.assertIn(f"device_.type() == Device::Type::{device}", rope)
+                self.assertEqual(
+                    rotary.count(f"registerDevice(Device::Type::{device},"),
+                    3,
+                )
+
+        sampling = read_source("csrc/infinicore/src/ops/random_sample/random_sample.cc")
+        self.assertIn("defaultConfigForDevice<infini::ops::Argmax>", sampling)
+        self.assertNotIn("set_implementation_index", sampling)
+        for device in ("kMetax", "kIluvatar", "kCambricon", "kAscend"):
+            self.assertIn(f"device_type != Device::Type::{device}", sampling)
+
+        for relative_path in (
+            "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_infiniops.cc",
+            "csrc/infinicore/src/ops/multi_head_attention_varlen/"
+            "mha_varlen_infiniops.cc",
+        ):
+            attention = read_source(relative_path)
+            self.assertIn("device_type != Device::Type::kMetax", attention)
+            self.assertEqual(
+                attention.count("Device::Type::kMetax, &"),
+                3,
+            )
+
+        engine = read_source("csrc/engine/infer_engine.cpp")
+        self.assertIn(
+            "flash-attn is only available on NVIDIA and MetaX devices",
+            engine,
+        )
+
+    def test_infini_devices_keep_their_modern_platform_names(self) -> None:
+        for relative_path in (
+            "python/infinilm/base_config.py",
+            "test/bench/backends/infinilm.py",
+        ):
+            source = read_source(relative_path)
+            for device in ("metax", "iluvatar", "hygon"):
+                with self.subTest(relative_path=relative_path, device=device):
+                    self.assertIn(f'"{device}": "{device}"', source)
+                    self.assertNotIn(f'"{device}": "cuda"', source)
+
+    def test_vendor_sdk_headers_are_available_to_infinicore_build(self) -> None:
+        xmake = read_source("xmake.lua")
+        for environment, default_root in (
+            ("NEUWARE_HOME", "/usr/local/neuware"),
+            ("ASCEND_HOME_PATH", "/usr/local/Ascend/ascend-toolkit/latest"),
+        ):
+            with self.subTest(environment=environment):
+                self.assertIn(f'os.getenv("{environment}")', xmake)
+                self.assertIn(default_root, xmake)
+
+        self.assertIn('add_includedirs(NEUWARE_ROOT .. "/include")', xmake)
+        self.assertIn('add_linkdirs(NEUWARE_ROOT .. "/lib64")', xmake)
+        self.assertIn('add_includedirs(ASCEND_ROOT .. "/include")', xmake)
+        self.assertIn('add_linkdirs(ASCEND_ROOT .. "/lib64")', xmake)
+
+    def test_infiniops_adapters_follow_the_installed_ops_closure(self) -> None:
+        xmake = read_source("xmake.lua")
+        self.assertIn(
+            'INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"',
+            xmake,
+        )
+        self.assertIn('os.files("csrc/infinicore/src/ops/*/*_infiniops.cc")', xmake)
+        self.assertIn('source:gmatch(\'#include%s+"base/([^"]+)%.h"\')', xmake)
+        self.assertIn('source:gmatch("infini::ops::([%w_]+)::Call")', xmake)
+        self.assertIn('"Operator<::infini::ops::" .. operator_type .. ">"', xmake)
+        self.assertNotIn('"Operator<" .. operator_type .. ">"', xmake)
+        self.assertIn(
+            "local operator_calls = io.readfile(OPERATOR_CALLS_HEADER)", xmake
+        )
+        self.assertIn("local source = io.readfile(sourcefile)", xmake)
+        self.assertNotIn('import("core.base.io")', xmake)
+        self.assertIn('target:remove("files", sourcefile)', xmake)
+
 
 if __name__ == "__main__":
     unittest.main()
