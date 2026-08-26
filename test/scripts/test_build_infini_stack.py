@@ -61,7 +61,6 @@ class BuildInfiniStackTest(unittest.TestCase):
             [
                 "add",
                 "argmax",
-                "causal_softmax",
                 "convolution",
                 "copy",
                 "embedding",
@@ -82,16 +81,21 @@ class BuildInfiniStackTest(unittest.TestCase):
                 "softmax",
                 "top_k_top_p_sampling_from_logits",
                 "topk_softmax",
+                "tril",
+                "triu",
             ],
         )
         self.assertEqual(
             config["top_k_top_p_sampling_from_logits"]["implementations"], [16]
         )
         self.assertEqual(config["argmax"]["implementations"], [8])
+        self.assertEqual(config["tril"]["implementations"], [8])
+        self.assertEqual(config["triu"]["implementations"], [8])
         self.assertEqual(config["flash_attn_varlen_func"]["implementations"], [16])
         self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], [16])
         self.assertEqual(config["topk_softmax"]["implementations"], [0])
         self.assertEqual(config["add"]["implementations"], [0])
+        self.assertNotIn("causal_softmax", config)
         self.assertTrue(all("_infinilm" not in operator for operator in config))
 
     def test_invalid_operator_config_is_rejected(self):

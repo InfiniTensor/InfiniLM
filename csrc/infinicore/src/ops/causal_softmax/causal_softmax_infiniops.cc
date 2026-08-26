@@ -3,7 +3,14 @@
 #ifdef ENABLE_INFINIOPS_API
 #include "../infiniops_impl.hpp"
 
-#include "base/causal_softmax.h"
+#include "base/add.h"
+#include "base/fill.h"
+#include "base/softmax.h"
+#include "base/tril.h"
+#include "base/triu.h"
+
+#include <limits>
+#include <optional>
 
 namespace infinicore::op::causal_softmax_impl::infiniops {
 namespace {
@@ -11,8 +18,13 @@ namespace {
 using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
 
 struct PlannedMeta {
+    std::optional<Tensor> mask_owner;
     TensorMeta output, input;
+    std::optional<TensorMeta> mask;
     graph::GraphTensor output_tensor, input_tensor;
+    std::optional<graph::GraphTensor> mask_tensor;
+    int64_t score_diagonal;
+    int64_t mask_diagonal;
 };
 
 } // namespace
@@ -21,11 +33,32 @@ void *plan(Tensor output, const Tensor &input) {
     INFINICORE_ASSERT(::infinicore::op::infiniops::isSupportedDevice(output->device().type()));
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(output, input);
 
+    const auto &shape = output->shape();
+    INFINICORE_ASSERT(shape.size() == 2 || shape.size() == 3);
+    INFINICORE_ASSERT(input->shape() == shape);
+
+    const auto seq_len = shape[shape.size() - 2];
+    const auto total_seq_len = shape[shape.size() - 1];
+    INFINICORE_ASSERT(seq_len <= total_seq_len);
+
+    const bool reuses_input = output->data() == input->data() &&
+                              output->strides() == input->strides();
+    const bool needs_mask = seq_len != 1 || !reuses_input;
+    std::optional<Tensor> mask;
+    if (needs_mask) {
+        mask = Tensor::empty({seq_len, total_seq_len}, output->dtype(), output->device());
+    }
+
     return new PlannedMeta{
+        mask,
         TensorMeta(output),
         TensorMeta(input),
+        mask ? std::optional<TensorMeta>(TensorMeta(*mask)) : std::nullopt,
         graph::GraphTensor(output),
-        graph::GraphTensor(input)};
+        graph::GraphTensor(input),
+        mask ? std::optional<graph::GraphTensor>(graph::GraphTensor(*mask)) : std::nullopt,
+        static_cast<int64_t>(total_seq_len - seq_len),
+        static_cast<int64_t>(total_seq_len - seq_len + 1)};
 }
 
 void run(void *planned_meta) {
@@ -33,13 +66,52 @@ void run(void *planned_meta) {
 
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    infini::ops::Config config;
+    infini::ops::Config native_config;
+    infini::ops::Config torch_config;
+    torch_config.set_implementation_index(8);
 
-    infini::ops::CausalSoftmax::Call(
+    auto input = planned->input.tensor(planned->input_tensor);
+    auto output = planned->output.tensor(planned->output_tensor);
+
+    if (planned->mask.has_value()) {
+        auto mask = planned->mask->tensor(planned->mask_tensor.value());
+
+        infini::ops::Fill::Call(
+            handle,
+            native_config,
+            mask,
+            -std::numeric_limits<double>::infinity(),
+            mask);
+
+        infini::ops::Triu::Call(
+            handle,
+            torch_config,
+            mask,
+            planned->mask_diagonal,
+            mask);
+
+        infini::ops::Tril::Call(
+            handle,
+            torch_config,
+            input,
+            planned->score_diagonal,
+            output);
+
+        infini::ops::Add::Call(
+            handle,
+            native_config,
+            output,
+            mask,
+            output);
+    }
+
+    infini::ops::Softmax::Call(
         handle,
-        config,
-        planned->input.tensor(planned->input_tensor),
-        planned->output.tensor(planned->output_tensor));
+        native_config,
+        output,
+        static_cast<int64_t>(-1),
+        std::optional<infini::ops::DataType>{},
+        output);
 }
 
 void cleanup(void **planned_meta_ptr) {
