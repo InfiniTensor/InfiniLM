@@ -185,6 +185,20 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(bias, alpha)
         self.assertLess(alpha, beta)
 
+    def test_cat_validates_input_rank_against_reference_tensor_rank(self) -> None:
+        source = read_source("csrc/infinicore/src/ops/cat/cat.cc")
+        cat = function_body(source, "Tensor cat(")
+
+        self.assertIn("int ndim = tensors[0]->ndim();", cat)
+        self.assertIn(
+            "tensors[i]->ndim() == ndim || tensors[i]->ndim() == 1",
+            cat,
+        )
+        self.assertNotIn(
+            "tensors[i]->ndim() == dim || tensors[i]->ndim() == 1",
+            cat,
+        )
+
     def test_qwen3_linear_bias_uses_supported_infiniops_composition(
         self,
     ) -> None:
