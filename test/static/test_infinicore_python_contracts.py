@@ -151,6 +151,12 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         self.assertIn("&Device::index", source)
         self.assertIn("&Device::ToString", source)
 
+    def test_model_runner_accepts_native_metax_device_name(self) -> None:
+        source = read_source("python/infinilm/llm/model_runner/model_runner.py")
+
+        self.assertIn('"metax"', source)
+        self.assertIn("self.device = infinicore.device(device_str, 0)", source)
+
     def test_dtype_binding_matches_native_infini_rt_set(self) -> None:
         source = read_source("csrc/infinicore/src/pybind11/dtype.hpp")
         native_names = (
