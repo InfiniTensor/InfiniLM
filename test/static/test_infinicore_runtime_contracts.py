@@ -344,6 +344,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "llama",
             "minicpm",
             "minicpm4",
+            "minicpm_eagle",
             "qwen2",
             "qwen3",
         }
@@ -374,6 +375,8 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "The modern model factory enables `baichuan`, `chatglm`, `fm9g`",
             readme,
         )
+        self.assertIn("`minicpm_eagle`", readme)
+        self.assertIn("passed NVIDIA A100 MTP inference", readme)
 
         xmake = read_source("xmake.lua")
         target_start = xmake.index('target("_infinilm")')
@@ -398,6 +401,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 "csrc/models/internlm3/*.cpp",
                 "csrc/models/llama/*.cpp",
                 "csrc/models/minicpm4/*.cpp",
+                "csrc/models/minicpm_eagle/*.cpp",
                 "csrc/models/qwen2/*.cpp",
                 "csrc/models/qwen3/*.cpp",
             },
