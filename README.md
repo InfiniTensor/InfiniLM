@@ -60,9 +60,11 @@ and TP2 static and explicit FlashAttention inference, one-time weight
 pre-transposition, and TP1 segmented graph replay.
 
 The modern model factory enables `baichuan`, `chatglm`, `fm9g`, `fm9g7b`,
-`glm4`, `internlm3`, `llama`, `minicpm`, `minicpm4`, `qwen2`, and
-`qwen3`. GPT-2, Mistral, MoE and multimodal families, and quantized models
-remain gated. Other platforms have not yet been validated.
+`glm4`, `internlm3`, `llama`, `minicpm`, `minicpm4`, `minicpm_eagle`,
+`qwen2`, and `qwen3`. The MiniCPM Eagle path passed NVIDIA A100 MTP inference
+with segmented graph replay at batch 16, input length 1024, and output length
+256. GPT-2, Mistral, other MoE and multimodal families, and quantized models
+remain gated. Backend validation remains model- and feature-specific.
 
 When using CoreX PyTorch, export `INFINILM_CXX11_ABI=0` before installing
 InfiniLM so that PyTorch, InfiniLM, and the installed Infini stack use the same

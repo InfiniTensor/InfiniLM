@@ -26,13 +26,14 @@ std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const
         "llama",
         "minicpm",
         "minicpm4",
+        "minicpm_eagle",
         "qwen2",
         "qwen3"};
     if (kModernModelTypes.find(model_type) == kModernModelTypes.end()) {
         throw std::invalid_argument(
             "infinilm::config::ConfigFactory::createConfig: model type `" + model_type
             + "` is unavailable with the modern InfiniOps backend; supported model types: "
-              "baichuan, chatglm, fm9g, fm9g7b, glm4, internlm3, llama, minicpm, minicpm4, qwen2, qwen3");
+              "baichuan, chatglm, fm9g, fm9g7b, glm4, internlm3, llama, minicpm, minicpm4, minicpm_eagle, qwen2, qwen3");
     }
 
     it->second(model_config);
