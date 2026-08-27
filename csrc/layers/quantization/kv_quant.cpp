@@ -16,8 +16,11 @@ void KVQuantUtils::quantize(
     }
 
     auto device = k->device();
-    auto dtype = k->dtype();
-    auto zero_point = infinicore::Tensor::zeros({1}, dtype, device);
+
+    // INT8 symmetric quantization: zero_point must be F32 (the infiniop int8
+    // kernels read it as float*); a bf16 zero tensor would be misread and can
+    // fault or corrupt the output.
+    auto zero_point = infinicore::Tensor::zeros({1}, infinicore::DataType::F32, device);
 
     k = infinicore::op::per_tensor_quant_i8(k, k_scale, zero_point, true);
     v = infinicore::op::per_tensor_quant_i8(v, v_scale, zero_point, true);
@@ -35,7 +38,8 @@ void KVQuantUtils::dequantize(
         return; // 无需反量化
     }
 
-    auto zero_point = infinicore::Tensor::zeros({1}, reference->dtype(), reference->device());
+    // zero_point must be F32 (int8 dequant kernel reads it as float*)
+    auto zero_point = infinicore::Tensor::zeros({1}, infinicore::DataType::F32, reference->device());
 
     auto k_dequant = infinicore::Tensor::strided_empty(
         k->shape(), k->strides(), reference->dtype(), reference->device());
