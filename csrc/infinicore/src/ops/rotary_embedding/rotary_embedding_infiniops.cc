@@ -32,11 +32,7 @@ void *plan(const Tensor &positions,
            int64_t rope_dim_offset,
            bool inverse) {
     const auto device_type = query->device().type();
-    INFINICORE_ASSERT(device_type == Device::Type::kNvidia
-                      || device_type == Device::Type::kMetax
-                      || device_type == Device::Type::kIluvatar
-                      || device_type == Device::Type::kCambricon
-                      || device_type == Device::Type::kAscend);
+    INFINICORE_ASSERT(::infinicore::op::infiniops::isSupportedDevice(device_type));
     return new PlannedMeta{
         TensorMeta(positions),
         TensorMeta(query),
@@ -81,21 +77,9 @@ void cleanup(void **planned_meta_ptr) {
 }
 
 static bool registered = []() {
-    RotaryEmbedding::plan_dispatcher().registerDevice(Device::Type::kNvidia, &plan);
-    RotaryEmbedding::run_dispatcher().registerDevice(Device::Type::kNvidia, &run);
-    RotaryEmbedding::cleanup_dispatcher().registerDevice(Device::Type::kNvidia, &cleanup);
-    RotaryEmbedding::plan_dispatcher().registerDevice(Device::Type::kMetax, &plan);
-    RotaryEmbedding::run_dispatcher().registerDevice(Device::Type::kMetax, &run);
-    RotaryEmbedding::cleanup_dispatcher().registerDevice(Device::Type::kMetax, &cleanup);
-    RotaryEmbedding::plan_dispatcher().registerDevice(Device::Type::kIluvatar, &plan);
-    RotaryEmbedding::run_dispatcher().registerDevice(Device::Type::kIluvatar, &run);
-    RotaryEmbedding::cleanup_dispatcher().registerDevice(Device::Type::kIluvatar, &cleanup);
-    RotaryEmbedding::plan_dispatcher().registerDevice(Device::Type::kCambricon, &plan);
-    RotaryEmbedding::run_dispatcher().registerDevice(Device::Type::kCambricon, &run);
-    RotaryEmbedding::cleanup_dispatcher().registerDevice(Device::Type::kCambricon, &cleanup);
-    RotaryEmbedding::plan_dispatcher().registerDevice(Device::Type::kAscend, &plan);
-    RotaryEmbedding::run_dispatcher().registerDevice(Device::Type::kAscend, &run);
-    RotaryEmbedding::cleanup_dispatcher().registerDevice(Device::Type::kAscend, &cleanup);
+    ::infinicore::op::infiniops::registerSupportedDevices(RotaryEmbedding::plan_dispatcher(), &plan);
+    ::infinicore::op::infiniops::registerSupportedDevices(RotaryEmbedding::run_dispatcher(), &run);
+    ::infinicore::op::infiniops::registerSupportedDevices(RotaryEmbedding::cleanup_dispatcher(), &cleanup);
     return true;
 }();
 

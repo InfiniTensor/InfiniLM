@@ -81,6 +81,7 @@ void RoPE::initialize_cache() {
     if ((device_.type() == Device::Type::kNvidia
          || device_.type() == Device::Type::kMetax
          || device_.type() == Device::Type::kIluvatar
+         || device_.type() == Device::Type::kMoore
          || device_.type() == Device::Type::kCambricon
          || device_.type() == Device::Type::kAscend)
         && !mrope_section_) {

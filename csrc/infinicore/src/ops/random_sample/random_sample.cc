@@ -20,6 +20,7 @@ bool tryGreedyWithInfiniOps(
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kIluvatar
+         && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kAscend)
         || (random_value != 0.0f

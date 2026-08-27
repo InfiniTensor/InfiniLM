@@ -174,20 +174,19 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "kNvidia",
             "kMetax",
             "kIluvatar",
+            "kMoore",
             "kCambricon",
             "kAscend",
         ):
             with self.subTest(device=device):
                 self.assertIn(f"device_.type() == Device::Type::{device}", rope)
-                self.assertEqual(
-                    rotary.count(f"registerDevice(Device::Type::{device},"),
-                    3,
-                )
+        self.assertIn("infiniops::isSupportedDevice(device_type)", rotary)
+        self.assertEqual(rotary.count("registerSupportedDevices("), 3)
 
         sampling = read_source("csrc/infinicore/src/ops/random_sample/random_sample.cc")
         self.assertIn("defaultConfigForDevice<infini::ops::Argmax>", sampling)
         self.assertNotIn("set_implementation_index", sampling)
-        for device in ("kMetax", "kIluvatar", "kCambricon", "kAscend"):
+        for device in ("kMetax", "kIluvatar", "kMoore", "kCambricon", "kAscend"):
             self.assertIn(f"device_type != Device::Type::{device}", sampling)
 
         for relative_path in (
