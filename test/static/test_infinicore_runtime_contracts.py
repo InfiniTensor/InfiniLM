@@ -61,7 +61,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "rearrange/rearrange_infiniops.cc": 3,
             "relu/relu_infiniops.cc": 1,
             "rms_norm/rms_norm_infiniops.cc": 3,
-            "rotary_embedding/rotary_embedding_infiniops.cc": 15,
+            "rotary_embedding/rotary_embedding_infiniops.cc": 3,
             "sigmoid/sigmoid_infiniops.cc": 3,
             "silu/silu_infiniops.cc": 1,
             "silu_and_mul/silu_and_mul_infiniops.cc": 3,
