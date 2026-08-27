@@ -196,7 +196,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "mha_varlen_infiniops.cc",
         ):
             attention = read_source(relative_path)
-            for device in ("kMetax", "kMoore", "kCambricon"):
+            for device in ("kMetax", "kMoore", "kCambricon", "kIluvatar"):
                 with self.subTest(adapter=relative_path, device=device):
                     self.assertIn(f"device_type != Device::Type::{device}", attention)
                     self.assertEqual(
@@ -204,11 +204,12 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                         3,
                     )
             self.assertIn("configForImplementation<", attention)
-            self.assertIn(
-                "device_type == infini::ops::Device::Type::kMoore ? 8 : 16",
-                attention,
-            )
+            self.assertIn("implementation_index_for_device(device_type)", attention)
             self.assertIn("device_type == Device::Type::kMoore", attention)
+            self.assertIn("device_type == Device::Type::kIluvatar", attention)
+            self.assertIn("return 0;", attention)
+            self.assertIn("return 8;", attention)
+            self.assertIn("return 16;", attention)
             self.assertIn("!= 64", attention)
             self.assertIn("!= 128", attention)
             self.assertIn("alibi_slopes.value()->ndim() != 1", attention)
