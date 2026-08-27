@@ -1,3 +1,4 @@
+import ast
 import json
 import unittest
 from pathlib import Path
@@ -257,6 +258,26 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                 with self.subTest(relative_path=relative_path, device=device):
                     self.assertIn(f'"{device}": "{device}"', source)
                     self.assertNotIn(f'"{device}": "cuda"', source)
+
+    def test_model_runner_accepts_iluvatar_platform_name(self) -> None:
+        source = read_source("python/infinilm/llm/model_runner/model_runner.py")
+        module = ast.parse(source)
+        initializer = next(
+            node
+            for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef) and node.name == "_init_device"
+        )
+        supported_devices = next(
+            ast.literal_eval(node.value)
+            for node in initializer.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "supported_devices"
+                for target in node.targets
+            )
+        )
+
+        self.assertIn("iluvatar", supported_devices)
 
     def test_vendor_sdk_headers_are_available_to_infinicore_build(self) -> None:
         xmake = read_source("xmake.lua")

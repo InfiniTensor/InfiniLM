@@ -120,6 +120,18 @@ class BuildInfiniStackTest(unittest.TestCase):
             moore_config["flash_attn_with_kvcache"]["implementations"], "all"
         )
 
+    def test_iluvatar_operator_config_uses_native_canonical_attention(self):
+        config = build_infini_stack.read_operator_config(
+            build_infini_stack.OPERATOR_CONFIGS["iluvatar"]
+        )
+
+        self.assertEqual(config["argmax"]["implementations"], [8])
+        self.assertEqual(config["flash_attn_varlen_func"]["implementations"], [0])
+        self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], [0])
+        self.assertNotIn("paged_attention", config)
+        self.assertNotIn("paged_attention_prefill", config)
+        self.assertTrue(all("_infinilm" not in operator for operator in config))
+
     def test_invalid_operator_config_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ops.json"
@@ -341,6 +353,51 @@ class BuildInfiniStackTest(unittest.TestCase):
             commands[-1][0], str(Path("build/ccl/examples/ccl/all_reduce"))
         )
         self.assertEqual(commands[-1][1:3], ["-g", "2"])
+
+    def test_iluvatar_commands_use_corex_toolchain(self):
+        rt = build_infini_stack.build_infinirt_commands(
+            Path("rt"),
+            Path("build/rt"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+        ops = build_infini_stack.build_infiniops_commands(
+            Path("ops"),
+            Path("build/ops"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            Path("iluvatar-ops.json"),
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+        ccl = build_infini_stack.build_infiniccl_commands(
+            Path("ccl"),
+            Path("build/ccl"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+
+        for command in (rt, ops, ccl):
+            self.assertIn("-DWITH_ILUVATAR=ON", command)
+            self.assertIn("-DILUVATAR_ARCH=ivcore11", command)
+            self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=ivcore11", command)
+        self.assertIn("-DCMAKE_CUDA_FLAGS=", rt)
+        self.assertIn("-DINFINI_OPS_OPS=iluvatar-ops.json", ops)
+        self.assertIn("-DCMAKE_CXX_COMPILER=/usr/local/corex/bin/clang++", ccl)
+        self.assertIn("-DNCCL_INC=/usr/local/corex/include", ccl)
+        self.assertIn("-DNCCL_LIB=/usr/local/corex/lib64/libnccl.so", ccl)
 
     def test_main_uses_core_sources_infini_lm_cwd_and_one_prefix(self):
         args = build_infini_stack.parse_args(
