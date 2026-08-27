@@ -21,7 +21,7 @@ void debug_dump(const infinicore::Tensor &tensor, const std::string &name) {
         return;
     }
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (rank.global_rank != 0) {
+    if (rank.world_rank != 0) {
         return;
     }
     tensor->debug("/tmp/glmdbg_" + name + ".bin");
@@ -110,8 +110,8 @@ GlmModel::GlmModel(std::shared_ptr<infinilm::config::ModelConfig> c, const infin
     const size_t num_layers = c->get<size_t>("num_hidden_layers");
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
     pp_size_ = rank.pp_size;
-    pp_rank_ = rank.pp_rank;
-    pp_comm_ = rank.pp_comm;
+    pp_rank_ = rank.pp_stage;
+    pp_comm_ = rank.world_comm;
     const auto boundaries = make_pipeline_boundaries(c, pp_size_);
     layer_start_ = boundaries[static_cast<size_t>(pp_rank_)];
     layer_end_ = boundaries[static_cast<size_t>(pp_rank_) + 1];
@@ -127,14 +127,14 @@ GlmModel::GlmModel(std::shared_ptr<infinilm::config::ModelConfig> c, const infin
             && indexer_types[next_layer] == "shared");
     }
 
-    if (rank.is_pipeline_first_stage()) {
+    if (rank.pp_stage == 0) {
         INFINICORE_NN_MODULE_INIT(
             embed_tokens, c->get<size_t>("vocab_size"), hidden_size_, dtype_, d);
     }
     for (size_t i = layer_start_; i < layer_end_; ++i) {
         layers_.push_back(register_module<GlmDecoder>("layers." + std::to_string(i), c, i, d));
     }
-    if (rank.is_pipeline_last_stage()) {
+    if (rank.pp_stage + 1 == rank.pp_size) {
         INFINICORE_NN_MODULE_INIT(
             norm, hidden_size_, c->get<double>("rms_norm_eps"), dtype_, d);
     }
@@ -189,10 +189,16 @@ void GlmModel::transfer_pipeline_state_(
         pipeline_state.push_back(topk);
     }
 
+    const auto &rank =
+        infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const int source_rank = static_cast<int>(source_stage) * rank.tp_size
+                          + rank.tp_rank;
+    const int destination_rank = static_cast<int>(source_stage + 1) * rank.tp_size
+                               + rank.tp_rank;
     if (is_source) {
         for (const auto &tensor : pipeline_state) {
             infinicore::op::distributed::send(
-                tensor, static_cast<int>(source_stage + 1), pp_comm_);
+                tensor, destination_rank, pp_comm_);
         }
         pipeline_send_lifetimes_.insert(
             pipeline_send_lifetimes_.end(),
@@ -200,7 +206,7 @@ void GlmModel::transfer_pipeline_state_(
     } else {
         for (auto &tensor : pipeline_state) {
             infinicore::op::distributed::recv_(
-                tensor, static_cast<int>(source_stage), pp_comm_);
+                tensor, source_rank, pp_comm_);
         }
         if (!infinicore::context::isGraphRecording()) {
             infinicore::context::syncStream();
@@ -251,7 +257,7 @@ GlmForCausalLM::GlmForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> c,
     model_config_ = c;
     INFINICORE_NN_MODULE_INIT(model, c, d);
     const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    is_output_stage_ = rank.is_pipeline_last_stage();
+    is_output_stage_ = rank.pp_stage + 1 == rank.pp_size;
     if (is_output_stage_) {
         INFINICORE_NN_MODULE_INIT(lm_head, c->get<size_t>("hidden_size"), c->get<size_t>("vocab_size"), false, c->get_dtype(), d);
     }
@@ -407,8 +413,9 @@ infinilm::InfinilmModel::Output GlmForCausalLM::forward(const Input &i) const {
             micro.cu_seqlens,
             micro.block_tables,
             micro.slot_mapping,
-            full_attn_metadata.max_context_len,
-            false};
+            full_attn_metadata.max_query_length,
+            full_attn_metadata.max_sequence_length,
+            full_attn_metadata.max_context_len};
         auto x = model_->forward(micro);
         local_output = x;
         if (is_output_stage_) {

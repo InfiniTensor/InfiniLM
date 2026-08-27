@@ -43,6 +43,53 @@ size_t max_length_from_offsets(
     return max_length;
 }
 
+std::optional<infinicore::Tensor> request_ids_from_offsets(
+    const std::optional<infinicore::Tensor> &offsets,
+    const infinicore::Device &device) {
+    if (!offsets.has_value()) {
+        return std::nullopt;
+    }
+
+    auto cpu_offsets = offsets.value();
+    if (cpu_offsets->device().getType() != infinicore::Device::Type::CPU) {
+        cpu_offsets = cpu_offsets->to(infinicore::Device::cpu());
+        infinicore::context::syncStream();
+    }
+    if (cpu_offsets->dtype() != infinicore::DataType::I32
+        || cpu_offsets->shape().size() != 1
+        || cpu_offsets->shape()[0] < 2) {
+        throw std::invalid_argument(
+            "input_offsets must be a one-dimensional int32 tensor with at least two entries");
+    }
+
+    const auto *values = reinterpret_cast<const int32_t *>(cpu_offsets->data());
+    const size_t num_requests = cpu_offsets->shape()[0] - 1;
+    if (values[0] != 0 || values[num_requests] < 0) {
+        throw std::invalid_argument(
+            "input_offsets must start at zero and be nonnegative");
+    }
+    std::vector<int32_t> request_ids(
+        static_cast<size_t>(values[num_requests]));
+    for (size_t request = 0; request < num_requests; ++request) {
+        if (values[request] > values[request + 1]) {
+            throw std::invalid_argument("input_offsets must be nondecreasing");
+        }
+        std::fill(
+            request_ids.begin() + values[request],
+            request_ids.begin() + values[request + 1],
+            static_cast<int32_t>(request));
+    }
+
+    auto result = infinicore::Tensor::empty(
+        {request_ids.size()}, infinicore::DataType::I32, device);
+    if (!request_ids.empty()) {
+        infinicore::context::memcpyH2D(
+            result->data(), request_ids.data(),
+            request_ids.size() * sizeof(int32_t), false);
+    }
+    return result;
+}
+
 } // namespace
 
 //------------------------------------------------------
@@ -230,11 +277,13 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         visual_token_ranges,
         to_device(target_hidden_states),
         sample_all_positions};
+    input.request_ids = request_ids_from_offsets(input_offsets, device);
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
+        input.request_ids,
         input.cu_seqlens,
         input.block_tables,
         input.slot_mapping,

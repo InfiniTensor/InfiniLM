@@ -62,18 +62,6 @@ public:
     GlmForCausalLM(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
     Output forward(const Input &) const override;
     void reset_cache(const cache::CacheConfig *) override;
-    size_t max_decode_graph_batch_size() const override {
-        return 16;
-    }
-    size_t decode_graph_batch_size(size_t batch_size) const override {
-        // Exact graphs avoid dummy-request padding in the latency-sensitive
-        // 1-8 concurrency range. Larger decode batches may still share the
-        // batch-16 graph to cap capture count and memory use.
-        if (batch_size <= 8) {
-            return batch_size;
-        }
-        return batch_size <= 16 ? 16 : batch_size;
-    }
 
 private:
     INFINICORE_NN_MODULE(GlmModel, model);
