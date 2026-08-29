@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <future>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -186,6 +187,15 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 //------------------------------------------------------
 infinilm::InfinilmModel::Input
 InferEngine::Input::to_model_input(infinicore::Device device) const {
+    // MACA maps a registered user pointer to only one node. Serialize H2D
+    // copies so TP ranks never access the same host registration concurrently.
+    static std::mutex maca_host_copy_mutex;
+    const bool serialize_host_copy
+        = device.getType() == infinicore::Device::Type::METAX;
+    std::unique_lock<std::mutex> maca_host_copy_lock;
+    if (serialize_host_copy) {
+        maca_host_copy_lock = std::unique_lock<std::mutex>(maca_host_copy_mutex);
+    }
 
     auto to_device = [&](const std::optional<infinicore::Tensor> &t)
         -> std::optional<infinicore::Tensor> {
@@ -230,6 +240,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         visual_token_ranges,
         to_device(target_hidden_states),
         sample_all_positions};
+
+    if (serialize_host_copy) {
+        infinicore::context::syncStream();
+    }
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
