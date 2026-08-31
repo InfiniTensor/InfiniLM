@@ -20,16 +20,51 @@ namespace infinicore::op {
 //   seqlens_k   : [batch_size]   int32 — total KV length per request
 //   block_table : [batch_size, max_num_blocks_per_seq]  int32
 
-INFINICORE_GRAPH_OP_CLASS(
-    MhaKVCache,
-    Tensor,                // out
-    const Tensor &,        // q
-    const Tensor &,        // k_cache
-    const Tensor &,        // v_cache
-    const Tensor &,        // seqlens_k
-    const Tensor &,        // block_table
-    std::optional<Tensor>, // alibi_slopes
-    float);                // scale
+class MhaKVCache : public graph::DispatchableGraphOperator {
+public:
+    using schema = void (*)(Tensor,
+                            const Tensor &,
+                            const Tensor &,
+                            const Tensor &,
+                            const Tensor &,
+                            const Tensor &,
+                            std::optional<Tensor>,
+                            float);
+    using plan_schema = void *(*)(Tensor,
+                                  const Tensor &,
+                                  const Tensor &,
+                                  const Tensor &,
+                                  const Tensor &,
+                                  const Tensor &,
+                                  std::optional<Tensor>,
+                                  float);
+
+    static common::OpDispatcher<plan_schema> &plan_dispatcher();
+    static common::OpDispatcher<run_schema> &run_dispatcher();
+    static common::OpDispatcher<cleanup_schema> &cleanup_dispatcher();
+
+    MhaKVCache(Tensor out,
+               const Tensor &q,
+               const Tensor &k_cache,
+               const Tensor &v_cache,
+               const Tensor &seqlens_k,
+               const Tensor &block_table,
+               std::optional<Tensor> alibi_slopes,
+               float scale);
+
+    static void execute(Tensor out,
+                        const Tensor &q,
+                        const Tensor &k_cache,
+                        const Tensor &v_cache,
+                        const Tensor &seqlens_k,
+                        const Tensor &block_table,
+                        std::optional<Tensor> alibi_slopes,
+                        float scale);
+
+    // Every registered backend delegates to a Torch/Python FlashAttention
+    // provider whose temporary allocations are outside the graph lease.
+    bool is_device_graph_capture_safe() const override { return false; }
+};
 
 Tensor mha_kvcache(const Tensor &q,
                    const Tensor &k_cache,
