@@ -29,7 +29,8 @@ bool is_supported(const Tensor &out,
     const auto device_type = out->device().type();
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
-         && device_type != Device::Type::kMoore)
+         && device_type != Device::Type::kMoore
+         && device_type != Device::Type::kCambricon)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -220,6 +221,12 @@ static bool registered = []() {
         Device::Type::kMoore, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kMoore, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kCambricon, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kCambricon, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kCambricon, &cleanup);
     return true;
 }();
 

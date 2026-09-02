@@ -52,9 +52,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "gelu/gelu_infiniops.cc": 1,
             "gelutanh/gelutanh_infiniops.cc": 1,
             "gemm/gemm_infiniops.cc": 3,
-            "mha_kvcache/mha_kvcache_infiniops.cc": 9,
+            "mha_kvcache/mha_kvcache_infiniops.cc": 12,
             "mul/mul_infiniops.cc": 3,
-            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 9,
+            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 12,
             "ones/ones_infiniops.cc": 3,
             "paged_caching/paged_caching_infiniops.cc": 3,
             "random_sample/random_sample_infiniops.cc": 1,
@@ -321,6 +321,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
         self.assertIn("device_type != infinicore::Device::Type::kNvidia", infer_engine)
         self.assertIn("device_type != infinicore::Device::Type::kMoore", infer_engine)
+        self.assertIn(
+            "device_type != infinicore::Device::Type::kCambricon", infer_engine
+        )
         self.assertIn("paged_cache_config->num_blocks() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() % 256 != 0", infer_engine)
@@ -554,6 +557,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         constructor = function_body(source, "CommunicationGroup::CommunicationGroup")
 
         self.assertIn("initializeCommunicators(", constructor)
+        self.assertIn(
+            "device_type_ == infinicore::Device::Type::kCambricon", constructor
+        )
+        self.assertIn("infinicclCommInitAll(", constructor)
         self.assertIn("communicators_", constructor)
         self.assertIn("world_communicators_", constructor)
         self.assertNotIn("infinicclCommInitRank", constructor)
