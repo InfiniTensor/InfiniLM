@@ -132,8 +132,7 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     const auto device_type = planned->q.device.type();
-    const std::size_t implementation_index =
-        device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
+    const std::size_t implementation_index = device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
     auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(device_type, implementation_index);
 

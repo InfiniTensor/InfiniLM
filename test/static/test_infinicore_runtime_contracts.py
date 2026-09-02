@@ -330,9 +330,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn(
             "head_dim == 0 || head_dim > 256 || head_dim % 8 != 0", infer_engine
         )
-        self.assertIn(
-            "device_type == infinicore::Device::Type::kMoore", infer_engine
-        )
+        self.assertIn("device_type == infinicore::Device::Type::kMoore", infer_engine)
         self.assertIn("head_dim != 64", infer_engine)
         self.assertIn("head_dim != 128", infer_engine)
         self.assertIn(

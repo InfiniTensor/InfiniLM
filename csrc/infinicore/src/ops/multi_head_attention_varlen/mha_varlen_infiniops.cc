@@ -75,7 +75,7 @@ bool is_supported(const Tensor &out,
             || k->size(1) % 256 != 0
             || (device_type == Device::Type::kMoore
                 && static_cast<std::size_t>(max_seqlen_k)
-                    > block_table.value()->size(1) * k->size(1)))) {
+                       > block_table.value()->size(1) * k->size(1)))) {
         return false;
     }
 
@@ -158,8 +158,7 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     const auto device_type = planned->q.device.type();
-    const std::size_t implementation_index =
-        device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
+    const std::size_t implementation_index = device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
     auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnVarlenFunc>(device_type, implementation_index);
 
