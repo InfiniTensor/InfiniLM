@@ -236,7 +236,15 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
 
         engine = read_source("csrc/engine/infer_engine.cpp")
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, Moore, and Cambricon devices",
+            "device_type != infinicore::Device::Type::kIluvatar",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar devices",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn on Iluvatar requires head_dim to be 64 or 128",
             engine,
         )
 

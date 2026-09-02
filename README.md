@@ -64,9 +64,14 @@ Qwen3-0.6B has also passed paged attention, eager and graph execution,
 single-request and batch-2 inference, greedy and non-greedy sampling, TP2,
 PP2, and combined TP2+PP2. Explicit FlashAttention passed eager and graph
 execution on Qwen3-0.6B and BF16 TP4 inference on Qwen3-32B. FlashAttention
-also passed eager and graph execution on Llama-3.2-3B. It requires NVIDIA, an
-FP16 or BF16 model, a head dimension divisible by 8 and no greater than 256,
-and a paged KV cache whose block size is a nonzero multiple of 256.
+also passed eager and graph execution on Llama-3.2-3B. On Iluvatar BI-V150,
+9G-8B BF16 real-weight single-GPU inference passed explicit FlashAttention with
+InfiniRT graph execution at batch sizes 1, 4, and 16; batch size 64 exceeded the
+device's 32 GiB memory capacity during graph compilation. FlashAttention is
+enabled on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar. It requires an FP16 or
+BF16 model, a head dimension divisible by 8 and no greater than 256, and a paged
+KV cache whose block size is a nonzero multiple of 256. Moore and Iluvatar
+additionally require a head dimension of 64 or 128.
 
 Qwen3-0.6B with attention, attention-output, and MLP bias enabled passed TP1
 and TP2 static and explicit FlashAttention inference, one-time weight
