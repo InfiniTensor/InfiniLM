@@ -1,6 +1,7 @@
 #include "communication_group.hpp"
 #include "tcp_rendezvous.hpp"
 
+#include <infini/rt.h>
 #include <spdlog/spdlog.h>
 
 #include <condition_variable>
@@ -83,8 +84,15 @@ void initializeCommunicators(infinicore::Device::Type device_type,
                     }
                 }
                 try {
-                    infinicore::context::setDevice(
-                        infinicore::Device(device_type, device_ids[local_rank]));
+                    // InfiniCCL only requires the native device to be current. Avoid creating
+                    // thread-local InfiniCore runtimes in these short-lived initialization threads.
+                    infini::rt::set_runtime_device_type(device_type);
+                    const auto set_device_status = infini::rt::runtime::SetDevice(device_ids[local_rank]);
+                    if (set_device_status != infini::rt::runtime::kSuccess) {
+                        throw std::runtime_error(
+                            "InfiniRT device selection failed with result "
+                            + std::to_string(static_cast<long long>(set_device_status)));
+                    }
                     checkInfiniccl(
                         "infinicclCommInitRank",
                         infinicclCommInitRank(
