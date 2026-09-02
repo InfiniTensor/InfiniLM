@@ -567,9 +567,14 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             self.assertIn(token, initializer)
 
         wait = initializer.index("start_cv.wait")
+        select_backend = initializer.index("infini::rt::set_runtime_device_type")
+        select_device = initializer.index("infini::rt::runtime::SetDevice")
         init = initializer.index("infinicclCommInitRank")
-        self.assertLess(wait, init)
-        self.assertIn("if (cancel)", initializer[wait:init])
+        self.assertLess(wait, select_backend)
+        self.assertLess(select_backend, select_device)
+        self.assertLess(select_device, init)
+        self.assertIn("if (cancel)", initializer[wait:select_backend])
+        self.assertNotIn("infinicore::context::setDevice", initializer)
 
         release = initializer.index("start = true", init)
         release_notify = initializer.index("start_cv.notify_all()", release)
