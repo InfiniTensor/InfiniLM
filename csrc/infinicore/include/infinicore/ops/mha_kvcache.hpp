@@ -61,8 +61,8 @@ public:
                         std::optional<Tensor> alibi_slopes,
                         float scale);
 
-    // Every registered backend delegates to a Torch/Python FlashAttention
-    // provider whose temporary allocations are outside the graph lease.
+    // Some FlashAttention providers allocate temporary storage outside the
+    // graph lease, so decode remains a conservative host segment.
     bool is_device_graph_capture_safe() const override { return false; }
 };
 

@@ -5,6 +5,7 @@
 
 #include "base/flash_attn_with_kvcache.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -23,7 +24,8 @@ bool is_supported(const Tensor &out,
     const auto dtype = q->dtype();
     const auto device_type = out->device().type();
     if ((device_type != Device::Type::kNvidia
-         && device_type != Device::Type::kMetax)
+         && device_type != Device::Type::kMetax
+         && device_type != Device::Type::kMoore)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -37,12 +39,16 @@ bool is_supported(const Tensor &out,
         || v_cache->dtype() != dtype
         || q->size(0) == 0
         || q->size(2) == 0
+        || k_cache->size(0) == 0
         || k_cache->size(1) == 0
         || k_cache->size(2) == 0
         || q->size(2) % k_cache->size(2) != 0
         || q->size(3) == 0
         || q->size(3) > 256
         || q->size(3) % 8 != 0
+        || (device_type == Device::Type::kMoore
+            && q->size(3) != 64
+            && q->size(3) != 128)
         || q->size(3) != k_cache->size(3)
         || q->stride(3) != 1
         || out->stride(3) != 1
@@ -63,6 +69,8 @@ bool is_supported(const Tensor &out,
     if (alibi_slopes
         && ((alibi_slopes.value()->ndim() != 1
              && alibi_slopes.value()->ndim() != 2)
+            || (device_type == Device::Type::kMoore
+                && alibi_slopes.value()->ndim() != 1)
             || alibi_slopes.value()->dtype() != DataType::kFloat32
             || !alibi_slopes.value()->is_contiguous()
             || alibi_slopes.value()->device() != out->device()
@@ -123,9 +131,11 @@ void run(void *planned_meta) {
     auto *planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    auto config = ::infinicore::op::infiniops::defaultConfigForDevice<
-        infini::ops::FlashAttnWithKvcache>(
-        planned->q.device.type());
+    const auto device_type = planned->q.device.type();
+    const std::size_t implementation_index =
+        device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
+    auto config = ::infinicore::op::infiniops::configForImplementation<
+        infini::ops::FlashAttnWithKvcache>(device_type, implementation_index);
 
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> cache_seqlens{
@@ -175,6 +185,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMetax, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMetax, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMetax, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMoore, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMoore, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMoore, &cleanup);
     return true;
 }();
 

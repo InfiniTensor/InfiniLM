@@ -91,8 +91,8 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertEqual(config["argmax"]["implementations"], [8])
         self.assertEqual(config["tril"]["implementations"], [8])
         self.assertEqual(config["triu"]["implementations"], [8])
-        self.assertEqual(config["flash_attn_varlen_func"]["implementations"], [16])
-        self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], [16])
+        self.assertEqual(config["flash_attn_varlen_func"]["implementations"], "all")
+        self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], "all")
         self.assertEqual(config["topk_softmax"]["implementations"], [0])
         self.assertEqual(config["add"]["implementations"], [0])
         self.assertNotIn("causal_softmax", config)
@@ -104,6 +104,14 @@ class BuildInfiniStackTest(unittest.TestCase):
             path.write_text('{"add": {"implementations": [32]}}', encoding="utf-8")
 
             with self.assertRaisesRegex(ValueError, "between 0 and 31"):
+                build_infini_stack.read_operator_config(path)
+
+            path.write_text(
+                '{"add": {"implementations": "default"}}', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                ValueError, "must be 'all' or unique integers"
+            ):
                 build_infini_stack.read_operator_config(path)
 
     def test_parse_gitlink(self):

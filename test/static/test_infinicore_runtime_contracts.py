@@ -52,9 +52,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "gelu/gelu_infiniops.cc": 1,
             "gelutanh/gelutanh_infiniops.cc": 1,
             "gemm/gemm_infiniops.cc": 3,
-            "mha_kvcache/mha_kvcache_infiniops.cc": 6,
+            "mha_kvcache/mha_kvcache_infiniops.cc": 9,
             "mul/mul_infiniops.cc": 3,
-            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 6,
+            "multi_head_attention_varlen/mha_varlen_infiniops.cc": 9,
             "ones/ones_infiniops.cc": 3,
             "paged_caching/paged_caching_infiniops.cc": 3,
             "random_sample/random_sample_infiniops.cc": 1,
@@ -117,6 +117,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("implementation_indices.empty()", bridge)
         self.assertIn("implementation_indices.front()", bridge)
         self.assertIn("no active implementation for device", bridge)
+        self.assertIn("configForImplementation", bridge)
+        self.assertIn("implementation_indices.end()", bridge)
+        self.assertIn("is not active for device", bridge)
 
         ops_root = ROOT / "csrc/infinicore/src/ops"
         adapter_paths = list(ops_root.glob("*/*_infiniops.cc"))
@@ -126,7 +129,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 source = path.read_text(encoding="utf-8")
                 if "infini::ops::" not in source or "::Call(" not in source:
                     continue
-                self.assertIn("defaultConfigForDevice<", source)
+                self.assertTrue(
+                    "defaultConfigForDevice<" in source
+                    or "configForImplementation<" in source
+                )
                 self.assertNotRegex(
                     source, re.compile(r"infini::ops::Config\s+[A-Za-z0-9_]+\s*;")
                 )
@@ -314,6 +320,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             infer_engine,
         )
         self.assertIn("device_type != infinicore::Device::Type::kNvidia", infer_engine)
+        self.assertIn("device_type != infinicore::Device::Type::kMoore", infer_engine)
         self.assertIn("paged_cache_config->num_blocks() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() % 256 != 0", infer_engine)
@@ -322,6 +329,14 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("dtype != infinicore::DataType::kBFloat16", infer_engine)
         self.assertIn(
             "head_dim == 0 || head_dim > 256 || head_dim % 8 != 0", infer_engine
+        )
+        self.assertIn(
+            "device_type == infinicore::Device::Type::kMoore", infer_engine
+        )
+        self.assertIn("head_dim != 64", infer_engine)
+        self.assertIn("head_dim != 128", infer_engine)
+        self.assertIn(
+            "flash-attn on Moore requires head_dim to be 64 or 128", infer_engine
         )
         self.assertLess(flash_cache_validation, config_creation)
         self.assertLess(flash_cache_validation, rank_workers)
@@ -783,7 +798,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("get_tensor_model_parallel_world_size", replay_body)
         self.assertIn("GraphRecordingGuard recording", compile_body)
 
-    def test_linked_flash_attention_uses_host_graph_segments(self) -> None:
+    def test_flash_attention_decode_uses_host_graph_segments(self) -> None:
         mha_header = read_source(
             "csrc/infinicore/include/infinicore/ops/mha_kvcache.hpp"
         )
