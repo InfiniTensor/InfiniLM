@@ -31,6 +31,8 @@ def read_operator_config(path: Path = OPERATOR_CONFIG) -> Dict[str, Dict[str, ob
                 f"Operator {operator!r} must define only 'implementations': {path}"
             )
         implementations = selection["implementations"]
+        if implementations == "all":
+            continue
         if (
             not isinstance(implementations, list)
             or not implementations
@@ -40,8 +42,8 @@ def read_operator_config(path: Path = OPERATOR_CONFIG) -> Dict[str, Dict[str, ob
             or len(implementations) != len(set(implementations))
         ):
             raise ValueError(
-                f"Operator {operator!r} implementations must be unique "
-                f"integers between 0 and 31: {path}"
+                f"Operator {operator!r} implementations must be 'all' or "
+                f"unique integers between 0 and 31: {path}"
             )
     return config
 

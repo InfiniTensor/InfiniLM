@@ -70,9 +70,10 @@ InferEngine::InferEngine(
     }
     if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
         if (device_type != infinicore::Device::Type::kNvidia
-            && device_type != infinicore::Device::Type::kMetax) {
+            && device_type != infinicore::Device::Type::kMetax
+            && device_type != infinicore::Device::Type::kMoore) {
             throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA and MetaX devices");
+                "flash-attn is only available on NVIDIA, MetaX, and Moore devices");
         }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {
@@ -106,6 +107,12 @@ InferEngine::InferEngine(
         if (head_dim == 0 || head_dim > 256 || head_dim % 8 != 0) {
             throw std::invalid_argument(
                 "flash-attn requires head_dim to be a positive multiple of 8 no greater than 256");
+        }
+        if (device_type == infinicore::Device::Type::kMoore
+            && head_dim != 64
+            && head_dim != 128) {
+            throw std::invalid_argument(
+                "flash-attn on Moore requires head_dim to be 64 or 128");
         }
     }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(

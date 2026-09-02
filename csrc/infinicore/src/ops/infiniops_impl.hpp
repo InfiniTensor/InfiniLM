@@ -3,6 +3,8 @@
 #include "../utils.hpp"
 #include "infinicore/tensor.hpp"
 
+#include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 #include <string>
 
@@ -79,6 +81,27 @@ inline bool isSupportedDevice(Device::Type device_type) {
 }
 
 template <typename Operator>
+infini::ops::Config configForImplementation(
+    infini::ops::Device::Type device_type,
+    std::size_t implementation_index) {
+    const auto implementation_indices = Operator::active_implementation_indices(device_type);
+    if (std::find(
+            implementation_indices.begin(),
+            implementation_indices.end(),
+            implementation_index)
+        == implementation_indices.end()) {
+        throw std::runtime_error(
+            "InfiniOps implementation " + std::to_string(implementation_index)
+            + " is not active for device '"
+            + std::string(infini::ops::Device::StringFromType(device_type)) + "'.");
+    }
+
+    infini::ops::Config config;
+    config.set_implementation_index(implementation_index);
+    return config;
+}
+
+template <typename Operator>
 infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type) {
     const auto implementation_indices = Operator::active_implementation_indices(device_type);
     if (implementation_indices.empty()) {
@@ -87,9 +110,7 @@ infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type
             + std::string(infini::ops::Device::StringFromType(device_type)) + "'.");
     }
 
-    infini::ops::Config config;
-    config.set_implementation_index(implementation_indices.front());
-    return config;
+    return configForImplementation<Operator>(device_type, implementation_indices.front());
 }
 
 template <typename Dispatcher, typename Function>

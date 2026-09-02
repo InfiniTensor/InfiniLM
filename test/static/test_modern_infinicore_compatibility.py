@@ -195,17 +195,62 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "mha_varlen_infiniops.cc",
         ):
             attention = read_source(relative_path)
-            self.assertIn("device_type != Device::Type::kMetax", attention)
-            self.assertEqual(
-                attention.count("Device::Type::kMetax, &"),
-                3,
+            for device in ("kMetax", "kMoore"):
+                with self.subTest(adapter=relative_path, device=device):
+                    self.assertIn(f"device_type != Device::Type::{device}", attention)
+                    self.assertEqual(
+                        attention.count(f"Device::Type::{device}, &"),
+                        3,
+                    )
+            self.assertIn("configForImplementation<", attention)
+            self.assertIn(
+                "device_type == infini::ops::Device::Type::kMoore ? 8 : 16",
+                attention,
             )
+            self.assertIn("device_type == Device::Type::kMoore", attention)
+            self.assertIn("!= 64", attention)
+            self.assertIn("!= 128", attention)
+            self.assertIn("alibi_slopes.value()->ndim() != 1", attention)
+
+        varlen_attention = read_source(
+            "csrc/infinicore/src/ops/multi_head_attention_varlen/"
+            "mha_varlen_infiniops.cc"
+        )
+        self.assertIn(
+            "&& (!paged || alibi_slopes.value()->ndim() != 1)",
+            varlen_attention,
+        )
+        self.assertIn(
+            "static_cast<std::size_t>(max_seqlen_k)", varlen_attention
+        )
+        self.assertIn(
+            "> block_table.value()->size(1) * k->size(1)", varlen_attention
+        )
+
+        decode_attention = read_source(
+            "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_infiniops.cc"
+        )
+        self.assertIn("k_cache->size(0) == 0", decode_attention)
+
+        self.assertIn("configForImplementation", bridge)
+        self.assertIn("implementation_indices.end()", bridge)
+        self.assertIn("is not active for device", bridge)
 
         engine = read_source("csrc/engine/infer_engine.cpp")
         self.assertIn(
-            "flash-attn is only available on NVIDIA and MetaX devices",
+            "flash-attn is only available on NVIDIA, MetaX, and Moore devices",
             engine,
         )
+
+    def test_dead_moore_flash_attention_bridges_are_removed(self) -> None:
+        for relative_path in (
+            "csrc/infinicore/src/ops/mha_kvcache/"
+            "mha_kvcache_flashattn_moore.cc",
+            "csrc/infinicore/src/ops/multi_head_attention_varlen/"
+            "mha_varlen_flashattn_moore.cc",
+        ):
+            with self.subTest(relative_path=relative_path):
+                self.assertFalse((ROOT / relative_path).exists())
 
     def test_infini_devices_keep_their_modern_platform_names(self) -> None:
         for relative_path in (
