@@ -4,6 +4,11 @@ local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") an
 local CUDA_ROOT = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
 local NEUWARE_ROOT = os.getenv("NEUWARE_HOME") or "/usr/local/neuware"
 local ASCEND_ROOT = os.getenv("ASCEND_HOME_PATH") or os.getenv("ASCEND_TOOLKIT_HOME") or os.getenv("ASCEND_HOME") or "/usr/local/Ascend/ascend-toolkit/latest"
+local MUSA_ROOT =
+    os.getenv("MUSA_ROOT")
+    or os.getenv("MUSA_HOME")
+    or os.getenv("MUSA_PATH")
+    or "/usr/local/musa"
 local OPERATOR_CALLS_HEADER = INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"
 
 set_toolchains("gcc")
@@ -36,6 +41,10 @@ end
 if os.isdir(ASCEND_ROOT .. "/include") then
     add_includedirs(ASCEND_ROOT .. "/include")
     add_linkdirs(ASCEND_ROOT .. "/lib64")
+end
+if os.isdir(MUSA_ROOT .. "/include") then
+    add_includedirs(MUSA_ROOT .. "/include")
+    add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")
 end
 
 target("infinicore_runtime")

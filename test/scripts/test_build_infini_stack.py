@@ -98,6 +98,28 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertNotIn("causal_softmax", config)
         self.assertTrue(all("_infinilm" not in operator for operator in config))
 
+    def test_moore_operator_config_keeps_only_the_greedy_sampling_closure(self):
+        default_config = build_infini_stack.read_operator_config()
+        moore_config = build_infini_stack.read_operator_config(
+            build_infini_stack.PROJECT_ROOT / "scripts/configs/infiniops_ops_moore.json"
+        )
+
+        self.assertEqual(
+            list(moore_config),
+            [
+                operator
+                for operator in default_config
+                if operator != "top_k_top_p_sampling_from_logits"
+            ],
+        )
+        self.assertEqual(moore_config["argmax"]["implementations"], [8])
+        self.assertEqual(
+            moore_config["flash_attn_varlen_func"]["implementations"], "all"
+        )
+        self.assertEqual(
+            moore_config["flash_attn_with_kvcache"]["implementations"], "all"
+        )
+
     def test_invalid_operator_config_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ops.json"

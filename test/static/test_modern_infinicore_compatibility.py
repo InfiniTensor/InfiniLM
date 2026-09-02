@@ -267,11 +267,21 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             with self.subTest(environment=environment):
                 self.assertIn(f'os.getenv("{environment}")', xmake)
                 self.assertIn(default_root, xmake)
+        self.assertIn(
+            '''local MUSA_ROOT =
+    os.getenv("MUSA_ROOT")
+    or os.getenv("MUSA_HOME")
+    or os.getenv("MUSA_PATH")
+    or "/usr/local/musa"''',
+            xmake,
+        )
 
         self.assertIn('add_includedirs(NEUWARE_ROOT .. "/include")', xmake)
         self.assertIn('add_linkdirs(NEUWARE_ROOT .. "/lib64")', xmake)
         self.assertIn('add_includedirs(ASCEND_ROOT .. "/include")', xmake)
         self.assertIn('add_linkdirs(ASCEND_ROOT .. "/lib64")', xmake)
+        self.assertIn('add_includedirs(MUSA_ROOT .. "/include")', xmake)
+        self.assertIn('add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")', xmake)
 
     def test_infiniops_adapters_follow_the_installed_ops_closure(self) -> None:
         xmake = read_source("xmake.lua")
