@@ -1,11 +1,51 @@
 #pragma once
+
 #include "../../engine/distributed/communication_group.hpp"
 #include "../quantization/quantization.hpp"
 #include "linear.hpp"
+
+#include <cstddef>
 #include <functional>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <tuple>
+#include <vector>
 
 namespace infinilm::layers::linear {
 using RegisterParamFn = std::function<void(const std::string &, infinicore::nn::Parameter)>;
+
+struct MergedLinearSplit {
+    std::string name;
+    size_t output_size;
+    size_t num_shards = 0;
+};
+
+class MergedColumnParallelLinear : public infinilm::nn::ColumnParallelLinear {
+public:
+    MergedColumnParallelLinear(
+        size_t hidden_size,
+        const std::vector<MergedLinearSplit> &splits,
+        RegisterParamFn register_fn,
+        bool bias = false,
+        const infinicore::DataType &dtype = infinicore::DataType::F32,
+        const infinicore::Device &device = infinicore::Device(),
+        engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+
+    void process_weights_after_loading() override;
+
+private:
+    static size_t calculate_local_output_size(
+        const MergedLinearSplit &split,
+        size_t tp_size);
+    static size_t calculate_total_output_size(
+        const std::vector<MergedLinearSplit> &splits,
+        size_t tp_size);
+    void register_split_parameters();
+
+    RegisterParamFn register_fn_;
+    std::vector<infinilm::quantization::SplitInfo> split_infos_;
+};
 
 class QKVParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:

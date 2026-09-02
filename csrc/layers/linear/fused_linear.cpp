@@ -1,8 +1,105 @@
 #include "fused_linear.hpp"
 
-#include <spdlog/spdlog.h>
+#include <utility>
 
 namespace infinilm::layers::linear {
+size_t MergedColumnParallelLinear::calculate_local_output_size(
+    const MergedLinearSplit &split,
+    size_t tp_size) {
+    if (tp_size == 0) {
+        throw std::runtime_error("`tp_size` must be positive");
+    }
+    if (split.output_size == 0) {
+        throw std::runtime_error("`output_size` must be positive");
+    }
+    if (split.num_shards == 0) {
+        if (split.output_size % tp_size != 0) {
+            throw std::runtime_error(
+                "`output_size` must be divisible by `tp_size`");
+        }
+        return split.output_size / tp_size;
+    }
+    if (split.output_size % split.num_shards != 0) {
+        throw std::runtime_error(
+            "`output_size` must be divisible by `num_shards`");
+    }
+    if (split.num_shards % tp_size == 0) {
+        return split.output_size / tp_size;
+    }
+    if (tp_size % split.num_shards == 0) {
+        return split.output_size / split.num_shards;
+    }
+    throw std::runtime_error(
+        "`num_shards` and `tp_size` are incompatible");
+}
+
+size_t MergedColumnParallelLinear::calculate_total_output_size(
+    const std::vector<MergedLinearSplit> &splits,
+    size_t tp_size) {
+    if (splits.empty()) {
+        throw std::runtime_error("`splits` must not be empty");
+    }
+    size_t local_output_size = 0;
+    for (size_t i = 0; i < splits.size(); ++i) {
+        const auto &split = splits[i];
+        if (split.name.empty()) {
+            throw std::runtime_error("`split.name` must not be empty");
+        }
+        for (size_t j = 0; j < i; ++j) {
+            if (splits[j].name == split.name) {
+                throw std::runtime_error("duplicate split name `" + split.name + "`");
+            }
+        }
+        local_output_size += calculate_local_output_size(split, tp_size);
+    }
+    return local_output_size * tp_size;
+}
+
+MergedColumnParallelLinear::MergedColumnParallelLinear(
+    size_t hidden_size,
+    const std::vector<MergedLinearSplit> &splits,
+    RegisterParamFn register_fn,
+    bool bias,
+    const infinicore::DataType &dtype,
+    const infinicore::Device &device,
+    engine::distributed::RankInfo rank_info)
+    : infinilm::nn::ColumnParallelLinear(
+        hidden_size,
+        calculate_total_output_size(splits, rank_info.tp_size),
+        std::make_shared<infinilm::quantization::NoneQuantization>(),
+        bias,
+        dtype,
+        device,
+        rank_info.tp_rank,
+        rank_info.tp_size),
+      register_fn_(std::move(register_fn)) {
+    if (!register_fn_) {
+        throw std::runtime_error("`register_fn` must not be empty");
+    }
+    split_infos_.reserve(splits.size());
+    size_t start = 0;
+    for (const auto &split : splits) {
+        const size_t local_output_size = calculate_local_output_size(
+            split, rank_info.tp_size);
+        split_infos_.push_back(
+            {split.name, start, local_output_size, split.num_shards});
+        start += local_output_size;
+    }
+    register_split_parameters();
+}
+
+void MergedColumnParallelLinear::process_weights_after_loading() {
+    BaseLinear::process_weights_after_loading();
+    register_split_parameters();
+}
+
+void MergedColumnParallelLinear::register_split_parameters() {
+    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
+    for (auto &param : params) {
+        register_fn_(param.full_name, std::move(param.param));
+    }
+}
+
 // ---------------------------------------------------------
 // QKV Parallel Linear
 // ---------------------------------------------------------
