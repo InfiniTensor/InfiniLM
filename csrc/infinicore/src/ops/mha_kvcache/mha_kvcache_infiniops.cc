@@ -25,7 +25,8 @@ bool is_supported(const Tensor &out,
     const auto device_type = out->device().type();
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
-         && device_type != Device::Type::kMoore)
+         && device_type != Device::Type::kMoore
+         && device_type != Device::Type::kCambricon)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -187,6 +188,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMoore, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMoore, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMoore, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kCambricon, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kCambricon, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kCambricon, &cleanup);
     return true;
 }();
 

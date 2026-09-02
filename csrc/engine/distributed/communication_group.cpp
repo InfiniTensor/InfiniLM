@@ -168,15 +168,24 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
     }
 
     if (tp_size > 1) {
-        infinicclUniqueId unique_id{};
-        checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
-        initializeCommunicators(
-            device_type_,
-            dist_config_.tp_device_ids,
-            static_cast<int>(tp_size),
-            unique_id,
-            0,
-            communicators_);
+        if (device_type_ == infinicore::Device::Type::kCambricon) {
+            checkInfiniccl(
+                "infinicclCommInitAll",
+                infinicclCommInitAll(
+                    communicators_.data(),
+                    static_cast<int>(tp_size),
+                    dist_config_.tp_device_ids.data()));
+        } else {
+            infinicclUniqueId unique_id{};
+            checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
+            initializeCommunicators(
+                device_type_,
+                dist_config_.tp_device_ids,
+                static_cast<int>(tp_size),
+                unique_id,
+                0,
+                communicators_);
+        }
         spdlog::info(
             "Intra-node TP communicator established: node_rank={}, local_ranks={}",
             dist_config_.pp_stage,
