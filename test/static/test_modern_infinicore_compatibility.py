@@ -220,12 +220,8 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "&& (!paged || alibi_slopes.value()->ndim() != 1)",
             varlen_attention,
         )
-        self.assertIn(
-            "static_cast<std::size_t>(max_seqlen_k)", varlen_attention
-        )
-        self.assertIn(
-            "> block_table.value()->size(1) * k->size(1)", varlen_attention
-        )
+        self.assertIn("static_cast<std::size_t>(max_seqlen_k)", varlen_attention)
+        self.assertIn("> block_table.value()->size(1) * k->size(1)", varlen_attention)
 
         decode_attention = read_source(
             "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_infiniops.cc"
@@ -244,8 +240,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
 
     def test_dead_moore_flash_attention_bridges_are_removed(self) -> None:
         for relative_path in (
-            "csrc/infinicore/src/ops/mha_kvcache/"
-            "mha_kvcache_flashattn_moore.cc",
+            "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_flashattn_moore.cc",
             "csrc/infinicore/src/ops/multi_head_attention_varlen/"
             "mha_varlen_flashattn_moore.cc",
         ):

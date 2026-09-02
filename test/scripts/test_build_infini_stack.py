@@ -106,12 +106,8 @@ class BuildInfiniStackTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "between 0 and 31"):
                 build_infini_stack.read_operator_config(path)
 
-            path.write_text(
-                '{"add": {"implementations": "default"}}', encoding="utf-8"
-            )
-            with self.assertRaisesRegex(
-                ValueError, "must be 'all' or unique integers"
-            ):
+            path.write_text('{"add": {"implementations": "default"}}', encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must be 'all' or unique integers"):
                 build_infini_stack.read_operator_config(path)
 
     def test_parse_gitlink(self):
