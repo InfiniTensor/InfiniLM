@@ -98,8 +98,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> Qwen35DecoderLayer::forward(c
     const bool fp32_fused = fp32_fused_env != nullptr && fp32_fused_env[0] != '\0'
                          && std::string(fp32_fused_env) != "0";
     const bool mixed_gguf_f32 = residual
-        && hidden_states->dtype() == infinicore::DataType::F32
-        && residual->dtype() == infinicore::DataType::BF16;
+                             && hidden_states->dtype() == infinicore::DataType::F32
+                             && residual->dtype() == infinicore::DataType::BF16;
     if (mixed_gguf_f32) {
         auto y = infinicore::Tensor::empty(
             hidden_states->shape(), infinicore::DataType::BF16, hidden_states->device());

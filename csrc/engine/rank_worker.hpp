@@ -10,8 +10,8 @@
 #include "rank_barrier.hpp"
 
 #include <any>
-#include <cstdint>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <random>
 #include <string>

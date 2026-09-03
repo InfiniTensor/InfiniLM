@@ -20,20 +20,15 @@ std::vector<ParamDescriptor> FP8Quantization::get_param_layout(
     std::vector<ParamDescriptor> descs;
 
     // Weight: FP8 (E4M3) format - keep as F8, do NOT convert to BF16
-    descs.push_back({"weight", {out_features, in_features},
-                     infinicore::DataType::F8, split_dim, tp_rank, tp_size});
+    descs.push_back({"weight", {out_features, in_features}, infinicore::DataType::F8, split_dim, tp_rank, tp_size});
 
     // Per-block weight scale (inverse): BF16, shape = [ceil(N/128), ceil(K/128)]
     size_t num_out_blocks = (out_features + BLOCK_SIZE - 1) / BLOCK_SIZE;
     size_t num_in_blocks = (in_features + BLOCK_SIZE - 1) / BLOCK_SIZE;
-    descs.push_back({"weight_scale_inv", {num_out_blocks, num_in_blocks},
-                     infinicore::DataType::F32, split_dim, tp_rank, tp_size});
+    descs.push_back({"weight_scale_inv", {num_out_blocks, num_in_blocks}, infinicore::DataType::F32, split_dim, tp_rank, tp_size});
 
     if (bias) {
-        descs.push_back({"bias", {out_features}, dtype,
-                         split_dim >= 0 ? 0 : -1,
-                         split_dim >= 0 ? tp_rank : 0,
-                         split_dim >= 0 ? tp_size : 1});
+        descs.push_back({"bias", {out_features}, dtype, split_dim >= 0 ? 0 : -1, split_dim >= 0 ? tp_rank : 0, split_dim >= 0 ? tp_size : 1});
     }
     return descs;
 }
@@ -67,7 +62,7 @@ infinicore::Tensor FP8Quantization::forward(
     // Get dimensions
     auto x_shape = x->shape();
     size_t ndim = x_shape.size();
-    size_t K = x_shape[ndim - 1];  // last dim is always feature dim
+    size_t K = x_shape[ndim - 1]; // last dim is always feature dim
     // M = product of all leading dims
     size_t M = 1;
     for (size_t i = 0; i < ndim - 1; i++) {
@@ -162,9 +157,7 @@ std::shared_ptr<BaseQuantization> FP8Quantization::process_weights_after_loading
     size_t num_in_blocks = (in_features + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
     auto scale_shape = scale->shape();
-    if (scale_shape.size() != 2 ||
-        scale_shape[0] != num_out_blocks ||
-        scale_shape[1] != num_in_blocks) {
+    if (scale_shape.size() != 2 || scale_shape[0] != num_out_blocks || scale_shape[1] != num_in_blocks) {
         throw std::runtime_error("FP8Quantization: weight_scale_inv shape mismatch");
     }
 

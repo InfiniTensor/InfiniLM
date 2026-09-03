@@ -18,26 +18,30 @@
 __global__ void decode_f32_kernel(int32_t type, const uint8_t *blk, int64_t n_blocks,
                                   int32_t bytes, int32_t elems, float *out) {
     const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_blocks) return;
+    if (i >= n_blocks) {
+        return;
+    }
     ggml_blocks::decode_blocks(type, blk + (int64_t)i * bytes, 1, out + i * elems);
 }
 
 __global__ void decode_bf16_kernel(int32_t type, const uint8_t *blk, int64_t n_blocks,
                                    int32_t bytes, int32_t elems, uint16_t *out) {
     const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
-    if (i >= n_blocks) return;
+    if (i >= n_blocks) {
+        return;
+    }
     ggml_blocks::decode_blocks_bf16<ggml_blocks::QK_K>(type, blk + (int64_t)i * bytes, 1,
                                                        out + i * elems);
 }
 
-#define CUDA_CHECK(call)                                                              \
-    do {                                                                              \
-        cudaError_t err__ = (call);                                                   \
-        if (err__ != cudaSuccess) {                                                   \
-            std::fprintf(stderr, "probe cuda: %s failed: %s\n", #call,               \
-                         cudaGetErrorString(err__));                                  \
-            return 5;                                                                 \
-        }                                                                             \
+#define CUDA_CHECK(call)                                               \
+    do {                                                               \
+        cudaError_t err__ = (call);                                    \
+        if (err__ != cudaSuccess) {                                    \
+            std::fprintf(stderr, "probe cuda: %s failed: %s\n", #call, \
+                         cudaGetErrorString(err__));                   \
+            return 5;                                                  \
+        }                                                              \
     } while (0)
 
 int main(int argc, char **argv) {
@@ -111,8 +115,7 @@ int main(int argc, char **argv) {
     }
     const size_t n_f32 = h_f32.size() * sizeof(float);
     const size_t n_bf16 = h_bf16.size() * sizeof(uint16_t);
-    const bool ok = std::fwrite(h_f32.data(), 1, n_f32, o1) == n_f32 &&
-                    std::fwrite(h_bf16.data(), 1, n_bf16, o2) == n_bf16;
+    const bool ok = std::fwrite(h_f32.data(), 1, n_f32, o1) == n_f32 && std::fwrite(h_bf16.data(), 1, n_bf16, o2) == n_bf16;
     std::fclose(o1);
     std::fclose(o2);
     if (!ok) {

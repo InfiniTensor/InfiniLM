@@ -58,7 +58,8 @@ def main() -> int:
     tok_default = AutoTokenizer.from_pretrained(args.model_path, **common)
     try:
         tok_fixed = AutoTokenizer.from_pretrained(
-            args.model_path, fix_mistral_regex=True, **common)
+            args.model_path, fix_mistral_regex=True, **common
+        )
         fixed_error = None
     except Exception as exc:  # compatibility with older transformers
         tok_fixed = None
@@ -67,32 +68,50 @@ def main() -> int:
     results = []
     default_ok = fixed_ok = True
     for case in cases:
-        llama = post_json(args.server.rstrip("/") + "/tokenize", {
-            "content": case["prompt"],
-            "add_special": False,
-            "parse_special": True,
-            "with_pieces": False,
-        })["tokens"]
+        llama = post_json(
+            args.server.rstrip("/") + "/tokenize",
+            {
+                "content": case["prompt"],
+                "add_special": False,
+                "parse_special": True,
+                "with_pieces": False,
+            },
+        )["tokens"]
         llama = [int(x) for x in llama]
-        local_default = [int(x) for x in tok_default.encode(
-            case["prompt"], add_special_tokens=False)]
-        local_fixed = None if tok_fixed is None else [int(x) for x in tok_fixed.encode(
-            case["prompt"], add_special_tokens=False)]
+        local_default = [
+            int(x) for x in tok_default.encode(case["prompt"], add_special_tokens=False)
+        ]
+        local_fixed = (
+            None
+            if tok_fixed is None
+            else [
+                int(x)
+                for x in tok_fixed.encode(case["prompt"], add_special_tokens=False)
+            ]
+        )
         match_default = llama == local_default
         match_fixed = local_fixed is not None and llama == local_fixed
         default_ok &= match_default
         fixed_ok &= match_fixed
-        results.append({
-            **case,
-            "input_ids": llama,
-            "local_default_ids": local_default,
-            "local_fixed_ids": local_fixed,
-            "default_match": match_default,
-            "fixed_match": match_fixed,
-        })
-        print("%-10s llama=%3d default=%s fixed=%s" % (
-            case["id"], len(llama), match_default,
-            "NA" if local_fixed is None else str(match_fixed)))
+        results.append(
+            {
+                **case,
+                "input_ids": llama,
+                "local_default_ids": local_default,
+                "local_fixed_ids": local_fixed,
+                "default_match": match_default,
+                "fixed_match": match_fixed,
+            }
+        )
+        print(
+            "%-10s llama=%3d default=%s fixed=%s"
+            % (
+                case["id"],
+                len(llama),
+                match_default,
+                "NA" if local_fixed is None else str(match_fixed),
+            )
+        )
 
     if default_ok:
         selected_variant = "default"
@@ -115,8 +134,10 @@ def main() -> int:
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print("RESULT default_all=%s fixed_all=%s selected=%s cases=%d" % (
-        default_ok, fixed_ok, selected_variant, len(results)))
+    print(
+        "RESULT default_all=%s fixed_all=%s selected=%s cases=%d"
+        % (default_ok, fixed_ok, selected_variant, len(results))
+    )
     return 0 if selected_variant else 1
 
 

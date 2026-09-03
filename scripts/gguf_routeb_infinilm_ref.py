@@ -25,8 +25,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    import numpy as np
     import infinicore
+    import numpy as np
     from infinilm.cache import PagedKVCacheConfig
     from infinilm.distributed import DistConfig
     from infinilm.infer_engine import GenerationConfig, InferEngine
@@ -48,7 +48,8 @@ def main() -> int:
         device=infinicore.device("cuda:0"),
         distributed_config=DistConfig(1),
         cache_config=PagedKVCacheConfig(
-            args.num_blocks, args.block_size, max_batch_size=1),
+            args.num_blocks, args.block_size, max_batch_size=1
+        ),
         attention_backend="paged-attn",
     )
     load_model_state_dict_by_file(engine, args.model_path, dtype=engine.dtype)
@@ -61,7 +62,8 @@ def main() -> int:
         runs = []
         for repeat in range(args.repeats):
             prompt = infinicore.from_list(
-                [[int(x) for x in case["input_ids"]]], dtype=infinicore.int64)
+                [[int(x) for x in case["input_ids"]]], dtype=infinicore.int64
+            )
             config = GenerationConfig(
                 max_new_tokens=args.new_tokens,
                 temperature=0.0,
@@ -74,25 +76,32 @@ def main() -> int:
             run_started = time.time()
             generated = engine.generate(prompt, config)
             tokens = [int(np.asarray(x.to_numpy()).reshape(-1)[0]) for x in generated]
-            runs.append({
-                "repeat": repeat,
-                "tokens": tokens,
-                "elapsed_s": round(time.time() - run_started, 4),
-            })
+            runs.append(
+                {
+                    "repeat": repeat,
+                    "tokens": tokens,
+                    "elapsed_s": round(time.time() - run_started, 4),
+                }
+            )
         deterministic = all(x["tokens"] == runs[0]["tokens"] for x in runs[1:])
         exact_length = all(len(x["tokens"]) == args.new_tokens for x in runs)
         ok = deterministic and exact_length
         all_ok &= ok
-        outputs.append({
-            "id": case["id"],
-            "prompt": case["prompt"],
-            "input_ids": case["input_ids"],
-            "deterministic": deterministic,
-            "exact_length": exact_length,
-            "runs": runs,
-        })
-        print("%-10s deterministic=%s length=%s tokens=%s" % (
-            case["id"], deterministic, exact_length, runs[0]["tokens"]), flush=True)
+        outputs.append(
+            {
+                "id": case["id"],
+                "prompt": case["prompt"],
+                "input_ids": case["input_ids"],
+                "deterministic": deterministic,
+                "exact_length": exact_length,
+                "runs": runs,
+            }
+        )
+        print(
+            "%-10s deterministic=%s length=%s tokens=%s"
+            % (case["id"], deterministic, exact_length, runs[0]["tokens"]),
+            flush=True,
+        )
 
     result = {
         "engine": "InfiniLM",

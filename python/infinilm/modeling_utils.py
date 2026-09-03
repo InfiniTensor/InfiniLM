@@ -56,10 +56,12 @@ str_to_torch_dtype = {
 }
 
 _FP8_DTYPES = tuple(
-    x for x in (
+    x
+    for x in (
         getattr(torch, "float8_e4m3fn", None),
         getattr(torch, "float8_e5m2", None),
-    ) if x is not None
+    )
+    if x is not None
 )
 
 
@@ -266,7 +268,10 @@ def load_model_state_dict_by_file(
 
             # Convert FP8 block scales from BF16 to FP32 for CUTLASS GEMM
             for key in list(model_param.keys()):
-                if key.endswith("weight_scale_inv") and model_param[key].dtype == torch.bfloat16:
+                if (
+                    key.endswith("weight_scale_inv")
+                    and model_param[key].dtype == torch.bfloat16
+                ):
                     model_param[key] = model_param[key].float()
 
             # --------------------------------------------------------- #
@@ -786,7 +791,9 @@ def _remap_qwen3_5(state_dict, config):
     state_dict = drop_keys(state_dict, ["mtp."])
 
     # Filter out visual encoder keys (not used in language-only mode)
-    state_dict = {k: v for k, v in state_dict.items() if not k.startswith("model.visual.")}
+    state_dict = {
+        k: v for k, v in state_dict.items() if not k.startswith("model.visual.")
+    }
 
     llm_config = config["text_config"]
     key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
@@ -796,9 +803,7 @@ def _remap_qwen3_5(state_dict, config):
     # （conversion/qwen.py:393-394，除 linear_attn.norm 之外全部加），打包器按「不得再
     # 加一次」原样搬运（scripts/gguf_mapping.py 顶部第 13 行）。这里再加一次就变成
     # 2+w；融合 QKV 也已在打包期拆成 in_proj_q/k/v，不能按老键名再拆一遍。
-    gguf = (
-        (config.get("quantization_config") or {}).get("quant_method", "") == "gguf"
-    )
+    gguf = (config.get("quantization_config") or {}).get("quant_method", "") == "gguf"
 
     norm_weight_suffixes = (
         "input_layernorm.weight",
@@ -954,14 +959,14 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
                     b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
                     b2_tensors.append(down_bias)
 
-            fused_dtype = w1_tensors[0].dtype if w1_tensors[0].dtype in _FP8_DTYPES else target_dtype
+            fused_dtype = (
+                w1_tensors[0].dtype
+                if w1_tensors[0].dtype in _FP8_DTYPES
+                else target_dtype
+            )
             fused = {
-                "w1": torch.stack(w1_tensors, dim=0)
-                .to(dtype=fused_dtype)
-                .contiguous(),
-                "w2": torch.stack(w2_tensors, dim=0)
-                .to(dtype=fused_dtype)
-                .contiguous(),
+                "w1": torch.stack(w1_tensors, dim=0).to(dtype=fused_dtype).contiguous(),
+                "w2": torch.stack(w2_tensors, dim=0).to(dtype=fused_dtype).contiguous(),
             }
             if has_all_bias:
                 fused["b1"] = (

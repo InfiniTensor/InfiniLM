@@ -122,18 +122,14 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def(
-            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 py::gil_scoped_release release;
-                return self.forward(input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
-        .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+                return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
@@ -211,8 +207,7 @@ inline void bind_infer_engine(py::module &m) {
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
                     } else if (key == "suppressed_token_ids") {
-                        input.suppressed_token_ids =
-                            py::cast<std::vector<std::vector<int64_t>>>(item.second);
+                        input.suppressed_token_ids = py::cast<std::vector<std::vector<int64_t>>>(item.second);
                     }
                 }
 

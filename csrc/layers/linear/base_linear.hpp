@@ -57,9 +57,9 @@ public:
     // One shard of a fused linear, for schemes that cannot share a single fused
     // buffer (GGUF block quantization: row_bytes differs per shard type).
     struct FusedShard {
-        std::string name;        // "q_proj" / "gate_proj" ... 注册到父模块时用
-        size_t out_features;     // 本 shard 的逻辑输出行数
-        std::string stem;        // "layers.0.self_attn.q_proj." 类型表查询用
+        std::string name;    // "q_proj" / "gate_proj" ... 注册到父模块时用
+        size_t out_features; // 本 shard 的逻辑输出行数
+        std::string stem;    // "layers.0.self_attn.q_proj." 类型表查询用
     };
 
     // 为融合 Linear 逐 shard 各分配一块独立 buffer：本对象 parameters_ 里的 key 是

@@ -65,7 +65,7 @@ public:
         const std::string &stem) const override;
 
     // 融合 Linear 的唯一入口：各 shard 的 ggml type id 只能由自己的 stem 查出来
-    //（实测 q/k/v 同类型的 full-attn 层数 0/16），而组 stem 做不到。见 §7.2 子步骤 0。
+    // （实测 q/k/v 同类型的 full-attn 层数 0/16），而组 stem 做不到。见 §7.2 子步骤 0。
     infinicore::Tensor forward(
         const ParamsMap &params,
         const infinicore::Tensor &input,

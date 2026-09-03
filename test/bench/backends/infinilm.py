@@ -50,6 +50,9 @@ class InfiniLMBenchmark(BaseBenchmark):
         print(f"Graph compilation: {'enabled' if enable_graph else 'disabled'}")
         print(f"Attention backend: {attn_backend}")
 
+        model_type = self.config_dict.get("model_type")
+        enable_prefix_caching = model_type not in {"qwen3_5", "qwen3_5_moe"}
+
         self.model = LLM(
             model_path=model_dir_path,
             device=device_name,
@@ -60,6 +63,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             block_size=256,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            enable_prefix_caching=enable_prefix_caching,
         )
         self.processor = self.model.engine.processor
         self.tokenizer = self.processor.get_tokenizer()
