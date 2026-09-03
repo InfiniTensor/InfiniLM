@@ -10,6 +10,7 @@
 #include "rank_barrier.hpp"
 
 #include <any>
+#include <cstdint>
 #include <condition_variable>
 #include <mutex>
 #include <random>
@@ -72,6 +73,9 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+
+        /// Token IDs excluded from sampling for each request in the batch.
+        std::vector<std::vector<int64_t>> suppressed_token_ids{};
 
         float temperature{1};
 

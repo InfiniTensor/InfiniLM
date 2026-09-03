@@ -6,12 +6,33 @@
 #include "../../utils.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
+namespace {
+
+bool should_dump_attention(size_t layer_idx) {
+    const char *dump_dir = std::getenv("INFINILM_ATTENTION_DUMP_DIR");
+    const char *target = std::getenv("INFINILM_ATTENTION_DUMP_LAYER");
+    return dump_dir != nullptr && dump_dir[0] != '\0'
+        && target != nullptr && target[0] != '\0'
+        && layer_idx == std::strtoull(target, nullptr, 10);
+}
+
+void dump_attention_tensor(const infinicore::Tensor &tensor,
+                           const char *name,
+                           size_t layer_idx) {
+    const char *dump_dir = std::getenv("INFINILM_ATTENTION_DUMP_DIR");
+    tensor->debug(std::string(dump_dir) + "/infini_attention_" + name + "_"
+                  + std::to_string(layer_idx) + ".bin");
+}
+
+} // namespace
 
 Qwen35Attention::Qwen35Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                  size_t layer_idx,
@@ -44,13 +65,17 @@ Qwen35Attention::Qwen35Attention(std::shared_ptr<infinilm::config::ModelConfig> 
 
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
+    // checkpoint 里的本层路径（已去掉 config.json:quantization_config.key_prefix）。
+    // 只给按张量名查类型的量化方案（GGUF）用，其他方案不传就是空串，行为不变。
+    const std::string prefix = "layers." + std::to_string(layer_idx_) + ".self_attn";
     qkv_proj_ = std::make_shared<Qwen35FusedQKVLinear>(
         hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
         "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
+        quantization_method, use_bias, dtype, device, rank_info, prefix);
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
-        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
+        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm,
+        prefix + ".o_proj.");
 
     const auto &rope_params = model_config->get_config_json()["rope_parameters"];
     const double partial_rotary_factor = rope_params["partial_rotary_factor"].get<double>();
@@ -135,21 +160,50 @@ infinicore::Tensor Qwen35Attention::forward_paged_(const infinicore::Tensor &pos
     ASSERT_EQ(batch_size, 1);
 
     auto [q, gate, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    const bool dump_attention = should_dump_attention(layer_idx_);
+    if (dump_attention) {
+        dump_attention_tensor(q, "q_raw", layer_idx_);
+        dump_attention_tensor(gate, "gate_raw", layer_idx_);
+        dump_attention_tensor(k, "k_raw", layer_idx_);
+        dump_attention_tensor(v, "v_raw", layer_idx_);
+    }
 
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
     q_reshaped = q_norm_->forward(q_reshaped);
     k_reshaped = k_norm_->forward(k_reshaped);
+    if (dump_attention) {
+        dump_attention_tensor(q_reshaped, "q_norm", layer_idx_);
+        dump_attention_tensor(k_reshaped, "k_norm", layer_idx_);
+    }
 
     auto pos_shape = position_ids->shape();
     if (pos_shape.size() != 2 && pos_shape.size() != 1) {
         throw std::runtime_error("Unexpected position_ids shape");
     }
     std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
+    if (dump_attention) {
+        dump_attention_tensor(q_reshaped, "q_rope", layer_idx_);
+        dump_attention_tensor(k_reshaped, "k_rope", layer_idx_);
+    }
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));
-    return o_proj_->forward(attn_output);
+    if (dump_attention) {
+        dump_attention_tensor(attn_output, "core_output", layer_idx_);
+    }
+    auto gate_sigmoid = infinicore::op::sigmoid(gate)->view(attn_output->shape());
+    if (dump_attention) {
+        dump_attention_tensor(gate_sigmoid, "gate_sigmoid", layer_idx_);
+    }
+    attn_output = infinicore::op::mul(attn_output, gate_sigmoid);
+    if (dump_attention) {
+        dump_attention_tensor(attn_output, "gated_output", layer_idx_);
+    }
+    auto projected = o_proj_->forward(attn_output);
+    if (dump_attention) {
+        dump_attention_tensor(projected, "projected_output", layer_idx_);
+    }
+    return projected;
 }
 } // namespace infinilm::models::qwen3_5

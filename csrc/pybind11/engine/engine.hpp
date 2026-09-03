@@ -193,6 +193,7 @@ inline void bind_infer_engine(py::module &m) {
                     "temperature",
                     "top_p",
                     "top_k",
+                    "suppressed_token_ids",
                 };
 
                 for (auto &item : kwargs) {
@@ -209,6 +210,9 @@ inline void bind_infer_engine(py::module &m) {
                         input.top_p = py::cast<float>(item.second);
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
+                    } else if (key == "suppressed_token_ids") {
+                        input.suppressed_token_ids =
+                            py::cast<std::vector<std::vector<int64_t>>>(item.second);
                     }
                 }
 
@@ -250,6 +254,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("suppressed_token_ids", &InferEngine::Input::suppressed_token_ids)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);

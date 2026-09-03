@@ -18,7 +18,8 @@ public:
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                         const std::string &prefix = "");
 
     void process_weights_after_loading() override;
 
@@ -45,6 +46,11 @@ private:
     size_t num_kv_head_;
     infinilm::layers::linear::RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
+    // GGUF：q|gate / k / v 三段的 ggml 类型互不相同（方案 §6.0 纠正 1），
+    // 每段各自一块 buffer，与 split_infos_ 二选一
+    std::vector<infinilm::nn::BaseLinear::FusedShard> shard_specs_;
+
+    void register_fused_params();
 };
 
 } // namespace infinilm::models::qwen3_5

@@ -55,6 +55,13 @@ str_to_torch_dtype = {
     "F8_E5M2": torch.float8_e5m2,
 }
 
+_FP8_DTYPES = tuple(
+    x for x in (
+        getattr(torch, "float8_e4m3fn", None),
+        getattr(torch, "float8_e5m2", None),
+    ) if x is not None
+)
+
 
 def _is_internal_moe_packed_weight(key: str) -> bool:
     # InfiniLM registers packed MoE parameters internally. HF checkpoints
@@ -129,7 +136,8 @@ def load_state_dict(
         for k in f.keys():
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            preserve_fp8 = tensor.dtype in _FP8_DTYPES
+            if tensor.is_floating_point() and not preserve_fp32 and not preserve_fp8:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
@@ -204,6 +212,10 @@ def load_model_state_dict_by_file(
     preserve_fp32_suffixes = (".e_score_correction_bias",)
     if model_type == "kimi_k3":
         preserve_fp32_suffixes += (".A_log", ".dt_bias")
+    if model.hf_config.get("lm_head_output_dtype") == "float32":
+        # The Qwen3.5 GGUF route keeps BF16 head weights but can request an
+        # FP32 output accumulator; do not downcast a future FP32 head artifact.
+        preserve_fp32_suffixes += ("lm_head.weight",)
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -251,6 +263,11 @@ def load_model_state_dict_by_file(
             # Apply model-specific weight remapping
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
+
+            # Convert FP8 block scales from BF16 to FP32 for CUTLASS GEMM
+            for key in list(model_param.keys()):
+                if key.endswith("weight_scale_inv") and model_param[key].dtype == torch.bfloat16:
+                    model_param[key] = model_param[key].float()
 
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
@@ -324,6 +341,7 @@ def load_model_state_dict_by_file(
             target_dtype = (
                 model_params[key].dtype
                 if key.endswith(preserve_fp32_suffixes)
+                or model_params[key].dtype in _FP8_DTYPES
                 else torch_dtype
             )
             model_param_infini[key] = infinicore.from_torch(
@@ -387,7 +405,11 @@ def load_model_state_dict_by_tensor(
 
             with safe_open(file_path, "pt", "cpu") as f:
                 for name in f.keys():
-                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
+                    raw_tensor = f.get_tensor(name)
+                    if raw_tensor.dtype in _FP8_DTYPES:
+                        tensor = raw_tensor.to(device="cpu")
+                    else:
+                        tensor = raw_tensor.to(dtype=torch_dtype)
 
                     if name == "model.embed_tokens.weight":
                         embed_tokens_torch_unscaled = tensor
@@ -407,7 +429,11 @@ def load_model_state_dict_by_tensor(
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
         for key in model_params.keys():
-            tensor = model_params[key].to(dtype=torch_dtype)
+            raw_tensor = model_params[key]
+            if raw_tensor.dtype in _FP8_DTYPES:
+                tensor = raw_tensor.to(device="cpu")
+            else:
+                tensor = raw_tensor.to(dtype=torch_dtype)
             if key == "model.embed_tokens.weight":
                 embed_tokens_torch_unscaled = tensor
                 if scale_emb != 1.0:
@@ -758,8 +784,21 @@ def _remap_videonsa(state_dict, config=None):
 def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
     state_dict = drop_keys(state_dict, ["mtp."])
+
+    # Filter out visual encoder keys (not used in language-only mode)
+    state_dict = {k: v for k, v in state_dict.items() if not k.startswith("model.visual.")}
+
     llm_config = config["text_config"]
     key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
+    block_size = 128  # FP8 block size for scale splitting
+
+    # 路线 B 的 GGUF 产物：llama.cpp 转换脚本写 GGUF 时已经做过 `norm.weight + 1`
+    # （conversion/qwen.py:393-394，除 linear_attn.norm 之外全部加），打包器按「不得再
+    # 加一次」原样搬运（scripts/gguf_mapping.py 顶部第 13 行）。这里再加一次就变成
+    # 2+w；融合 QKV 也已在打包期拆成 in_proj_q/k/v，不能按老键名再拆一遍。
+    gguf = (
+        (config.get("quantization_config") or {}).get("quant_method", "") == "gguf"
+    )
 
     norm_weight_suffixes = (
         "input_layernorm.weight",
@@ -771,9 +810,11 @@ def _remap_qwen3_5(state_dict, config):
     to_drop = []
     to_add = {}
     for key, tensor in state_dict.items():
-        if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
+        if not gguf and (
+            key == "model.norm.weight" or key.endswith(norm_weight_suffixes)
+        ):
             state_dict[key] = tensor + torch.ones_like(tensor)
-        elif key.endswith("linear_attn.in_proj_qkv.weight"):
+        elif key.endswith("linear_attn.in_proj_qkv.weight") and not gguf:
             prefix = key[: -len("in_proj_qkv.weight")]
             to_add[prefix + "in_proj_q.weight"] = state_dict[key][
                 :key_dim, :
@@ -783,6 +824,22 @@ def _remap_qwen3_5(state_dict, config):
             ].contiguous()
             to_add[prefix + "in_proj_v.weight"] = state_dict[key][
                 key_dim * 2 :, :
+            ].contiguous()
+            to_drop.append(key)
+        elif key.endswith("linear_attn.in_proj_qkv.weight_scale_inv"):
+            # Split fused QKV scale into separate q/k/v scales
+            # Scale shape: [num_out_blocks, num_in_blocks]
+            # out dim is split: q(key_dim) | k(key_dim) | v(rest)
+            prefix = key[: -len("in_proj_qkv.weight_scale_inv")]
+            key_blocks = key_dim // block_size
+            to_add[prefix + "in_proj_q.weight_scale_inv"] = state_dict[key][
+                :key_blocks, :
+            ].contiguous()
+            to_add[prefix + "in_proj_k.weight_scale_inv"] = state_dict[key][
+                key_blocks : key_blocks * 2, :
+            ].contiguous()
+            to_add[prefix + "in_proj_v.weight_scale_inv"] = state_dict[key][
+                key_blocks * 2 :, :
             ].contiguous()
             to_drop.append(key)
 
@@ -850,6 +907,7 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
         if (
             key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1"))
             and tensor.is_floating_point()
+            and tensor.dtype not in _FP8_DTYPES
         ):
             remapped[key] = tensor.to(dtype=target_dtype).contiguous()
         else:
@@ -896,12 +954,13 @@ def _remap_ernie4_5_moe_vl(state_dict, config=None):
                     b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
                     b2_tensors.append(down_bias)
 
+            fused_dtype = w1_tensors[0].dtype if w1_tensors[0].dtype in _FP8_DTYPES else target_dtype
             fused = {
                 "w1": torch.stack(w1_tensors, dim=0)
-                .to(dtype=target_dtype)
+                .to(dtype=fused_dtype)
                 .contiguous(),
                 "w2": torch.stack(w2_tensors, dim=0)
-                .to(dtype=target_dtype)
+                .to(dtype=fused_dtype)
                 .contiguous(),
             }
             if has_all_bias:
