@@ -24,6 +24,41 @@ def function_body(source: str, signature: str) -> str:
 
 
 class InfiniCoreRuntimeContractsTest(unittest.TestCase):
+    def test_standard_mlp_consumes_packed_gate_up_without_repacking(self) -> None:
+        consumers = (
+            (
+                "csrc/layers/mlp/mlp.cpp",
+                "infinicore::Tensor MLP::forward(",
+            ),
+            (
+                "csrc/models/qwen3_next/qwen3_next_sparse_moe_block.cpp",
+                "infinicore::Tensor Qwen3NextSharedExpert::forward(",
+            ),
+        )
+        for relative_path, signature in consumers:
+            with self.subTest(path=relative_path):
+                body = function_body(read_source(relative_path), signature)
+                self.assertIn(
+                    "auto gate_up = gate_up_proj_->forward(hidden_states_mutable);",
+                    body,
+                )
+                self.assertIn("infinicore::op::silu_and_mul(gate_up)", body)
+                self.assertNotIn("forward_split", body)
+                self.assertNotIn("infinicore::op::swiglu", body)
+
+        fused_linear = read_source("csrc/layers/linear/fused_linear.cpp")
+        split = function_body(
+            fused_linear,
+            "GateUpParallelLinear::forward_split(infinicore::Tensor &input)",
+        )
+        self.assertIn("output->narrow({{2, 0, cols / 2}})", split)
+        self.assertIn("output->narrow({{2, cols / 2, cols / 2}})", split)
+        self.assertIn(
+            "{gate_name, 0, half_size},\n"
+            "        {up_name, half_size, half_size},",
+            fused_linear,
+        )
+
     def test_retained_op_headers_do_not_depend_on_legacy_public_abi(self) -> None:
         headers = (
             "bitwise_right_shift.hpp",

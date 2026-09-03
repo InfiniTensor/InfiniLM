@@ -44,6 +44,30 @@ class CoreChunkingSyncTest(unittest.TestCase):
             with self.subTest(tensor=tensor):
                 self.assertIn(f"{tensor}->narrow({{{{0, start, rows}}}})", body)
 
+    def test_silu_and_mul_chunks_only_at_row_boundaries(self) -> None:
+        source = read_source(
+            "csrc/infinicore/src/ops/silu_and_mul/silu_and_mul.cc"
+        )
+        body = function_body(source, "void silu_and_mul_(")
+
+        self.assertIn("MAX_ELEMENTS_PER_LAUNCH = Size{1} << 30", body)
+        self.assertIn("!out->is_contiguous()", body)
+        self.assertIn("!x->is_contiguous()", body)
+        self.assertIn(
+            "output_row_width = out->size(out->ndim() - 1)",
+            body,
+        )
+        self.assertIn(
+            "max_rows = MAX_ELEMENTS_PER_LAUNCH / output_row_width",
+            body,
+        )
+        for tensor in ("output_rows", "input_rows"):
+            with self.subTest(tensor=tensor):
+                self.assertIn(
+                    f"{tensor}->narrow({{{{0, start, rows}}}})",
+                    body,
+                )
+
     def test_static_attention_keeps_value_head_dimension(self) -> None:
         source = read_source("csrc/layers/attention/backends/static_attn.cpp")
         forward = function_body(
