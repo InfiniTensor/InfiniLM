@@ -173,6 +173,38 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 )
                 self.assertNotIn(".set_implementation_index(", source)
 
+    def test_nvidia_default_infiniops_config_caches_only_the_index(self) -> None:
+        bridge = read_source("csrc/infinicore/src/ops/infiniops_impl.hpp")
+        default_config = function_body(
+            bridge,
+            "infini::ops::Config defaultConfigForDevice(",
+        )
+
+        self.assertIn(
+            "device_type == infini::ops::Device::Type::kNvidia",
+            default_config,
+        )
+        self.assertIn(
+            "static const std::size_t implementation_index",
+            default_config,
+        )
+        self.assertIn(
+            "Operator::active_implementation_indices(\n"
+            "                infini::ops::Device::Type::kNvidia)",
+            default_config,
+        )
+        self.assertNotIn("static const infini::ops::Config", default_config)
+        self.assertIn("infini::ops::Config config;", default_config)
+        self.assertIn(
+            "config.set_implementation_index(implementation_index)",
+            default_config,
+        )
+        self.assertIn(
+            "return configForImplementation<Operator>(device_type, "
+            "implementation_indices.front())",
+            default_config,
+        )
+
     def test_causal_softmax_uses_composed_infiniops_operators(self) -> None:
         source = read_source(
             "csrc/infinicore/src/ops/causal_softmax/causal_softmax_infiniops.cc"
