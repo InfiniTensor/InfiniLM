@@ -1071,6 +1071,119 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+def _remap_minimax_text_01(state_dict, config=None):
+    """Remap MiniMax-Text-01 weights to InfiniLM format.
+
+    HF stores full-attention layers as q/k/v/o projections and linear
+    (Lightning) layers as a fused qkv_proj plus output_gate/out_proj; InfiniLM
+    always consumes separate q/k/v projections. HF also stores MoE experts as
+    per-expert w1/w2/w3 under `block_sparse_moe.experts.<e>`; InfiniLM's fused
+    MoE module expects both the per-expert gate/up/down and the packed
+    w13_weight/w2_weight tensors. Everything else maps 1:1 after renaming the
+    MoE container from block_sparse_moe to mlp.
+    """
+    hf_config = config or {}
+    num_heads = hf_config.get("num_attention_heads")
+    head_dim = hf_config.get("head_dim")
+
+    # 1. Rename the MoE container (block_sparse_moe -> mlp)
+    state_dict = rename_keys(state_dict, {"block_sparse_moe": "mlp"})
+
+    # 2. Match per-expert w1/w2/w3 and fused linear-attention qkv_proj weights
+    expert_re = re.compile(
+        r"^(?P<prefix>model\.layers\.\d+\.mlp\.experts)\."
+        r"(?P<expert>\d+)\.(?P<proj>w1|w2|w3)\.weight$"
+    )
+    qkv_re = re.compile(
+        r"^(?P<prefix>model\.layers\.\d+\.self_attn)\.qkv_proj\.weight$"
+    )
+    qkv_scale_re = re.compile(
+        r"^(?P<prefix>model\.layers\.\d+\.self_attn)\.qkv_proj\.weight_scale$"
+    )
+    experts_by_layer: dict[str, dict[int, dict[str, torch.Tensor]]] = {}
+    remapped = {}
+    # Layers with a fused qkv_proj are Lightning layers; the engine registers
+    # their module as `linear_attn`, so rename all of their self_attn.* keys.
+    linear_prefixes = set()
+    for key in state_dict:
+        match = qkv_re.match(key)
+        if match is not None:
+            linear_prefixes.add(match.group("prefix"))
+
+    for key, tensor in state_dict.items():
+        match = expert_re.match(key)
+        if match is not None:
+            experts_by_layer.setdefault(match.group("prefix"), {}).setdefault(
+                int(match.group("expert")), {}
+            )[match.group("proj")] = tensor
+            continue
+        # HF packs q/k/v per head as (head, 3, head_dim, hidden); split into the
+        # head-major q/k/v projections InfiniLM consumes.
+        match = qkv_re.match(key)
+        if match is not None:
+            if num_heads is None or head_dim is None:
+                raise ValueError(
+                    "_remap_minimax_text_01: config missing num_attention_heads/head_dim"
+                )
+            prefix = match.group("prefix").replace("self_attn", "linear_attn", 1)
+            grouped = tensor.view(num_heads, 3, head_dim, -1)
+            remapped[f"{prefix}.q_proj.weight"] = (
+                grouped[:, 0, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            remapped[f"{prefix}.k_proj.weight"] = (
+                grouped[:, 1, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            remapped[f"{prefix}.v_proj.weight"] = (
+                grouped[:, 2, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            continue
+        # MXFP4 also carries a per-32-elem E8M0 scale with the same head-major
+        # out layout; split it the same way (last dim is hidden/32 instead of
+        # hidden, the view on dims 0..2 is unchanged).
+        match = qkv_scale_re.match(key)
+        if match is not None:
+            if num_heads is None or head_dim is None:
+                raise ValueError(
+                    "_remap_minimax_text_01: config missing num_attention_heads/head_dim"
+                )
+            prefix = match.group("prefix").replace("self_attn", "linear_attn", 1)
+            grouped = tensor.view(num_heads, 3, head_dim, -1)
+            remapped[f"{prefix}.q_proj.weight_scale"] = (
+                grouped[:, 0, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            remapped[f"{prefix}.k_proj.weight_scale"] = (
+                grouped[:, 1, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            remapped[f"{prefix}.v_proj.weight_scale"] = (
+                grouped[:, 2, :, :].reshape(-1, tensor.shape[1]).contiguous()
+            )
+            continue
+        if any(key.startswith(prefix + ".") for prefix in linear_prefixes):
+            remapped[key.replace("self_attn", "linear_attn", 1)] = tensor
+        else:
+            remapped[key] = tensor
+
+    # 3. Emit per-expert projections plus the packed tensors for the fused MoE kernel
+    proj_names = {"w1": "gate_proj", "w3": "up_proj", "w2": "down_proj"}
+    for prefix, experts in experts_by_layer.items():
+        expert_ids = sorted(experts)
+        for e in expert_ids:
+            for src, dst in proj_names.items():
+                remapped[f"{prefix}.{e}.{dst}.weight"] = experts[e][src]
+        # w13_weight = cat(gate, up) -> [E, 2*FFN, H]; w2_weight = down -> [E, H, FFN]
+        remapped[f"{prefix}.w13_weight"] = torch.stack(
+            [
+                torch.cat([experts[e]["w1"], experts[e]["w3"]], dim=0)
+                for e in expert_ids
+            ],
+            dim=0,
+        ).contiguous()
+        remapped[f"{prefix}.w2_weight"] = torch.stack(
+            [experts[e]["w2"] for e in expert_ids], dim=0
+        ).contiguous()
+    return remapped
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1083,4 +1196,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "minimax_text_01": _remap_minimax_text_01,
 }
