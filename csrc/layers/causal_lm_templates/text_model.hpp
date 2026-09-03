@@ -6,11 +6,15 @@
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/add_rms_norm.hpp"
+#include "infinicore/ops/cast.hpp"
 #include "infinicore/ops/distributed/allgather.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
 #include "infinicore/tensor.hpp"
+#include <cstdlib>
 #include <memory>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::layers::causal_lm_templates {
 
@@ -79,7 +83,8 @@ public:
             return hidden_states;
         }
 
-        norm_->forward_inplace(hidden_states, residual);
+        dump_pre_final_norm_if_requested(hidden_states, residual);
+        final_norm_inplace(hidden_states, residual);
         return hidden_states;
     }
 
@@ -119,7 +124,8 @@ public:
             return hidden_states;
         }
 
-        norm_->forward_inplace(hidden_states, residual);
+        dump_pre_final_norm_if_requested(hidden_states, residual);
+        final_norm_inplace(hidden_states, residual);
         return hidden_states;
     }
 
@@ -136,6 +142,22 @@ protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
 
 private:
+    void final_norm_inplace(infinicore::Tensor &hidden_states,
+                            infinicore::Tensor &residual) const {
+        const char *env = std::getenv("INFINILM_FINAL_NORM_FP32_FUSED");
+        const bool enabled = env != nullptr && env[0] != '\0' && std::string(env) != "0";
+        if (!enabled) {
+            norm_->forward_inplace(hidden_states, residual);
+            return;
+        }
+        auto y32 = infinicore::Tensor::empty(hidden_states->shape(), infinicore::DataType::F32, hidden_states->device());
+        auto sum32 = infinicore::Tensor::empty(residual->shape(), infinicore::DataType::F32, residual->device());
+        infinicore::op::add_rms_norm_(y32, sum32, hidden_states, residual, norm_->weight(),
+                                      static_cast<float>(norm_->eps()));
+        hidden_states = y32;
+        residual = sum32;
+    }
+
     bool is_first_pp_stage() const { return pp_stage_ == 0; }
     bool is_last_pp_stage() const { return pp_stage_ + 1 == pp_size_; }
 
@@ -204,6 +226,25 @@ private:
             return hidden_states;
         }
         return infinicore::op::add(residual, hidden_states);
+    }
+
+    void dump_pre_final_norm_if_requested(
+        infinicore::Tensor &hidden_states,
+        infinicore::Tensor &residual) const {
+        const char *dump_dir = std::getenv("INFINILM_FINAL_PRENORM_DUMP_DIR");
+        if (dump_dir == nullptr || dump_dir[0] == '\0') {
+            return;
+        }
+        const char *dump_numel =
+            std::getenv("INFINILM_FINAL_PRENORM_DUMP_NUMEL");
+        if (dump_numel != nullptr && dump_numel[0] != '\0'
+            && hidden_states->numel()
+                   != std::strtoull(dump_numel, nullptr, 10)) {
+            return;
+        }
+        auto pre_norm = materialize_hidden_states(hidden_states, residual);
+        pre_norm->debug(
+            std::string(dump_dir) + "/infini_pre_final_norm.bin");
     }
 
     infinicore::DataType dtype_{infinicore::DataType::F32};

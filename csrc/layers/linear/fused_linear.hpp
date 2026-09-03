@@ -16,7 +16,8 @@ public:
                                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
-                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                               const std::string &stem = "");
 
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t head_dim,
@@ -36,7 +37,8 @@ public:
                       std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                       const infinicore::DataType &dtype = infinicore::DataType::F32,
                       const infinicore::Device &device = infinicore::Device(),
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      const std::string &prefix = "");
 
     QKVParallelLinear(size_t hidden_size,
                       size_t head_dim,
@@ -47,7 +49,8 @@ public:
                       bool bias = false,
                       const infinicore::DataType &dtype = infinicore::DataType::F32,
                       const infinicore::Device &device = infinicore::Device(),
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                      const std::string &prefix = "");
 
     void process_weights_after_loading() override;
 
@@ -91,6 +94,11 @@ private:
     size_t num_kv_head_replicas_ = 1;
     RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
+    // GGUF 等「每 shard 一块 buffer」的方案用（与 split_infos_ 二选一，见 sharded_）
+    std::vector<BaseLinear::FusedShard> shard_specs_;
+
+    // 把各 shard 参数交给 register_fn（narrow 视图或独立 buffer，两条路同一入口）
+    void register_fused_params();
 };
 
 class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {
@@ -100,12 +108,14 @@ public:
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                         const std::string &stem = "");
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                         const std::string &stem = "");
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size,
                          const std::string &gate_name, const std::string &up_name,
@@ -114,7 +124,8 @@ public:
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo(),
+                         const std::string &prefix = "");
 
     void process_weights_after_loading() override;
 
@@ -128,6 +139,9 @@ private:
     bool up_bias_;
     RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
+    std::vector<BaseLinear::FusedShard> shard_specs_;
+
+    void register_fused_params();
 };
 
 } // namespace infinilm::layers::linear

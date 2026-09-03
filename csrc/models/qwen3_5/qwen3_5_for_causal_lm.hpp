@@ -16,6 +16,7 @@ public:
     void reset_cache(const cache::CacheConfig *cache_config) override;
 
 protected:
+    bool fp32_lm_head_output_{false};
     INFINICORE_NN_MODULE(Qwen35Model, model);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };

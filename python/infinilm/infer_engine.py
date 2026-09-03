@@ -124,6 +124,7 @@ class GenerationConfig:
 
     eos_token_id: list[int] | None = None
     stop_on_eos: bool = True
+    ignore_eos: bool = False
 
 
 def _infer_position_id_axes(hf_config: dict) -> int:
@@ -275,6 +276,7 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=False,
+        suppressed_token_ids=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -333,6 +335,9 @@ class InferEngine(_infinilm.InferEngine):
             visual_token_ranges=visual_token_ranges,
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
+            suppressed_token_ids=(
+                [] if suppressed_token_ids is None else suppressed_token_ids
+            ),
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
@@ -358,6 +363,7 @@ class InferEngine(_infinilm.InferEngine):
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
+        suppressed_token_ids=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -430,6 +436,7 @@ class InferEngine(_infinilm.InferEngine):
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         target_hidden_states=target_hidden_states,
+                        suppressed_token_ids=suppressed_token_ids,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
@@ -459,6 +466,7 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=True,
+        suppressed_token_ids=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -481,6 +489,7 @@ class InferEngine(_infinilm.InferEngine):
                     visual_token_ranges=visual_token_ranges,
                     target_hidden_states=target_hidden_states,
                     sample_all_positions=sample_all_positions,
+                    suppressed_token_ids=suppressed_token_ids,
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
@@ -509,7 +518,11 @@ class InferEngine(_infinilm.InferEngine):
         position_id_delta=0,
         _measure_and_log_time=False,
     ):
-        eos_token_id = self.eos_token_id
+        eos_token_id = generation_config.eos_token_id
+        if eos_token_id is None:
+            eos_token_id = self.eos_token_id
+        elif isinstance(eos_token_id, int):
+            eos_token_id = [eos_token_id]
 
         past_seq_len = 0
         output_ids = []
@@ -687,6 +700,11 @@ class InferEngine(_infinilm.InferEngine):
                 tgt_sizes=tgt_sizes if iter == 0 else None,
                 image_grid_thw=image_grid_thw if iter == 0 else None,
                 image_req_ids=image_req_ids if iter == 0 else None,
+                suppressed_token_ids=(
+                    [list(eos_token_id) for _ in range(batch_size)]
+                    if generation_config.ignore_eos
+                    else []
+                ),
                 temperature=generation_config.temperature,
                 top_k=generation_config.top_k,
                 top_p=generation_config.top_p,

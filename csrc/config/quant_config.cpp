@@ -20,6 +20,11 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
+    } else if (quant_method == "fp8") {
+        return std::make_shared<infinilm::quantization::FP8Quantization>(quantization_config);
+    } else if (quant_method == "gguf") {
+        // 路线 B：GGUF block 字节原样进显存，kernel 在 InfiniCore（阶段 3）
+        return std::make_shared<infinilm::quantization::GGUFBlockQuantization>(quantization_config);
     } else if (quant_method == "quark") {
         return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
     } else {

@@ -2,10 +2,47 @@
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <cstdint>
+#include <cstring>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::engine {
+
+namespace {
+
+infinicore::Tensor negative_infinity_cpu(infinicore::DataType dtype) {
+    auto scalar = infinicore::Tensor::empty(
+        {1}, dtype, infinicore::Device::cpu());
+    switch (dtype) {
+    case infinicore::DataType::F16: {
+        const uint16_t value = 0xfc00U;
+        std::memcpy(scalar->data(), &value, sizeof(value));
+        break;
+    }
+    case infinicore::DataType::BF16: {
+        const uint16_t value = 0xff80U;
+        std::memcpy(scalar->data(), &value, sizeof(value));
+        break;
+    }
+    case infinicore::DataType::F32: {
+        const uint32_t value = 0xff800000U;
+        std::memcpy(scalar->data(), &value, sizeof(value));
+        break;
+    }
+    case infinicore::DataType::F64: {
+        const uint64_t value = 0xfff0000000000000ULL;
+        std::memcpy(scalar->data(), &value, sizeof(value));
+        break;
+    }
+    default:
+        throw std::runtime_error(
+            "suppressed_token_ids requires floating-point logits");
+    }
+    return scalar;
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -484,12 +521,45 @@ void RankWorker::thread_loop() {
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
                             auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
 
+                            const auto &suppressed = local_args.suppressed_token_ids;
+                            if (!suppressed.empty() && suppressed.size() != n_req) {
+                                throw std::runtime_error(
+                                    "suppressed_token_ids must contain one list per request");
+                            }
+                            infinicore::Tensor neg_inf_cpu;
+                            infinicore::Tensor neg_inf_device;
+                            if (!suppressed.empty()) {
+                                neg_inf_cpu = negative_infinity_cpu(logits->dtype());
+                                neg_inf_device = neg_inf_cpu->to(rank_info_.device);
+                            }
+
+                            size_t req_idx = 0;
+
                             for (size_t i{0}; i < n_out; ++i) {
                                 size_t score_idx = i;
                                 if (!sample_all_positions && !logits_are_last_token_only) {
                                     score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
                                 }
                                 auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                if (sample_all_positions) {
+                                    while (req_idx + 1 < n_req
+                                           && i >= static_cast<size_t>(input_offsets[req_idx + 1])) {
+                                        ++req_idx;
+                                    }
+                                } else {
+                                    req_idx = i;
+                                }
+                                if (!suppressed.empty()) {
+                                    for (const int64_t token_id : suppressed[req_idx]) {
+                                        if (token_id < 0
+                                            || static_cast<size_t>(token_id) >= vocab_size) {
+                                            throw std::runtime_error(
+                                                "suppressed token ID is outside the vocabulary");
+                                        }
+                                        score->narrow({{0, static_cast<size_t>(token_id), 1}})
+                                            ->copy_from(neg_inf_device);
+                                    }
+                                }
                                 auto out{output_ids->narrow({{0, i, 1}})->view({})};
                                 float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
