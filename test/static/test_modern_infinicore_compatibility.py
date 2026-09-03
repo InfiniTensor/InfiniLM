@@ -195,7 +195,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "mha_varlen_infiniops.cc",
         ):
             attention = read_source(relative_path)
-            for device in ("kMetax", "kMoore"):
+            for device in ("kMetax", "kMoore", "kCambricon"):
                 with self.subTest(adapter=relative_path, device=device):
                     self.assertIn(f"device_type != Device::Type::{device}", attention)
                     self.assertEqual(
@@ -234,7 +234,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
 
         engine = read_source("csrc/engine/infer_engine.cpp")
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, and Moore devices",
+            "flash-attn is only available on NVIDIA, MetaX, Moore, and Cambricon devices",
             engine,
         )
 
