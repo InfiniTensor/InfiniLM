@@ -42,6 +42,15 @@ Runtime::Runtime(Device device) : device_(device), graph_manager_(std::make_uniq
         device_memory_allocator_ = std::make_unique<PinnableBlockAllocator>(device);
         pinned_host_memory_allocator_ = std::make_unique<DevicePinnedHostAllocator>(device);
     }
+
+    const auto stream_status = infini::rt::runtime::StreamCreate(&stream_);
+    if (stream_status != infini::rt::runtime::kSuccess && stream_ != nullptr) {
+        warn_runtime_cleanup_failure(
+            "destroying a partially-created runtime stream",
+            infini::rt::runtime::StreamDestroy(stream_));
+        stream_ = nullptr;
+    }
+    INFINICORE_CHECK_ERROR(stream_status);
 }
 Runtime::~Runtime() noexcept {
     Runtime *restore_runtime = ContextImpl::current_runtime_.get();
@@ -50,7 +59,6 @@ Runtime::~Runtime() noexcept {
     warn_runtime_cleanup_failure("selecting the runtime device", set_device_status);
 
     try {
-        std::lock_guard<std::mutex> lock{stream_mutex_};
         if (stream_ != nullptr) {
             const auto synchronize_status = infini::rt::runtime::StreamSynchronize(stream_);
             warn_runtime_cleanup_failure("synchronizing the runtime stream", synchronize_status);
@@ -65,7 +73,6 @@ Runtime::~Runtime() noexcept {
     pinned_host_memory_allocator_.reset();
     device_memory_allocator_.reset();
     try {
-        std::lock_guard<std::mutex> lock{stream_mutex_};
         if (stream_ != nullptr) {
             const auto destroy_status = infini::rt::runtime::StreamDestroy(stream_);
             warn_runtime_cleanup_failure("destroying the runtime stream", destroy_status);
@@ -97,13 +104,6 @@ Device Runtime::device() const {
 }
 
 infini::rt::runtime::Stream Runtime::stream() const {
-    infini::rt::set_runtime_device_type(device_.type());
-    INFINICORE_CHECK_ERROR(infini::rt::runtime::SetDevice(device_.index()));
-
-    std::lock_guard<std::mutex> lock{stream_mutex_};
-    if (stream_ == nullptr) {
-        INFINICORE_CHECK_ERROR(infini::rt::runtime::StreamCreate(&stream_));
-    }
     return stream_;
 }
 
@@ -123,7 +123,6 @@ void Runtime::syncStreamForCleanup() noexcept {
 
     if (set_device_status == infini::rt::runtime::kSuccess) {
         try {
-            std::lock_guard<std::mutex> lock{stream_mutex_};
             if (stream_ != nullptr) {
                 const auto synchronize_status = infini::rt::runtime::StreamSynchronize(stream_);
                 warn_runtime_cleanup_failure("synchronizing the graph runtime stream", synchronize_status);

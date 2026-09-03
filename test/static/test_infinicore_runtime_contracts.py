@@ -1111,6 +1111,12 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("std::shared_ptr<Runtime>(new Runtime(device))", create_runtime)
         self.assertIn("found->second.lock()", create_runtime)
         self.assertIn("thread_id", create_runtime)
+        create_failure = create_runtime.index("catch (...)")
+        self.assertIn("current_runtime_->activate()", create_runtime[create_failure:])
+        self.assertIn(
+            "std::rethrow_exception(original_error)",
+            create_runtime[create_failure:],
+        )
         get_current = function_body(
             context_source, "Runtime *ContextImpl::getCurrentRuntime()"
         )
@@ -1142,9 +1148,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                 f"initializeDeviceType<Device::Type::{device_type}>()", constructor
             )
 
-        self.assertIn("mutable std::mutex stream_mutex_;", runtime_header)
+        self.assertNotIn("stream_mutex_", runtime_header)
         self.assertIn(
-            "mutable infini::rt::runtime::Stream stream_ = nullptr;",
+            "infini::rt::runtime::Stream stream_ = nullptr;",
             runtime_header,
         )
         self.assertNotIn("std::unordered_map<std::thread::id", runtime_header)
@@ -1219,17 +1225,28 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         runtime_constructor = function_body(
             runtime_source, "Runtime::Runtime(Device device)"
         )
-        self.assertNotIn("StreamCreate", runtime_constructor)
+        self.assertIn("StreamCreate(&stream_)", runtime_constructor)
+        self.assertGreater(
+            runtime_constructor.index("StreamCreate(&stream_)"),
+            runtime_constructor.rindex("make_unique"),
+        )
+        self.assertIn(
+            "stream_status != infini::rt::runtime::kSuccess",
+            runtime_constructor,
+        )
+        self.assertIn(
+            "StreamDestroy(stream_)",
+            runtime_constructor,
+        )
         stream = function_body(
             runtime_source, "infini::rt::runtime::Stream Runtime::stream() const"
         )
-        for token in ("stream_mutex_", "StreamCreate", "stream_"):
-            self.assertIn(token, stream)
-        self.assertIn("if (stream_ == nullptr)", stream)
         self.assertIn("return stream_", stream)
+        for token in ("stream_mutex_", "StreamCreate", "SetDevice"):
+            self.assertNotIn(token, stream)
 
         destructor = function_body(runtime_source, "Runtime::~Runtime() noexcept")
-        self.assertIn("stream_mutex_", destructor)
+        self.assertNotIn("stream_mutex_", destructor)
         self.assertIn("stream_", destructor)
         self.assertIn("StreamDestroy", destructor)
 
