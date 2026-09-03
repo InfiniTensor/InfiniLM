@@ -28,15 +28,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-
 # ---------------------------------------------------------------------------
 # transform 语义
 # ---------------------------------------------------------------------------
-T_NONE = ""          # 原样搬运（blob 逐字节 / dense 仅换 dtype）
-T_VROWS = "vrows"    # 沿 out 维按 V 头分块整块搬回 grouped 序（blob 可行级置换）
-T_VELEM = "velem"    # 1-D、每头 1 个元素：T_VROWS 的 head_dim=1 退化形式（同一实现）
-T_ALOG = "alog"      # A_log = log(-ssm_a)，再置换
-T_DENSE = "dense"    # 反量化为 BF16（框架不支持该参数走量化路径）
+T_NONE = ""  # 原样搬运（blob 逐字节 / dense 仅换 dtype）
+T_VROWS = "vrows"  # 沿 out 维按 V 头分块整块搬回 grouped 序（blob 可行级置换）
+T_VELEM = "velem"  # 1-D、每头 1 个元素：T_VROWS 的 head_dim=1 退化形式（同一实现）
+T_ALOG = "alog"  # A_log = log(-ssm_a)，再置换
+T_DENSE = "dense"  # 反量化为 BF16（框架不支持该参数走量化路径）
 
 # V 头置换在 dim0 上的作用域：
 #   all    = 整个 dim0 都是 value 头（in_proj_v / in_proj_z / in_proj_a / in_proj_b / A_log / dt_bias）
@@ -85,8 +84,11 @@ def apply_v1_exceptions(plan, gguf_types, enabled=True):
             if e.blob and gguf_types.get(e.gguf) in V1_IQUANT_DENSE:
                 e.blob = False
                 e.transforms = e.transforms + (T_DENSE,)
-                e.note = (e.note + "；" if e.note else "") + \
-                    "v1 稠密化例外（源 %s），阶段 6 上原生 kernel 后取消" % gguf_types[e.gguf]
+                e.note = (
+                    e.note + "；" if e.note else ""
+                ) + "v1 稠密化例外（源 %s），阶段 6 上原生 kernel 后取消" % gguf_types[
+                    e.gguf
+                ]
                 n += 1
     return n
 
@@ -95,16 +97,16 @@ def apply_v1_exceptions(plan, gguf_types, enabled=True):
 class Entry:
     """一条 GGUF 张量 -> 一个 InfiniLM 参数。"""
 
-    infinilm: str            # InfiniLM 参数名（含 model.language_model. 前缀）
-    gguf: str                # GGUF 张量名
-    shape: tuple             # InfiniLM 期望 shape（未 TP 切分的全量），取向 [out, in]
-    blob: bool               # True = 保留 GGUF 原始 block 字节（U8 [out, row_bytes]）
+    infinilm: str  # InfiniLM 参数名（含 model.language_model. 前缀）
+    gguf: str  # GGUF 张量名
+    shape: tuple  # InfiniLM 期望 shape（未 TP 切分的全量），取向 [out, in]
+    blob: bool  # True = 保留 GGUF 原始 block 字节（U8 [out, row_bytes]）
     transforms: tuple = ()
-    types: tuple = ()        # 允许的 GGUF 源类型名；() = 不限（由 contract 脚本报告实际值）
-    slices: tuple = ()       # 沿 out 维占用的 [start, end)；共用同一 gguf 的条目做覆盖校验
-    vperm: str = VPERM_ALL   # T_VROWS 的作用域（仅当 transforms 含 T_VROWS 时有意义）
+    types: tuple = ()  # 允许的 GGUF 源类型名；() = 不限（由 contract 脚本报告实际值）
+    slices: tuple = ()  # 沿 out 维占用的 [start, end)；共用同一 gguf 的条目做覆盖校验
+    vperm: str = VPERM_ALL  # T_VROWS 的作用域（仅当 transforms 含 T_VROWS 时有意义）
     # 该条目的权重需要置换的是**列（in 维）**而不是行：块量化沿 in 维分块
-    #（Q4_K/Q5_K/Q6_K block_size=256），打包期置换列 = 跨块重排 = 必须重量化，做不到。
+    # （Q4_K/Q5_K/Q6_K block_size=256），打包期置换列 = 跨块重排 = 必须重量化，做不到。
     # 于是只能在运行时置换喂给它的输入激活，规则由 activation_vperm_rules() 导出进 config。
     # 故意不放进 transforms：那个元组描述的是「打包期对字节做的事」，混进去会污染字节路径。
     act_vperm: bool = False
@@ -135,7 +137,7 @@ class Dims:
 
     # --- 派生量 ---
     @property
-    def q_rows(self) -> int:        # q_proj 行数 = heads * head_dim * 2（q 与 gate 每头交错）
+    def q_rows(self) -> int:  # q_proj 行数 = heads * head_dim * 2（q 与 gate 每头交错）
         return self.n_q_heads * self.head_dim * 2
 
     @property
@@ -155,7 +157,7 @@ class Dims:
         return self.lin_v_heads * self.lin_v_dim
 
     @property
-    def qkv_rows(self) -> int:      # q | k | v 融合（与 GGUF attn_qkv 一致）
+    def qkv_rows(self) -> int:  # q | k | v 融合（与 GGUF attn_qkv 一致）
         return self.key_dim * 2 + self.value_dim
 
     @property
@@ -168,17 +170,43 @@ class Dims:
 
     def layer_types(self) -> list:
         """与 C++ prepare_qwen3_5_model_config 的推导完全一致：(i+1) % interval == 0。"""
-        return ["full_attention" if (i + 1) % self.interval == 0 else "linear_attention"
-                for i in range(self.n_layers)]
+        return [
+            "full_attention" if (i + 1) % self.interval == 0 else "linear_attention"
+            for i in range(self.n_layers)
+        ]
 
 
-REAL = Dims(hidden=5120, n_q_heads=24, n_kv_heads=4, head_dim=256, ffn=17408,
-            lin_k_heads=16, lin_v_heads=48, lin_k_dim=128, lin_v_dim=128,
-            conv_kernel=4, vocab=248320, n_layers=64, interval=4)
+REAL = Dims(
+    hidden=5120,
+    n_q_heads=24,
+    n_kv_heads=4,
+    head_dim=256,
+    ffn=17408,
+    lin_k_heads=16,
+    lin_v_heads=48,
+    lin_k_dim=128,
+    lin_v_dim=128,
+    conv_kernel=4,
+    vocab=248320,
+    n_layers=64,
+    interval=4,
+)
 
-MINI = Dims(hidden=512, n_q_heads=2, n_kv_heads=1, head_dim=256, ffn=1024,
-            lin_k_heads=2, lin_v_heads=6, lin_k_dim=128, lin_v_dim=128,
-            conv_kernel=4, vocab=1024, n_layers=8, interval=4)
+MINI = Dims(
+    hidden=512,
+    n_q_heads=2,
+    n_kv_heads=1,
+    head_dim=256,
+    ffn=1024,
+    lin_k_heads=2,
+    lin_v_heads=6,
+    lin_k_dim=128,
+    lin_v_dim=128,
+    conv_kernel=4,
+    vocab=1024,
+    n_layers=8,
+    interval=4,
+)
 
 
 PREFIX = "model.language_model."
@@ -194,57 +222,172 @@ def layer_entries(d: Dims, i: int, role: str) -> list:
     G = f"blk.{i}."
     kd, vd = d.key_dim, d.value_dim
     out = [
-        Entry(L + "input_layernorm.weight", G + "attn_norm.weight", (d.hidden,),
-              False, (T_DENSE,), note="GGUF 已 baked +1，打包不得再加"),
-        Entry(L + "post_attention_layernorm.weight", G + "post_attention_norm.weight",
-              (d.hidden,), False, (T_DENSE,), note="同上"),
-        Entry(L + "mlp.gate_proj.weight", G + "ffn_gate.weight", (d.ffn, d.hidden), True),
+        Entry(
+            L + "input_layernorm.weight",
+            G + "attn_norm.weight",
+            (d.hidden,),
+            False,
+            (T_DENSE,),
+            note="GGUF 已 baked +1，打包不得再加",
+        ),
+        Entry(
+            L + "post_attention_layernorm.weight",
+            G + "post_attention_norm.weight",
+            (d.hidden,),
+            False,
+            (T_DENSE,),
+            note="同上",
+        ),
+        Entry(
+            L + "mlp.gate_proj.weight", G + "ffn_gate.weight", (d.ffn, d.hidden), True
+        ),
         Entry(L + "mlp.up_proj.weight", G + "ffn_up.weight", (d.ffn, d.hidden), True),
-        Entry(L + "mlp.down_proj.weight", G + "ffn_down.weight", (d.hidden, d.ffn), True),
+        Entry(
+            L + "mlp.down_proj.weight", G + "ffn_down.weight", (d.hidden, d.ffn), True
+        ),
     ]
     if role == "full_attention":
         out += [
-            Entry(L + "self_attn.q_proj.weight", G + "attn_q.weight", (d.q_rows, d.hidden),
-                  True, (), note="行数含 q|gate 每头交错，与 Qwen35FusedQKVLinear 一致"),
-            Entry(L + "self_attn.k_proj.weight", G + "attn_k.weight", (d.kv_rows, d.hidden), True),
-            Entry(L + "self_attn.v_proj.weight", G + "attn_v.weight", (d.kv_rows, d.hidden), True),
-            Entry(L + "self_attn.o_proj.weight", G + "attn_output.weight", (d.hidden, d.o_in), True),
-            Entry(L + "self_attn.q_norm.weight", G + "attn_q_norm.weight", (d.head_dim,),
-                  False, (T_DENSE,), note="GGUF 已 baked +1"),
-            Entry(L + "self_attn.k_norm.weight", G + "attn_k_norm.weight", (d.head_dim,),
-                  False, (T_DENSE,), note="GGUF 已 baked +1"),
+            Entry(
+                L + "self_attn.q_proj.weight",
+                G + "attn_q.weight",
+                (d.q_rows, d.hidden),
+                True,
+                (),
+                note="行数含 q|gate 每头交错，与 Qwen35FusedQKVLinear 一致",
+            ),
+            Entry(
+                L + "self_attn.k_proj.weight",
+                G + "attn_k.weight",
+                (d.kv_rows, d.hidden),
+                True,
+            ),
+            Entry(
+                L + "self_attn.v_proj.weight",
+                G + "attn_v.weight",
+                (d.kv_rows, d.hidden),
+                True,
+            ),
+            Entry(
+                L + "self_attn.o_proj.weight",
+                G + "attn_output.weight",
+                (d.hidden, d.o_in),
+                True,
+            ),
+            Entry(
+                L + "self_attn.q_norm.weight",
+                G + "attn_q_norm.weight",
+                (d.head_dim,),
+                False,
+                (T_DENSE,),
+                note="GGUF 已 baked +1",
+            ),
+            Entry(
+                L + "self_attn.k_norm.weight",
+                G + "attn_k_norm.weight",
+                (d.head_dim,),
+                False,
+                (T_DENSE,),
+                note="GGUF 已 baked +1",
+            ),
         ]
     else:
         out += [
-            Entry(L + "linear_attn.in_proj_q.weight", G + "attn_qkv.weight", (kd, d.hidden),
-                  True, (), slices=((0, kd),), note="attn_qkv 行 [0:kd]"),
-            Entry(L + "linear_attn.in_proj_k.weight", G + "attn_qkv.weight", (kd, d.hidden),
-                  True, (), slices=((kd, 2 * kd),), note="attn_qkv 行 [kd:2kd]"),
-            Entry(L + "linear_attn.in_proj_v.weight", G + "attn_qkv.weight", (vd, d.hidden),
-                  True, (T_VROWS,), slices=((2 * kd, 2 * kd + vd),),
-                  note="attn_qkv 行 [2kd:]，V 头 tiled->grouped"),
-            Entry(L + "linear_attn.in_proj_z.weight", G + "attn_gate.weight", (vd, d.hidden),
-                  True, (T_VROWS,), note="qwen.py:583 行重排（head_v_dim）"),
-            Entry(L + "linear_attn.in_proj_a.weight", G + "ssm_alpha.weight",
-                  (d.lin_v_heads, d.hidden), False, (T_DENSE, T_VROWS),
-                  note="实测源为 Q8_0；框架该参数不走量化路径 -> 稠密化；"
-                       "qwen.py:587 行重排 head_dim=1"),
-            Entry(L + "linear_attn.in_proj_b.weight", G + "ssm_beta.weight",
-                  (d.lin_v_heads, d.hidden), False, (T_DENSE, T_VROWS), note="同上"),
-            Entry(L + "linear_attn.A_log", G + "ssm_a", (d.lin_v_heads,),
-                  False, (T_ALOG, T_VROWS), note="GGUF 存的是 -exp(A_log)，需 log(-x) 反解"),
-            Entry(L + "linear_attn.dt_bias", G + "ssm_dt.bias", (d.lin_v_heads,),
-                  False, (T_VELEM,), note="qwen.py:589 逐头置换，值不变"),
-            Entry(L + "linear_attn.conv1d.weight", G + "ssm_conv1d.weight",
-                  (d.conv_channels, 1, d.conv_kernel), False, (T_DENSE, T_VROWS),
-                  vperm=VPERM_TAIL,
-                  note="GGUF 已 squeeze 成 [C,K] -> 补回中间维；仅末尾 V 通道段重排"),
-            Entry(L + "linear_attn.norm.weight", G + "ssm_norm.weight", (d.lin_v_dim,),
-                  False, (T_DENSE,), note="不在 qwen.py 重排列表内；两侧都不加 1"),
-            Entry(L + "linear_attn.out_proj.weight", G + "ssm_out.weight",
-                  (d.hidden, vd), True, (), act_vperm=True,
-                  note="qwen.py:609 重排的是列(in 维)，blob 不能跨块置换 -> "
-                       "运行时对输入激活做 grouped->tiled（见 config 的 activation_vperm）"),
+            Entry(
+                L + "linear_attn.in_proj_q.weight",
+                G + "attn_qkv.weight",
+                (kd, d.hidden),
+                True,
+                (),
+                slices=((0, kd),),
+                note="attn_qkv 行 [0:kd]",
+            ),
+            Entry(
+                L + "linear_attn.in_proj_k.weight",
+                G + "attn_qkv.weight",
+                (kd, d.hidden),
+                True,
+                (),
+                slices=((kd, 2 * kd),),
+                note="attn_qkv 行 [kd:2kd]",
+            ),
+            Entry(
+                L + "linear_attn.in_proj_v.weight",
+                G + "attn_qkv.weight",
+                (vd, d.hidden),
+                True,
+                (T_VROWS,),
+                slices=((2 * kd, 2 * kd + vd),),
+                note="attn_qkv 行 [2kd:]，V 头 tiled->grouped",
+            ),
+            Entry(
+                L + "linear_attn.in_proj_z.weight",
+                G + "attn_gate.weight",
+                (vd, d.hidden),
+                True,
+                (T_VROWS,),
+                note="qwen.py:583 行重排（head_v_dim）",
+            ),
+            Entry(
+                L + "linear_attn.in_proj_a.weight",
+                G + "ssm_alpha.weight",
+                (d.lin_v_heads, d.hidden),
+                False,
+                (T_DENSE, T_VROWS),
+                note="实测源为 Q8_0；框架该参数不走量化路径 -> 稠密化；"
+                "qwen.py:587 行重排 head_dim=1",
+            ),
+            Entry(
+                L + "linear_attn.in_proj_b.weight",
+                G + "ssm_beta.weight",
+                (d.lin_v_heads, d.hidden),
+                False,
+                (T_DENSE, T_VROWS),
+                note="同上",
+            ),
+            Entry(
+                L + "linear_attn.A_log",
+                G + "ssm_a",
+                (d.lin_v_heads,),
+                False,
+                (T_ALOG, T_VROWS),
+                note="GGUF 存的是 -exp(A_log)，需 log(-x) 反解",
+            ),
+            Entry(
+                L + "linear_attn.dt_bias",
+                G + "ssm_dt.bias",
+                (d.lin_v_heads,),
+                False,
+                (T_VELEM,),
+                note="qwen.py:589 逐头置换，值不变",
+            ),
+            Entry(
+                L + "linear_attn.conv1d.weight",
+                G + "ssm_conv1d.weight",
+                (d.conv_channels, 1, d.conv_kernel),
+                False,
+                (T_DENSE, T_VROWS),
+                vperm=VPERM_TAIL,
+                note="GGUF 已 squeeze 成 [C,K] -> 补回中间维；仅末尾 V 通道段重排",
+            ),
+            Entry(
+                L + "linear_attn.norm.weight",
+                G + "ssm_norm.weight",
+                (d.lin_v_dim,),
+                False,
+                (T_DENSE,),
+                note="不在 qwen.py 重排列表内；两侧都不加 1",
+            ),
+            Entry(
+                L + "linear_attn.out_proj.weight",
+                G + "ssm_out.weight",
+                (d.hidden, vd),
+                True,
+                (),
+                act_vperm=True,
+                note="qwen.py:609 重排的是列(in 维)，blob 不能跨块置换 -> "
+                "运行时对输入激活做 grouped->tiled（见 config 的 activation_vperm）",
+            ),
         ]
     return out
 
@@ -252,16 +395,34 @@ def layer_entries(d: Dims, i: int, role: str) -> list:
 def build_plan(d: Dims) -> list:
     """全模型映射条目（含顶层）。"""
     entries = [
-        Entry(PREFIX + "embed_tokens.weight", "token_embd.weight", (d.vocab, d.hidden),
-              False, (T_DENSE,), note="实测 GGUF 为 Q6_K -> 反量化"),
+        Entry(
+            PREFIX + "embed_tokens.weight",
+            "token_embd.weight",
+            (d.vocab, d.hidden),
+            False,
+            (T_DENSE,),
+            note="实测 GGUF 为 Q6_K -> 反量化",
+        ),
     ]
     for i, role in enumerate(d.layer_types()):
         entries += layer_entries(d, i, role)
     entries += [
-        Entry(PREFIX + "norm.weight", "output_norm.weight", (d.hidden,),
-              False, (T_DENSE,), note="GGUF 已 baked +1"),
-        Entry("lm_head.weight", "output.weight", (d.vocab, d.hidden),
-              False, (T_DENSE,), note="实测 GGUF 为 Q8_0 -> 反量化"),
+        Entry(
+            PREFIX + "norm.weight",
+            "output_norm.weight",
+            (d.hidden,),
+            False,
+            (T_DENSE,),
+            note="GGUF 已 baked +1",
+        ),
+        Entry(
+            "lm_head.weight",
+            "output.weight",
+            (d.vocab, d.hidden),
+            False,
+            (T_DENSE,),
+            note="实测 GGUF 为 Q8_0 -> 反量化",
+        ),
     ]
     return entries
 
@@ -274,7 +435,7 @@ def activation_vperm_suffix(e: "Entry") -> str:
     """
     name = re.sub(r"^" + re.escape(PREFIX) + r"layers\.\d+\.", "", e.infinilm)
     if name.endswith(".weight"):
-        name = name[:-len(".weight")]
+        name = name[: -len(".weight")]
     return name + "."
 
 
@@ -295,14 +456,17 @@ def activation_vperm_rules(d: "Dims", plan: list) -> list:
             continue
         in_dim = int(e.shape[1])
         if in_dim != n_k * r * hd:
-            raise ValueError("%s: 条目 in 维 %d != num_k_heads*num_v_per_k*head_dim = %d，"
-                             "无法按头分块置换" % (e.infinilm, in_dim, n_k * r * hd))
+            raise ValueError(
+                "%s: 条目 in 维 %d != num_k_heads*num_v_per_k*head_dim = %d，"
+                "无法按头分块置换" % (e.infinilm, in_dim, n_k * r * hd)
+            )
         suffix = activation_vperm_suffix(e)
         if suffix in seen:
             continue
         seen.add(suffix)
-        rules.append({"suffix": suffix, "num_k_heads": n_k,
-                      "num_v_per_k": r, "head_dim": hd})
+        rules.append(
+            {"suffix": suffix, "num_k_heads": n_k, "num_v_per_k": r, "head_dim": hd}
+        )
     return rules
 
 
@@ -333,7 +497,7 @@ def compress(shape: tuple) -> tuple:
 def ckpt_name(e: "Entry") -> str:
     """写进 safetensors（以及框架 state_dict）的参数名。"""
     if e.blob and e.infinilm.endswith(".weight"):
-        return e.infinilm[:-len(".weight")] + "." + BLOB_SUFFIX
+        return e.infinilm[: -len(".weight")] + "." + BLOB_SUFFIX
     return e.infinilm
 
 

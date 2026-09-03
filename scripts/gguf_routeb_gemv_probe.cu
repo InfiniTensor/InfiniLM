@@ -20,19 +20,19 @@
 #include <cstdlib>
 #include <vector>
 
-#include <cuda_runtime.h>
 #include <cublas_v2.h>
+#include <cuda_runtime.h>
 
 #include "linear_gguf_dequant.cuh"
 
-#define CUDA_CHECK(call)                                                             \
-    do {                                                                             \
-        cudaError_t err__ = (call);                                                  \
-        if (err__ != cudaSuccess) {                                                  \
-            std::fprintf(stderr, "gemv probe: %s failed: %s\n", #call,              \
-                         cudaGetErrorString(err__));                                 \
-            return 5;                                                                \
-        }                                                                            \
+#define CUDA_CHECK(call)                                               \
+    do {                                                               \
+        cudaError_t err__ = (call);                                    \
+        if (err__ != cudaSuccess) {                                    \
+            std::fprintf(stderr, "gemv probe: %s failed: %s\n", #call, \
+                         cudaGetErrorString(err__));                   \
+            return 5;                                                  \
+        }                                                              \
     } while (0)
 
 static std::vector<uint8_t> read_all(const char *path, size_t want) {

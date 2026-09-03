@@ -68,8 +68,7 @@ int main(int argc, char **argv) {
     }
     const size_t n_f32 = f32.size() * sizeof(float);
     const size_t n_bf16 = bf16.size() * sizeof(uint16_t);
-    const bool ok = std::fwrite(f32.data(), 1, n_f32, o1) == n_f32 &&
-                    std::fwrite(bf16.data(), 1, n_bf16, o2) == n_bf16;
+    const bool ok = std::fwrite(f32.data(), 1, n_f32, o1) == n_f32 && std::fwrite(bf16.data(), 1, n_bf16, o2) == n_bf16;
     std::fclose(o1);
     std::fclose(o2);
     if (!ok) {

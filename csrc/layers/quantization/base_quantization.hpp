@@ -38,7 +38,7 @@ struct SplitParam {
 
 class BaseQuantization : public std::enable_shared_from_this<BaseQuantization> {
 public:
-    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config){};
+    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config) {};
     virtual ~BaseQuantization() = default;
 
     const nlohmann::json &get_config() const { return quant_config_; }

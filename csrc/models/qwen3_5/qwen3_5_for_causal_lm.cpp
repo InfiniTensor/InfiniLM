@@ -18,9 +18,9 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t vocab_size = model_config->get<size_t>("vocab_size");
     const auto &dtype = model_config->get_dtype();
-    fp32_lm_head_output_ =
-        model_config->get_config_json().value(
-            "lm_head_output_dtype", std::string()) == "float32";
+    fp32_lm_head_output_ = model_config->get_config_json().value(
+                               "lm_head_output_dtype", std::string())
+                        == "float32";
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
     INFINICORE_NN_MODULE_INIT(
@@ -42,8 +42,8 @@ InfinilmModel::Output Qwen35ForCausalLM::forward(
     infinicore::Tensor logits;
     if (fp32_lm_head_output_) {
         auto hidden = hidden_states->is_contiguous()
-                          ? hidden_states
-                          : hidden_states->contiguous();
+                        ? hidden_states
+                        : hidden_states->contiguous();
         const size_t ndim = hidden->ndim();
         auto output_shape = hidden->shape();
         output_shape[ndim - 1] = lm_head_->out_features();

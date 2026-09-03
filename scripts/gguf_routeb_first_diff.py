@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
-import math
 import os
 import sys
 import time
@@ -42,8 +41,8 @@ def main() -> int:
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
-    import numpy as np
     import infinicore
+    import numpy as np
     from infinilm.cache import PagedKVCacheConfig
     from infinilm.distributed import DistConfig
     from infinilm.infer_engine import InferEngine
@@ -82,8 +81,7 @@ def main() -> int:
         "stream": False,
         "samplers": ["top_k", "temperature"],
     }
-    llama_response = post_json(
-        args.server.rstrip("/") + "/completion", llama_body)
+    llama_response = post_json(args.server.rstrip("/") + "/completion", llama_body)
     llama_probs = llama_response["completion_probabilities"][0]["top_logprobs"]
 
     load_started = time.time()
@@ -92,7 +90,8 @@ def main() -> int:
         device=infinicore.device("cuda:0"),
         distributed_config=DistConfig(1),
         cache_config=PagedKVCacheConfig(
-            args.num_blocks, args.block_size, max_batch_size=1),
+            args.num_blocks, args.block_size, max_batch_size=1
+        ),
         attention_backend="paged-attn",
     )
     load_model_state_dict_by_file(engine, args.model_path, dtype=engine.dtype)
@@ -103,14 +102,18 @@ def main() -> int:
     if engine.position_id_axes > 1:
         positions = [positions for _ in range(engine.position_id_axes)]
     tensors = {
-        "input_ids": infinicore.from_list([prefix], dtype=infinicore.int64).view([1, length]),
+        "input_ids": infinicore.from_list([prefix], dtype=infinicore.int64).view(
+            [1, length]
+        ),
         "position_ids": infinicore.from_list(positions, dtype=infinicore.int64),
         "past_kv_lengths": infinicore.from_list([0], dtype=infinicore.int32),
         "total_kv_lengths": infinicore.from_list([length], dtype=infinicore.int32),
         "input_offsets": infinicore.from_list([0, length], dtype=infinicore.int32),
         "cu_seqlens": infinicore.from_list([0, length], dtype=infinicore.int32),
         "block_tables": infinicore.from_list([[0]], dtype=infinicore.int32),
-        "slot_mapping": infinicore.from_list(list(range(length)), dtype=infinicore.int64),
+        "slot_mapping": infinicore.from_list(
+            list(range(length)), dtype=infinicore.int64
+        ),
         "mamba_init_state_indices": infinicore.from_list([0], dtype=infinicore.int32),
         "mamba_final_state_indices": infinicore.from_list([1], dtype=infinicore.int32),
     }
@@ -140,20 +143,29 @@ def main() -> int:
     bits = np.ctypeslib.as_array(bits_type.from_address(cpu_logits.data_ptr())).copy()
     all_logits = (bits.astype(np.uint32) << 16).view(np.float32).reshape(logits_shape)
     logits = all_logits.reshape(-1, logits_shape[-1])[-1]
-    order = np.argpartition(logits, -args.top_k)[-args.top_k:]
+    order = np.argpartition(logits, -args.top_k)[-args.top_k :]
     order = order[np.argsort(logits[order])[::-1]]
     max_logit = float(logits[order[0]])
-    infini_top = [{"id": int(i), "logit": float(logits[i]),
-                   "delta_from_top": float(logits[i] - max_logit)} for i in order]
+    infini_top = [
+        {
+            "id": int(i),
+            "logit": float(logits[i]),
+            "delta_from_top": float(logits[i] - max_logit),
+        }
+        for i in order
+    ]
 
     llama_map = {int(x["id"]): float(x["logprob"]) for x in llama_probs}
     infini_map = {int(x["id"]): float(x["delta_from_top"]) for x in infini_top}
     candidate_ids = sorted(set(llama_map) | set(infini_map))
-    candidate_table = [{
-        "id": token_id,
-        "llama_logprob": llama_map.get(token_id),
-        "infini_delta_from_top": infini_map.get(token_id),
-    } for token_id in candidate_ids]
+    candidate_table = [
+        {
+            "id": token_id,
+            "llama_logprob": llama_map.get(token_id),
+            "infini_delta_from_top": infini_map.get(token_id),
+        }
+        for token_id in candidate_ids
+    ]
 
     result = {
         "case_id": args.case_id,
@@ -173,15 +185,27 @@ def main() -> int:
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    print("CASE=%s diff=%d prefix_len=%d llama=%d infini=%d" % (
-        args.case_id, first_diff, len(prefix), result["llama_selected"],
-        result["infinilm_selected"]))
-    print("LLAMA_TOP5 %s" % [(x["id"], round(x["logprob"], 6))
-                              for x in llama_probs[:5]])
-    print("INFINI_TOP5 %s" % [(x["id"], round(x["delta_from_top"], 6))
-                               for x in infini_top[:5]])
-    print("FINITE=%s SHAPE=%s LOAD=%.3fs" % (
-        result["infinilm_logits_finite"], result["infinilm_logits_shape"], load_s))
+    print(
+        "CASE=%s diff=%d prefix_len=%d llama=%d infini=%d"
+        % (
+            args.case_id,
+            first_diff,
+            len(prefix),
+            result["llama_selected"],
+            result["infinilm_selected"],
+        )
+    )
+    print(
+        "LLAMA_TOP5 %s" % [(x["id"], round(x["logprob"], 6)) for x in llama_probs[:5]]
+    )
+    print(
+        "INFINI_TOP5 %s"
+        % [(x["id"], round(x["delta_from_top"], 6)) for x in infini_top[:5]]
+    )
+    print(
+        "FINITE=%s SHAPE=%s LOAD=%.3fs"
+        % (result["infinilm_logits_finite"], result["infinilm_logits_shape"], load_s)
+    )
     return 0
 
 

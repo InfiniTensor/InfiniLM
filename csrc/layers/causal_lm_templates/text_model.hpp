@@ -235,8 +235,7 @@ private:
         if (dump_dir == nullptr || dump_dir[0] == '\0') {
             return;
         }
-        const char *dump_numel =
-            std::getenv("INFINILM_FINAL_PRENORM_DUMP_NUMEL");
+        const char *dump_numel = std::getenv("INFINILM_FINAL_PRENORM_DUMP_NUMEL");
         if (dump_numel != nullptr && dump_numel[0] != '\0'
             && hidden_states->numel()
                    != std::strtoull(dump_numel, nullptr, 10)) {

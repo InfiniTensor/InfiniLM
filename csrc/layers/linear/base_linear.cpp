@@ -192,8 +192,7 @@ std::vector<infinilm::quantization::SplitParam> BaseLinear::init_fused_shards(
                 desc.shape, desc.dtype, device_, desc.split_dim, 0, 1, 0);
             // key 里的 "shard<i>." 前缀是量化类在 forward() 里还原拼接顺序的依据
             this->register_parameter(
-                std::string(infinilm::quantization::GGUFBlockQuantization::SHARD_PREFIX) +
-                    std::to_string(i) + "." + desc.name,
+                std::string(infinilm::quantization::GGUFBlockQuantization::SHARD_PREFIX) + std::to_string(i) + "." + desc.name,
                 param);
             registered.push_back({sh.name + "." + desc.name, std::move(param)});
         }

@@ -67,33 +67,43 @@ def main() -> int:
             }
             started = time.time()
             response = post_json(
-                args.server.rstrip("/") + "/completion", body, args.timeout)
+                args.server.rstrip("/") + "/completion", body, args.timeout
+            )
             tokens = [int(x) for x in response.get("tokens", [])]
             probabilities = response.get("completion_probabilities", [])
-            runs.append({
-                "repeat": repeat,
-                "tokens": tokens,
-                "content": response.get("content", ""),
-                "first_token_top_logprobs": (
-                    probabilities[0].get("top_logprobs", []) if probabilities else []),
-                "elapsed_s": round(time.time() - started, 4),
-                "tokens_evaluated": response.get("tokens_evaluated"),
-                "tokens_predicted": response.get("tokens_predicted"),
-            })
+            runs.append(
+                {
+                    "repeat": repeat,
+                    "tokens": tokens,
+                    "content": response.get("content", ""),
+                    "first_token_top_logprobs": (
+                        probabilities[0].get("top_logprobs", [])
+                        if probabilities
+                        else []
+                    ),
+                    "elapsed_s": round(time.time() - started, 4),
+                    "tokens_evaluated": response.get("tokens_evaluated"),
+                    "tokens_predicted": response.get("tokens_predicted"),
+                }
+            )
         deterministic = all(x["tokens"] == runs[0]["tokens"] for x in runs[1:])
         exact_length = all(len(x["tokens"]) == args.new_tokens for x in runs)
         ok = deterministic and exact_length
         all_ok &= ok
-        outputs.append({
-            "id": case["id"],
-            "prompt": case["prompt"],
-            "input_ids": case["input_ids"],
-            "deterministic": deterministic,
-            "exact_length": exact_length,
-            "runs": runs,
-        })
-        print("%-10s deterministic=%s length=%s tokens=%s" % (
-            case["id"], deterministic, exact_length, runs[0]["tokens"]))
+        outputs.append(
+            {
+                "id": case["id"],
+                "prompt": case["prompt"],
+                "input_ids": case["input_ids"],
+                "deterministic": deterministic,
+                "exact_length": exact_length,
+                "runs": runs,
+            }
+        )
+        print(
+            "%-10s deterministic=%s length=%s tokens=%s"
+            % (case["id"], deterministic, exact_length, runs[0]["tokens"])
+        )
 
     result = {
         "engine": "llama.cpp",

@@ -34,8 +34,10 @@ def main() -> int:
         lmap = {x: lmap[x] for x in case_ids}
         imap = {x: imap[x] for x in case_ids}
     elif set(lmap) != set(imap):
-        raise ValueError("case sets differ: llama-only=%s infini-only=%s" % (
-            sorted(set(lmap) - set(imap)), sorted(set(imap) - set(lmap))))
+        raise ValueError(
+            "case sets differ: llama-only=%s infini-only=%s"
+            % (sorted(set(lmap) - set(imap)), sorted(set(imap) - set(lmap)))
+        )
 
     cases = []
     exact = 0
@@ -47,7 +49,9 @@ def main() -> int:
             raise ValueError("input ids differ for %s" % case_id)
         lt = left["runs"][0]["tokens"]
         rt = right["runs"][0]["tokens"]
-        first_difference = next((i for i, (a, b) in enumerate(zip(lt, rt)) if a != b), None)
+        first_difference = next(
+            (i for i, (a, b) in enumerate(zip(lt, rt)) if a != b), None
+        )
         if first_difference is None and len(lt) != len(rt):
             first_difference = min(len(lt), len(rt))
         is_exact = lt == rt
@@ -55,19 +59,24 @@ def main() -> int:
         same = sum(a == b for a, b in zip(lt, rt))
         matched += same
         total += max(len(lt), len(rt))
-        cases.append({
-            "id": case_id,
-            "exact_sequence_match": is_exact,
-            "matched_tokens": same,
-            "total_tokens": max(len(lt), len(rt)),
-            "first_difference": first_difference,
-            "llama_tokens": lt,
-            "infinilm_tokens": rt,
-            "llama_first_top_logprobs": left["runs"][0].get(
-                "first_token_top_logprobs", []),
-        })
-        print("%-10s exact=%s first_diff=%s llama=%s infini=%s" % (
-            case_id, is_exact, first_difference, lt, rt))
+        cases.append(
+            {
+                "id": case_id,
+                "exact_sequence_match": is_exact,
+                "matched_tokens": same,
+                "total_tokens": max(len(lt), len(rt)),
+                "first_difference": first_difference,
+                "llama_tokens": lt,
+                "infinilm_tokens": rt,
+                "llama_first_top_logprobs": left["runs"][0].get(
+                    "first_token_top_logprobs", []
+                ),
+            }
+        )
+        print(
+            "%-10s exact=%s first_diff=%s llama=%s infini=%s"
+            % (case_id, is_exact, first_difference, lt, rt)
+        )
 
     result = {
         "cases": cases,
@@ -82,8 +91,10 @@ def main() -> int:
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    print("RESULT exact=%d/%d token_match=%d/%d all_exact=%s" % (
-        exact, len(cases), matched, total, result["all_exact"]))
+    print(
+        "RESULT exact=%d/%d token_match=%d/%d all_exact=%s"
+        % (exact, len(cases), matched, total, result["all_exact"])
+    )
     return 0 if result["all_exact"] else 1
 
 

@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # V 头置换
 # ---------------------------------------------------------------------------
+
 
 def reorder_v(t: np.ndarray, n_k: int, n_v_per_k: int, hd: int) -> np.ndarray:
     """grouped -> tiled，与 llama.cpp `_reorder_v_heads` 同语义（沿 dim0 的整头/整元素置换）。
@@ -30,17 +30,21 @@ def reorder_v(t: np.ndarray, n_k: int, n_v_per_k: int, hd: int) -> np.ndarray:
     支持任意尾部维度：1-D（A_log/dt_bias，hd=1）、2-D（权重行）、3-D（conv1d [C,1,K]）。
     """
     rest = t.shape[1:]
-    return (t.reshape((n_k, n_v_per_k, hd) + rest)
-             .transpose((1, 0, 2) + tuple(range(3, 3 + len(rest))))
-             .reshape((n_k * n_v_per_k * hd,) + rest))
+    return (
+        t.reshape((n_k, n_v_per_k, hd) + rest)
+        .transpose((1, 0, 2) + tuple(range(3, 3 + len(rest))))
+        .reshape((n_k * n_v_per_k * hd,) + rest)
+    )
 
 
 def reorder_v_inverse(t: np.ndarray, n_k: int, n_v_per_k: int, hd: int) -> np.ndarray:
     """逆变换 = 两个轴参数对调后再调用一次。"""
     rest = t.shape[1:]
-    return (t.reshape((n_v_per_k, n_k, hd) + rest)
-             .transpose((1, 0, 2) + tuple(range(3, 3 + len(rest))))
-             .reshape((n_k * n_v_per_k * hd,) + rest))
+    return (
+        t.reshape((n_v_per_k, n_k, hd) + rest)
+        .transpose((1, 0, 2) + tuple(range(3, 3 + len(rest))))
+        .reshape((n_k * n_v_per_k * hd,) + rest)
+    )
 
 
 _VPERM = {"inv": reorder_v_inverse, "fwd": reorder_v, "none": None}
@@ -56,8 +60,9 @@ def vperm_head_dim(e, dims) -> int:
     n_heads = dims.lin_v_heads
     rows = int(e.shape[0]) if e.vperm == "all" else dims.value_dim
     if rows % n_heads:
-        raise ValueError("%s：作用域行数 %d 不能被 value 头数 %d 整除"
-                         % (e.infinilm, rows, n_heads))
+        raise ValueError(
+            "%s：作用域行数 %d 不能被 value 头数 %d 整除" % (e.infinilm, rows, n_heads)
+        )
     return rows // n_heads
 
 
@@ -69,13 +74,15 @@ def apply_vperm(arr: np.ndarray, e, dims, direction: str = "inv") -> np.ndarray:
     n_k, hd = dims.lin_k_heads, vperm_head_dim(e, dims)
     v_per_k = dims.lin_v_heads // n_k
     if int(dims.lin_v_heads) % n_k:
-        raise ValueError("lin_v_heads %d 不能被 lin_k_heads %d 整除"
-                         % (dims.lin_v_heads, n_k))
+        raise ValueError(
+            "lin_v_heads %d 不能被 lin_k_heads %d 整除" % (dims.lin_v_heads, n_k)
+        )
     if e.vperm == "v_tail":
         n_v = n_k * v_per_k * hd
         if arr.shape[0] < n_v:
-            raise ValueError("%s：dim0=%d 小于 value 段长度 %d"
-                             % (e.infinilm, arr.shape[0], n_v))
+            raise ValueError(
+                "%s：dim0=%d 小于 value 段长度 %d" % (e.infinilm, arr.shape[0], n_v)
+            )
         out = np.asarray(arr, dtype=arr.dtype)
         return np.concatenate([out[:-n_v], fn(out[-n_v:], n_k, v_per_k, hd)], axis=0)
     return fn(np.asarray(arr, dtype=arr.dtype), n_k, v_per_k, hd)
@@ -84,6 +91,7 @@ def apply_vperm(arr: np.ndarray, e, dims, direction: str = "inv") -> np.ndarray:
 # ---------------------------------------------------------------------------
 # 其它变换
 # ---------------------------------------------------------------------------
+
 
 def alog_from_ssm_a(a: np.ndarray) -> np.ndarray:
     """A_log = log(-ssm_a)。
@@ -94,8 +102,10 @@ def alog_from_ssm_a(a: np.ndarray) -> np.ndarray:
     """
     a = np.asarray(a, dtype=np.float32)
     if not np.all(a < 0):
-        raise ValueError("ssm_a 存在非负值（min=%g），无法取 log(-x)；"
-                         "请核对 conversion/qwen.py 的 A_log 约定" % float(a.min()))
+        raise ValueError(
+            "ssm_a 存在非负值（min=%g），无法取 log(-x)；"
+            "请核对 conversion/qwen.py 的 A_log 约定" % float(a.min())
+        )
     return np.log(-a)
 
 

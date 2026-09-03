@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """探针：用 mini qwen3_5 config 构造 InferEngine，导出 C++ 侧权威参数键与 shape。"""
+
 import json
 import os
 import sys
