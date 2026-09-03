@@ -44,3 +44,13 @@ target("_infinilm")
 
     set_installdir("python/infinilm")
 target_end()
+
+target("compressed_tensors_config_test")
+    set_default(false)
+    set_kind("binary")
+    set_languages("cxx17")
+
+    add_includedirs(".")
+    add_files("test/config/compressed_tensors_config_test.cpp")
+    add_files("csrc/config/compressed_tensors_config.cpp")
+target_end()

@@ -1,6 +1,7 @@
 #pragma once
-#include "../utils.hpp"
 #include "../layers/quantization/quantization.hpp"
+#include "../utils.hpp"
+#include "compressed_tensors_config.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <spdlog/spdlog.h>
@@ -15,6 +16,10 @@ public:
     QuantConfig(const nlohmann::json &json);
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const;
+
+    const std::optional<CompressedTensorsConfig> &get_compressed_tensors_config() const {
+        return compressed_tensors_config_;
+    }
 
     infinilm::quantization::QuantScheme get_quant_scheme() const {
         if (quantization_method != nullptr) {
@@ -58,6 +63,7 @@ public:
 private:
     nlohmann::json quantization_config;
     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_method;
+    std::optional<CompressedTensorsConfig> compressed_tensors_config_;
 
     infinilm::quantization::KVQuantAlgo kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;
     std::optional<infinicore::DataType> kv_cache_dtype_ = std::nullopt;
