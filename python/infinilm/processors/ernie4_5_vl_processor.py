@@ -1,7 +1,7 @@
 import json
 import os
 
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
@@ -45,6 +45,8 @@ class Ernie45VLProcessor(BasicLLMProcessor):
                 self.pixel_values_dtype = getattr(torch, str(dtype_name))
 
         try:
+            from transformers import AutoProcessor
+
             self.processor = AutoProcessor.from_pretrained(
                 model_dir_path, trust_remote_code=True
             )
