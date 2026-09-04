@@ -172,28 +172,31 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
         }
     }
 
-    spdlog::info(
-        "GGUF block quantization: {} entries (blob {} / dense {} / outside prefix {}), key_prefix='{}'{}",
-        types_.size(), n_blob, n_dense, n_outside, key_prefix_,
-        key_prefix_.empty()
-            ? " (not set; table keys are relative safetensors names)"
-            : " (for example, root-level lm_head entries)");
+    static std::atomic<bool> config_logged{false};
+    if (!config_logged.exchange(true, std::memory_order_relaxed)) {
+        spdlog::info(
+            "GGUF block quantization: {} entries (blob {} / dense {} / outside prefix {}), key_prefix='{}'{}",
+            types_.size(), n_blob, n_dense, n_outside, key_prefix_,
+            key_prefix_.empty()
+                ? " (not set; table keys are relative safetensors names)"
+                : " (for example, root-level lm_head entries)");
 
-    std::string vs;
-    for (const auto &r : vperm_) {
-        if (!vs.empty()) {
-            vs += ", ";
+        std::string vs;
+        for (const auto &r : vperm_) {
+            if (!vs.empty()) {
+                vs += ", ";
+            }
+            vs += r.suffix + "=" + std::to_string(r.n_k) + "x" + std::to_string(r.r) + "x" + std::to_string(r.hd);
         }
-        vs += r.suffix + "=" + std::to_string(r.n_k) + "x" + std::to_string(r.r) + "x" + std::to_string(r.hd);
+        spdlog::info("GGUF block quantization: {} activation V-head permutation rules (grouped->tiled): {}",
+                     vperm_.size(), vs.empty() ? "none" : vs);
     }
-    spdlog::info("GGUF block quantization: {} activation V-head permutation rules (grouped->tiled): {}",
-                 vperm_.size(), vs.empty() ? "none" : vs);
 }
 
 GGUFBlockQuantization::~GGUFBlockQuantization() {
     if (n_blob_ + n_dense_ + n_group_ > 0) {
-        spdlog::info("GGUF block quantization: layout matches blob {} / dense {} / fused group {}",
-                     n_blob_, n_dense_, n_group_);
+        spdlog::debug("GGUF block quantization: layout matches blob {} / dense {} / fused group {}",
+                      n_blob_, n_dense_, n_group_);
     }
 }
 
