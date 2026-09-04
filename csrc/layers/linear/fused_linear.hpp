@@ -94,10 +94,12 @@ private:
     size_t num_kv_head_replicas_ = 1;
     RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
-    // GGUF 等「每 shard 一块 buffer」的方案用（与 split_infos_ 二选一，见 sharded_）
+    // Used by layouts such as GGUF that allocate one buffer per shard. This
+    // is mutually exclusive with `split_infos_`; see `sharded_`.
     std::vector<BaseLinear::FusedShard> shard_specs_;
 
-    // 把各 shard 参数交给 register_fn（narrow 视图或独立 buffer，两条路同一入口）
+    // Pass each shard parameter to `register_fn`, whether it is a narrowed
+    // view or an independent buffer.
     void register_fused_params();
 };
 

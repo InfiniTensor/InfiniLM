@@ -46,8 +46,8 @@ private:
     size_t num_kv_head_;
     infinilm::layers::linear::RegisterParamFn register_fn_;
     std::vector<infinilm::quantization::SplitInfo> split_infos_;
-    // GGUF：q|gate / k / v 三段的 ggml 类型互不相同（方案 §6.0 纠正 1），
-    // 每段各自一块 buffer，与 split_infos_ 二选一
+    // GGUF Q|gate, K, and V shards may use different GGML types, so each
+    // shard owns a separate buffer instead of using `split_infos_`.
     std::vector<infinilm::nn::BaseLinear::FusedShard> shard_specs_;
 
     void register_fused_params();

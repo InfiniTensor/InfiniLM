@@ -105,11 +105,13 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
     : QKVParallelLinear(hidden_size, q_dim, k_dim, v_dim, num_q_head, num_k_head, num_v_head, q_bias, k_bias, v_bias, quantization, dtype, device, rank_info, prefix) {
     register_fn_ = register_fn;
     if (this->sharded_) {
-        // GGUF：q/k/v 在本文件里 ggml 类型全不相同（§6.0 纠正 1），没有可 narrow 的
-        // 融合 buffer —— 每 shard 各自一块，stem 指向各自的 checkpoint 张量。
+        // GGUF Q, K, and V shards may use different GGML types, so there is
+        // no fused buffer to narrow. Each shard owns a separate buffer and
+        // its stem identifies the corresponding checkpoint tensor.
         if (prefix.empty()) {
             throw std::runtime_error(
-                "QKVParallelLinear: 按 checkpoint 张量名查表的量化方案（GGUF）必须传 prefix");
+                "QKVParallelLinear requires `prefix` when the quantization "
+                "scheme resolves layouts by checkpoint tensor name.");
         }
         shard_specs_ = {
             {q_name, q_out_size_, prefix + "." + q_name + "."},
@@ -140,8 +142,9 @@ void QKVParallelLinear::register_fused_params() {
 
 void QKVParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
-    // 融合量化布局（sharded_）下 split_infos_ 为空，不会重跑：那些 shard 参数就是
-    // 加载目标，重新分配会把已读进来的字节丢掉
+    // `split_infos_` is empty for sharded quantization layouts because the
+    // shard parameters are the load targets. Reallocation would discard the
+    // bytes that were already loaded.
     if (register_fn_ && !split_infos_.empty()) {
         register_fused_params();
     }
@@ -202,11 +205,13 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
     : GateUpParallelLinear(hidden_size, intermediate_size, quantization, bias, dtype, device, rank_info, prefix) {
     register_fn_ = register_fn;
     if (this->sharded_) {
-        // GGUF：gate/up 在本文件 28/64 层类型不同（§6.0 纠正 1），两者 row_bytes 不同，
-        // 装不进同一块融合 buffer，所以各自一块、各自查自己是 blob 还是稠密。
+        // GGUF gate and up shards may use different types and row sizes, so
+        // they cannot share a fused buffer. Each shard owns its buffer and
+        // independently resolves whether it is quantized or dense.
         if (prefix.empty()) {
             throw std::runtime_error(
-                "GateUpParallelLinear: 按 checkpoint 张量名查表的量化方案（GGUF）必须传 prefix");
+                "GateUpParallelLinear requires `prefix` when the "
+                "quantization scheme resolves layouts by checkpoint tensor name.");
         }
         const size_t half = intermediate_size / tp_size_;
         shard_specs_ = {
@@ -241,7 +246,8 @@ void GateUpParallelLinear::register_fused_params() {
 
 void GateUpParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
-    // 同 QKVParallelLinear：sharded_ 时 split_infos_ 为空，不重跑切分
+    // As in `QKVParallelLinear`, sharded layouts have no `split_infos_` and
+    // must not repeat the split allocation.
     if (register_fn_ && !split_infos_.empty()) {
         register_fused_params();
     }

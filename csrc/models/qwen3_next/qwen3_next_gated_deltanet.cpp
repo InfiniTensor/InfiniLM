@@ -152,7 +152,8 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     size_t projection_size_qkv = local_key_dim_ * 2 + local_value_dim_;
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    // 本模块在 checkpoint 里的路径（同 Qwen35Attention，只给 GGUF 类查表方案用）
+    // Checkpoint path for this module. This is used only by quantization
+    // schemes, such as GGUF, that resolve layouts by tensor name.
     const std::string prefix = "layers." + std::to_string(layer_idx_) + ".linear_attn";
     in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
         hidden_size, linear_key_head_dim, linear_key_head_dim, linear_value_head_dim, linear_num_key_heads, linear_num_key_heads, linear_num_value_heads,
