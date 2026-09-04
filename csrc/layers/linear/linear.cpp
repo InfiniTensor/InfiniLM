@@ -13,8 +13,9 @@ Linear::Linear(size_t in_features, size_t out_features, bool bias,
 
 Linear::Linear(size_t in_features, size_t out_features,
                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
-               bool bias, const infinicore::DataType &dtype, const infinicore::Device &device)
-    : BaseLinear(in_features, out_features, quantization, bias, dtype, device, -1, 0, 1) {
+               bool bias, const infinicore::DataType &dtype, const infinicore::Device &device,
+               const std::string &stem)
+    : BaseLinear(in_features, out_features, quantization, bias, dtype, device, -1, 0, 1, -1, stem) {
 }
 
 infinicore::Tensor Linear::forward(infinicore::Tensor &input) const {
@@ -42,9 +43,9 @@ ColumnParallelLinear::ColumnParallelLinear(size_t in_features, size_t out_featur
                                            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                            bool bias, const infinicore::DataType &dtype, const infinicore::Device &device,
                                            infinicore::Size tp_rank, infinicore::Size tp_size,
-                                           int tp_num_heads)
+                                           int tp_num_heads, const std::string &stem)
     : BaseLinear(in_features, out_features, quantization, bias, dtype, device,
-                 0, tp_rank, tp_size, tp_num_heads),
+                 0, tp_rank, tp_size, tp_num_heads, stem),
       tp_rank_(tp_rank),
       tp_size_(tp_size) {
 }
@@ -74,9 +75,9 @@ RowParallelLinear::RowParallelLinear(size_t in_features, size_t out_features,
                                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                      bool bias, const infinicore::DataType &dtype, const infinicore::Device &device,
                                      infinicore::Size tp_rank, infinicore::Size tp_size,
-                                     infinicclComm_t communicator)
+                                     infinicclComm_t communicator, const std::string &stem)
     : BaseLinear(in_features, out_features, quantization, bias, dtype, device,
-                 1, tp_rank, tp_size),
+                 1, tp_rank, tp_size, -1, stem),
       tp_rank_(tp_rank),
       tp_size_(tp_size), communicator_(communicator) {
 }
