@@ -26,7 +26,8 @@ bool is_supported(const Tensor &out,
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kMoore
-         && device_type != Device::Type::kCambricon)
+         && device_type != Device::Type::kCambricon
+         && device_type != Device::Type::kAscend)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -133,7 +134,12 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     const auto device_type = planned->q.device.type();
-    const std::size_t implementation_index = device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
+    std::size_t implementation_index = 16;
+    if (device_type == infini::ops::Device::Type::kMoore) {
+        implementation_index = 8;
+    } else if (device_type == infini::ops::Device::Type::kAscend) {
+        implementation_index = 0;
+    }
     auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(device_type, implementation_index);
 
@@ -191,6 +197,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kCambricon, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kCambricon, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kCambricon, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kAscend, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kAscend, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kAscend, &cleanup);
     return true;
 }();
 

@@ -72,9 +72,10 @@ InferEngine::InferEngine(
         if (device_type != infinicore::Device::Type::kNvidia
             && device_type != infinicore::Device::Type::kMetax
             && device_type != infinicore::Device::Type::kMoore
-            && device_type != infinicore::Device::Type::kCambricon) {
+            && device_type != infinicore::Device::Type::kCambricon
+            && device_type != infinicore::Device::Type::kAscend) {
             throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA, MetaX, Moore, and Cambricon devices");
+                "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, and Ascend devices");
         }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {
