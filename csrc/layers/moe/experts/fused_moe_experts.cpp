@@ -12,6 +12,11 @@ FusedMoeExperts::FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> 
     num_experts_ = model_config->get<size_t>("num_experts");
     hidden_size_ = model_config->get<size_t>("hidden_size");
     const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
+    if (model_config->get_or<bool>("use_kt_moe", false)) {
+        // KT offload: expert weights are filtered out at load time; skip
+        // allocating GPU-side packed weights entirely.
+        return;
+    }
     const auto dtype = model_config->get_dtype();
     ASSERT(num_experts_ > 0);
 
