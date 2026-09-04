@@ -120,18 +120,6 @@ class BuildInfiniStackTest(unittest.TestCase):
             moore_config["flash_attn_with_kvcache"]["implementations"], "all"
         )
 
-    def test_iluvatar_operator_config_uses_native_canonical_attention(self):
-        config = build_infini_stack.read_operator_config(
-            build_infini_stack.OPERATOR_CONFIGS["iluvatar"]
-        )
-
-        self.assertEqual(config["argmax"]["implementations"], [8])
-        self.assertEqual(config["flash_attn_varlen_func"]["implementations"], [0])
-        self.assertEqual(config["flash_attn_with_kvcache"]["implementations"], [0])
-        self.assertNotIn("paged_attention", config)
-        self.assertNotIn("paged_attention_prefill", config)
-        self.assertTrue(all("_infinilm" not in operator for operator in config))
-
     def test_invalid_operator_config_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "ops.json"
@@ -262,6 +250,32 @@ class BuildInfiniStackTest(unittest.TestCase):
             self.assertRaises(SystemExit),
         ):
             build_infini_stack.parse_args([])
+
+    def test_iluvatar_requires_external_operator_config(self):
+        with (
+            mock.patch.object(build_infini_stack.sys, "stderr"),
+            self.assertRaisesRegex(SystemExit, "2"),
+        ):
+            build_infini_stack.parse_args(
+                ["--infinicore-root", "core", "--backend", "iluvatar"]
+            )
+
+    def test_iluvatar_accepts_external_operator_config(self):
+        args = build_infini_stack.parse_args(
+            [
+                "--infinicore-root",
+                "core",
+                "--backend",
+                "iluvatar",
+                "--operator-config",
+                "../local/infiniops_ops_iluvatar.json",
+            ]
+        )
+
+        self.assertEqual(
+            args.operator_config,
+            Path("../local/infiniops_ops_iluvatar.json"),
+        )
 
     def test_cuda_arch_list_is_converted_for_cmake(self):
         commands = build_infini_stack.build_infinirt_commands(
@@ -482,6 +496,10 @@ class BuildInfiniStackTest(unittest.TestCase):
                 build_root / "infiniops",
                 prefix,
             ),
+        )
+        self.assertEqual(
+            build_infiniops.call_args.args[6],
+            build_infini_stack.DEFAULT_OPERATOR_CONFIG.resolve(),
         )
         self.assertEqual(
             build_infiniccl.call_args.args[:3],

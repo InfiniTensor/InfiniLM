@@ -36,12 +36,14 @@ export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 ```
 
 For Iluvatar CoreX, select the Iluvatar component configuration and match the
-CoreX PyTorch C++ ABI:
+CoreX PyTorch C++ ABI. Keep the Iluvatar operator configuration outside the
+InfiniLM checkout and pass its path explicitly:
 
 ```shell
 python3 scripts/build_infini_stack.py \
   --infinicore-root ../InfiniCore \
   --backend iluvatar \
+  --operator-config /path/to/infiniops_ops_iluvatar.json \
   --jobs 16
 export INFINI_ROOT="$PWD/build/integration/iluvatar/prefix"
 export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"

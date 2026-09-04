@@ -14,6 +14,8 @@ namespace {
 
 using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
 
+// TODO: Remove backend-specific implementation indices from InfiniLM once
+// InfiniOps provides device-aware default selection for these operators.
 std::size_t implementation_index_for_device(
     infini::ops::Device::Type device_type) {
     if (device_type == infini::ops::Device::Type::kIluvatar) {

@@ -9,10 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-OPERATOR_CONFIGS = {
-    "nvidia": PROJECT_ROOT / "scripts/configs/infiniops_ops.json",
-    "iluvatar": PROJECT_ROOT / "scripts/configs/infiniops_ops_iluvatar.json",
-}
+SUPPORTED_BACKENDS = ("nvidia", "iluvatar")
+DEFAULT_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -21,7 +19,7 @@ SUBMODULES = {
 
 
 def read_operator_config(
-    path: Path = OPERATOR_CONFIGS["nvidia"],
+    path: Path = DEFAULT_OPERATOR_CONFIG,
 ) -> Dict[str, Dict[str, object]]:
     config = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict) or not config:
@@ -365,7 +363,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--backend",
-        choices=tuple(OPERATOR_CONFIGS),
+        choices=SUPPORTED_BACKENDS,
         default="nvidia",
         help="GPU backend to build (default: %(default)s).",
     )
@@ -374,6 +372,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         required=True,
         help="InfiniCore checkout containing the pinned stack submodules.",
+    )
+    parser.add_argument(
+        "--operator-config",
+        type=Path,
+        help=(
+            "InfiniOps operator configuration. Required for Iluvatar; "
+            "defaults to scripts/configs/infiniops_ops.json for NVIDIA."
+        ),
     )
     parser.add_argument(
         "--build-root",
@@ -414,6 +420,10 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error("--iluvatar-arch is only valid with --backend=iluvatar")
     if args.backend == "iluvatar" and args.iluvatar_arch is None:
         args.iluvatar_arch = "ivcore11"
+    if args.operator_config is None:
+        if args.backend == "iluvatar":
+            parser.error("--operator-config is required with --backend=iluvatar")
+        args.operator_config = DEFAULT_OPERATOR_CONFIG
     if args.build_root is None:
         args.build_root = Path("build/integration") / args.backend
     return args
@@ -434,7 +444,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     build_root = resolve_from_project(args.build_root)
     prefix = build_root / "prefix"
     manifest_path = build_root / "manifest.json"
-    operator_config_path = OPERATOR_CONFIGS[args.backend]
+    operator_config_path = resolve_from_project(args.operator_config)
     operator_config = read_operator_config(operator_config_path)
     revisions = {
         name: validate_submodule(infinicore_root, relative_path)
