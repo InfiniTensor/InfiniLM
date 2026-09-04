@@ -118,6 +118,8 @@ class BaseConfig:
         self.port = self.args.port
         self.endpoint = self.args.endpoint
         self.ignore_eos = self.args.ignore_eos
+        self.tool_call_parser = self.args.tool_call_parser
+        self.reasoning_parser = self.args.reasoning_parser
         # PD separation (KV transfer)
         self.kv_transfer_config = self.args.kv_transfer_config
 
@@ -415,6 +417,18 @@ class BaseConfig:
             dest="ignore_eos",
             default=False,
             help="Ignore EOS token and continue generation",
+        )
+        self.parser.add_argument(
+            "--tool-call-parser",
+            type=str,
+            default=None,
+            help="Tool-call parser to use (e.g., glm, llama31)",
+        )
+        self.parser.add_argument(
+            "--reasoning-parser",
+            type=str,
+            default=None,
+            help="Reasoning parser to use (e.g., glm45, deepseek-r1)",
         )
 
         # --- Multimodal parameters ---
