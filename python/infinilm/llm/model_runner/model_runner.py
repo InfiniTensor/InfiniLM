@@ -91,6 +91,7 @@ class ModelRunner:
             weight_load_mode=config.weight_load_mode,
             use_legacy_moe=config.use_legacy_moe,
             pre_transpose=config.pre_transpose,
+            kv_cache_dtype=config.kv_cache_dtype,
         )
 
         if self.model_engine.model_type == "minicpm_eagle":

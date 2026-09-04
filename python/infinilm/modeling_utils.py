@@ -68,6 +68,18 @@ def _is_internal_moe_packed_weight(key: str) -> bool:
     )
 
 
+def _is_internal_kv_cache_scale(key: str) -> bool:
+    """Per-tensor KV-cache quantization scales are registered by the attention
+    layer only when --kv-cache-dtype int8 is enabled, and HF checkpoints
+    never contain them. They are initialized to 1.0 in C++ and are
+    expected missing keys during checkpoint loading.
+    """
+
+    return key.endswith(".self_attn.kv_cache_k_scale") or key.endswith(
+        ".self_attn.kv_cache_v_scale"
+    )
+
+
 def check_parameters(model_keys: list, already_loaded_keys: list):
     model_keys = set(model_keys)
     already_loaded_keys = set(already_loaded_keys)
@@ -76,7 +88,7 @@ def check_parameters(model_keys: list, already_loaded_keys: list):
     missing_keys = {
         key
         for key in model_keys - intersection
-        if not _is_internal_moe_packed_weight(key)
+        if not (_is_internal_moe_packed_weight(key) or _is_internal_kv_cache_scale(key))
     }
     unexpected_keys = already_loaded_keys - intersection
     error_msgs: list[str] = []

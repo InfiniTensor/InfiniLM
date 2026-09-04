@@ -125,6 +125,7 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        kv_cache_dtype: Optional["str"] = None,
     ):
         """Initialize inference server.
 
@@ -154,6 +155,7 @@ class InferenceServer:
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            kv_cache_dtype: Data type for the KV cache to trade off memory and precision (e.g."fp8", "int8", "bf16").
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -188,6 +190,7 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
+        self.kv_cache_dtype = kv_cache_dtype
 
         self.engine: AsyncLLMEngine = None
 
@@ -232,6 +235,7 @@ class InferenceServer:
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
                 pre_transpose=self.pre_transpose,
+                kv_cache_dtype=self.kv_cache_dtype,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -667,6 +671,7 @@ def main():
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        kv_cache_dtype=cfg.kv_cache_dtype,
     )
     server.start()
 

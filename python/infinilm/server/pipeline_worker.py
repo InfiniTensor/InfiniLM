@@ -38,6 +38,7 @@ def run_worker(cfg: BaseConfig) -> None:
         weight_load_mode=cfg.weight_load_mode,
         skip_load=cfg.skip_load,
         use_legacy_moe=cfg.use_legacy_moe,
+        kv_cache_dtype=cfg.kv_cache_dtype,
     )
 
     runner = ModelRunner(config, initialize_processor=False)

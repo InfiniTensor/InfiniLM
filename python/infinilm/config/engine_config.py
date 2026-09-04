@@ -37,6 +37,7 @@ class EngineConfig:
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
         use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
+        kv_cache_dtype: Data type for the KV cache to trade off memory and precision (e.g."fp8", "int8", "bf16").
     """
 
     model_path: str
@@ -69,6 +70,7 @@ class EngineConfig:
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    kv_cache_dtype: Optional["str"] = None
 
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:

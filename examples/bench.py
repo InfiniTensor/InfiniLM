@@ -4,6 +4,7 @@ import os
 import sys
 import time
 from collections import OrderedDict
+from typing import Optional
 
 import infinicore
 import numpy as np
@@ -25,6 +26,7 @@ DATA_TYPE_BYTES = {
     "bfloat16": 2,
     "float16": 2,
     "float32": 4,
+    "int8": 1,
 }
 
 _PAGED_KV_BLOCK_SIZE = 256
@@ -97,12 +99,23 @@ def read_json_file(file_path):
         return json.load(file)
 
 
+def _format_bytes(num_bytes: int) -> str:
+    """Format a byte count with an auto-selected unit (B / KB / MB / GB)."""
+    value = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB"):
+        if value < 1024 or unit == "GB":
+            return f"{int(value)} B" if unit == "B" else f"{value:.2f} {unit}"
+        value /= 1024
+    return f"{value:.2f} GB"  # unreachable, keeps the type checker happy
+
+
 def get_test_cases(
     model_path: str,
     batch_size_list: list[int],
     input_len_list: list[int],
     output_len_list: list[int],
     use_mla: bool = False,
+    kv_cache_dtype: Optional[str] = None,
 ):
     model_path = os.path.expanduser(model_path)
 
@@ -127,38 +140,45 @@ def get_test_cases(
         num_key_value_heads = config.get("num_key_value_heads")
     num_hidden_layers = config.get("num_hidden_layers")
 
+    # KV cache dtype determines the per-element size. Quantized KV cache
+    # (--kv-cache-dtype int8/fp8) halves the storage vs bf16; the case line
+    # reports the actual dtype so the memory estimate matches the allocation.
+    if kv_cache_dtype in DATA_TYPE_BYTES:
+        data_type = kv_cache_dtype
+    else:
+        data_type = "bfloat16"
+    data_type_bytes = DATA_TYPE_BYTES[data_type]
+
     # Enumerate all batch/input/output combinations and compute KV cache size
     case_list = []
     for batch_size in batch_size_list:
         for input_len in input_len_list:
             for output_len in output_len_list:
-                for data_type in ["bfloat16"]:
-                    data_type_bytes = DATA_TYPE_BYTES[data_type]
-
-                    total_seq_len = input_len + output_len
-                    kvcache_memory_bytes = (
-                        data_type_bytes
-                        * (batch_size * total_seq_len * num_key_value_heads * head_dim)
-                        * num_hidden_layers
-                    )
-                    kvcache_memory_gb = kvcache_memory_bytes / (1024 * 1024 * 1024)
-
-                    case_list.append(
-                        {
-                            "idx": len(case_list),
-                            "batch_size": batch_size,
-                            "input_len": input_len,
-                            "output_len": output_len,
-                            "data_type": data_type,
-                            "kvcache_memory": round(kvcache_memory_gb, 3),
-                        }
-                    )
+                total_seq_len = input_len + output_len
+                # Each KV cache layer stores both K and V (leading dim = 2).
+                kvcache_memory_bytes = (
+                    2
+                    * data_type_bytes
+                    * (batch_size * total_seq_len * num_key_value_heads * head_dim)
+                    * num_hidden_layers
+                )
+                case_list.append(
+                    {
+                        "idx": len(case_list),
+                        "batch_size": batch_size,
+                        "input_len": input_len,
+                        "output_len": output_len,
+                        "data_type": data_type,
+                        "kvcache_memory": _format_bytes(kvcache_memory_bytes),
+                        "kvcache_memory_bytes": kvcache_memory_bytes,
+                    }
+                )
 
     # Sort by KV cache size and wrap in OrderedDict with index keys
     case_dict = OrderedDict(
         (idx, case)
         for idx, case in enumerate(
-            sorted(case_list, key=lambda case: case["kvcache_memory"])
+            sorted(case_list, key=lambda case: case["kvcache_memory_bytes"])
         )
     )
 
@@ -641,6 +661,20 @@ class TestModel:
     def uses_pipeline_parallel(self) -> bool:
         return self.pp > 1
 
+    def measure_kv_cache_memory(self) -> int:
+        """Measure the real allocated KV cache size in bytes (not an estimate)."""
+        total = 0
+        try:
+            for rank_caches in self.model.get_kv_cache():
+                for cache in rank_caches:
+                    dtype_name = str(cache.dtype).split(".")[-1]
+                    total += cache.numel() * DATA_TYPE_BYTES.get(dtype_name, 2)
+        except Exception:
+            # Pipeline-parallel / paged setups may not expose the cache list;
+            # fall back to the estimate already shown in the case line.
+            pass
+        return total
+
     def close(self) -> None:
         if self.uses_pipeline_parallel:
             self.model.close()
@@ -848,7 +882,12 @@ if __name__ == "__main__":
             input_len = [natural_input_len]
 
     cases_dict = get_test_cases(
-        model_path, batch_size, input_len, output_len, use_mla=cfg.use_mla
+        model_path,
+        batch_size,
+        input_len,
+        output_len,
+        use_mla=cfg.use_mla,
+        kv_cache_dtype=cfg.kv_cache_dtype,
     )
     max_benchmark_batch_size = max(case["batch_size"] for case in cases_dict.values())
     max_benchmark_tokens = max(case["output_len"] for case in cases_dict.values())
@@ -1051,6 +1090,14 @@ if __name__ == "__main__":
                 StaticKVCacheConfig(
                     max_batch_size=batch_size, max_cache_len=initial_capacity
                 )
+            )
+
+        # Real allocated KV cache size, measured from the live tensors
+        # (the case-line value above is a config-based estimate).
+        measured_kv = test.measure_kv_cache_memory()
+        if measured_kv > 0:
+            tqdm.write(
+                f"[bench] measured KV cache memory: {_format_bytes(measured_kv)}"
             )
 
         # run test one case

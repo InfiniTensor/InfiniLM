@@ -366,6 +366,7 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        kv_cache_dtype: Optional["str"] = None,
     ):
         """Initialize LLM.
 
@@ -418,6 +419,7 @@ class LLM:
             skip_load=skip_load,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            kv_cache_dtype=kv_cache_dtype,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -594,6 +596,7 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        kv_cache_dtype: Optional["str"] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -651,6 +654,7 @@ class AsyncLLMEngine:
             weight_load_mode=weight_load_mode,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            kv_cache_dtype=kv_cache_dtype,
         )
         self.engine = LLMEngine(config)
         self.config = config
