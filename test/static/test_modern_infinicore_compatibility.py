@@ -203,14 +203,13 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                         3,
                     )
             self.assertIn("configForImplementation<", attention)
+            self.assertIn("std::size_t implementation_index = 16;", attention)
+            self.assertIn("device_type == infini::ops::Device::Type::kMoore", attention)
+            self.assertIn("implementation_index = 8;", attention)
             self.assertIn(
-                "device_type == infini::ops::Device::Type::kMoore",
-                attention,
+                "device_type == infini::ops::Device::Type::kAscend", attention
             )
-            self.assertIn(
-                "device_type == infini::ops::Device::Type::kAscend ? 0 : 16",
-                attention,
-            )
+            self.assertIn("implementation_index = 0;", attention)
             self.assertIn("device_type == Device::Type::kMoore", attention)
             self.assertIn("!= 64", attention)
             self.assertIn("!= 128", attention)

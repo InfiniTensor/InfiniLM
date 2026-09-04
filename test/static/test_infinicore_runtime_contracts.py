@@ -324,9 +324,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn(
             "device_type != infinicore::Device::Type::kCambricon", infer_engine
         )
-        self.assertIn(
-            "device_type != infinicore::Device::Type::kAscend", infer_engine
-        )
+        self.assertIn("device_type != infinicore::Device::Type::kAscend", infer_engine)
         self.assertIn("paged_cache_config->num_blocks() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() == 0", infer_engine)
         self.assertIn("paged_cache_config->block_size() % 256 != 0", infer_engine)
