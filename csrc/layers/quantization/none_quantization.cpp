@@ -1,8 +1,8 @@
 #include "none_quantization.hpp"
 #include "../../global_state/global_state.hpp"
 #include "infinicore/ops/linear.hpp"
-#include "infinicore/ops/linear_allreduce.hpp"
 #include <optional>
+#include <stdexcept>
 
 namespace infinilm::quantization {
 
@@ -16,9 +16,12 @@ std::vector<ParamDescriptor> NoneQuantization::get_param_layout(
     bool bias) const {
 
     std::vector<ParamDescriptor> descs;
-    descs.push_back({"weight", {out_features, in_features}, dtype, split_dim, tp_rank, tp_size});
+    const bool tensor_parallel = split_dim >= 0;
+    descs.push_back({"weight", {out_features, in_features}, dtype, tensor_parallel ? split_dim : 0, tensor_parallel ? tp_rank : 0, tensor_parallel ? tp_size : 1});
     if (bias) {
-        descs.push_back({"bias", {out_features}, dtype, split_dim >= 0 ? 0 : -1, split_dim >= 0 ? tp_rank : 0, split_dim >= 0 ? tp_size : 1});
+        const bool column_parallel = split_dim == 0;
+        descs.push_back(
+            {"bias", {out_features}, dtype, 0, column_parallel ? tp_rank : 0, column_parallel ? tp_size : 1});
     }
     return descs;
 }
@@ -45,34 +48,6 @@ infinicore::Tensor NoneQuantization::forward(
     return infinicore::op::linear(input_contiguous->contiguous(), weight->contiguous(), bias_opt, alpha);
 }
 
-infinicore::Tensor NoneQuantization::forward_allreduce(
-    const ParamsMap &params,
-    const infinicore::Tensor &input,
-    bool has_bias,
-    infinicclComm_t communicator,
-    float alpha) const {
-    if (alpha != 1.0f) {
-        return BaseQuantization::forward_allreduce(
-            params, input, has_bias, communicator, alpha);
-    }
-
-    auto input_contiguous = input->is_contiguous()
-                              ? input
-                              : input->contiguous();
-    auto weight = params.at("weight");
-    std::optional<infinicore::Tensor> bias_opt;
-    if (has_bias) {
-        bias_opt = params.at("bias");
-    }
-
-    if (weight_prepacked_) {
-        return infinicore::op::linear_allreduce_packed(
-            input_contiguous, weight, bias_opt, communicator);
-    }
-    return infinicore::op::linear_allreduce(
-        input_contiguous, weight->contiguous(), bias_opt, communicator);
-}
-
 std::vector<SplitParam> NoneQuantization::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
     const std::vector<SplitInfo> &splits,
@@ -82,12 +57,20 @@ std::vector<SplitParam> NoneQuantization::split_params(
     std::vector<SplitParam> result;
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
+    int weight_narrow_dim = narrow_dim;
+    if (weight_prepacked_) {
+        if (narrow_dim != 0 && narrow_dim != 1) {
+            throw std::invalid_argument(
+                "prepacked linear weight split dimension must be 0 or 1");
+        }
+        weight_narrow_dim = 1 - narrow_dim;
+    }
 
     for (const auto &s : splits) {
         result.push_back({s.prefix + ".weight",
                           infinicore::nn::Parameter(
-                              weight_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
-                              narrow_dim, tp_rank, tp_size, s.num_shards)});
+                              weight_it->second->narrow({{static_cast<size_t>(weight_narrow_dim), s.start, s.size}}),
+                              weight_narrow_dim, tp_rank, tp_size, s.num_shards)});
         if (bias_it != params.end()) {
             result.push_back({s.prefix + ".bias",
                               infinicore::nn::Parameter(

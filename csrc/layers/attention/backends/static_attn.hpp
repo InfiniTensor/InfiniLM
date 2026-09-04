@@ -34,6 +34,13 @@ public:
                                                                           const infinicore::Tensor past_sequence_lengths) const;
 
 private:
+    infinicore::Tensor forward_graph_(
+        const infinicore::Tensor &query,
+        const infinicore::Tensor &key,
+        const infinicore::Tensor &value,
+        infinicore::Tensor &kv_cache,
+        const infinilm::global_state::AttentionMetadata &attn_metadata) const;
+
     size_t num_heads_;
     size_t head_size_;
     float scale_;
