@@ -41,8 +41,12 @@ class GGUFTransformsTest(unittest.TestCase):
 
 class GGUFMappingTest(unittest.TestCase):
     def test_generated_config_keeps_quantization_at_root(self):
-        table = {"model.language_model.layers.0.mlp.down_proj.weight_bytes": mapping.Q6_K}
-        rules = mapping.activation_vperm_rules(mapping.REAL, mapping.build_plan(mapping.REAL))
+        table = {
+            "model.language_model.layers.0.mlp.down_proj.weight_bytes": mapping.Q6_K
+        }
+        rules = mapping.activation_vperm_rules(
+            mapping.REAL, mapping.build_plan(mapping.REAL)
+        )
         config = mapping.make_root_config(mapping.REAL, table, rules)
 
         self.assertNotIn("quantization_config", config["text_config"])
@@ -55,7 +59,9 @@ class GGUFMappingTest(unittest.TestCase):
         self.assertEqual(len({rule["suffix"] for rule in rules}), len(rules))
 
     def test_packed_checkpoint_name_and_row_size(self):
-        entry = SimpleNamespace(blob=True, infinilm="model.language_model.layers.0.mlp.down_proj.weight")
+        entry = SimpleNamespace(
+            blob=True, infinilm="model.language_model.layers.0.mlp.down_proj.weight"
+        )
         self.assertEqual(
             mapping.ckpt_name(entry),
             "model.language_model.layers.0.mlp.down_proj.weight_bytes",
