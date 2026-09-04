@@ -57,17 +57,17 @@ public:
     // One shard of a fused linear, for schemes that cannot share a single fused
     // buffer (GGUF block quantization: row_bytes differs per shard type).
     struct FusedShard {
-        std::string name;    // "q_proj" / "gate_proj" ... 注册到父模块时用
-        size_t out_features; // 本 shard 的逻辑输出行数
-        std::string stem;    // "layers.0.self_attn.q_proj." 类型表查询用
+        std::string name;    // Name used when registering with the parent module.
+        size_t out_features; // Logical output rows for this shard.
+        std::string stem;    // Checkpoint stem used for quantization lookup.
     };
 
-    // 为融合 Linear 逐 shard 各分配一块独立 buffer：本对象 parameters_ 里的 key 是
-    // "shard<i>.<suffix>"（i 即输出 dim(-1) 上的顺序），返回值里的 full_name 是
-    // "<name>.<suffix>"，交给调用方的 register_fn 注册到父模块（与 split_params 同路）。
-    // 只有 get_param_layout(带 stem) 返回空布局（融合组）的方案才走这里。
-    // 顺带把每个 shard 的 checkpoint stem 记进 shard_stems_（下标 = 上面的 i）：
-    // 组 stem 查不出各 shard 的格式，forward 必须把它们交还给量化方案。
+    // Allocate one buffer per fused Linear shard. Local parameter keys use
+    // "shard<i>.<suffix>", while returned names use "<name>.<suffix>" for
+    // registration with the parent module. This path is selected when the
+    // quantization scheme returns an empty layout for the fused group.
+    // shard_stems_ preserves each checkpoint stem for per-shard lookup during
+    // forward execution.
     std::vector<infinilm::quantization::SplitParam> init_fused_shards(
         const std::vector<FusedShard> &shards);
 
@@ -85,12 +85,12 @@ protected:
     infinicore::DataType dtype_;
     int split_dim_ = -1;
     float alpha_ = 1.0f;
-    std::string stem_; // checkpoint 张量名路径（只给按名字查表的量化方案用，见 §6.0 纠正 2）
-    // init_fused_shards 记下的逐 shard checkpoint stem，下标 == parameters_ key 里的 i。
-    // 与 key 在同一个循环里产生、forward 里消费，因此只是个局部不变量（不是跨阶段约定）；
-    // 非融合路径为空。语义见 BaseQuantization::forward 的 shard_stems 重载。
+    std::string stem_; // Checkpoint tensor path used by name-based quantization lookup.
+    // Per-shard checkpoint stems recorded by init_fused_shards. The index
+    // matches the i in the corresponding "shard<i>.*" parameter key.
+    // This vector is empty for non-fused Linear layers.
     std::vector<std::string> shard_stems_;
-    bool sharded_ = false; // 融合量化布局：本对象不持有融合 buffer，参数在 shard<i>.* 里
+    bool sharded_ = false; // Fused layout whose parameters live in shard<i>.* buffers.
     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_;
 };
 

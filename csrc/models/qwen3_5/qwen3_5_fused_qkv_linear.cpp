@@ -36,11 +36,13 @@ Qwen35FusedQKVLinear::Qwen35FusedQKVLinear(size_t hidden_size,
       num_kv_head_(num_kv_head),
       register_fn_(register_fn) {
     if (this->sharded_) {
-        // GGUF：三段各有自己的 checkpoint 张量（q_proj 含交错的 gate），不存在可 narrow
-        // 的融合 buffer；stem 必须带结尾的 '.'，与类型表里的张量名逐字相等。
+        // GGUF stores three separate checkpoint tensors. The Q projection
+        // contains the interleaved gate, and there is no fused buffer to
+        // narrow. Each stem must end in `.` and match the type-table key.
         if (prefix.empty()) {
             throw std::runtime_error(
-                "Qwen35FusedQKVLinear: GGUF 量化必须传 layer prefix（形如 layers.3.self_attn）");
+                "Qwen35FusedQKVLinear requires a layer prefix such as "
+                "`layers.3.self_attn` for GGUF quantization.");
         }
         shard_specs_ = {
             {q_name, q_proj_out_size_, prefix + "." + q_name + "."},
@@ -61,8 +63,8 @@ void Qwen35FusedQKVLinear::register_fused_params() {
     if (!register_fn_) {
         return;
     }
-    // GGUF 分支：逐 shard 一次 GEMM，forward() 里拼回同一根 [B,S,q|k|v]，
-    // 所以下面 forward_split() 的 narrow 偏移量不用改。
+    // The GGUF path runs one GEMM per shard and concatenates the results into
+    // `[B, S, Q|K|V]`, so the existing `forward_split()` offsets remain valid.
     auto params = this->sharded_
                     ? this->init_fused_shards(shard_specs_)
                     : this->split_params(split_infos_, tp_rank_, tp_size_, num_kv_head_);
@@ -90,8 +92,9 @@ Qwen35FusedQKVLinear::forward_split(infinicore::Tensor &input) {
 
 void Qwen35FusedQKVLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
-    // sharded_（GGUF）时 split_infos_ 为空：那些 shard 参数就是加载目标，
-    // 重新分配会把已读进来的块字节丢掉
+    // `split_infos_` is empty for sharded layouts such as GGUF because the
+    // shard parameters are the load targets. Reallocation would discard the
+    // block bytes that were already loaded.
     if (register_fn_ && !split_infos_.empty()) {
         register_fused_params();
     }

@@ -24,8 +24,9 @@ public:
      *
      * @param model_config: Model configuration.
      * @param device Device to create tensors on
-     * @param prefix 本层在 checkpoint 里的路径（形如 "layers.0.mlp"）。只给需要
-     *        按张量名查表的量化方案用（GGUF）；其他方案留空即可。
+     * @param prefix Checkpoint path for this layer, such as
+     *        `layers.0.mlp`. It is used only by quantization schemes, such as
+     *        GGUF, that resolve layouts by tensor name.
      */
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         const infinicore::Device &device,

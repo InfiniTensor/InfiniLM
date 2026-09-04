@@ -24,8 +24,8 @@ BaseLinear::BaseLinear(size_t in_features, size_t out_features,
         in_features, out_features, split_dim, tp_rank, tp_size,
         tp_num_heads, dtype, bias, stem);
 
-    // 空布局 = 量化方案声明“这个 Linear 的参数不是一整块”（GGUF 的融合组），
-    // 具体 shard 由派生类在构造体内用 init_fused_shards() 申请。
+    // An empty layout marks a fused group whose shards are allocated by the
+    // derived class through init_fused_shards().
     sharded_ = layout.empty();
 
     for (const auto &desc : layout) {
@@ -40,7 +40,7 @@ BaseLinear::BaseLinear(size_t in_features, size_t out_features,
 infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input) const {
     if (sharded_ && parameters_.empty()) {
         throw std::runtime_error(
-            "BaseLinear::compute_linear: 融合量化布局的 shard 还没注册（内部错误）");
+            "BaseLinear::compute_linear: fused quantization shards were not registered");
     }
     // Build params map from direct parameters only (not state_dict which uses a
     // static local and is not thread-safe across RankWorker threads).
@@ -177,20 +177,20 @@ std::vector<infinilm::quantization::SplitParam> BaseLinear::init_fused_shards(
     shard_stems_.reserve(shards.size());
     for (size_t i = 0; i < shards.size(); ++i) {
         const auto &sh = shards[i];
-        // 下标 i 同时是参数 key 里的 shard<i> 和 shard_stems_ 的位置：两者在同一行里产生
+        // The index is shared by the shard<i> parameter key and shard_stems_.
         shard_stems_.push_back(sh.stem);
-        // 各 shard 自己是一块完整的列并行参数，不做 TP 切分（GGUF 路径 tp_size 恒为 1，
-        // 量化类里会对 tp_size > 1 直接抛错，见方案 §6.2）
+        // Each shard is a complete column-parallel parameter. GGUF currently
+        // supports tp_size == 1 and rejects tensor-parallel execution.
         auto layout = quantization_->get_param_layout(
             in_features_, sh.out_features, split_dim_, 0, 1, -1, dtype_, false, sh.stem);
         if (layout.empty()) {
             throw std::runtime_error(
-                "BaseLinear::init_fused_shards: shard '" + sh.stem + "' 又返回了空布局");
+                "BaseLinear::init_fused_shards: shard '" + sh.stem + "' returned an empty layout");
         }
         for (const auto &desc : layout) {
             infinicore::nn::Parameter param(
                 desc.shape, desc.dtype, device_, desc.split_dim, 0, 1, 0);
-            // key 里的 "shard<i>." 前缀是量化类在 forward() 里还原拼接顺序的依据
+            // The "shard<i>." prefix preserves concatenation order in forward().
             this->register_parameter(
                 std::string(infinilm::quantization::GGUFBlockQuantization::SHARD_PREFIX) + std::to_string(i) + "." + desc.name,
                 param);

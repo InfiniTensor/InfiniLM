@@ -65,8 +65,9 @@ Qwen35Attention::Qwen35Attention(std::shared_ptr<infinilm::config::ModelConfig> 
 
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    // checkpoint 里的本层路径（已去掉 config.json:quantization_config.key_prefix）。
-    // 只给按张量名查类型的量化方案（GGUF）用，其他方案不传就是空串，行为不变。
+    // Checkpoint path for this layer after removing
+    // `quantization_config.key_prefix`. It is used only by quantization
+    // schemes, such as GGUF, that resolve types by tensor name.
     const std::string prefix = "layers." + std::to_string(layer_idx_) + ".self_attn";
     qkv_proj_ = std::make_shared<Qwen35FusedQKVLinear>(
         hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,

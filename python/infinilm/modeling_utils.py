@@ -799,10 +799,10 @@ def _remap_qwen3_5(state_dict, config):
     key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
     block_size = 128  # FP8 block size for scale splitting
 
-    # 路线 B 的 GGUF 产物：llama.cpp 转换脚本写 GGUF 时已经做过 `norm.weight + 1`
-    # （conversion/qwen.py:393-394，除 linear_attn.norm 之外全部加），打包器按「不得再
-    # 加一次」原样搬运（scripts/gguf_mapping.py 顶部第 13 行）。这里再加一次就变成
-    # 2+w；融合 QKV 也已在打包期拆成 in_proj_q/k/v，不能按老键名再拆一遍。
+    # The llama.cpp converter has already applied `norm.weight + 1` to GGUF
+    # Route B checkpoints, except for `linear_attn.norm`. The packer preserves
+    # those values, so applying the remap again would produce `2 + weight`.
+    # Fused QKV tensors are also split into `in_proj_q/k/v` while packaging.
     gguf = (config.get("quantization_config") or {}).get("quant_method", "") == "gguf"
 
     norm_weight_suffixes = (

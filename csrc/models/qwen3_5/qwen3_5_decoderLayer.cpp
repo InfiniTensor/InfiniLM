@@ -52,7 +52,8 @@ Qwen35DecoderLayer::Qwen35DecoderLayer(std::shared_ptr<infinilm::config::ModelCo
 
     INFINICORE_NN_MODULE_INIT(input_layernorm, hidden_size, rms_norm_eps, dtype, device);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, hidden_size, rms_norm_eps, dtype, device);
-    // 本层在 checkpoint 里的路径前缀（只给按张量名查类型的量化方案用，见方案 §6.1）
+    // Checkpoint path prefix for quantization schemes that resolve types by
+    // tensor name.
     INFINICORE_NN_MODULE_INIT(mlp, model_config, device, "layers." + std::to_string(layer_idx) + ".mlp");
 
     const std::vector<std::string> layer_types = model_config->get<std::vector<std::string>>("layer_types");
