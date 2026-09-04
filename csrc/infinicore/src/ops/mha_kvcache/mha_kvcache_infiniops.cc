@@ -14,6 +14,19 @@ namespace {
 
 using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
 
+// TODO: Remove backend-specific implementation indices from InfiniLM once
+// InfiniOps provides device-aware default selection for these operators.
+std::size_t implementation_index_for_device(
+    infini::ops::Device::Type device_type) {
+    if (device_type == infini::ops::Device::Type::kIluvatar) {
+        return 0;
+    }
+    if (device_type == infini::ops::Device::Type::kMoore) {
+        return 8;
+    }
+    return 16;
+}
+
 bool is_supported(const Tensor &out,
                   const Tensor &q,
                   const Tensor &k_cache,
@@ -26,7 +39,8 @@ bool is_supported(const Tensor &out,
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kMoore
-         && device_type != Device::Type::kCambricon)
+         && device_type != Device::Type::kCambricon
+         && device_type != Device::Type::kIluvatar)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -47,7 +61,8 @@ bool is_supported(const Tensor &out,
         || q->size(3) == 0
         || q->size(3) > 256
         || q->size(3) % 8 != 0
-        || (device_type == Device::Type::kMoore
+        || ((device_type == Device::Type::kMoore
+             || device_type == Device::Type::kIluvatar)
             && q->size(3) != 64
             && q->size(3) != 128)
         || q->size(3) != k_cache->size(3)
@@ -70,7 +85,8 @@ bool is_supported(const Tensor &out,
     if (alibi_slopes
         && ((alibi_slopes.value()->ndim() != 1
              && alibi_slopes.value()->ndim() != 2)
-            || (device_type == Device::Type::kMoore
+            || ((device_type == Device::Type::kMoore
+                 || device_type == Device::Type::kIluvatar)
                 && alibi_slopes.value()->ndim() != 1)
             || alibi_slopes.value()->dtype() != DataType::kFloat32
             || !alibi_slopes.value()->is_contiguous()
@@ -133,7 +149,7 @@ void run(void *planned_meta) {
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
     const auto device_type = planned->q.device.type();
-    const std::size_t implementation_index = device_type == infini::ops::Device::Type::kMoore ? 8 : 16;
+    const auto implementation_index = implementation_index_for_device(device_type);
     auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(device_type, implementation_index);
 
@@ -191,6 +207,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kCambricon, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kCambricon, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kCambricon, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kIluvatar, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kIluvatar, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kIluvatar, &cleanup);
     return true;
 }();
 

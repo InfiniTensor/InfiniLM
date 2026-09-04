@@ -1,3 +1,4 @@
+import ast
 import json
 import unittest
 from pathlib import Path
@@ -195,7 +196,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "mha_varlen_infiniops.cc",
         ):
             attention = read_source(relative_path)
-            for device in ("kMetax", "kMoore", "kCambricon"):
+            for device in ("kMetax", "kMoore", "kCambricon", "kIluvatar"):
                 with self.subTest(adapter=relative_path, device=device):
                     self.assertIn(f"device_type != Device::Type::{device}", attention)
                     self.assertEqual(
@@ -203,11 +204,12 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                         3,
                     )
             self.assertIn("configForImplementation<", attention)
-            self.assertIn(
-                "device_type == infini::ops::Device::Type::kMoore ? 8 : 16",
-                attention,
-            )
+            self.assertIn("implementation_index_for_device(device_type)", attention)
             self.assertIn("device_type == Device::Type::kMoore", attention)
+            self.assertIn("device_type == Device::Type::kIluvatar", attention)
+            self.assertIn("return 0;", attention)
+            self.assertIn("return 8;", attention)
+            self.assertIn("return 16;", attention)
             self.assertIn("!= 64", attention)
             self.assertIn("!= 128", attention)
             self.assertIn("alibi_slopes.value()->ndim() != 1", attention)
@@ -234,7 +236,15 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
 
         engine = read_source("csrc/engine/infer_engine.cpp")
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, Moore, and Cambricon devices",
+            "device_type != infinicore::Device::Type::kIluvatar",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar devices",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn on Iluvatar requires head_dim to be 64 or 128",
             engine,
         )
 
@@ -257,6 +267,26 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                 with self.subTest(relative_path=relative_path, device=device):
                     self.assertIn(f'"{device}": "{device}"', source)
                     self.assertNotIn(f'"{device}": "cuda"', source)
+
+    def test_model_runner_accepts_iluvatar_platform_name(self) -> None:
+        source = read_source("python/infinilm/llm/model_runner/model_runner.py")
+        module = ast.parse(source)
+        initializer = next(
+            node
+            for node in ast.walk(module)
+            if isinstance(node, ast.FunctionDef) and node.name == "_init_device"
+        )
+        supported_devices = next(
+            ast.literal_eval(node.value)
+            for node in initializer.body
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "supported_devices"
+                for target in node.targets
+            )
+        )
+
+        self.assertIn("iluvatar", supported_devices)
 
     def test_vendor_sdk_headers_are_available_to_infinicore_build(self) -> None:
         xmake = read_source("xmake.lua")
