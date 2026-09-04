@@ -68,14 +68,8 @@ class Qwen35Processor(BasicLLMProcessor):
             media_kwargs["images"] = images
             images_kwargs = dict(kwargs.pop("images_kwargs", {}) or {})
             image_size = dict(images_kwargs.get("size", {}) or {})
-            min_pixels = int(
-                os.getenv("INFINILM_VIDEONSA_IMAGE_MIN_PIXELS", "3136")
-            )
-            max_pixels = int(
-                os.getenv("INFINILM_VIDEONSA_IMAGE_MAX_PIXELS", "2000000")
-            )
-            image_size.setdefault("shortest_edge", min_pixels)
-            image_size.setdefault("longest_edge", max_pixels)
+            image_size.setdefault("shortest_edge", 3136)
+            image_size.setdefault("longest_edge", 2000000)
             images_kwargs["size"] = image_size
             kwargs["images_kwargs"] = images_kwargs
         if videos:
