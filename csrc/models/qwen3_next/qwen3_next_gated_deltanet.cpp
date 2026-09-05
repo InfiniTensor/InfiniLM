@@ -5,9 +5,9 @@
 #include <infinicore/ops/causal_conv1d.hpp>
 #include <infinicore/ops/chunk_gated_delta_rule.hpp>
 #include <infinicore/ops/fused_gated_delta_net_gating.hpp>
-#include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/recurrent_gated_delta_rule.hpp>
 #include <infinicore/ops/silu.hpp>
+#include <infinicore/ops/swiglu.hpp>
 
 #include <cstdint>
 #include <optional>
@@ -114,6 +114,7 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     local_num_key_heads_ = linear_num_key_heads / tp_size;
     key_head_dim_ = linear_key_head_dim;
     value_head_dim_ = linear_value_head_dim;
+    size_t key_dim = linear_key_head_dim * linear_num_key_heads;
     size_t value_dim = linear_value_head_dim * linear_num_value_heads;
     local_key_dim_ = key_head_dim_ * local_num_key_heads_;
     local_value_dim_ = value_head_dim_ * local_num_value_heads_;
@@ -122,17 +123,42 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
 
     conv1d_ = this->register_module<Qwen3NextCausalConv1D>("conv1d", model_config, layer_idx, device);
 
-    size_t projection_size_qkv = local_key_dim_ * 2 + local_value_dim_;
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
-    in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
-        hidden_size, linear_key_head_dim, linear_key_head_dim, linear_value_head_dim, linear_num_key_heads, linear_num_key_heads, linear_num_value_heads,
-        false, false, false,
-        "in_proj_q", "in_proj_k", "in_proj_v", register_fn,
-        quantization_method, dtype, device, rank_info);
-    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, false, dtype, device, tp_rank, tp_size);
-    in_proj_a_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_a", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
-    in_proj_b_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_b", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
+    if (quantization_method->get_quant_scheme()
+        == infinilm::quantization::QuantScheme::NONE) {
+        in_proj_qkvz_ = std::make_shared<layers::linear::MergedColumnParallelLinear>(
+            hidden_size,
+            std::vector<layers::linear::MergedLinearSplit>{
+                {"in_proj_q", key_dim},
+                {"in_proj_k", key_dim, linear_num_key_heads},
+                {"in_proj_v", value_dim, linear_num_value_heads},
+                {"in_proj_z", value_dim},
+            },
+            register_fn,
+            false,
+            dtype,
+            device,
+            rank_info);
+    } else {
+        in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
+            hidden_size, linear_key_head_dim, linear_key_head_dim, linear_value_head_dim, linear_num_key_heads, linear_num_key_heads, linear_num_value_heads,
+            false, false, false,
+            "in_proj_q", "in_proj_k", "in_proj_v", register_fn,
+            quantization_method, dtype, device, rank_info);
+        in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, false, dtype, device, tp_rank, tp_size);
+    }
+    in_proj_ba_ = std::make_shared<layers::linear::GateUpParallelLinear>(
+        hidden_size,
+        linear_num_value_heads,
+        "in_proj_b",
+        "in_proj_a",
+        register_fn,
+        nullptr,
+        false,
+        dtype,
+        device,
+        rank_info);
 
     INFINICORE_NN_PARAMETER_INIT(dt_bias, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
     INFINICORE_NN_PARAMETER_INIT(A_log, ({linear_num_value_heads}, dtype, device, 0, tp_rank, tp_size));
@@ -150,10 +176,19 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     size_t batch_size = shape[0];
     size_t seq_len = shape[1];
 
-    auto qkv = in_proj_qkv_->forward(hidden_states_mutable);
-    auto z = in_proj_z_->forward(hidden_states_mutable);
-    auto a = in_proj_a_->forward(hidden_states_mutable);
-    auto b = in_proj_b_->forward(hidden_states_mutable);
+    infinicore::Tensor qkv;
+    infinicore::Tensor z;
+    if (in_proj_qkvz_) {
+        auto qkvz = in_proj_qkvz_->forward(hidden_states_mutable);
+        const size_t output_dim = qkvz->ndim() - 1;
+        const size_t qkv_size = local_key_dim_ * 2 + local_value_dim_;
+        qkv = qkvz->narrow({{output_dim, 0, qkv_size}});
+        z = qkvz->narrow({{output_dim, qkv_size, local_value_dim_}});
+    } else {
+        qkv = in_proj_qkv_->forward(hidden_states_mutable);
+        z = in_proj_z_->forward(hidden_states_mutable);
+    }
+    auto [b, a] = in_proj_ba_->forward_split(hidden_states_mutable);
 
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
@@ -241,8 +276,26 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     auto v_norm = v_norm_2d->as_strided(
         {batch_size, seq_len, local_value_dim_},
         {static_cast<infinicore::Stride>(seq_len * local_value_dim_), static_cast<infinicore::Stride>(local_value_dim_), 1});
-    auto gated = infinicore::op::mul(v_norm, infinicore::op::silu(z));
+    auto gated = infinicore::op::swiglu(v_norm, z);
     return out_proj_->forward(gated);
+}
+
+void Qwen3NextGatedDeltaNet::process_weights_after_loading() {
+    if (in_proj_qkvz_) {
+        in_proj_qkvz_->process_weights_after_loading();
+    } else {
+        in_proj_qkv_->process_weights_after_loading();
+    }
+    in_proj_ba_->process_weights_after_loading();
+}
+
+void Qwen3NextGatedDeltaNet::reset_runtime_state() const {
+    if (in_proj_qkvz_) {
+        in_proj_qkvz_->reset_runtime_state();
+    } else {
+        in_proj_qkv_->reset_runtime_state();
+    }
+    in_proj_ba_->reset_runtime_state();
 }
 
 } // namespace infinilm::models::qwen3_next
