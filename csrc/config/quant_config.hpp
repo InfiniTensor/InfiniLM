@@ -5,6 +5,7 @@
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <spdlog/spdlog.h>
+#include <string_view>
 
 namespace infinilm::config {
 
@@ -16,6 +17,8 @@ public:
     QuantConfig(const nlohmann::json &json);
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const;
+    std::shared_ptr<infinilm::quantization::BaseQuantization>
+    get_quantization_method(std::string_view module_name, std::string_view module_type) const;
 
     const std::optional<CompressedTensorsConfig> &get_compressed_tensors_config() const {
         return compressed_tensors_config_;

@@ -28,6 +28,10 @@ public:
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         const infinicore::Device &device);
 
+    MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const infinicore::Device &device);
+
     /**
      * @brief Forward pass: compute MLP output
      *
