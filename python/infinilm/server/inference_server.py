@@ -122,6 +122,7 @@ class InferenceServer:
         skip_load: bool = False,
         weight_load_mode: str = "async",
         ignore_eos: bool = False,
+        stream_interval: int = 1,
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
@@ -153,6 +154,7 @@ class InferenceServer:
             skip_load: Whether to skip loading model weights.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
+            stream_interval: Number of decode steps to coalesce per SSE chunk.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
         """
         self.model_path = model_path
@@ -185,6 +187,7 @@ class InferenceServer:
         self.skip_load = skip_load
         self.weight_load_mode = weight_load_mode
         self.ignore_eos = ignore_eos
+        self.stream_interval = max(1, stream_interval)
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
@@ -389,6 +392,7 @@ class InferenceServer:
         """Handle streaming chat request."""
         req = None
         _abort_reason = FinishReason.CANCELED
+        data.setdefault("stream_interval", self.stream_interval)
 
         try:
             messages = data.get("messages", [])
@@ -664,6 +668,7 @@ def main():
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
         ignore_eos=cfg.ignore_eos,
+        stream_interval=cfg.stream_interval,
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
