@@ -4,6 +4,7 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace infinilm::config {
@@ -60,6 +61,16 @@ struct QuantizationGroup {
 
 struct CompressedTensorsConfig {
     static CompressedTensorsConfig from_json(const nlohmann::json &config);
+
+    bool is_ignored(
+        std::string_view module_name,
+        std::string_view module_type) const;
+
+    // Returns `nullptr` when the module is ignored or no group matches. Throws
+    // `std::invalid_argument` if distinct groups match with equal specificity.
+    const QuantizationGroup *resolve_group(
+        std::string_view module_name,
+        std::string_view module_type) const;
 
     std::string quant_method = "compressed-tensors";
     std::string format = "fakequant";

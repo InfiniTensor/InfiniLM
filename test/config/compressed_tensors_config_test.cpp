@@ -168,6 +168,95 @@ void test_defaults_and_optional_fields() {
         "tensor-group strategy was not parsed");
 }
 
+void test_group_resolution() {
+    const auto config = json::parse(R"json({
+        "quant_method": "compressed-tensors",
+        "ignore": [
+            "model.layers.3.self_attn.o_proj",
+            "re:model\\.layers\\.4\\."
+        ],
+        "config_groups": {
+            "type_group": {
+                "targets": ["Linear"]
+            },
+            "regex_group": {
+                "targets": ["re:model\\.layers\\.3\\."]
+            },
+            "exact_group": {
+                "targets": ["model.layers.3.self_attn.q_proj"]
+            }
+        }
+    })json");
+    const auto parsed = CompressedTensorsConfig::from_json(config);
+
+    const auto *exact = parsed.resolve_group(
+        "model.layers.3.self_attn.q_proj", "Linear");
+    expect(exact != nullptr, "exact group was not resolved");
+    expect(exact->name == "exact_group", "exact group did not take priority");
+
+    const auto *regex = parsed.resolve_group(
+        "model.layers.3.self_attn.v_proj", "Linear");
+    expect(regex != nullptr, "regex group was not resolved");
+    expect(regex->name == "regex_group", "regex group did not take priority over type");
+
+    const auto *type = parsed.resolve_group(
+        "model.layers.2.self_attn.q_proj", "Linear");
+    expect(type != nullptr, "module-type group was not resolved");
+    expect(type->name == "type_group", "incorrect module-type group was resolved");
+
+    expect(
+        parsed.resolve_group("model.embed_tokens", "Embedding") == nullptr,
+        "unmatched module resolved to a group");
+    expect(
+        parsed.is_ignored("model.layers.3.self_attn.o_proj", "Linear"),
+        "exact ignore rule did not match");
+    expect(
+        parsed.resolve_group("model.layers.3.self_attn.o_proj", "Linear")
+            == nullptr,
+        "ignored module resolved to a group");
+    expect(
+        parsed.resolve_group("model.layers.4.self_attn.q_proj", "Linear")
+            == nullptr,
+        "regex-ignored module resolved to a group");
+}
+
+void test_group_resolution_checks_ambiguity_at_highest_specificity() {
+    const auto lower_priority_tie = json::parse(R"json({
+        "quant_method": "compressed-tensors",
+        "config_groups": {
+            "type_a": {"targets": ["Linear"]},
+            "type_b": {"targets": ["Linear"]},
+            "z_exact": {"targets": ["model.layers.0.self_attn.q_proj"]}
+        }
+    })json");
+
+    const auto parsed = CompressedTensorsConfig::from_json(lower_priority_tie);
+    const auto *resolved = parsed.resolve_group(
+        "model.layers.0.self_attn.q_proj", "Linear");
+    expect(resolved != nullptr, "exact group was not resolved");
+    expect(
+        resolved->name == "z_exact",
+        "a lower-specificity tie incorrectly overrode the exact match");
+
+    const auto highest_priority_tie = json::parse(R"json({
+        "quant_method": "compressed-tensors",
+        "config_groups": {
+            "exact_a": {"targets": ["model.layers.0.self_attn.q_proj"]},
+            "exact_b": {"targets": ["model.layers.0.self_attn.q_proj"]}
+        }
+    })json");
+
+    try {
+        CompressedTensorsConfig::from_json(highest_priority_tie).resolve_group("model.layers.0.self_attn.q_proj", "Linear");
+    } catch (const std::invalid_argument &error) {
+        expect(
+            std::string(error.what()).find("equal specificity") != std::string::npos,
+            "unexpected group-resolution error: " + std::string(error.what()));
+        return;
+    }
+    throw std::runtime_error("expected equally specific groups to be ambiguous");
+}
+
 void test_validation_errors_include_paths() {
     const auto invalid_dynamic = json::parse(R"json({
         "quant_method": "compressed-tensors",
@@ -216,6 +305,8 @@ int main() {
         test_explicit_w8a8_group();
         test_w8a8_preset();
         test_defaults_and_optional_fields();
+        test_group_resolution();
+        test_group_resolution_checks_ambiguity_at_highest_specificity();
         test_validation_errors_include_paths();
     } catch (const std::exception &error) {
         std::cerr << "compressed_tensors_config_test failed: " << error.what() << '\n';

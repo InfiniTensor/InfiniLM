@@ -53,6 +53,7 @@ target("compressed_tensors_config_test")
     add_includedirs(".")
     add_files("test/config/compressed_tensors_config_test.cpp")
     add_files("csrc/config/compressed_tensors_config.cpp")
+    add_files("csrc/config/module_target_matcher.cpp")
 target_end()
 
 target("module_target_matcher_test")

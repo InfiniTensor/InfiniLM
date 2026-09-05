@@ -1,4 +1,5 @@
 #include "compressed_tensors_config.hpp"
+#include "module_target_matcher.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -299,6 +300,46 @@ CompressedTensorsConfig CompressedTensorsConfig::from_json(const json &config) {
             std::string(root) + ".config_groups." + name));
     }
     return parsed;
+}
+
+bool CompressedTensorsConfig::is_ignored(
+    std::string_view module_name,
+    std::string_view module_type) const {
+    return ModuleTargetMatcher::match_any(ignore, module_name, module_type)
+        != ModuleTargetMatcher::MatchKind::NONE;
+}
+
+const QuantizationGroup *CompressedTensorsConfig::resolve_group(
+    std::string_view module_name,
+    std::string_view module_type) const {
+    if (is_ignored(module_name, module_type)) {
+        return nullptr;
+    }
+
+    const QuantizationGroup *resolved_group = nullptr;
+    const QuantizationGroup *conflicting_group = nullptr;
+    auto best_match = ModuleTargetMatcher::MatchKind::NONE;
+    for (const auto &group : config_groups) {
+        const auto current_match = ModuleTargetMatcher::match_any(
+            group.targets, module_name, module_type);
+        if (current_match > best_match) {
+            resolved_group = &group;
+            conflicting_group = nullptr;
+            best_match = current_match;
+        } else if (current_match != ModuleTargetMatcher::MatchKind::NONE
+                   && current_match == best_match) {
+            conflicting_group = &group;
+        }
+    }
+
+    if (conflicting_group != nullptr) {
+        throw std::invalid_argument(
+            "ambiguous `compressed-tensors` groups for module `"
+            + std::string(module_name) + "`: `" + resolved_group->name
+            + "` and `" + conflicting_group->name
+            + "` match with equal specificity");
+    }
+    return resolved_group;
 }
 
 } // namespace infinilm::config
