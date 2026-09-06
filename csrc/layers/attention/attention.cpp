@@ -144,6 +144,9 @@ void init_kv_cache_quant_params(std::function<void(const std::string &, infinico
     case infinilm::quantization::KVQuantAlgo::NONE:
         break;
     case infinilm::quantization::KVQuantAlgo::INT8:
+    case infinilm::quantization::KVQuantAlgo::FP8_E4M3:
+        // Static per-tensor scale params, shared by the INT8 and FP8 schemes;
+        // default 1.0 when the checkpoint carries no scale.
         kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
         kv_cache_k_scale.load(infinicore::Tensor::ones({1}, infinicore::DataType::F32, device));
         register_fn("kv_cache_k_scale", kv_cache_k_scale);

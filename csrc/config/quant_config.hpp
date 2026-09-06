@@ -1,6 +1,6 @@
 #pragma once
-#include "../utils.hpp"
 #include "../layers/quantization/quantization.hpp"
+#include "../utils.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <spdlog/spdlog.h>
@@ -30,6 +30,10 @@ public:
             switch (kv_cache_dtype) {
             case infinicore::DataType::I8: {
                 this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
+                break;
+            }
+            case infinicore::DataType::F8: {
+                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::FP8_E4M3;
                 break;
             }
             default: {

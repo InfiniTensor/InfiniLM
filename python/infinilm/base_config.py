@@ -287,8 +287,8 @@ class BaseConfig:
             "--kv-cache-dtype",
             type=str,
             default=None,
-            choices=["int8"],
-            help="KV cache data type",
+            choices=["int8", "fp8"],
+            help="KV cache data type (int8 or fp8 e4m3)",
         )
         self.parser.add_argument(
             "--skip-load", action="store_true", help="skip loading model weights"

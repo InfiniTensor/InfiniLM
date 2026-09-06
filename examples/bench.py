@@ -27,6 +27,7 @@ DATA_TYPE_BYTES = {
     "float16": 2,
     "float32": 4,
     "int8": 1,
+    "fp8": 1,
 }
 
 _PAGED_KV_BLOCK_SIZE = 256

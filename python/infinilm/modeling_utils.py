@@ -32,6 +32,8 @@ def parse_dtype(dtype_str: str):
         return infinicore.bfloat16
     elif dtype_str == "int8":
         return infinicore.int8
+    elif dtype_str == "fp8":
+        return infinicore.float8
     elif dtype_str == "int32":
         return infinicore.int32
     elif dtype_str == "int64":
