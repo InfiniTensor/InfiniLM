@@ -35,6 +35,31 @@ from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 logger = logging.getLogger(__name__)
 
 
+def validate_request_capacity(
+    config: EngineConfig, prompt_tokens: int, output_tokens: int
+) -> None:
+    """Reject requests that can never fit in the configured KV cache."""
+    if config.cache_type == "paged":
+        capacity = config.num_blocks * config.block_size
+    else:
+        capacity = config.max_cache_len
+
+    if prompt_tokens > capacity:
+        raise ValueError(
+            f"The maximum context length is {capacity} tokens. "
+            f"The prompt contains {prompt_tokens} tokens."
+        )
+
+    total_tokens = prompt_tokens + output_tokens
+    if total_tokens > capacity:
+        available_output_tokens = max(capacity - prompt_tokens, 0)
+        raise ValueError(
+            f"The maximum context length is {capacity} tokens. "
+            f"The prompt contains {prompt_tokens} tokens, so max_tokens must be "
+            f"at most {available_output_tokens}; received {output_tokens}."
+        )
+
+
 class LLMEngine:
     """Low-level LLM engine that handles inference execution."""
 
@@ -784,6 +809,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -838,7 +864,9 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs,
             )
 
             mm_inputs = resolve_multimodal_inputs(messages)
@@ -867,6 +895,12 @@ class AsyncLLMEngine:
         elif sampling_params.max_tokens is None:
             sampling_params = sampling_params.clone()
             sampling_params.max_tokens = self.config.max_tokens
+
+        validate_request_capacity(
+            self.config,
+            prompt_tokens=len(prompt_token_ids),
+            output_tokens=sampling_params.max_tokens,
+        )
 
         request = InferenceRequest(
             request_id=request_id,
@@ -897,6 +931,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -918,6 +953,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            chat_template_kwargs=chat_template_kwargs,
         )
 
     async def stream_request(

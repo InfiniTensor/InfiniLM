@@ -7,7 +7,7 @@ from typing_extensions import override
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
+from .processor import normalize_openai_messages, register_processor
 
 
 @register_processor("qwen3_5_moe")
@@ -134,8 +134,8 @@ class Qwen35Processor(BasicLLMProcessor):
         **kwargs,
     ):
         normalized_conversation = []
-        for message in conversation:
-            content = message["content"]
+        for message in normalize_openai_messages(conversation):
+            content = message.get("content")
             if not isinstance(content, list):
                 normalized_conversation.append(message)
                 continue
@@ -156,9 +156,10 @@ class Qwen35Processor(BasicLLMProcessor):
                         f"Unsupported Qwen3.5 content type: {item_type}"
                     )
 
-            normalized_conversation.append(
-                {"role": message.get("role", "user"), "content": normalized_content}
-            )
+            normalized_message = message.copy()
+            normalized_message["role"] = message.get("role", "user")
+            normalized_message["content"] = normalized_content
+            normalized_conversation.append(normalized_message)
 
         template_owner = (
             self.processor if self.processor is not None else self.tokenizer

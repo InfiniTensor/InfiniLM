@@ -3,7 +3,11 @@ from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
-from .processor import InfinilmProcessor, register_processor
+from .processor import (
+    InfinilmProcessor,
+    normalize_openai_messages,
+    register_processor,
+)
 
 
 @register_processor("default")
@@ -44,8 +48,8 @@ class BasicLLMProcessor(InfinilmProcessor):
         **kwargs,
     ):
         normalized_conversation = []
-        for message in conversation:
-            if isinstance(message["content"], list):
+        for message in normalize_openai_messages(conversation):
+            if isinstance(message.get("content"), list):
                 assert len(message["content"]) == 1, (
                     "Only one content item supported in list"
                 )
