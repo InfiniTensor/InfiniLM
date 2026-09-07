@@ -57,6 +57,8 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Request id for each flattened input token, of shape `[num_tokens]`.
+        std::optional<infinicore::Tensor> request_ids;
     };
 
     struct Output {

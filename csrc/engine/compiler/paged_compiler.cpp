@@ -61,6 +61,7 @@ void PagedCompiler::compile() {
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
+        size_t block_size = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->block_size();
 
         const auto &model_config = model_->get_model_config();
         const size_t position_id_axes = model_config == nullptr
@@ -96,6 +97,11 @@ void PagedCompiler::compile() {
                 input_offsets_vec[i] = i;
             }
             infinicore::context::memcpyH2D(input.input_offsets.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
+            input.request_ids = infinicore::Tensor::empty(
+                {b}, infinicore::DataType::I32, infinicore::context::getDevice());
+            infinicore::context::memcpyH2D(
+                input.request_ids.value()->data(), input_offsets_vec.data(),
+                b * sizeof(int32_t), false);
             input.cu_seqlens = infinicore::Tensor::empty({b + 1}, infinicore::DataType::I32, infinicore::context::getDevice());
             infinicore::context::memcpyH2D(input.cu_seqlens.value()->data(), input_offsets_vec.data(), (b + 1) * sizeof(int32_t), false);
             const size_t block_per_req = nblocks;
@@ -127,9 +133,13 @@ void PagedCompiler::compile() {
                 input.past_sequence_lengths,
                 input.total_sequence_lengths,
                 input.input_offsets,
+                input.request_ids,
                 input.cu_seqlens,
                 input.block_tables,
                 input.slot_mapping,
+                0,
+                0,
+                static_cast<int64_t>(nblocks * block_size),
             };
             // Hybrid linear-attention layers read cache indices from the same
             // thread-local context. These tensors remain alive in CompiledResult

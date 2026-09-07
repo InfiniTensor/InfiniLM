@@ -15,6 +15,8 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
+    const bool reduce_results = model_config->get_or<bool>("reduce_results", true);
+    auto communicator = reduce_results ? rank_info.comm : nullptr;
 
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
@@ -23,7 +25,7 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
         quantization_method, use_bias_, dtype, device, rank_info);
     down_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "down_proj", intermediate_size_, hidden_size_, quantization_method,
-        use_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
+        use_bias_, dtype, device, tp_rank, tp_size, communicator);
 }
 
 infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {

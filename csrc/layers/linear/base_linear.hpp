@@ -35,6 +35,7 @@ public:
     void set_alpha(float alpha) { alpha_ = alpha; }
 
     // Accessors for parameters (backward compatible)
+    void release_parameters() { parameters_.clear(); }
     infinicore::Tensor weight() const;
     infinicore::Tensor bias() const;
     infinicore::Tensor weight_scale() const;

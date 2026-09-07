@@ -12,7 +12,7 @@ std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const
     const auto &config_map = models::get_model_config_map();
     auto it = config_map.find(model_type);
     if (it != config_map.end()) {
-        it->second(model_config);
+        model_config = it->second(model_config);
     } else {
         throw std::invalid_argument("infinilm::config::ConfigFactory::createConfig: Unsupported model config type: " + model_type);
     }

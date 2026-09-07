@@ -1,10 +1,12 @@
 #pragma once
-#include <infinicore/dtype.hpp>
 #include <infinicore/context/context.hpp>
+#include <infinicore/dtype.hpp>
+#include <infinicore/graph/graph.hpp>
 #include <infinirt.h>
 
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <spdlog/spdlog.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,9 +129,36 @@ inline void set_zeros(infinicore::Tensor &tensor) {
     infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
 }
 
+namespace infinilm::utils_detail {
+
+class DeviceMemsetGraphOperator final : public infinicore::graph::GraphOperator {
+public:
+    DeviceMemsetGraphOperator(const infinicore::Tensor &tensor, int value)
+        : tensor_(tensor), value_(value) {}
+
+    void run() const override {
+        infinicore::context::setDeviceMemoryAsync(
+            tensor_->data(), value_, tensor_->nbytes(), infinicore::context::getStream());
+    }
+
+private:
+    mutable infinicore::Tensor tensor_;
+    int value_;
+};
+
+inline void set_device_memory_async_graph_aware(infinicore::Tensor &tensor, int value) {
+    auto op = std::make_shared<DeviceMemsetGraphOperator>(tensor, value);
+    if (infinicore::context::isGraphRecording()) {
+        infinicore::context::addGraphOperator(op);
+    } else {
+        op->run();
+    }
+}
+
+} // namespace infinilm::utils_detail
+
 inline void set_zeros_device_async(infinicore::Tensor &tensor) {
-    infinicore::context::setDeviceMemoryAsync(
-        tensor->data(), 0, tensor->nbytes(), infinicore::context::getStream());
+    infinilm::utils_detail::set_device_memory_async_graph_aware(tensor, 0);
 }
 
 inline void set_minus_one(infinicore::Tensor &tensor) {
@@ -138,8 +167,7 @@ inline void set_minus_one(infinicore::Tensor &tensor) {
 }
 
 inline void set_minus_one_device_async(infinicore::Tensor &tensor) {
-    infinicore::context::setDeviceMemoryAsync(
-        tensor->data(), 0xFF, tensor->nbytes(), infinicore::context::getStream());
+    infinilm::utils_detail::set_device_memory_async_graph_aware(tensor, 0xFF);
 }
 
 // Hash combine utility (similar to boost::hash_combine)
