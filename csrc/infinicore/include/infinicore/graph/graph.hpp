@@ -15,7 +15,13 @@ class GraphManager;
 
 class GraphTensor : public Tensor {
 public:
+    enum class SnapshotPolicy {
+        kRecordingAware,
+        kBlob,
+    };
+
     GraphTensor(const Tensor &);
+    GraphTensor(const Tensor &, SnapshotPolicy policy);
 };
 
 class GraphOperator {

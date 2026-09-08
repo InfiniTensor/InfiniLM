@@ -132,7 +132,14 @@ private:
  * GraphTensor
  * ========================= */
 
-GraphTensor::GraphTensor(const Tensor &tensor) : Tensor(tensor->to_blob_()) {
+GraphTensor::GraphTensor(const Tensor &tensor)
+    : Tensor(context::isGraphRecording() ? tensor->to_blob_() : tensor) {
+}
+
+GraphTensor::GraphTensor(const Tensor &tensor, SnapshotPolicy policy)
+    : Tensor(policy == SnapshotPolicy::kBlob || context::isGraphRecording()
+                 ? tensor->to_blob_()
+                 : tensor) {
 }
 
 /* =========================
