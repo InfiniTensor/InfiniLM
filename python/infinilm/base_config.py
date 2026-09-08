@@ -270,7 +270,7 @@ class BaseConfig:
         self.parser.add_argument(
             "--max-num-batched-tokens",
             type=int,
-            default=9216,
+            default=os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", 9216),
             help="maximum tokens in one scheduler batch and workspace allocation",
         )
         self.parser.add_argument(
