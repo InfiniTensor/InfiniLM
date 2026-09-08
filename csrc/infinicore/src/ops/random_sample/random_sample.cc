@@ -48,8 +48,8 @@ bool tryGreedyWithInfiniOps(
     auto argmax_config = infiniops::defaultConfigForDevice<infini::ops::Argmax>(
         logits_meta.device.type());
     const std::optional<int64_t> dim = batched
-                                           ? std::optional<int64_t>{1}
-                                           : std::nullopt;
+                                         ? std::optional<int64_t>{1}
+                                         : std::nullopt;
     infini::ops::Argmax::Call(
         handle,
         argmax_config,

@@ -38,66 +38,56 @@ bool MhaKVCache::supports_device_graph_capture(
 
     // Keep graph capture limited to shapes validated with the persistent
     // InfiniOps provider. Other decode shapes retain the eager fallback.
-    const bool p12_shape =
-        q->shape() == Shape({1, 1, 32, 128})
-        && out->shape() == Shape({1, 1, 32, 128})
-        && k_cache->shape() == Shape({512, 256, 2, 128})
-        && seqlens_k->shape() == Shape({1})
-        && block_table->shape() == Shape({1, 8});
-    const bool p13_shape =
-        q->shape() == Shape({1, 1, 32, 128})
-        && k_cache->size(1) == 256
-        && k_cache->size(2) == 2
-        && k_cache->size(3) == 128
-        && seqlens_k->shape() == Shape({1})
-        && block_table->shape() == Shape({1, 8});
-    const bool p09_shape =
-        q->shape() == Shape({16, 1, 24, 128})
-        && k_cache->size(0) == 128
-        && k_cache->size(1) == 256
-        && k_cache->size(2) == 8
-        && k_cache->size(3) == 128
-        && seqlens_k->shape() == Shape({16})
-        && block_table->shape() == Shape({16, 128});
-    const bool p11_shape =
-        q->shape() == Shape({1, 1, 16, 128})
-        && k_cache->size(0) == 1
-        && k_cache->size(1) == 256
-        && k_cache->size(2) == 16
-        && k_cache->size(3) == 128
-        && seqlens_k->shape() == Shape({1})
-        && block_table->shape() == Shape({1, 1});
-    const bool p14_shape =
-        q->shape() == Shape({16, 1, 32, 128})
-        && k_cache->size(0) == 512
-        && k_cache->size(1) == 256
-        && k_cache->size(2) == 2
-        && k_cache->size(3) == 128
-        && seqlens_k->shape() == Shape({16})
-        && block_table->shape() == Shape({16, 512});
+    const bool p12_shape = q->shape() == Shape({1, 1, 32, 128})
+                        && out->shape() == Shape({1, 1, 32, 128})
+                        && k_cache->shape() == Shape({512, 256, 2, 128})
+                        && seqlens_k->shape() == Shape({1})
+                        && block_table->shape() == Shape({1, 8});
+    const bool p13_shape = q->shape() == Shape({1, 1, 32, 128})
+                        && k_cache->size(1) == 256
+                        && k_cache->size(2) == 2
+                        && k_cache->size(3) == 128
+                        && seqlens_k->shape() == Shape({1})
+                        && block_table->shape() == Shape({1, 8});
+    const bool p09_shape = q->shape() == Shape({16, 1, 24, 128})
+                        && k_cache->size(0) == 128
+                        && k_cache->size(1) == 256
+                        && k_cache->size(2) == 8
+                        && k_cache->size(3) == 128
+                        && seqlens_k->shape() == Shape({16})
+                        && block_table->shape() == Shape({16, 128});
+    const bool p11_shape = q->shape() == Shape({1, 1, 16, 128})
+                        && k_cache->size(0) == 1
+                        && k_cache->size(1) == 256
+                        && k_cache->size(2) == 16
+                        && k_cache->size(3) == 128
+                        && seqlens_k->shape() == Shape({1})
+                        && block_table->shape() == Shape({1, 1});
+    const bool p14_shape = q->shape() == Shape({16, 1, 32, 128})
+                        && k_cache->size(0) == 512
+                        && k_cache->size(1) == 256
+                        && k_cache->size(2) == 2
+                        && k_cache->size(3) == 128
+                        && seqlens_k->shape() == Shape({16})
+                        && block_table->shape() == Shape({16, 512});
     const bool p13_layout = q->is_contiguous() && out->is_contiguous();
     // P09 reads Q directly from the fused QKV projection while output is dense.
-    const bool p09_layout =
-        q->strides() == Strides({5120, 5120, 128, 1})
-        && out->strides() == Strides({3072, 3072, 128, 1});
+    const bool p09_layout = q->strides() == Strides({5120, 5120, 128, 1})
+                         && out->strides() == Strides({3072, 3072, 128, 1});
     // P11 has the same fused-QKV view pattern at batch size one.
-    const bool p11_layout =
-        q->strides() == Strides({6144, 6144, 128, 1})
-        && out->strides() == Strides({2048, 2048, 128, 1});
+    const bool p11_layout = q->strides() == Strides({6144, 6144, 128, 1})
+                         && out->strides() == Strides({2048, 2048, 128, 1});
     // P14 reads Q from MiniCPM4's fused QKV projection at batch size 16.
-    const bool p14_layout =
-        q->strides() == Strides({4608, 4608, 128, 1})
-        && out->strides() == Strides({4096, 4096, 128, 1});
+    const bool p14_layout = q->strides() == Strides({4608, 4608, 128, 1})
+                         && out->strides() == Strides({4096, 4096, 128, 1});
     // P12 has the same fused QKV projection layout at batch size one.
-    const bool p12_layout =
-        q->strides() == Strides({4608, 4608, 128, 1})
-        && out->strides() == Strides({4096, 4096, 128, 1});
-    const bool reviewed_shape_and_layout =
-        (p12_shape && p12_layout)
-        || (p13_shape && p13_layout)
-        || (p09_shape && p09_layout)
-        || (p11_shape && p11_layout)
-        || (p14_shape && p14_layout);
+    const bool p12_layout = q->strides() == Strides({4608, 4608, 128, 1})
+                         && out->strides() == Strides({4096, 4096, 128, 1});
+    const bool reviewed_shape_and_layout = (p12_shape && p12_layout)
+                                        || (p13_shape && p13_layout)
+                                        || (p09_shape && p09_layout)
+                                        || (p11_shape && p11_layout)
+                                        || (p14_shape && p14_layout);
     const auto dtype = q->dtype();
     return device.type() == Device::Type::kNvidia
         && same_device(q)

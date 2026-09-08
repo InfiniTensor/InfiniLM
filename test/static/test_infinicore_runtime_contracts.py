@@ -35,7 +35,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("GraphTensor(const Tensor &);", header)
         self.assertIn("GraphTensor(const Tensor &, SnapshotPolicy policy);", header)
         constructors_start = graph.index("GraphTensor::GraphTensor(")
-        constructors_end = graph.index("/* =========================", constructors_start)
+        constructors_end = graph.index(
+            "/* =========================", constructors_start
+        )
         constructors = graph[constructors_start:constructors_end]
         self.assertEqual(constructors.count("GraphTensor::GraphTensor("), 2)
         self.assertIn("policy == SnapshotPolicy::kBlob", constructors)
@@ -84,8 +86,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("output->narrow({{2, 0, cols / 2}})", split)
         self.assertIn("output->narrow({{2, cols / 2, cols / 2}})", split)
         self.assertIn(
-            "{gate_name, 0, half_size},\n"
-            "        {up_name, half_size, half_size},",
+            "{gate_name, 0, half_size},\n        {up_name, half_size, half_size},",
             fused_linear,
         )
 
@@ -263,9 +264,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "causal_softmax/causal_softmax_infiniops.cc": (
                 "std::optional<Tensor> mask_owner;",
             ),
-            "paged_caching/paged_caching_infiniops.cc": (
-                "Tensor scale_owner;",
-            ),
+            "paged_caching/paged_caching_infiniops.cc": ("Tensor scale_owner;",),
             "swiglu/swiglu_infiniops.cc": ("Tensor packed_owner;",),
             "topksoftmax/topksoftmax_infiniops.cc": (
                 "Tensor token_expert_indices_owner;",
@@ -869,9 +868,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
         self.assertLess(
             paged_source.index("for (size_t b : decode_batch_sizes_)"),
-            paged_source.index(
-                "capture_decode(b, nblocks, block_tables_holder_)"
-            ),
+            paged_source.index("capture_decode(b, nblocks, block_tables_holder_)"),
         )
 
         graph_manager = function_body(
@@ -937,9 +934,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             compiler,
             "PagedCompiler::Compiled PagedCompiler::get_compiled(",
         )
-        support = function_body(
-            compiler, "bool supports_reviewed_short_decode_graph("
-        )
+        support = function_body(compiler, "bool supports_reviewed_short_decode_graph(")
 
         self.assertLess(
             header.index("short_block_tables_holder_"),
@@ -1004,9 +999,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             compile_body.index("for (size_t b : decode_batch_sizes_)"),
             compile_body.index("compiled_short_decode_b1_.emplace("),
         )
-        self.assertIn(
-            "capture_decode(b, nblocks, block_tables_holder_)", compile_body
-        )
+        self.assertIn("capture_decode(b, nblocks, block_tables_holder_)", compile_body)
         self.assertIn("short_block_tables_holder_", compile_body)
 
         selection = replay_body.index(
@@ -1043,9 +1036,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn(
             "auto graph = std::get<0>(selected_result->compiled)", replay_body
         )
-        self.assertIn(
-            "std::get<1>(selected_result->compiled)", replay_body
-        )
+        self.assertIn("std::get<1>(selected_result->compiled)", replay_body)
 
     def test_baichuan_fixed_prefill_graph_is_opt_in_and_exactly_bounded(
         self,
@@ -1057,9 +1048,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             compiler,
             "PagedCompiler::Compiled PagedCompiler::get_compiled(",
         )
-        support = function_body(
-            compiler, "bool supports_baichuan_fixed_prefill_graph("
-        )
+        support = function_body(compiler, "bool supports_baichuan_fixed_prefill_graph(")
         exact_input = function_body(
             compiler, "bool is_exact_baichuan_fixed_prefill_input("
         )
@@ -1084,9 +1073,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "!has_mamba_state",
         ):
             self.assertIn(token, support)
-        self.assertIn(
-            '"INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH"', compiler
-        )
+        self.assertIn('"INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH"', compiler)
         self.assertIn('std::string_view(value) == "1"', compiler)
 
         for field in (
@@ -1138,12 +1125,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "kBaichuanFixedPrefillSequenceLength",
             normalized_compile,
         )
+        self.assertIn("compiled_baichuan_prefill_b1_s10_.emplace(", compile_body)
         self.assertIn(
-            "compiled_baichuan_prefill_b1_s10_.emplace(", compile_body
-        )
-        self.assertIn(
-            '"fixed Baichuan prefill graph compile: '
-            'rank={}, batch=1, seq=10"',
+            '"fixed Baichuan prefill graph compile: rank={}, batch=1, seq=10"',
             compile_body,
         )
 
@@ -1157,8 +1141,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(exact_selection, validation)
         self.assertLess(validation, first_copy)
         self.assertIn(
-            '"fixed Baichuan prefill graph hit: '
-            'rank={}, batch=1, seq=10"',
+            '"fixed Baichuan prefill graph hit: rank={}, batch=1, seq=10"',
             replay_body,
         )
         self.assertIn(
@@ -1172,9 +1155,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
 
     def test_nvidia_varlen_attention_replays_as_host_graph_segments(self) -> None:
-        header = read_source(
-            "csrc/infinicore/include/infinicore/ops/mha_varlen.hpp"
-        )
+        header = read_source("csrc/infinicore/include/infinicore/ops/mha_varlen.hpp")
         source = read_source(
             "csrc/infinicore/src/ops/multi_head_attention_varlen/mha_varlen.cc"
         )
@@ -1183,8 +1164,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
 
         self.assertIn(
-            "class MultiheadAttentionVarlen "
-            ": public graph::DispatchableGraphOperator",
+            "class MultiheadAttentionVarlen : public graph::DispatchableGraphOperator",
             header,
         )
         self.assertNotIn(
@@ -1193,9 +1173,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
         self.assertIn("return device_graph_capture_safe_;", capture_safety)
         self.assertIn("bool device_graph_capture_safe_;", header)
-        self.assertIn(
-            "out->device().type() != Device::Type::kNvidia", source
-        )
+        self.assertIn("out->device().type() != Device::Type::kNvidia", source)
 
     def test_paged_graph_restores_hidden_states_for_speculative_decode(self) -> None:
         compiler = read_source("csrc/engine/compiler/paged_compiler.cpp")
@@ -1212,24 +1190,24 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("if (output.hidden_states)", compile_body)
         self.assertIn("output.hidden_states", compile_body)
         self.assertIn("if (compiled_output->hidden_states)", replay_body)
-        self.assertIn("compiled_output->hidden_states->resume_from_blob_()", replay_body)
+        self.assertIn(
+            "compiled_output->hidden_states->resume_from_blob_()", replay_body
+        )
         self.assertIn("hidden_states = output->hidden_states;", worker)
 
     def test_static_graph_carries_eagle_hidden_input_and_output(self) -> None:
         compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        compile_body = function_body(
-            compiler, "void StaticBatchingCompiler::compile()"
-        )
+        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
         replay_body = function_body(
             compiler,
             "StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(",
         )
 
         self.assertIn('"model_type", "") == "minicpm_eagle"', compile_body)
-        self.assertIn("input.target_hidden_states = infinicore::Tensor::empty", compile_body)
         self.assertIn(
-            '{b, 1, model_config->get<size_t>("hidden_size")}', compile_body
+            "input.target_hidden_states = infinicore::Tensor::empty", compile_body
         )
+        self.assertIn('{b, 1, model_config->get<size_t>("hidden_size")}', compile_body)
         self.assertIn("model_config->get_dtype()", compile_body)
         self.assertIn("set_zeros(input.target_hidden_states.value())", compile_body)
         self.assertIn("if (output.hidden_states)", compile_body)
@@ -1253,9 +1231,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             normalized_compile,
         )
 
-        self.assertIn(
-            "graph_input.target_hidden_states.has_value()", replay_body
-        )
+        self.assertIn("graph_input.target_hidden_states.has_value()", replay_body)
         self.assertIn("input.target_hidden_states.has_value()", replay_body)
         self.assertIn("graph_has_target_hidden_states !=", replay_body)
         self.assertIn("input_has_target_hidden_states", replay_body)
@@ -1313,9 +1289,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         mha_header = read_source(
             "csrc/infinicore/include/infinicore/ops/mha_kvcache.hpp"
         )
-        mha_source = read_source(
-            "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache.cc"
-        )
+        mha_source = read_source("csrc/infinicore/src/ops/mha_kvcache/mha_kvcache.cc")
         adapter = read_source(
             "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_infiniops.cc"
         )
@@ -1330,9 +1304,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
 
         p12_shape_start = predicate.index("const bool p12_shape =")
-        p12_shape_end = predicate.index(
-            "const bool p13_shape =", p12_shape_start
-        )
+        p12_shape_end = predicate.index("const bool p13_shape =", p12_shape_start)
         p12_shape = predicate[p12_shape_start:p12_shape_end]
         for token in (
             "q->shape() == Shape({1, 1, 32, 128})",
@@ -1353,14 +1325,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "out->strides() == Strides({4096, 4096, 128, 1})",
         ):
             self.assertIn(token, p12_layout)
-        self.assertEqual(
-            predicate.count("(p12_shape && p12_layout)"), 1
-        )
+        self.assertEqual(predicate.count("(p12_shape && p12_layout)"), 1)
 
         p14_shape_start = predicate.index("const bool p14_shape =")
-        p14_shape_end = predicate.index(
-            "const bool p13_layout =", p14_shape_start
-        )
+        p14_shape_end = predicate.index("const bool p13_layout =", p14_shape_start)
         p14_shape = predicate[p14_shape_start:p14_shape_end]
         for token in (
             "q->shape() == Shape({16, 1, 32, 128})",
@@ -1383,9 +1351,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "out->strides() == Strides({4096, 4096, 128, 1})",
         ):
             self.assertIn(token, p14_layout)
-        self.assertEqual(
-            predicate.count("(p14_shape && p14_layout)"), 1
-        )
+        self.assertEqual(predicate.count("(p14_shape && p14_layout)"), 1)
 
         self.assertIn("return device_graph_capture_safe_;", capture_safety)
         self.assertIn("bool device_graph_capture_safe_;", mha_header)
@@ -1428,9 +1394,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("Strides({3072, 0, 128, 1})", predicate)
         self.assertNotIn("INFINICORE_GRAPH_CAPTURE_DEBUG", mha_source)
 
-        self.assertIn(
-            "std::unique_ptr<FlashAttnOperator> graph_safe_provider", adapter
-        )
+        self.assertIn("std::unique_ptr<FlashAttnOperator> graph_safe_provider", adapter)
         self.assertIn("make_graph_safe_provider(*planned)", adapter)
         self.assertIn("FlashAttnOperator::Make(", adapter)
         self.assertIn("Device::Type::kNvidia, 17", adapter)
@@ -1491,17 +1455,11 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         attention = read_source("csrc/layers/attention/backends/static_attn.cpp")
         compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
 
-        self.assertIn(
-            "std::optional<size_t> first_past_sequence_length", metadata
-        )
-        self.assertIn(
-            "std::optional<size_t> first_total_sequence_length", metadata
-        )
+        self.assertIn("std::optional<size_t> first_past_sequence_length", metadata)
+        self.assertIn("std::optional<size_t> first_total_sequence_length", metadata)
         self.assertIn("bool snapshot_static_sequence_lengths = false", worker_header)
 
-        conversion = function_body(
-            engine, "InferEngine::Input::to_model_input("
-        )
+        conversion = function_body(engine, "InferEngine::Input::to_model_input(")
         for field in ("past_sequence_lengths", "total_sequence_lengths"):
             snapshot = f"first_sequence_length(\n            {field}"
             transfer = f"to_device({field})"
@@ -1519,12 +1477,8 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         eager = function_body(
             attention, "infinicore::Tensor StaticAttentionImpl::forward("
         )
-        update = function_body(
-            attention, "StaticAttentionImpl::do_kv_cache_update("
-        )
-        fallback = function_body(
-            attention, "size_t sequence_length_from_metadata("
-        )
+        update = function_body(attention, "StaticAttentionImpl::do_kv_cache_update(")
+        fallback = function_body(attention, "size_t sequence_length_from_metadata(")
         for body in (eager, update):
             self.assertNotIn("Device::Type::kCpu", body)
             self.assertNotIn("->data()", body)
@@ -1535,9 +1489,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("Device::Type::kCpu", fallback)
         self.assertNotIn("value_or", fallback)
 
-        compile_body = function_body(
-            compiler, "void StaticBatchingCompiler::compile()"
-        )
+        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
         self.assertIn("first_past_sequence_length = 0", compile_body)
         self.assertIn("first_total_sequence_length = 1", compile_body)
 
@@ -1619,13 +1571,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("random_sample_infinilm.h", adapter)
 
         self.assertIn("const bool batched = logits->ndim() == 2", wrapper)
-        self.assertIn(
-            "device_type == Device::Type::kNvidia && batched", wrapper
-        )
+        self.assertIn("device_type == Device::Type::kNvidia && batched", wrapper)
         self.assertIn("indices->numel() != num_rows", wrapper)
-        self.assertIn(
-            "indices->ndim() != 1 || indices->size(0) != num_rows", wrapper
-        )
+        self.assertIn("indices->ndim() != 1 || indices->size(0) != num_rows", wrapper)
         self.assertIn("std::optional<int64_t>{1}", wrapper)
 
         run = function_body(worker, "void RankWorker::thread_loop()")
@@ -1638,18 +1586,12 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "rank_info_.device.type() == infinicore::Device::Type::kNvidia",
             run,
         )
-        self.assertIn(
-            "sample_all_positions || logits_are_last_token_only", run
-        )
+        self.assertIn("sample_all_positions || logits_are_last_token_only", run)
         self.assertIn("logits_positions == n_out", run)
         self.assertIn("logits->is_contiguous()", run)
         for dtype in ("kFloat16", "kBFloat16", "kFloat32"):
-            self.assertIn(
-                f"logits_dtype == infinicore::DataType::{dtype}", run
-            )
-        self.assertIn(
-            "logits->view({logits_positions, vocab_size})", run
-        )
+            self.assertIn(f"logits_dtype == infinicore::DataType::{dtype}", run)
+        self.assertIn("logits->view({logits_positions, vocab_size})", run)
         self.assertIn("for (size_t i{0}; i < n_out; ++i)", run)
         self.assertIn(
             "score_idx = static_cast<size_t>(input_offsets[i + 1] - 1)",

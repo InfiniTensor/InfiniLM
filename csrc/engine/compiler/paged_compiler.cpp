@@ -16,11 +16,9 @@ namespace {
 
 constexpr size_t kShortDecodeBlockTableWidth = 8;
 constexpr size_t kShortDecodeBlockSize = 256;
-constexpr size_t kShortDecodeMaxSequenceLength =
-    kShortDecodeBlockTableWidth * kShortDecodeBlockSize;
+constexpr size_t kShortDecodeMaxSequenceLength = kShortDecodeBlockTableWidth * kShortDecodeBlockSize;
 
-constexpr char kBaichuanFixedPrefillGraphEnv[] =
-    "INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH";
+constexpr char kBaichuanFixedPrefillGraphEnv[] = "INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH";
 constexpr size_t kBaichuanFixedPrefillBatchSize = 1;
 constexpr size_t kBaichuanFixedPrefillSequenceLength = 10;
 constexpr size_t kBaichuanFixedPrefillBlockSize = 256;
@@ -53,14 +51,13 @@ bool supports_baichuan_fixed_prefill_graph(
     }
 
     const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
-    const size_t num_attention_heads =
-        model_config->get_or<size_t>("num_attention_heads", 0);
+    const size_t num_attention_heads = model_config->get_or<size_t>("num_attention_heads", 0);
     const size_t head_dim = model_config->get_or<size_t>(
         "head_dim",
         num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
 
     return infinicore::context::getDevice().type()
-               == infinicore::Device::Type::kNvidia
+            == infinicore::Device::Type::kNvidia
         && infinilm::global_state::get_infinilm_config().attention_backend
                == backends::AttentionBackend::FLASH_ATTN
         && infinilm::global_state::get_tensor_model_parallel_world_size() == 2
@@ -97,62 +94,59 @@ template <typename T>
 bool tensor_values_equal(
     const std::optional<infinicore::Tensor> &tensor,
     std::initializer_list<T> expected) {
-    const auto *values =
-        reinterpret_cast<const T *>(tensor.value()->data());
+    const auto *values = reinterpret_cast<const T *>(tensor.value()->data());
     return std::equal(expected.begin(), expected.end(), values);
 }
 
 bool is_exact_baichuan_fixed_prefill_input(
     const InfinilmModel::Input &input) {
-    const bool tensors_match =
-        is_cpu_contiguous_tensor(
-            input.input_ids,
-            infinicore::DataType::kInt64,
-            {kBaichuanFixedPrefillBatchSize,
-             kBaichuanFixedPrefillSequenceLength})
-        && is_cpu_contiguous_tensor(
-            input.position_ids,
-            infinicore::DataType::kInt64,
-            {kBaichuanFixedPrefillSequenceLength})
-        && is_cpu_contiguous_tensor(
-            input.past_sequence_lengths,
-            infinicore::DataType::kInt32,
-            {kBaichuanFixedPrefillBatchSize})
-        && is_cpu_contiguous_tensor(
-            input.total_sequence_lengths,
-            infinicore::DataType::kInt32,
-            {kBaichuanFixedPrefillBatchSize})
-        && is_cpu_contiguous_tensor(
-            input.input_offsets,
-            infinicore::DataType::kInt32,
-            {kBaichuanFixedPrefillBatchSize + 1})
-        && is_cpu_contiguous_tensor(
-            input.cu_seqlens,
-            infinicore::DataType::kInt32,
-            {kBaichuanFixedPrefillBatchSize + 1})
-        && is_cpu_contiguous_tensor(
-            input.block_tables,
-            infinicore::DataType::kInt32,
-            {kBaichuanFixedPrefillBatchSize, 1})
-        && is_cpu_contiguous_tensor(
-            input.slot_mapping,
-            infinicore::DataType::kInt64,
-            {kBaichuanFixedPrefillSequenceLength});
+    const bool tensors_match = is_cpu_contiguous_tensor(
+                                   input.input_ids,
+                                   infinicore::DataType::kInt64,
+                                   {kBaichuanFixedPrefillBatchSize,
+                                    kBaichuanFixedPrefillSequenceLength})
+                            && is_cpu_contiguous_tensor(
+                                   input.position_ids,
+                                   infinicore::DataType::kInt64,
+                                   {kBaichuanFixedPrefillSequenceLength})
+                            && is_cpu_contiguous_tensor(
+                                   input.past_sequence_lengths,
+                                   infinicore::DataType::kInt32,
+                                   {kBaichuanFixedPrefillBatchSize})
+                            && is_cpu_contiguous_tensor(
+                                   input.total_sequence_lengths,
+                                   infinicore::DataType::kInt32,
+                                   {kBaichuanFixedPrefillBatchSize})
+                            && is_cpu_contiguous_tensor(
+                                   input.input_offsets,
+                                   infinicore::DataType::kInt32,
+                                   {kBaichuanFixedPrefillBatchSize + 1})
+                            && is_cpu_contiguous_tensor(
+                                   input.cu_seqlens,
+                                   infinicore::DataType::kInt32,
+                                   {kBaichuanFixedPrefillBatchSize + 1})
+                            && is_cpu_contiguous_tensor(
+                                   input.block_tables,
+                                   infinicore::DataType::kInt32,
+                                   {kBaichuanFixedPrefillBatchSize, 1})
+                            && is_cpu_contiguous_tensor(
+                                   input.slot_mapping,
+                                   infinicore::DataType::kInt64,
+                                   {kBaichuanFixedPrefillSequenceLength});
     if (!tensors_match) {
         return false;
     }
 
-    const bool has_unsupported_input =
-        input.mamba_init_state_indices.has_value()
-        || input.mamba_final_state_indices.has_value()
-        || input.pixel_values.has_value()
-        || input.image_bound.has_value()
-        || input.tgt_sizes.has_value()
-        || input.image_grid_thw.has_value()
-        || input.image_req_ids.has_value()
-        || input.visual_token_ranges.has_value()
-        || input.target_hidden_states.has_value()
-        || input.sample_all_positions;
+    const bool has_unsupported_input = input.mamba_init_state_indices.has_value()
+                                    || input.mamba_final_state_indices.has_value()
+                                    || input.pixel_values.has_value()
+                                    || input.image_bound.has_value()
+                                    || input.tgt_sizes.has_value()
+                                    || input.image_grid_thw.has_value()
+                                    || input.image_req_ids.has_value()
+                                    || input.visual_token_ranges.has_value()
+                                    || input.target_hidden_states.has_value()
+                                    || input.sample_all_positions;
     return !has_unsupported_input
         && tensor_values_equal<int64_t>(
             input.position_ids,
@@ -180,28 +174,25 @@ bool supports_reviewed_short_decode_graph(
     }
 
     const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
-    const size_t num_attention_heads =
-        model_config->get_or<size_t>("num_attention_heads", 0);
+    const size_t num_attention_heads = model_config->get_or<size_t>("num_attention_heads", 0);
     const size_t head_dim = model_config->get_or<size_t>(
         "head_dim",
         num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
-    const auto model_type =
-        model_config->get_or<std::string>("model_type", "");
+    const auto model_type = model_config->get_or<std::string>("model_type", "");
     const bool p13_profile = model_type == "internlm3";
-    const bool p12_profile =
-        model_type == "chatglm"
-        && paged_config.num_blocks() == 512
-        && infinilm::global_state::get_tensor_model_parallel_world_size() == 1
-        && model_config->get_or<size_t>("num_hidden_layers", 0) == 28
-        && model_config->get_or<size_t>("position_id_axes", 1) == 1
-        && model_config->get_dtype() == infinicore::DataType::kFloat16
-        && model_config->get_quant_scheme()
-               == quantization::QuantScheme::NONE
-        && model_config->get_kv_quant_scheme()
-               == quantization::KVQuantAlgo::NONE;
+    const bool p12_profile = model_type == "chatglm"
+                          && paged_config.num_blocks() == 512
+                          && infinilm::global_state::get_tensor_model_parallel_world_size() == 1
+                          && model_config->get_or<size_t>("num_hidden_layers", 0) == 28
+                          && model_config->get_or<size_t>("position_id_axes", 1) == 1
+                          && model_config->get_dtype() == infinicore::DataType::kFloat16
+                          && model_config->get_quant_scheme()
+                                 == quantization::QuantScheme::NONE
+                          && model_config->get_kv_quant_scheme()
+                                 == quantization::KVQuantAlgo::NONE;
 
     return infinicore::context::getDevice().type()
-               == infinicore::Device::Type::kNvidia
+            == infinicore::Device::Type::kNvidia
         && infinilm::global_state::get_infinilm_config().attention_backend
                == backends::AttentionBackend::FLASH_ATTN
         && paged_config.block_size() == kShortDecodeBlockSize
@@ -524,8 +515,7 @@ void PagedCompiler::compile() {
         }
 
         for (size_t b : decode_batch_sizes_) {
-            compiled_map_decode_[b] =
-                capture_decode(b, nblocks, block_tables_holder_);
+            compiled_map_decode_[b] = capture_decode(b, nblocks, block_tables_holder_);
         }
 
         if (supports_reviewed_short_decode_graph(
@@ -584,9 +574,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     const size_t batch_size = runtime_block_tables->size(0);
     const size_t block_per_req = runtime_block_tables->size(1);
 
-    const bool use_baichuan_fixed_prefill_graph =
-        compiled_baichuan_prefill_b1_s10_.has_value()
-        && is_exact_baichuan_fixed_prefill_input(input);
+    const bool use_baichuan_fixed_prefill_graph = compiled_baichuan_prefill_b1_s10_.has_value()
+                                               && is_exact_baichuan_fixed_prefill_input(input);
     CompiledResult *selected_result = nullptr;
     bool use_short_decode_graph = false;
     size_t required_pages = 0;
@@ -606,31 +595,28 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
         if (batch_size == 1 && compiled_short_decode_b1_.has_value()) {
             const auto &total_sequence_lengths = input.total_sequence_lengths;
-            const bool valid_short_metadata =
-                total_sequence_lengths.has_value()
-                && total_sequence_lengths.value()
-                && total_sequence_lengths.value()->device().type()
-                       == infinicore::Device::Type::kCpu
-                && total_sequence_lengths.value()->dtype()
-                       == infinicore::DataType::kInt32
-                && total_sequence_lengths.value()->ndim() == 1
-                && total_sequence_lengths.value()->size(0) == 1
-                && total_sequence_lengths.value()->is_contiguous()
-                && runtime_block_tables->device().type()
-                       == infinicore::Device::Type::kCpu
-                && runtime_block_tables->dtype() == infinicore::DataType::kInt32
-                && runtime_block_tables->is_contiguous();
+            const bool valid_short_metadata = total_sequence_lengths.has_value()
+                                           && total_sequence_lengths.value()
+                                           && total_sequence_lengths.value()->device().type()
+                                                  == infinicore::Device::Type::kCpu
+                                           && total_sequence_lengths.value()->dtype()
+                                                  == infinicore::DataType::kInt32
+                                           && total_sequence_lengths.value()->ndim() == 1
+                                           && total_sequence_lengths.value()->size(0) == 1
+                                           && total_sequence_lengths.value()->is_contiguous()
+                                           && runtime_block_tables->device().type()
+                                                  == infinicore::Device::Type::kCpu
+                                           && runtime_block_tables->dtype() == infinicore::DataType::kInt32
+                                           && runtime_block_tables->is_contiguous();
             if (valid_short_metadata) {
-                const int32_t total_sequence_length =
-                    reinterpret_cast<const int32_t *>(
-                        total_sequence_lengths.value()->data())[0];
+                const int32_t total_sequence_length = reinterpret_cast<const int32_t *>(
+                    total_sequence_lengths.value()->data())[0];
                 if (total_sequence_length > 0
                     && static_cast<size_t>(total_sequence_length)
                            <= kShortDecodeMaxSequenceLength) {
-                    required_pages =
-                        1
-                        + (static_cast<size_t>(total_sequence_length) - 1)
-                              / paged_config->block_size();
+                    required_pages = 1
+                                   + (static_cast<size_t>(total_sequence_length) - 1)
+                                         / paged_config->block_size();
                     if (required_pages <= kShortDecodeBlockTableWidth
                         && block_per_req >= required_pages) {
                         selected_result = &compiled_short_decode_b1_.value();
@@ -642,8 +628,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     }
 
     auto &graph_input = selected_result->input;
-    const size_t compiled_block_per_req =
-        graph_input.block_tables.value()->size(1);
+    const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
     if ((!use_short_decode_graph && block_per_req > compiled_block_per_req)
         || graph_input.block_tables.value()->dtype()
                != runtime_block_tables->dtype()
@@ -712,9 +697,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     }
     graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
 
-    const bool graph_has_mamba_indices =
-        graph_input.mamba_init_state_indices.has_value()
-        && graph_input.mamba_final_state_indices.has_value();
+    const bool graph_has_mamba_indices = graph_input.mamba_init_state_indices.has_value()
+                                      && graph_input.mamba_final_state_indices.has_value();
     if (graph_has_mamba_indices) {
         graph_input.mamba_init_state_indices.value()->copy_from(
             input.mamba_init_state_indices.value());

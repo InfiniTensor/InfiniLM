@@ -67,7 +67,7 @@ void StaticBatchingCompiler::compile() {
     const size_t cache_page_size = *static_graph_cache_page_size(b);
     const auto &model_config = model_->get_model_config();
     const bool uses_target_hidden_states = model_config
-        && model_config->get_or<std::string>("model_type", "") == "minicpm_eagle";
+                                        && model_config->get_or<std::string>("model_type", "") == "minicpm_eagle";
     {
         InfinilmModel::Input input;
         input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
@@ -148,10 +148,8 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
             return std::make_tuple(nullptr, nullptr);
         } else {
             auto &graph_input = result->second.input;
-            const bool graph_has_target_hidden_states =
-                graph_input.target_hidden_states.has_value();
-            const bool input_has_target_hidden_states =
-                input.target_hidden_states.has_value();
+            const bool graph_has_target_hidden_states = graph_input.target_hidden_states.has_value();
+            const bool input_has_target_hidden_states = input.target_hidden_states.has_value();
             if (graph_has_target_hidden_states != input_has_target_hidden_states) {
                 return std::make_tuple(nullptr, nullptr);
             }
@@ -159,7 +157,7 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
                 && (graph_input.target_hidden_states.value()->shape()
                         != input.target_hidden_states.value()->shape()
                     || graph_input.target_hidden_states.value()->dtype()
-                        != input.target_hidden_states.value()->dtype())) {
+                           != input.target_hidden_states.value()->dtype())) {
                 return std::make_tuple(nullptr, nullptr);
             }
             graph_input.input_ids.value()->copy_from(input.input_ids.value());

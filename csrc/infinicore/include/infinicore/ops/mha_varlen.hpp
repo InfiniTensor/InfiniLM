@@ -36,16 +36,16 @@ public:
     static common::OpDispatcher<cleanup_schema> &cleanup_dispatcher();
 
     MultiheadAttentionVarlen(Tensor out,
-                            const Tensor &q,
-                            const Tensor &k,
-                            const Tensor &v,
-                            const Tensor &cum_seqlens_q,
-                            const Tensor &cum_seqlens_kv,
-                            std::optional<Tensor> block_table,
-                            int max_seqlen_q,
-                            int max_seqlen_k,
-                            std::optional<Tensor> alibi_slopes,
-                            float scale);
+                             const Tensor &q,
+                             const Tensor &k,
+                             const Tensor &v,
+                             const Tensor &cum_seqlens_q,
+                             const Tensor &cum_seqlens_kv,
+                             std::optional<Tensor> block_table,
+                             int max_seqlen_q,
+                             int max_seqlen_k,
+                             std::optional<Tensor> alibi_slopes,
+                             float scale);
 
     static void execute(Tensor out,
                         const Tensor &q,

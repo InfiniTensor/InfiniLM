@@ -1,4 +1,5 @@
 import infinicore
+
 from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine

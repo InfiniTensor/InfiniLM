@@ -23,7 +23,9 @@ def main():
     args = parser.parse_args()
 
     if args.warmup < 0 or args.iterations <= 0 or args.repeat <= 0:
-        parser.error("warmup must be non-negative; iterations and repeat must be positive")
+        parser.error(
+            "warmup must be non-negative; iterations and repeat must be positive"
+        )
 
     infinicore.set_device(args.device)
     expected_stream = infinicore.get_stream()

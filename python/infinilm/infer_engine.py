@@ -49,9 +49,7 @@ class _PagedDecodeMetadataBuffers:
 
     def _empty(self, shape, dtype, numpy_dtype):
         tensor = infinicore.empty(shape, dtype=dtype)
-        scalar_type = self._np.ctypeslib.as_ctypes_type(
-            self._np.dtype(numpy_dtype)
-        )
+        scalar_type = self._np.ctypeslib.as_ctypes_type(self._np.dtype(numpy_dtype))
         storage = (scalar_type * tensor.numel()).from_address(tensor.data_ptr())
         values = self._np.ctypeslib.as_array(storage).reshape(shape)
         self._storage_views.append(storage)

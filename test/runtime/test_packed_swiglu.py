@@ -2,9 +2,9 @@ import ctypes
 import unittest
 
 import infinicore
-from infinicore import ops
 import torch
 import torch.nn.functional as torch_functional
+from infinicore import ops
 
 
 def to_torch_bfloat16(tensor):
@@ -35,8 +35,8 @@ class PackedSwiGLUTest(unittest.TestCase):
         packed = torch.cat((gate, up), dim=-1)
         self.input = infinicore.from_torch(packed)
         self.expected = (
-            torch_functional.silu(gate.float()) * up.float()
-        ).to(torch.bfloat16).cpu()
+            (torch_functional.silu(gate.float()) * up.float()).to(torch.bfloat16).cpu()
+        )
 
     def assert_matches_reference(self, output):
         infinicore.sync_stream()

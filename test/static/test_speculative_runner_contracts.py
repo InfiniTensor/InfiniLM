@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -78,22 +77,21 @@ class SpeculativeRunnerContractsTest(unittest.TestCase):
             for node in method.body
             if isinstance(node, ast.Assign)
             and any(
-                isinstance(target, ast.Name)
-                and target.id == "sample_all_positions"
+                isinstance(target, ast.Name) and target.id == "sample_all_positions"
                 for target in node.targets
             )
         )
         expression = compile(
-            ast.Expression(assignment.value), str(ROOT / "speculative_runner.py"), "eval"
+            ast.Expression(assignment.value),
+            str(ROOT / "speculative_runner.py"),
+            "eval",
         )
 
         def requires_all_positions(lengths: list[int]) -> bool:
             namespace = {
                 "any": any,
                 "len": len,
-                "candidates": [
-                    {"draft_tokens": [0] * length} for length in lengths
-                ],
+                "candidates": [{"draft_tokens": [0] * length} for length in lengths],
             }
             return bool(eval(expression, namespace))
 

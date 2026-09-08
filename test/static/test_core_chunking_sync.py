@@ -45,9 +45,7 @@ class CoreChunkingSyncTest(unittest.TestCase):
                 self.assertIn(f"{tensor}->narrow({{{{0, start, rows}}}})", body)
 
     def test_silu_and_mul_chunks_only_at_row_boundaries(self) -> None:
-        source = read_source(
-            "csrc/infinicore/src/ops/silu_and_mul/silu_and_mul.cc"
-        )
+        source = read_source("csrc/infinicore/src/ops/silu_and_mul/silu_and_mul.cc")
         body = function_body(source, "void silu_and_mul_(")
 
         self.assertIn("MAX_ELEMENTS_PER_LAUNCH = Size{1} << 30", body)
