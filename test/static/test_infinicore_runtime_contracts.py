@@ -935,6 +935,13 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "PagedCompiler::Compiled PagedCompiler::get_compiled(",
         )
         support = function_body(compiler, "bool supports_reviewed_short_decode_graph(")
+        property_reader = function_body(
+            compiler, "std::optional<PagedGraphProperties> read_paged_graph_properties("
+        )
+        profile_matcher = function_body(
+            compiler, "bool matches_reviewed_paged_graph_profile("
+        )
+        normalized_compiler = " ".join(compiler.split())
 
         self.assertLess(
             header.index("short_block_tables_holder_"),
@@ -948,48 +955,59 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "kShortDecodeBlockTableWidth = 8",
             "kShortDecodeBlockSize = 256",
             "kShortDecodeMaxSequenceLength",
-            "hidden_size == 4096",
-            "num_attention_heads == 32",
-            '"num_key_value_heads", 0) == 2',
-            "head_dim == 128",
         ):
             self.assertIn(token, compiler)
         for token in (
-            'model_type == "internlm3"',
-            'model_type == "chatglm"',
-            "Device::Type::kNvidia",
-            "AttentionBackend::FLASH_ATTN",
-            "paged_config.block_size() == kShortDecodeBlockSize",
-            "paged_config.num_blocks() >= kShortDecodeBlockTableWidth",
-            "p13_profile || p12_profile",
-            "hidden_size == 4096",
-            "num_attention_heads == 32",
-            '"num_key_value_heads", 0) == 2',
-            "head_dim == 128",
+            "read_paged_graph_properties(",
+            "kShortDecodeProfiles.begin()",
+            "kShortDecodeProfiles.end()",
+            "matches_reviewed_paged_graph_profile(",
         ):
             self.assertIn(token, support)
-        self.assertEqual(support.count('model_type == "chatglm"'), 1)
+        self.assertNotIn("get_or<", support)
+        self.assertEqual(support.count("read_paged_graph_properties("), 1)
 
-        p12_start = support.index("const bool p12_profile =")
-        p12_end = support.index("return ", p12_start)
-        p12_profile = support[p12_start:p12_end]
         for token in (
-            "paged_config.num_blocks() == 512",
-            "get_tensor_model_parallel_world_size() == 1",
-            '"num_hidden_layers", 0) == 28',
-            '"position_id_axes", 1) == 1',
-            "DataType::kFloat16",
-            "QuantScheme::NONE",
-            "KVQuantAlgo::NONE",
+            'model_config->get_or<std::string>("model_type", "")',
+            'model_config->get_or<size_t>("hidden_size", 0)',
+            'model_config->get_or<size_t>("num_hidden_layers", 0)',
+            'model_config->get_or<size_t>("num_attention_heads", 0)',
+            'model_config->get_or<size_t>("num_key_value_heads", 0)',
+            'model_config->get_or<size_t>("position_id_axes", 1)',
+            "get_tensor_model_parallel_world_size()",
+            "paged_config.num_blocks()",
+            "model_config->get_dtype()",
+            "model_config->get_quant_scheme()",
+            "model_config->get_kv_quant_scheme()",
         ):
-            self.assertIn(token, p12_profile)
+            self.assertIn(token, property_reader)
+
         for token in (
-            "paged_config.num_blocks() == 512",
-            "get_tensor_model_parallel_world_size() == 1",
-            '"num_hidden_layers", 0) == 28',
-            "DataType::kFloat16",
+            "properties.device_type == infinicore::Device::Type::kNvidia",
+            "properties.attention_backend == backends::AttentionBackend::FLASH_ATTN",
+            "properties.num_blocks >= profile.minimum_num_blocks",
+            "profile.exact_num_blocks",
+            "profile.tensor_parallel_world_size",
+            "profile.num_hidden_layers",
+            "profile.position_id_axes",
+            "profile.dtype",
+            "profile.require_unquantized",
+            "quantization::QuantScheme::NONE",
+            "quantization::KVQuantAlgo::NONE",
         ):
-            self.assertNotIn(token, support[:p12_start])
+            self.assertIn(token, profile_matcher)
+        self.assertIn(
+            '{"internlm3", 4096, 32, 2, 128, kShortDecodeBlockSize, '
+            "kShortDecodeBlockTableWidth, std::nullopt, std::nullopt, "
+            "std::nullopt, std::nullopt, std::nullopt, std::nullopt, false}",
+            normalized_compiler,
+        )
+        self.assertIn(
+            '{"chatglm", 4096, 32, 2, 128, kShortDecodeBlockSize, '
+            "kShortDecodeBlockTableWidth, 512, std::nullopt, 1, 28, 1, "
+            "infinicore::DataType::kFloat16, true}",
+            normalized_compiler,
+        )
 
         self.assertLess(
             compile_body.index("compiled_short_decode_b1_.reset()"),
@@ -1049,30 +1067,40 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "PagedCompiler::Compiled PagedCompiler::get_compiled(",
         )
         support = function_body(compiler, "bool supports_baichuan_fixed_prefill_graph(")
+        profile_matcher = function_body(
+            compiler, "bool matches_reviewed_paged_graph_profile("
+        )
         exact_input = function_body(
             compiler, "bool is_exact_baichuan_fixed_prefill_input("
         )
+        normalized_compiler = " ".join(compiler.split())
 
         self.assertIn("compiled_baichuan_prefill_b1_s10_", header)
         for token in (
-            "Device::Type::kNvidia",
-            "AttentionBackend::FLASH_ATTN",
-            "get_tensor_model_parallel_world_size() == 2",
-            "paged_config.block_size() == kBaichuanFixedPrefillBlockSize",
-            "paged_config.num_blocks() == 1",
-            "paged_config.max_batch_size() == kBaichuanFixedPrefillBatchSize",
-            '"model_type", "") == "baichuan"',
-            "hidden_size == 4096",
-            '"num_hidden_layers", 0) == 32',
-            "num_attention_heads == 32",
-            '"num_key_value_heads", 0) == 32',
-            "head_dim == 128",
-            '"position_id_axes", 1) == 1',
-            "QuantScheme::NONE",
-            "KVQuantAlgo::NONE",
-            "!has_mamba_state",
+            "!env_flag_enabled(kBaichuanFixedPrefillGraphEnv)",
+            "has_mamba_state",
+            "read_paged_graph_properties(",
+            "kBaichuanFixedPrefillProfile",
+            "matches_reviewed_paged_graph_profile(",
         ):
             self.assertIn(token, support)
+        self.assertNotIn("get_or<", support)
+        self.assertEqual(support.count("read_paged_graph_properties("), 1)
+        self.assertIn(
+            'kBaichuanFixedPrefillProfile{ "baichuan", 4096, 32, 32, 128, '
+            "kBaichuanFixedPrefillBlockSize, 1, 1, 1, 2, 32, 1, "
+            "std::nullopt, true}",
+            normalized_compiler,
+        )
+        for token in (
+            "properties.device_type == infinicore::Device::Type::kNvidia",
+            "properties.attention_backend == backends::AttentionBackend::FLASH_ATTN",
+            "properties.max_batch_size",
+            "profile.max_batch_size",
+            "properties.quant_scheme == quantization::QuantScheme::NONE",
+            "properties.kv_quant_scheme == quantization::KVQuantAlgo::NONE",
+        ):
+            self.assertIn(token, profile_matcher)
         self.assertIn('"INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH"', compiler)
         self.assertIn('std::string_view(value) == "1"', compiler)
 
@@ -1399,10 +1427,13 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("FlashAttnOperator::Make(", adapter)
         self.assertIn("Device::Type::kNvidia, 17", adapter)
         self.assertIn("(*planned->graph_safe_provider)(", adapter)
-        self.assertIn(
-            "device_type == infini::ops::Device::Type::kMoore ? 8 : 16",
-            adapter,
-        )
+        self.assertIn("implementation_index_for_device(device_type)", adapter)
+        for implementation_index in (0, 8, 16):
+            with self.subTest(implementation_index=implementation_index):
+                self.assertIn(
+                    f"return {implementation_index};",
+                    adapter,
+                )
         self.assertIn("infini::ops::FlashAttnWithKvcache::Call(", adapter)
         paged_attention = function_body(
             paged_attention_source, "void PagedAttention::execute("

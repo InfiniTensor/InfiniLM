@@ -3,9 +3,11 @@
 #include "../../utils.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <initializer_list>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -22,6 +24,120 @@ constexpr char kBaichuanFixedPrefillGraphEnv[] = "INFINILM_ENABLE_BAICHUAN_PREFI
 constexpr size_t kBaichuanFixedPrefillBatchSize = 1;
 constexpr size_t kBaichuanFixedPrefillSequenceLength = 10;
 constexpr size_t kBaichuanFixedPrefillBlockSize = 256;
+
+struct ReviewedPagedGraphProfile {
+    std::string_view model_type;
+    size_t hidden_size;
+    size_t num_attention_heads;
+    size_t num_key_value_heads;
+    size_t head_dim;
+    size_t block_size;
+    size_t minimum_num_blocks;
+    std::optional<size_t> exact_num_blocks;
+    std::optional<size_t> max_batch_size;
+    std::optional<size_t> tensor_parallel_world_size;
+    std::optional<size_t> num_hidden_layers;
+    std::optional<size_t> position_id_axes;
+    std::optional<infinicore::DataType> dtype;
+    bool require_unquantized;
+};
+
+struct PagedGraphProperties {
+    infinicore::Device::Type device_type;
+    backends::AttentionBackend attention_backend;
+    size_t tensor_parallel_world_size;
+    size_t block_size;
+    size_t num_blocks;
+    size_t max_batch_size;
+    std::string model_type;
+    size_t hidden_size;
+    size_t num_hidden_layers;
+    size_t num_attention_heads;
+    size_t num_key_value_heads;
+    size_t head_dim;
+    size_t position_id_axes;
+    infinicore::DataType dtype;
+    quantization::QuantScheme quant_scheme;
+    quantization::KVQuantAlgo kv_quant_scheme;
+};
+
+const ReviewedPagedGraphProfile kBaichuanFixedPrefillProfile{
+    "baichuan", 4096, 32, 32, 128, kBaichuanFixedPrefillBlockSize, 1,
+    1, 1, 2, 32, 1, std::nullopt, true};
+
+const std::array<ReviewedPagedGraphProfile, 2> kShortDecodeProfiles{{
+    {"internlm3", 4096, 32, 2, 128, kShortDecodeBlockSize,
+     kShortDecodeBlockTableWidth, std::nullopt, std::nullopt,
+     std::nullopt, std::nullopt, std::nullopt, std::nullopt, false},
+    {"chatglm", 4096, 32, 2, 128, kShortDecodeBlockSize,
+     kShortDecodeBlockTableWidth, 512, std::nullopt, 1, 28, 1,
+     infinicore::DataType::kFloat16, true},
+}};
+
+template <typename T>
+bool matches_optional_constraint(
+    const T &actual,
+    const std::optional<T> &expected) {
+    return !expected.has_value() || actual == expected.value();
+}
+
+std::optional<PagedGraphProperties> read_paged_graph_properties(
+    const cache::PagedKVCacheConfig &paged_config,
+    const config::ModelConfig *model_config) {
+    if (model_config == nullptr) {
+        return std::nullopt;
+    }
+
+    const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
+    const size_t num_attention_heads = model_config->get_or<size_t>("num_attention_heads", 0);
+    const size_t head_dim = model_config->get_or<size_t>(
+        "head_dim",
+        num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
+
+    return PagedGraphProperties{
+        infinicore::context::getDevice().type(),
+        infinilm::global_state::get_infinilm_config().attention_backend,
+        infinilm::global_state::get_tensor_model_parallel_world_size(),
+        paged_config.block_size(),
+        paged_config.num_blocks(),
+        paged_config.max_batch_size(),
+        model_config->get_or<std::string>("model_type", ""),
+        hidden_size,
+        model_config->get_or<size_t>("num_hidden_layers", 0),
+        num_attention_heads,
+        model_config->get_or<size_t>("num_key_value_heads", 0),
+        head_dim,
+        model_config->get_or<size_t>("position_id_axes", 1),
+        model_config->get_dtype(),
+        model_config->get_quant_scheme(),
+        model_config->get_kv_quant_scheme(),
+    };
+}
+
+bool matches_reviewed_paged_graph_profile(
+    const PagedGraphProperties &properties,
+    const ReviewedPagedGraphProfile &profile) {
+    return properties.device_type == infinicore::Device::Type::kNvidia
+        && properties.attention_backend == backends::AttentionBackend::FLASH_ATTN
+        && properties.model_type == profile.model_type
+        && properties.hidden_size == profile.hidden_size
+        && properties.num_attention_heads == profile.num_attention_heads
+        && properties.num_key_value_heads == profile.num_key_value_heads
+        && properties.head_dim == profile.head_dim
+        && properties.block_size == profile.block_size
+        && properties.num_blocks >= profile.minimum_num_blocks
+        && matches_optional_constraint(properties.num_blocks, profile.exact_num_blocks)
+        && matches_optional_constraint(properties.max_batch_size, profile.max_batch_size)
+        && matches_optional_constraint(
+               properties.tensor_parallel_world_size,
+               profile.tensor_parallel_world_size)
+        && matches_optional_constraint(properties.num_hidden_layers, profile.num_hidden_layers)
+        && matches_optional_constraint(properties.position_id_axes, profile.position_id_axes)
+        && matches_optional_constraint(properties.dtype, profile.dtype)
+        && (!profile.require_unquantized
+            || (properties.quant_scheme == quantization::QuantScheme::NONE
+                && properties.kv_quant_scheme == quantization::KVQuantAlgo::NONE));
+}
 
 bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_context) {
     auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
@@ -45,37 +161,15 @@ bool supports_baichuan_fixed_prefill_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
     bool has_mamba_state) {
-    if (!env_flag_enabled(kBaichuanFixedPrefillGraphEnv)
-        || model_config == nullptr) {
+    if (!env_flag_enabled(kBaichuanFixedPrefillGraphEnv) || has_mamba_state) {
         return false;
     }
 
-    const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
-    const size_t num_attention_heads = model_config->get_or<size_t>("num_attention_heads", 0);
-    const size_t head_dim = model_config->get_or<size_t>(
-        "head_dim",
-        num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
-
-    return infinicore::context::getDevice().type()
-            == infinicore::Device::Type::kNvidia
-        && infinilm::global_state::get_infinilm_config().attention_backend
-               == backends::AttentionBackend::FLASH_ATTN
-        && infinilm::global_state::get_tensor_model_parallel_world_size() == 2
-        && paged_config.block_size() == kBaichuanFixedPrefillBlockSize
-        && paged_config.num_blocks() == 1
-        && paged_config.max_batch_size() == kBaichuanFixedPrefillBatchSize
-        && model_config->get_or<std::string>("model_type", "") == "baichuan"
-        && hidden_size == 4096
-        && model_config->get_or<size_t>("num_hidden_layers", 0) == 32
-        && num_attention_heads == 32
-        && model_config->get_or<size_t>("num_key_value_heads", 0) == 32
-        && head_dim == 128
-        && model_config->get_or<size_t>("position_id_axes", 1) == 1
-        && model_config->get_quant_scheme()
-               == quantization::QuantScheme::NONE
-        && model_config->get_kv_quant_scheme()
-               == quantization::KVQuantAlgo::NONE
-        && !has_mamba_state;
+    const auto properties = read_paged_graph_properties(
+        paged_config, model_config);
+    return properties.has_value()
+        && matches_reviewed_paged_graph_profile(
+               properties.value(), kBaichuanFixedPrefillProfile);
 }
 
 bool is_cpu_contiguous_tensor(
@@ -169,39 +263,16 @@ bool is_exact_baichuan_fixed_prefill_input(
 bool supports_reviewed_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config) {
-    if (model_config == nullptr) {
-        return false;
-    }
-
-    const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
-    const size_t num_attention_heads = model_config->get_or<size_t>("num_attention_heads", 0);
-    const size_t head_dim = model_config->get_or<size_t>(
-        "head_dim",
-        num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
-    const auto model_type = model_config->get_or<std::string>("model_type", "");
-    const bool p13_profile = model_type == "internlm3";
-    const bool p12_profile = model_type == "chatglm"
-                          && paged_config.num_blocks() == 512
-                          && infinilm::global_state::get_tensor_model_parallel_world_size() == 1
-                          && model_config->get_or<size_t>("num_hidden_layers", 0) == 28
-                          && model_config->get_or<size_t>("position_id_axes", 1) == 1
-                          && model_config->get_dtype() == infinicore::DataType::kFloat16
-                          && model_config->get_quant_scheme()
-                                 == quantization::QuantScheme::NONE
-                          && model_config->get_kv_quant_scheme()
-                                 == quantization::KVQuantAlgo::NONE;
-
-    return infinicore::context::getDevice().type()
-            == infinicore::Device::Type::kNvidia
-        && infinilm::global_state::get_infinilm_config().attention_backend
-               == backends::AttentionBackend::FLASH_ATTN
-        && paged_config.block_size() == kShortDecodeBlockSize
-        && paged_config.num_blocks() >= kShortDecodeBlockTableWidth
-        && (p13_profile || p12_profile)
-        && hidden_size == 4096
-        && num_attention_heads == 32
-        && model_config->get_or<size_t>("num_key_value_heads", 0) == 2
-        && head_dim == 128;
+    const auto properties = read_paged_graph_properties(
+        paged_config, model_config);
+    return properties.has_value()
+        && std::any_of(
+               kShortDecodeProfiles.begin(),
+               kShortDecodeProfiles.end(),
+               [&](const ReviewedPagedGraphProfile &profile) {
+                   return matches_reviewed_paged_graph_profile(
+                       properties.value(), profile);
+               });
 }
 
 bool tensors_compatible(const infinicore::Tensor &target,

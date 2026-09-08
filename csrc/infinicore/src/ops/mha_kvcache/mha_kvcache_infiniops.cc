@@ -14,8 +14,7 @@ namespace infinicore::op::mha_kvcache_impl::infiniops {
 namespace {
 
 using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
-using FlashAttnOperator =
-    infini::ops::Operator<infini::ops::FlashAttnWithKvcache>;
+using FlashAttnOperator = infini::ops::Operator<infini::ops::FlashAttnWithKvcache>;
 
 // TODO: Remove backend-specific implementation indices from InfiniLM once
 // InfiniOps provides device-aware default selection for these operators.
@@ -117,10 +116,9 @@ struct PlannedMeta {
 
 std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     PlannedMeta &planned) {
-    const auto config =
-        ::infinicore::op::infiniops::configForImplementation<
-            infini::ops::FlashAttnWithKvcache>(
-            infini::ops::Device::Type::kNvidia, 17);
+    const auto config = ::infinicore::op::infiniops::configForImplementation<
+        infini::ops::FlashAttnWithKvcache>(
+        infini::ops::Device::Type::kNvidia, 17);
 
     const auto q = planned.q.tensor(planned.q_tensor);
     const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);
@@ -205,8 +203,7 @@ void *plan(Tensor out,
             seqlens_k,
             block_table,
             alibi_slopes)) {
-        planned->graph_safe_provider =
-            make_graph_safe_provider(*planned);
+        planned->graph_safe_provider = make_graph_safe_provider(*planned);
     }
     return planned.release();
 }
@@ -217,10 +214,8 @@ void run(void *planned_meta) {
     handle.set_stream(context::getStream());
 
     const auto q = planned->q.tensor(planned->q_tensor);
-    const auto k_cache =
-        planned->k_cache.tensor(planned->k_cache_tensor);
-    const auto v_cache =
-        planned->v_cache.tensor(planned->v_cache_tensor);
+    const auto k_cache = planned->k_cache.tensor(planned->k_cache_tensor);
+    const auto v_cache = planned->v_cache.tensor(planned->v_cache_tensor);
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> cache_seqlens{
         planned->seqlens_k.tensor(planned->seqlens_k_tensor)};
@@ -268,10 +263,9 @@ void run(void *planned_meta) {
 
     const auto device_type = planned->q.device.type();
     const auto implementation_index = implementation_index_for_device(device_type);
-    const auto config =
-        ::infinicore::op::infiniops::configForImplementation<
-            infini::ops::FlashAttnWithKvcache>(
-            device_type, implementation_index);
+    const auto config = ::infinicore::op::infiniops::configForImplementation<
+        infini::ops::FlashAttnWithKvcache>(
+        device_type, implementation_index);
 
     infini::ops::FlashAttnWithKvcache::Call(
         handle,
