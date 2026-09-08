@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SUPPORTED_BACKENDS = ("nvidia", "iluvatar")
+SUPPORTED_BACKENDS = ("nvidia", "iluvatar", "hygon")
 DEFAULT_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
@@ -127,6 +127,7 @@ def append_gpu_arch(
     backend: str,
     cuda_arch: Optional[str],
     iluvatar_arch: Optional[str],
+    hygon_arch: Optional[str],
 ) -> None:
     if backend == "nvidia" and cuda_arch:
         configure.append(
@@ -135,6 +136,8 @@ def append_gpu_arch(
     elif backend == "iluvatar" and iluvatar_arch:
         configure.append(f"-DILUVATAR_ARCH={iluvatar_arch}")
         configure.append(f"-DCMAKE_CUDA_ARCHITECTURES={iluvatar_arch}")
+    elif backend == "hygon" and hygon_arch:
+        configure.append(f"-DHYGON_ARCH={hygon_arch}")
 
 
 def build_infinirt_commands(
@@ -147,6 +150,7 @@ def build_infinirt_commands(
     test: bool,
     backend: str = "nvidia",
     iluvatar_arch: Optional[str] = None,
+    hygon_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -160,7 +164,7 @@ def build_infinirt_commands(
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch, hygon_arch)
     if backend == "iluvatar":
         # InfiniRT's legacy global `-x ivcore` flag also reaches CMake's link
         # probe and makes CoreX parse ELF objects as source. CMake supplies the
@@ -196,6 +200,7 @@ def build_infiniops_commands(
     operator_config: Path,
     backend: str = "nvidia",
     iluvatar_arch: Optional[str] = None,
+    hygon_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -215,7 +220,7 @@ def build_infiniops_commands(
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch, hygon_arch)
 
     return [
         configure,
@@ -242,6 +247,7 @@ def build_infiniccl_commands(
     test: bool,
     backend: str = "nvidia",
     iluvatar_arch: Optional[str] = None,
+    hygon_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -259,13 +265,24 @@ def build_infiniccl_commands(
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch, hygon_arch)
     if backend == "iluvatar":
         configure.extend(
             [
                 "-DCMAKE_CXX_COMPILER=/usr/local/corex/bin/clang++",
                 "-DNCCL_INC=/usr/local/corex/include",
                 "-DNCCL_LIB=/usr/local/corex/lib64/libnccl.so",
+            ]
+        )
+    elif backend == "hygon":
+        dtk_root = Path(
+            os.environ.get("DTK_ROOT") or os.environ.get("DTKROOT") or "/opt/dtk"
+        )
+        configure.extend(
+            [
+                f"-DCMAKE_CXX_COMPILER={dtk_root / 'bin/hipcc'}",
+                f"-DNCCL_INC={dtk_root / 'include'}",
+                f"-DNCCL_LIB={dtk_root / 'lib/librccl.so'}",
             ]
         )
 
@@ -291,8 +308,11 @@ def build_infiniccl_commands(
     return commands
 
 
-def integration_environment(prefix: Path) -> Dict[str, str]:
-    env = os.environ.copy()
+def integration_environment(
+    prefix: Path,
+    base_env: Optional[Mapping[str, str]] = None,
+) -> Dict[str, str]:
+    env = dict(base_env if base_env is not None else os.environ)
     env["LD_LIBRARY_PATH"] = os.pathsep.join(
         filter(None, [str(prefix / "lib"), env.get("LD_LIBRARY_PATH", "")])
     )
@@ -316,12 +336,14 @@ def write_manifest(
     test: bool,
     backend: str = "nvidia",
     iluvatar_arch: Optional[str] = None,
+    hygon_arch: Optional[str] = None,
 ) -> None:
     data = {
         "backend": backend,
         "build_type": build_type,
         "cuda_arch": cuda_arch,
         "iluvatar_arch": iluvatar_arch,
+        "hygon_arch": hygon_arch,
         "infinicore": infinicore_revision,
         "infinilm": infinilm_revision,
         "install_prefix": str(prefix),
@@ -357,6 +379,14 @@ def parse_cuda_arch(value: str) -> str:
     return value
 
 
+def parse_hygon_arch(value: str) -> str:
+    if not re.fullmatch(r"gfx\d+", value):
+        raise argparse.ArgumentTypeError(
+            "--hygon-arch must use gfx notation, for example gfx936"
+        )
+    return value
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build the pinned InfiniRT, InfiniOps, and InfiniCCL stack."
@@ -377,7 +407,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--operator-config",
         type=Path,
         help=(
-            "InfiniOps operator configuration. Required for Iluvatar; "
+            "InfiniOps operator configuration. Required for Iluvatar and Hygon; "
             "defaults to scripts/configs/infiniops_ops.json for NVIDIA."
         ),
     )
@@ -400,11 +430,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default=None,
         help="CoreX GPU architecture (default for Iluvatar: ivcore11).",
     )
+    parser.add_argument(
+        "--hygon-arch",
+        type=parse_hygon_arch,
+        help="Hygon DCU architecture, for example gfx936.",
+    )
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument(
         "--test",
         action="store_true",
-        help="Run InfiniRT tests and a two-GPU InfiniCCL AllReduce smoke test.",
+        help="Run InfiniRT tests and an InfiniCCL AllReduce smoke test.",
     )
     parser.add_argument(
         "--dry-run",
@@ -420,9 +455,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error("--iluvatar-arch is only valid with --backend=iluvatar")
     if args.backend == "iluvatar" and args.iluvatar_arch is None:
         args.iluvatar_arch = "ivcore11"
+    if args.backend != "hygon" and args.hygon_arch:
+        parser.error("--hygon-arch is only valid with --backend=hygon")
+    if args.backend == "hygon" and args.hygon_arch is None:
+        args.hygon_arch = "gfx936"
     if args.operator_config is None:
-        if args.backend == "iluvatar":
-            parser.error("--operator-config is required with --backend=iluvatar")
+        if args.backend != "nvidia":
+            parser.error(f"--operator-config is required with --backend={args.backend}")
         args.operator_config = DEFAULT_OPERATOR_CONFIG
     if args.build_root is None:
         args.build_root = Path("build/integration") / args.backend
@@ -453,6 +492,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     infinilm_revision = git_capture(["rev-parse", "HEAD"], PROJECT_ROOT)
     infinicore_revision = git_capture(["rev-parse", "HEAD"], infinicore_root)
     build_env = os.environ.copy()
+    if args.backend == "hygon":
+        dtk_root = Path(build_env.setdefault("DTK_ROOT", "/opt/dtk"))
+        build_env["LD_LIBRARY_PATH"] = os.pathsep.join(
+            filter(
+                None,
+                [
+                    str(dtk_root / "cuda/cuda/lib64"),
+                    str(dtk_root / "lib"),
+                    build_env.get("LD_LIBRARY_PATH", ""),
+                ],
+            )
+        )
 
     print(f"InfiniLM: {infinilm_revision}")
     print(f"InfiniCore: {infinicore_revision}")
@@ -476,10 +527,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.test,
         backend=args.backend,
         iluvatar_arch=args.iluvatar_arch,
+        hygon_arch=args.hygon_arch,
     ):
         run(command, PROJECT_ROOT, build_env, args.dry_run)
 
-    integration_env = integration_environment(prefix)
+    integration_env = integration_environment(prefix, build_env)
 
     for command in build_infiniops_commands(
         infinicore_root / SUBMODULES["InfiniOps"],
@@ -491,6 +543,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         operator_config_path,
         backend=args.backend,
         iluvatar_arch=args.iluvatar_arch,
+        hygon_arch=args.hygon_arch,
     ):
         run(command, PROJECT_ROOT, integration_env, args.dry_run)
 
@@ -504,6 +557,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.test,
         backend=args.backend,
         iluvatar_arch=args.iluvatar_arch,
+        hygon_arch=args.hygon_arch,
     ):
         run(command, PROJECT_ROOT, integration_env, args.dry_run)
 
@@ -521,6 +575,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.test,
             args.backend,
             args.iluvatar_arch,
+            args.hygon_arch,
         )
     return 0
 

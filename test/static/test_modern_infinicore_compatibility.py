@@ -159,7 +159,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
 
     def test_current_infiniops_backend_bridges_are_registered(self) -> None:
         bridge = read_source("csrc/infinicore/src/ops/infiniops_impl.hpp")
-        for device in ("kCambricon", "kAscend"):
+        for device in ("kCambricon", "kAscend", "kHygon"):
             with self.subTest(device=device):
                 self.assertIn(f"case Device::Type::{device}:", bridge)
                 self.assertIn(
@@ -178,6 +178,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "kMoore",
             "kCambricon",
             "kAscend",
+            "kHygon",
         ):
             with self.subTest(device=device):
                 self.assertIn(f"device_.type() == Device::Type::{device}", rope)
@@ -187,7 +188,14 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
         sampling = read_source("csrc/infinicore/src/ops/random_sample/random_sample.cc")
         self.assertIn("defaultConfigForDevice<infini::ops::Argmax>", sampling)
         self.assertNotIn("set_implementation_index", sampling)
-        for device in ("kMetax", "kIluvatar", "kMoore", "kCambricon", "kAscend"):
+        for device in (
+            "kMetax",
+            "kIluvatar",
+            "kMoore",
+            "kCambricon",
+            "kAscend",
+            "kHygon",
+        ):
             self.assertIn(f"device_type != Device::Type::{device}", sampling)
 
         for relative_path in (
@@ -196,7 +204,13 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             "mha_varlen_infiniops.cc",
         ):
             attention = read_source(relative_path)
-            for device in ("kMetax", "kMoore", "kCambricon", "kIluvatar"):
+            for device in (
+                "kMetax",
+                "kMoore",
+                "kCambricon",
+                "kIluvatar",
+                "kHygon",
+            ):
                 with self.subTest(adapter=relative_path, device=device):
                     self.assertIn(f"device_type != Device::Type::{device}", attention)
                     self.assertEqual(
@@ -240,12 +254,15 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             engine,
         )
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar devices",
+            "device_type != infinicore::Device::Type::kHygon",
             engine,
         )
         self.assertIn(
-            "flash-attn on Iluvatar requires head_dim to be 64 or 128",
+            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, and Hygon devices",
             engine,
+        )
+        self.assertIn(
+            "flash-attn on Iluvatar requires head_dim to be 64 or 128", engine
         )
 
     def test_dead_moore_flash_attention_bridges_are_removed(self) -> None:
@@ -268,7 +285,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                     self.assertIn(f'"{device}": "{device}"', source)
                     self.assertNotIn(f'"{device}": "cuda"', source)
 
-    def test_model_runner_accepts_iluvatar_platform_name(self) -> None:
+    def test_model_runner_accepts_modern_platform_names(self) -> None:
         source = read_source("python/infinilm/llm/model_runner/model_runner.py")
         module = ast.parse(source)
         initializer = next(
@@ -287,6 +304,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
         )
 
         self.assertIn("iluvatar", supported_devices)
+        self.assertIn("hygon", supported_devices)
 
     def test_vendor_sdk_headers_are_available_to_infinicore_build(self) -> None:
         xmake = read_source("xmake.lua")
