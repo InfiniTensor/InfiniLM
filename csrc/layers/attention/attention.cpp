@@ -6,12 +6,13 @@ namespace infinilm::layers::attention {
 
 Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
-                     const infinicore::Device &device) {
+                     const infinicore::Device &device)
+    : dtype_(model_config->get_dtype()),
+      device_(device) {
     layer_idx_ = layer_idx;
     hidden_size_ = model_config->get<size_t>("hidden_size");
     head_dim_ = model_config->get<size_t>("head_dim");
 
-    const auto &dtype{model_config->get_dtype()};
     size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
     size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
     bool use_bias = model_config->get_or<bool>("attention_bias", true);
@@ -31,18 +32,33 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
     qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
         hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
         "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
+        quantization_method, use_bias, dtype_, device_, rank_info);
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
-        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
+        use_output_bias, dtype_, device_, tp_rank, tp_size, rank_info.comm);
 
-    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
+    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device_);
 
     float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
     attn_ = std::make_shared<AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                              kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
-    init_kv_cache_quant_params(register_fn, device, kv_cache_k_scale_, kv_cache_v_scale_);
+    init_kv_cache_quant_params(register_fn, device_, kv_cache_k_scale_, kv_cache_v_scale_);
+    rank_qkv_output_size_ = qkv_proj_->out_features() / static_cast<size_t>(tp_size);
+    const auto &config = infinilm::global_state::get_infinilm_config();
+    enable_workspace_manager_ = config.enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        auto &workspace = infinilm::global_state::get_forward_context().workspace_manager;
+        workspace.reserve_slot("attention.qkv",
+                               {config.max_num_batched_tokens, rank_qkv_output_size_},
+                               dtype_,
+                               device_);
+
+        workspace.reserve_slot("attention.output",
+                               {config.max_num_batched_tokens, hidden_size_},
+                               dtype_,
+                               device_);
+    }
 }
 
 infinicore::Tensor Attention::forward(const infinicore::Tensor &positions,
@@ -62,7 +78,17 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    infinicore::Tensor q, k, v;
+    if (enable_workspace_manager_) {
+        auto qkv_output = infinilm::global_state::get_forward_context()
+                              .workspace_manager.get_buffer("attention.qkv",
+                                                            {batch_size, seq_len, rank_qkv_output_size_},
+                                                            dtype_,
+                                                            device_);
+        std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    } else {
+        std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
+    }
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
@@ -89,8 +115,16 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 7. Project output
-    auto output = o_proj_->forward(attn_output);
-    return output;
+    if (enable_workspace_manager_) {
+        auto output = infinilm::global_state::get_forward_context()
+                          .workspace_manager.get_buffer("attention.output",
+                                                        {batch_size, seq_len, hidden_size_},
+                                                        dtype_,
+                                                        device_);
+        o_proj_->forward_(output, attn_output);
+        return output;
+    }
+    return o_proj_->forward(attn_output);
 }
 
 infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_ids,
@@ -105,7 +139,17 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    infinicore::Tensor q, k, v;
+    if (enable_workspace_manager_) {
+        auto qkv_output = infinilm::global_state::get_forward_context()
+                              .workspace_manager.get_buffer("attention.qkv",
+                                                            {1, seq_len, rank_qkv_output_size_},
+                                                            dtype_,
+                                                            device_);
+        std::tie(q, k, v) = qkv_proj_->forward_split_(qkv_output, hidden_states_mutable);
+    } else {
+        std::tie(q, k, v) = qkv_proj_->forward_split(hidden_states_mutable);
+    }
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
@@ -132,8 +176,16 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
 
     // 6. Project output
-    auto output = o_proj_->forward(attn_output);
-    return output;
+    if (enable_workspace_manager_) {
+        auto output = infinilm::global_state::get_forward_context()
+                          .workspace_manager.get_buffer("attention.output",
+                                                        {1, seq_len, hidden_size_},
+                                                        dtype_,
+                                                        device_);
+        o_proj_->forward_(output, attn_output);
+        return output;
+    }
+    return o_proj_->forward(attn_output);
 }
 
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,

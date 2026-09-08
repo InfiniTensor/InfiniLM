@@ -32,6 +32,8 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
+        enable_workspace: Whether to preallocate reusable inference activations.
+        max_num_batched_tokens: Maximum scheduler batch and workspace token count.
         attn_backend: Attention backend to use ('default', 'flash-attn').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -61,6 +63,8 @@ class EngineConfig:
     top_p: float = 0.8
     top_k: int = 1
     enable_graph: bool = False
+    enable_workspace: bool = True
+    max_num_batched_tokens: int = 9216
     attn_backend: str = "default"
     use_mla: bool = False
     pre_transpose: bool = False
@@ -84,6 +88,8 @@ class EngineConfig:
 
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")
+        if self.max_num_batched_tokens < 1:
+            raise ValueError("max_num_batched_tokens must be positive")
 
         if (
             self.kv_transfer_config is not None

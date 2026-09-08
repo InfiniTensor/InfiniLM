@@ -49,5 +49,8 @@ private:
     size_t num_kv_heads_;
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
+    infinicore::DataType dtype_{infinicore::DataType::F32};
+    infinicore::Device device_;
+    bool enable_workspace_manager_{false};
 };
 } // namespace infinilm::layers::attention::backends

@@ -32,7 +32,11 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
     if (paged_config == nullptr || paged_config->max_batch_size() == 0) {
         return;
     }
-    const size_t max_batch_size = paged_config->max_batch_size();
+    size_t max_batch_size = paged_config->max_batch_size();
+    const auto &config = infinilm::global_state::get_infinilm_config();
+    if (config.enable_workspace_manager) {
+        max_batch_size = std::min(max_batch_size, config.max_num_batched_tokens);
+    }
     auto append_batch_size = [&](size_t batch_size) {
         if (batch_size <= max_batch_size) {
             decode_batch_sizes_.push_back(batch_size);
@@ -166,6 +170,10 @@ void PagedCompiler::compile() {
             // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+            const auto &config = infinilm::global_state::get_infinilm_config();
+            if (config.enable_workspace_manager) {
+                forward_context.workspace_manager.reset_runtime_buffers();
+            }
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();

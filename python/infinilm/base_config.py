@@ -74,6 +74,8 @@ class BaseConfig:
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
+        self.enable_workspace = self.args.enable_workspace
+        self.max_num_batched_tokens = self.args.max_num_batched_tokens
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
@@ -252,6 +254,25 @@ class BaseConfig:
             choices=["default", "paged-attn", "flash-attn"],
         )
         self.parser.add_argument("--enable-graph", action="store_true")
+        self.parser.add_argument(
+            "--enable-workspace",
+            dest="enable_workspace",
+            action="store_true",
+            help="preallocate reusable inference activation workspace",
+        )
+        self.parser.add_argument(
+            "--disable-workspace",
+            dest="enable_workspace",
+            action="store_false",
+            help="disable the preallocated inference activation workspace",
+        )
+        self.parser.set_defaults(enable_workspace=True)
+        self.parser.add_argument(
+            "--max-num-batched-tokens",
+            type=int,
+            default=9216,
+            help="maximum tokens in one scheduler batch and workspace allocation",
+        )
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",

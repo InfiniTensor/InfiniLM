@@ -51,6 +51,26 @@ infinicore::Tensor CompressedTensors::forward(
     return infinicore::op::linear_w8a8i8(input_contiguous->contiguous(), weight, effective_weight_scale, bias_opt);
 }
 
+void CompressedTensors::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float alpha) const {
+    auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
+    std::optional<infinicore::Tensor> bias_opt;
+    if (has_bias) {
+        bias_opt = params.at("bias");
+    }
+    auto effective_weight_scale = params.at("weight_scale");
+    if (std::fabs(alpha - 1.0f) > 1e-7f) {
+        effective_weight_scale = infinicore::op::mul_scalar(effective_weight_scale, static_cast<double>(alpha));
+    }
+    infinicore::op::linear_w8a8i8_(
+        output, input_contiguous->contiguous(), params.at("weight"),
+        effective_weight_scale, bias_opt);
+}
+
 std::vector<SplitParam> CompressedTensors::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
     const std::vector<SplitInfo> &splits,

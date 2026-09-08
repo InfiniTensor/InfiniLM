@@ -8,7 +8,7 @@ from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
 from infinilm.distributed.pipeline_transport import PipelineControlServer
-from infinilm.infer_engine import InferEngine
+from infinilm.infer_engine import InferEngine, read_hf_config
 from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
@@ -48,6 +48,17 @@ class ModelRunner:
         self._closed = False
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
+
+        hf_config = read_hf_config(config.model_path)
+        text_config = hf_config.get("text_config", hf_config)
+        max_position_embeddings = text_config.get(
+            "max_position_embeddings", config.max_cache_len
+        )
+        if not 1024 <= config.max_num_batched_tokens <= max_position_embeddings:
+            raise ValueError(
+                "max_num_batched_tokens must be in "
+                f"[1024, {max_position_embeddings}]"
+            )
 
         self._init_device()
 
@@ -91,6 +102,8 @@ class ModelRunner:
             weight_load_mode=config.weight_load_mode,
             use_legacy_moe=config.use_legacy_moe,
             pre_transpose=config.pre_transpose,
+            enable_workspace_manager=config.enable_workspace,
+            max_num_batched_tokens=config.max_num_batched_tokens,
         )
 
         if self.model_engine.model_type == "minicpm_eagle":

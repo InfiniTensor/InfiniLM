@@ -36,6 +36,11 @@ void StaticBatchingCompiler::compile() {
         (void)model_->forward(input);
         infinicore::context::syncStream();
 
+        const auto &config = infinilm::global_state::get_infinilm_config();
+        if (config.enable_workspace_manager) {
+            infinilm::global_state::get_forward_context()
+                .workspace_manager.reset_runtime_buffers();
+        }
         infinicore::context::startGraphRecording();
         auto output = model_->forward(input);
         auto graph = infinicore::context::stopGraphRecording();

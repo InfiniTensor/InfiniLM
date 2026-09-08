@@ -88,6 +88,15 @@ infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     return BaseLinear::forward(input);
 }
 
+void RowParallelLinear::forward_(infinicore::Tensor &output,
+                                 infinicore::Tensor &input) const {
+    if (tp_size_ > 1 && communicator_ != nullptr) {
+        compute_linear_allreduce_(output, input, communicator_);
+        return;
+    }
+    BaseLinear::forward_(output, input);
+}
+
 std::string RowParallelLinear::extra_repr() const {
     return "RowParallelLinear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
 }

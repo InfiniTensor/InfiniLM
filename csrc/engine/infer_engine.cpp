@@ -58,13 +58,25 @@ InferEngine::InferEngine(
     std::optional<infinicore::DataType> kv_cache_dtype,
     bool use_mla,
     const std::string &weight_load_mode,
-    bool pre_transpose)
+    bool pre_transpose,
+    bool enable_workspace_manager,
+    size_t max_num_batched_tokens)
     : communication_group_(distributed_config, device_type),
       attention_backend_(attention_backend),
       weight_load_mode_(weight_load_mode),
-      use_mla_(use_mla) {
+      use_mla_(use_mla),
+      enable_workspace_manager_(enable_workspace_manager),
+      max_num_batched_tokens_(max_num_batched_tokens) {
     if (weight_load_mode_ != "async" && weight_load_mode_ != "sync") {
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
+    }
+    if (enable_workspace_manager && max_num_batched_tokens == 0) {
+        throw std::invalid_argument(
+            "enable_workspace_manager requires max_num_batched_tokens > 0");
+    }
+    if (enable_workspace_manager_) {
+        spdlog::info("Workspace manager enabled, max_num_batched_tokens={}",
+                     max_num_batched_tokens_);
     }
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
@@ -78,7 +90,9 @@ InferEngine::InferEngine(
         use_mla,
         distributed_config.moe_ep_backend,
         distributed_config.moe_ep_size,
-        pre_transpose);
+        pre_transpose,
+        enable_workspace_manager,
+        max_num_batched_tokens);
 
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {
@@ -254,6 +268,21 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    if (enable_workspace_manager_) {
+        size_t num_input_tokens = 0;
+        if (input.input_ids.has_value()) {
+            num_input_tokens = input.input_ids.value()->numel();
+        } else if (input.target_hidden_states.has_value()) {
+            const auto &hidden_states = input.target_hidden_states.value();
+            if (hidden_states->ndim() > 0 && hidden_states->shape().back() > 0) {
+                num_input_tokens = hidden_states->numel() / hidden_states->shape().back();
+            }
+        }
+        if (num_input_tokens > max_num_batched_tokens_) {
+            throw std::invalid_argument("Input token count " + std::to_string(num_input_tokens)
+                                        + " exceeds workspace capacity " + std::to_string(max_num_batched_tokens_));
+        }
+    }
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
         worker->run(input);

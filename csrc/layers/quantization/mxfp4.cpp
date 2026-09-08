@@ -42,6 +42,20 @@ infinicore::Tensor MXFP4::forward(
         alpha);
 }
 
+void MXFP4::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float alpha) const {
+    std::optional<infinicore::Tensor> bias = std::nullopt;
+    if (has_bias) {
+        bias = params.at("bias");
+    }
+    infinicore::op::linear_mxfp4_(output, input->contiguous(), params.at("weight"),
+                                  params.at("weight_scale"), bias, alpha);
+}
+
 std::vector<SplitParam> MXFP4::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
     const std::vector<SplitInfo> &splits,

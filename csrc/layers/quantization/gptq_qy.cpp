@@ -48,6 +48,22 @@ infinicore::Tensor GPTQ_QY::forward(
     return output;
 }
 
+void GPTQ_QY::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float /*alpha*/) const {
+    auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
+    infinicore::op::linear_w4a16_gptq_qy_(
+        output, input_contiguous->contiguous(), params.at("qweight"),
+        params.at("scales"), params.at("qzeros"), 0, 4);
+    if (has_bias) {
+        auto bias = params.at("bias");
+        infinicore::op::add_(output, output, bias->as_strided(output->shape(), {0, 0, 1}));
+    }
+}
+
 std::vector<SplitParam> GPTQ_QY::split_params(
     const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
     const std::vector<SplitInfo> &splits,

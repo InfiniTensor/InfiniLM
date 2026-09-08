@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../models/infinilm_model.hpp"
+#include "workspace_manager.hpp"
 
 namespace infinilm::global_state {
 
@@ -70,6 +71,7 @@ struct ForwardContext {
     std::vector<infinicore::Tensor> kv_cache_vec;
     std::vector<infinicore::Tensor> conv_state_vec;
     std::vector<infinicore::Tensor> ssm_state_vec;
+    WorkspaceManager workspace_manager;
 };
 
 void initialize_forward_context(ForwardContext &forward_context);

@@ -33,7 +33,9 @@ public:
         std::optional<infinicore::DataType> kv_cache_dtype = std::nullopt,
         bool use_mla = false,
         const std::string &weight_load_mode = "async",
-        bool pre_transpose = false);
+        bool pre_transpose = false,
+        bool enable_workspace_manager = false,
+        size_t max_num_batched_tokens = 0);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinicore::Tensor &param);
@@ -75,6 +77,8 @@ protected:
     std::string weight_load_mode_ = "async";
     bool weights_finalized_ = false;
     bool use_mla_{false};
+    bool enable_workspace_manager_{false};
+    size_t max_num_batched_tokens_{0};
 };
 
 } // namespace infinilm::engine

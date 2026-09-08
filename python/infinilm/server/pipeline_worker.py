@@ -33,6 +33,8 @@ def run_worker(cfg: BaseConfig) -> None:
         top_p=cfg.top_p,
         top_k=cfg.top_k,
         enable_graph=cfg.enable_graph,
+        enable_workspace=cfg.enable_workspace,
+        max_num_batched_tokens=cfg.max_num_batched_tokens,
         attn_backend=cfg.attn,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,

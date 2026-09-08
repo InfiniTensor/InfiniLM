@@ -21,12 +21,16 @@ public:
                    bool use_mla = false,
                    std::string moe_ep_backend = "disabled",
                    size_t moe_ep_size = 1,
-                   bool pre_transpose = false)
+                   bool pre_transpose = false,
+                   bool enable_workspace_manager = false,
+                   size_t max_num_batched_tokens = 0)
         : attention_backend(backend),
           use_mla(use_mla),
           moe_ep_backend(std::move(moe_ep_backend)),
           moe_ep_size(moe_ep_size),
           pre_transpose(pre_transpose),
+          enable_workspace_manager(enable_workspace_manager),
+          max_num_batched_tokens(max_num_batched_tokens),
           model_config(model_config) {}
 
 public:
@@ -35,6 +39,8 @@ public:
     std::string moe_ep_backend{"disabled"};
     size_t moe_ep_size{1};
     bool pre_transpose{false};
+    bool enable_workspace_manager{false};
+    size_t max_num_batched_tokens{0};
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
 };
 

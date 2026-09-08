@@ -31,6 +31,7 @@ public:
               const infinicore::Device &device) {
         const auto &dtype{model_config->get_dtype()};
         dtype_ = dtype;
+        device_ = device;
         size_t vocab_size = model_config->get<size_t>("vocab_size");
         hidden_size_ = model_config->get<size_t>("hidden_size");
         size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
@@ -57,6 +58,15 @@ public:
 
         if (is_last_pp_stage()) {
             norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", hidden_size_, rms_norm_eps, dtype, device);
+        }
+        enable_workspace_manager_ = infinilm::global_state::get_infinilm_config().enable_workspace_manager;
+        if (enable_workspace_manager_ && is_first_pp_stage()) {
+            const size_t max_tokens = infinilm::global_state::get_infinilm_config().max_num_batched_tokens;
+            infinilm::global_state::get_forward_context()
+                .workspace_manager.reserve_slot("text.embedding",
+                                                {max_tokens, hidden_size_},
+                                                dtype_,
+                                                device_);
         }
     }
 
@@ -142,7 +152,17 @@ private:
     infinicore::Tensor initial_hidden_states(const infinilm::InfinilmModel::Input &input) const {
         auto input_ids = input.input_ids.value();
         if (is_first_pp_stage()) {
-            return embed_tokens_->forward(input_ids);
+            if (!enable_workspace_manager_) {
+                return embed_tokens_->forward(input_ids);
+            }
+            auto shape = input_ids->shape();
+            auto output = infinilm::global_state::get_forward_context().workspace_manager.get_buffer(
+                "text.embedding",
+                {shape[0], shape[1], hidden_size_},
+                dtype_,
+                device_);
+            infinicore::op::embedding_(output, input_ids, embed_tokens_->weight());
+            return output;
         }
         auto shape = input_ids->shape();
         return recv_pipeline_hidden(shape[0], shape[1], input_ids->dtype(), input_ids->device());
@@ -207,6 +227,8 @@ private:
     }
 
     infinicore::DataType dtype_{infinicore::DataType::F32};
+    infinicore::Device device_;
+    bool enable_workspace_manager_{false};
     size_t hidden_size_{0};
     size_t pp_size_{1};
     size_t pp_stage_{0};

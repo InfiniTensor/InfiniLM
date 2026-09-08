@@ -8,7 +8,6 @@ This module provides:
 
 import asyncio
 import logging
-import os
 import threading
 import time
 import uuid
@@ -69,6 +68,11 @@ class LLMEngine:
         if config.cache_type == "static":
             self.scheduler = StaticScheduler(
                 max_cache_len=config.max_cache_len,
+                max_num_batched_tokens=(
+                    config.max_num_batched_tokens
+                    if config.enable_workspace
+                    else None
+                ),
                 enable_prefix_caching=config.enable_prefix_caching,
             )
             logger.info(
@@ -96,16 +100,11 @@ class LLMEngine:
             )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
-            max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
-            )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
-
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
-                max_num_batched_tokens=max_num_batched_tokens,
+                max_num_batched_tokens=config.max_num_batched_tokens,
                 connector=connector,
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
@@ -359,6 +358,8 @@ class LLM:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        enable_workspace: bool = True,
+        max_num_batched_tokens: int = 9216,
         attn_backend: str = "default",
         use_mla: bool = False,
         pre_transpose: bool = False,
@@ -384,6 +385,8 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            enable_workspace: Whether to preallocate reusable inference activations.
+            max_num_batched_tokens: Maximum scheduler batch and workspace token count.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -411,6 +414,8 @@ class LLM:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            enable_workspace=enable_workspace,
+            max_num_batched_tokens=max_num_batched_tokens,
             attn_backend=attn_backend,
             use_mla=use_mla,
             pre_transpose=pre_transpose,
@@ -586,6 +591,8 @@ class AsyncLLMEngine:
         top_p: float = 0.8,
         top_k: int = 1,
         enable_graph: bool = False,
+        enable_workspace: bool = True,
+        max_num_batched_tokens: int = 9216,
         attn_backend: str = "default",
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
@@ -612,6 +619,8 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            enable_workspace: Whether to preallocate reusable inference activations.
+            max_num_batched_tokens: Maximum scheduler batch and workspace token count.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
@@ -643,6 +652,8 @@ class AsyncLLMEngine:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            enable_workspace=enable_workspace,
+            max_num_batched_tokens=max_num_batched_tokens,
             attn_backend=attn_backend,
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,

@@ -292,6 +292,14 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
+            if (infinilm_config_->enable_workspace_manager) {
+                if (infinilm_config_->max_num_batched_tokens == 0) {
+                    throw std::invalid_argument(
+                        "Workspace manager requires max_num_batched_tokens > 0");
+                }
+                forward_context_.workspace_manager.finalize();
+                infinicore::context::syncStream();
+            }
             if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
@@ -415,6 +423,9 @@ void RankWorker::thread_loop() {
                 try {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
+                        if (infinilm_config_->enable_workspace_manager) {
+                            forward_context_.workspace_manager.reset_runtime_buffers();
+                        }
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;

@@ -55,6 +55,11 @@ protected:
     size_t hidden_size_;
     size_t intermediate_size_;
     bool use_bias_;
+    size_t rank_gate_up_output_size_{0};
+    size_t rank_intermediate_size_{0};
+    infinicore::DataType dtype_{infinicore::DataType::F32};
+    infinicore::Device device_;
+    bool enable_workspace_manager_{false};
 };
 
 } // namespace infinilm::layers::mlp

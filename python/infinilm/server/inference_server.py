@@ -117,6 +117,8 @@ class InferenceServer:
         host: str = "0.0.0.0",
         port: int = 8000,
         enable_graph: bool = False,
+        enable_workspace: bool = True,
+        max_num_batched_tokens: int = 9216,
         attn_backend: str = "default",
         use_mla: bool = False,
         skip_load: bool = False,
@@ -148,6 +150,8 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            enable_workspace: Whether to preallocate reusable inference activations.
+            max_num_batched_tokens: Maximum scheduler batch and workspace token count.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             skip_load: Whether to skip loading model weights.
@@ -180,6 +184,8 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.enable_workspace = enable_workspace
+        self.max_num_batched_tokens = max_num_batched_tokens
         self.attn_backend = attn_backend
         self.use_mla = use_mla
         self.skip_load = skip_load
@@ -225,6 +231,8 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                enable_workspace=self.enable_workspace,
+                max_num_batched_tokens=self.max_num_batched_tokens,
                 attn_backend=self.attn_backend,
                 use_mla=self.use_mla,
                 skip_load=self.skip_load,
@@ -236,6 +244,7 @@ class InferenceServer:
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
+            logger.info(f"  enable_workspace: {self.enable_workspace}")
             yield
             self.engine.stop()
 
@@ -659,6 +668,8 @@ def main():
         host=cfg.host,
         port=cfg.port,
         enable_graph=cfg.enable_graph,
+        enable_workspace=cfg.enable_workspace,
+        max_num_batched_tokens=cfg.max_num_batched_tokens,
         attn_backend=cfg.attn,
         use_mla=cfg.use_mla,
         skip_load=cfg.skip_load,

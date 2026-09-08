@@ -50,11 +50,13 @@ class StaticScheduler:
     def __init__(
         self,
         max_cache_len: int = 4096,
+        max_num_batched_tokens: Optional[int] = None,
         enable_prefix_caching: bool = True,
     ):
         self.waiting_queue = janus.Queue()
         self.running_request: Optional[InferenceRequest] = None
         self.max_cache_len = max_cache_len
+        self.max_num_batched_tokens = max_num_batched_tokens
         self.enable_prefix_caching = enable_prefix_caching
         self.cached_block_hashes: List[BlockHash] = []
 

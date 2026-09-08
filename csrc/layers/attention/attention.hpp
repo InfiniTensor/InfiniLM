@@ -53,6 +53,10 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    size_t rank_qkv_output_size_{0};
+    infinicore::DataType dtype_{infinicore::DataType::F32};
+    infinicore::Device device_;
+    bool enable_workspace_manager_{false};
 
     // For off-line kv cache quantization
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);

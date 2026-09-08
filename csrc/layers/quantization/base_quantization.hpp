@@ -62,7 +62,22 @@ public:
         float alpha = 1.0f) const
         = 0;
 
+    virtual void forward_(
+        infinicore::Tensor &output,
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha = 1.0f) const;
+
     virtual infinicore::Tensor forward_allreduce(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        infinicclComm_t communicator,
+        float alpha = 1.0f) const;
+
+    virtual void forward_allreduce_(
+        infinicore::Tensor &output,
         const ParamsMap &params,
         const infinicore::Tensor &input,
         bool has_bias,

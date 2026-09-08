@@ -15,7 +15,20 @@ PagedAttentionImpl::PagedAttentionImpl(size_t num_heads,
       scale_(scale),
       num_kv_heads_(num_kv_heads),
       layer_idx_(layer_idx),
-      head_dim_(head_size) {}
+      head_dim_(head_size) {
+    const auto &config = infinilm::global_state::get_infinilm_config();
+    dtype_ = config.model_config->get_dtype();
+    device_ = infinilm::global_state::get_tensor_model_parallel_rank_info().device;
+    enable_workspace_manager_ = config.enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        const size_t value_head_dim = config.model_config->get_or<size_t>("v_head_dim", head_dim_);
+        infinilm::global_state::get_forward_context()
+            .workspace_manager.reserve_slot("attention.backend",
+                                            {config.max_num_batched_tokens, num_heads_, std::max(head_dim_, value_head_dim)},
+                                            dtype_,
+                                            device_);
+    }
+}
 
 infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
                                                const infinicore::Tensor &query,
@@ -38,7 +51,18 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
 
     // 2. Compute attention
     const size_t value_head_dim = value->size(value->ndim() - 1);
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, value_head_dim}, query->dtype(), query->device());
+    infinicore::Tensor attn_output;
+    if (enable_workspace_manager_) {
+        attn_output = infinilm::global_state::get_forward_context()
+                          .workspace_manager.get_buffer("attention.backend",
+                                                        {seq_len, num_heads_, value_head_dim},
+                                                        query->dtype(),
+                                                        query->device());
+    } else {
+        attn_output = infinicore::Tensor::empty({seq_len, num_heads_, value_head_dim},
+                                                query->dtype(),
+                                                query->device());
+    }
     if (is_prefill) {
         infinicore::op::paged_attention_prefill_(
             attn_output,

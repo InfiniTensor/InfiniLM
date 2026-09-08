@@ -24,6 +24,16 @@ FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
         throw std::runtime_error("infinilm::layers::attention::backends::FlashAttentionImpl: model_config is null");
     }
     max_position_embeddings_ = infinilm_config.model_config->get<size_t>("max_position_embeddings");
+    dtype_ = infinilm_config.model_config->get_dtype();
+    device_ = infinilm::global_state::get_tensor_model_parallel_rank_info().device;
+    enable_workspace_manager_ = infinilm_config.enable_workspace_manager;
+    if (enable_workspace_manager_) {
+        infinilm::global_state::get_forward_context()
+            .workspace_manager.reserve_slot("attention.backend",
+                                            {infinilm_config.max_num_batched_tokens, num_heads_, head_dim_},
+                                            dtype_,
+                                            device_);
+    }
 }
 
 infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
@@ -48,8 +58,18 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    auto attn_output = infinicore::Tensor::empty(
-        {seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    infinicore::Tensor attn_output;
+    if (enable_workspace_manager_) {
+        attn_output = infinilm::global_state::get_forward_context()
+                          .workspace_manager.get_buffer("attention.backend",
+                                                        {seq_len, num_heads_, head_dim_},
+                                                        query->dtype(),
+                                                        query->device());
+    } else {
+        attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_},
+                                                query->dtype(),
+                                                query->device());
+    }
     if (is_prefill) {
         const size_t max_query_length = attn_metadata.max_query_length > 0
                                           ? attn_metadata.max_query_length

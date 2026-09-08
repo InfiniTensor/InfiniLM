@@ -74,7 +74,7 @@ class Scheduler:
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
-        self.max_batch_size = max_batch_size
+        self.max_batch_size = min(max_batch_size, max_num_batched_tokens)
 
         self.finished_receiving_kv_req_ids: set[str] = set()
         self.failed_receiving_kv_req_ids: set[str] = set()
@@ -97,6 +97,12 @@ class Scheduler:
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            prompt_length = request.get_prompt_length()
+            if prompt_length > self.max_num_batched_tokens:
+                raise ValueError(
+                    f"Request prompt contains {prompt_length} tokens, exceeding "
+                    f"max_num_batched_tokens={self.max_num_batched_tokens}"
+                )
             # TODO: Remove the multimodal exclusion once media-aware prefix
             # hashing and model-side cache-boundary handling are supported.
             request.initialize_block_hashes(

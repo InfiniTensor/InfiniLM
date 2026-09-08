@@ -80,7 +80,9 @@ inline void bind_infer_engine(py::module &m) {
                           std::optional<infinicore::DataType> kv_cache_dtype,
                           bool use_mla,
                           const std::string &weight_load_mode,
-                          bool pre_transpose) {
+                          bool pre_transpose,
+                          bool enable_workspace_manager,
+                          size_t max_num_batched_tokens) {
                  return std::make_shared<InferEngine>(
                      config_str,
                      dist,
@@ -91,7 +93,9 @@ inline void bind_infer_engine(py::module &m) {
                      kv_cache_dtype,
                      use_mla,
                      weight_load_mode,
-                     pre_transpose);
+                     pre_transpose,
+                     enable_workspace_manager,
+                     max_num_batched_tokens);
              }),
              py::arg("config_str"),
              py::arg("distributed_config"),
@@ -102,7 +106,9 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("kv_cache_dtype") = py::none(),
              py::arg("use_mla") = false,
              py::arg("weight_load_mode") = "async",
-             py::arg("pre_transpose") = false)
+             py::arg("pre_transpose") = false,
+             py::arg("enable_workspace_manager") = false,
+             py::arg("max_num_batched_tokens") = 0)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")

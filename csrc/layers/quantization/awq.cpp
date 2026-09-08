@@ -52,6 +52,22 @@ infinicore::Tensor AWQ::forward(
     return infinicore::op::linear_w4a16_awq(input_contiguous->contiguous(), qweight, scales, qzeros, bias_opt);
 }
 
+void AWQ::forward_(
+    infinicore::Tensor &output,
+    const ParamsMap &params,
+    const infinicore::Tensor &input,
+    bool has_bias,
+    float /*alpha*/) const {
+    auto input_contiguous = input->is_contiguous() ? input : input->contiguous();
+    std::optional<infinicore::Tensor> bias_opt;
+    if (has_bias) {
+        bias_opt = params.at("bias");
+    }
+    infinicore::op::linear_w4a16_awq_(
+        output, input_contiguous->contiguous(), params.at("qweight"),
+        params.at("scales"), params.at("qzeros"), bias_opt);
+}
+
 std::shared_ptr<BaseQuantization> AWQ::process_weights_after_loading(
     ParamsMap &params,
     const infinicore::Device &device,

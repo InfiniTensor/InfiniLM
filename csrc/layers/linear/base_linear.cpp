@@ -43,6 +43,15 @@ infinicore::Tensor BaseLinear::compute_linear(infinicore::Tensor &input) const {
     return quantization_->forward(params, input, has_bias_, alpha_);
 }
 
+void BaseLinear::compute_linear_(infinicore::Tensor &output,
+                                 infinicore::Tensor &input) const {
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+    quantization_->forward_(output, params, input, has_bias_, alpha_);
+}
+
 infinicore::Tensor BaseLinear::compute_linear_allreduce(
     infinicore::Tensor &input,
     infinicclComm_t communicator) const {
@@ -54,8 +63,24 @@ infinicore::Tensor BaseLinear::compute_linear_allreduce(
         params, input, has_bias_, communicator, alpha_);
 }
 
+void BaseLinear::compute_linear_allreduce_(
+    infinicore::Tensor &output,
+    infinicore::Tensor &input,
+    infinicclComm_t communicator) const {
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+    quantization_->forward_allreduce_(output, params, input, has_bias_, communicator, alpha_);
+}
+
 infinicore::Tensor BaseLinear::forward(infinicore::Tensor &input) const {
     return compute_linear(input);
+}
+
+void BaseLinear::forward_(infinicore::Tensor &output,
+                          infinicore::Tensor &input) const {
+    compute_linear_(output, input);
 }
 
 infinicore::Tensor BaseLinear::forward(infinicore::Tensor &input, infinicore::Tensor &residual) const {
