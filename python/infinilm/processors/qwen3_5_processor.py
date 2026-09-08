@@ -1,7 +1,7 @@
 import json
 import os
 
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
@@ -35,6 +35,8 @@ class Qwen35Processor(BasicLLMProcessor):
         else:
             self.spatial_merge_size = 2
         try:
+            from transformers import AutoProcessor
+
             self.processor = AutoProcessor.from_pretrained(
                 model_dir_path, trust_remote_code=True
             )

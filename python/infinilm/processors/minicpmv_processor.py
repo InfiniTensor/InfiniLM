@@ -1,6 +1,6 @@
 from threading import Lock
 
-from transformers import AutoConfig, AutoImageProcessor, AutoProcessor
+from transformers import AutoConfig
 from typing_extensions import override
 
 from .processor import InfinilmProcessor, register_processor
@@ -10,6 +10,8 @@ _AUTO_IMAGE_PROCESSOR_REGISTER_LOCK = Lock()
 
 def _load_processor_with_legacy_registration(model_dir_path: str):
     """Load old MiniCPM-V processor code with Transformers 5 compatibility."""
+    from transformers import AutoImageProcessor, AutoProcessor
+
     with _AUTO_IMAGE_PROCESSOR_REGISTER_LOCK:
         original_descriptor = AutoImageProcessor.__dict__["register"]
         original_register = AutoImageProcessor.register
