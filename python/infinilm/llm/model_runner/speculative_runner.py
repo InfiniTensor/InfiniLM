@@ -56,7 +56,9 @@ class SpeculativeRunner:
         if not requests:
             return []
 
-        target_output = self.target_model_engine.forward_raw(**model_input)
+        target_model_input = dict(model_input)
+        target_model_input["sample_all_positions"] = scheduler_output.is_prefill
+        target_output = self.target_model_engine.forward_raw(**target_model_input)
         target_token_ids = target_output["output_ids"].to_numpy().tolist()
         if not target_token_ids:
             return target_token_ids
@@ -253,6 +255,7 @@ class SpeculativeRunner:
                 temperature=1.0,
                 top_k=1,
                 top_p=1.0,
+                sample_all_positions=False,
             )
             token_ids = draft_output["output_ids"].to_numpy().tolist()
             draft_hidden = draft_output["hidden_states"]
@@ -276,6 +279,12 @@ class SpeculativeRunner:
         block_tables = []
         max_block_table_len = max(
             len(candidate["req"].block_table) for candidate in candidates
+        )
+        # A one-token candidate only needs its correction token. Selecting the
+        # last position keeps that case eligible for the compiled decode graph;
+        # longer candidates still need every intermediate prediction.
+        sample_all_positions = any(
+            len(candidate["draft_tokens"]) != 1 for candidate in candidates
         )
 
         for candidate in candidates:
@@ -307,4 +316,5 @@ class SpeculativeRunner:
             "temperature": 1.0,
             "top_k": 1,
             "top_p": 1.0,
+            "sample_all_positions": sample_all_positions,
         }
