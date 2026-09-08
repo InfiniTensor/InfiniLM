@@ -990,23 +990,12 @@ if __name__ == "__main__":
                     temperature=cfg.temperature,
                 )
         else:
-            if enable_paged_attn:
-                warmup_num_blocks = (
-                    (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
-                    // paged_kv_block_size
-                ) * warmup_batch
-                warmup_cache_config = PagedKVCacheConfig(
-                    warmup_num_blocks,
-                    paged_kv_block_size,
-                    max_batch_size=warmup_batch,
-                )
-            else:
+            if not enable_paged_attn:
                 warmup_cache_config = StaticKVCacheConfig(
                     max_batch_size=warmup_batch,
                     max_cache_len=warmup_input_len + warmup_decode_len,
                 )
-
-            test.model.reset_cache(warmup_cache_config)
+                test.model.reset_cache(warmup_cache_config)
             warmup_prompt_ids = resize_benchmark_prompt(
                 *test.prompt_token_segments, target_length=warmup_input_len
             )
@@ -1029,8 +1018,13 @@ if __name__ == "__main__":
 
         print("=================== warmup done ====================")
 
-        # reset cache back to benchmark config
-        if cache_config is not None and not test.uses_pipeline_parallel:
+        # Paged warmup reuses the benchmark cache; static warmup uses a
+        # smaller temporary cache and must restore the benchmark dimensions.
+        if (
+            not enable_paged_attn
+            and cache_config is not None
+            and not test.uses_pipeline_parallel
+        ):
             test.model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #

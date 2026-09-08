@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import zipfile
 from typing import Dict, List, Optional, Tuple, Union
 
 import infinicore
@@ -54,6 +55,16 @@ str_to_torch_dtype = {
     "F8_E4M3": torch.float8_e4m3fn,
     "F8_E5M2": torch.float8_e5m2,
 }
+
+
+def _load_pytorch_bin(file_path: str) -> Dict[str, torch.Tensor]:
+    load_kwargs = {
+        "weights_only": True,
+        "map_location": "cpu",
+    }
+    if zipfile.is_zipfile(file_path):
+        load_kwargs["mmap"] = True
+    return torch.load(file_path, **load_kwargs)
 
 
 def _is_internal_moe_packed_weight(key: str) -> bool:
@@ -295,7 +306,7 @@ def load_model_state_dict_by_file(
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = _load_pytorch_bin(file_path)
 
         # Apply model-specific weight remapping
         remapper = _WEIGHT_REMAPPER.get(model_type)
@@ -404,7 +415,7 @@ def load_model_state_dict_by_tensor(
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = _load_pytorch_bin(file_path)
 
         for key in model_params.keys():
             tensor = model_params[key].to(dtype=torch_dtype)

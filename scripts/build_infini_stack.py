@@ -9,7 +9,8 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
+SUPPORTED_BACKENDS = ("nvidia", "iluvatar")
+DEFAULT_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -17,7 +18,9 @@ SUBMODULES = {
 }
 
 
-def read_operator_config(path: Path = OPERATOR_CONFIG) -> Dict[str, Dict[str, object]]:
+def read_operator_config(
+    path: Path = DEFAULT_OPERATOR_CONFIG,
+) -> Dict[str, Dict[str, object]]:
     config = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(config, dict) or not config:
         raise ValueError(f"Operator config must be a non-empty object: {path}")
@@ -115,6 +118,25 @@ def cmake_cuda_architectures(cuda_arch: str) -> str:
     return ";".join(arch[3:] for arch in cuda_arch.split(","))
 
 
+def backend_cmake_option(backend: str) -> str:
+    return f"-DWITH_{backend.upper()}=ON"
+
+
+def append_gpu_arch(
+    configure: List[str],
+    backend: str,
+    cuda_arch: Optional[str],
+    iluvatar_arch: Optional[str],
+) -> None:
+    if backend == "nvidia" and cuda_arch:
+        configure.append(
+            f"-DCMAKE_CUDA_ARCHITECTURES={cmake_cuda_architectures(cuda_arch)}"
+        )
+    elif backend == "iluvatar" and iluvatar_arch:
+        configure.append(f"-DILUVATAR_ARCH={iluvatar_arch}")
+        configure.append(f"-DCMAKE_CUDA_ARCHITECTURES={iluvatar_arch}")
+
+
 def build_infinirt_commands(
     source: Path,
     build: Path,
@@ -123,6 +145,8 @@ def build_infinirt_commands(
     jobs: int,
     cuda_arch: Optional[str],
     test: bool,
+    backend: str = "nvidia",
+    iluvatar_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -131,15 +155,17 @@ def build_infinirt_commands(
         "-B",
         str(build),
         "-DWITH_CPU=ON",
-        "-DWITH_NVIDIA=ON",
+        backend_cmake_option(backend),
         f"-DINFINI_RT_BUILD_TESTING={'ON' if test else 'OFF'}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    if cuda_arch:
-        configure.append(
-            f"-DCMAKE_CUDA_ARCHITECTURES={cmake_cuda_architectures(cuda_arch)}"
-        )
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
+    if backend == "iluvatar":
+        # InfiniRT's legacy global `-x ivcore` flag also reaches CMake's link
+        # probe and makes CoreX parse ELF objects as source. CMake supplies the
+        # required language mode and architecture flags itself.
+        configure.append("-DCMAKE_CUDA_FLAGS=")
 
     commands = [
         configure,
@@ -168,6 +194,8 @@ def build_infiniops_commands(
     jobs: int,
     cuda_arch: Optional[str],
     operator_config: Path,
+    backend: str = "nvidia",
+    iluvatar_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -176,7 +204,7 @@ def build_infiniops_commands(
         "-B",
         str(build),
         "-DWITH_CPU=ON",
-        "-DWITH_NVIDIA=ON",
+        backend_cmake_option(backend),
         "-DWITH_LINKED=ON",
         "-DWITH_TORCH=ON",
         "-DAUTO_DETECT_DEVICES=OFF",
@@ -187,10 +215,7 @@ def build_infiniops_commands(
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    if cuda_arch:
-        configure.append(
-            f"-DCMAKE_CUDA_ARCHITECTURES={cmake_cuda_architectures(cuda_arch)}"
-        )
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
 
     return [
         configure,
@@ -215,6 +240,8 @@ def build_infiniccl_commands(
     jobs: int,
     cuda_arch: Optional[str],
     test: bool,
+    backend: str = "nvidia",
+    iluvatar_arch: Optional[str] = None,
 ) -> List[List[str]]:
     configure = [
         "cmake",
@@ -222,7 +249,7 @@ def build_infiniccl_commands(
         str(source),
         "-B",
         str(build),
-        "-DWITH_NVIDIA=ON",
+        backend_cmake_option(backend),
         "-DWITH_NCCL=ON",
         "-DWITH_OMPI=OFF",
         "-DWITH_MPICH=OFF",
@@ -232,9 +259,14 @@ def build_infiniccl_commands(
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
-    if cuda_arch:
-        configure.append(
-            f"-DCMAKE_CUDA_ARCHITECTURES={cmake_cuda_architectures(cuda_arch)}"
+    append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch)
+    if backend == "iluvatar":
+        configure.extend(
+            [
+                "-DCMAKE_CXX_COMPILER=/usr/local/corex/bin/clang++",
+                "-DNCCL_INC=/usr/local/corex/include",
+                "-DNCCL_LIB=/usr/local/corex/lib64/libnccl.so",
+            ]
         )
 
     commands = [
@@ -282,11 +314,14 @@ def write_manifest(
     cuda_arch: Optional[str],
     jobs: int,
     test: bool,
+    backend: str = "nvidia",
+    iluvatar_arch: Optional[str] = None,
 ) -> None:
     data = {
-        "backend": "nvidia",
+        "backend": backend,
         "build_type": build_type,
         "cuda_arch": cuda_arch,
+        "iluvatar_arch": iluvatar_arch,
         "infinicore": infinicore_revision,
         "infinilm": infinilm_revision,
         "install_prefix": str(prefix),
@@ -324,7 +359,13 @@ def parse_cuda_arch(value: str) -> str:
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build the pinned InfiniRT, InfiniOps, and InfiniCCL NVIDIA stack."
+        description="Build the pinned InfiniRT, InfiniOps, and InfiniCCL stack."
+    )
+    parser.add_argument(
+        "--backend",
+        choices=SUPPORTED_BACKENDS,
+        default="nvidia",
+        help="GPU backend to build (default: %(default)s).",
     )
     parser.add_argument(
         "--infinicore-root",
@@ -333,10 +374,17 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="InfiniCore checkout containing the pinned stack submodules.",
     )
     parser.add_argument(
+        "--operator-config",
+        type=Path,
+        help=(
+            "InfiniOps operator configuration. Required for Iluvatar; "
+            "defaults to scripts/configs/infiniops_ops.json for NVIDIA."
+        ),
+    )
+    parser.add_argument(
         "--build-root",
         type=Path,
-        default=Path("build/integration/nvidia"),
-        help="Isolated build and install directory (default: %(default)s).",
+        help="Isolated build and install directory (default: build/integration/<backend>).",
     )
     parser.add_argument("--build-type", choices=("Debug", "Release"), default="Release")
     parser.add_argument(
@@ -346,6 +394,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
             "Optional comma-separated CUDA architectures in SM notation, "
             "for example sm_80,sm_86,sm_90a."
         ),
+    )
+    parser.add_argument(
+        "--iluvatar-arch",
+        default=None,
+        help="CoreX GPU architecture (default for Iluvatar: ivcore11).",
     )
     parser.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     parser.add_argument(
@@ -361,6 +414,18 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.jobs < 1:
         parser.error("--jobs must be positive")
+    if args.backend != "nvidia" and args.cuda_arch:
+        parser.error("--cuda-arch is only valid with --backend=nvidia")
+    if args.backend != "iluvatar" and args.iluvatar_arch:
+        parser.error("--iluvatar-arch is only valid with --backend=iluvatar")
+    if args.backend == "iluvatar" and args.iluvatar_arch is None:
+        args.iluvatar_arch = "ivcore11"
+    if args.operator_config is None:
+        if args.backend == "iluvatar":
+            parser.error("--operator-config is required with --backend=iluvatar")
+        args.operator_config = DEFAULT_OPERATOR_CONFIG
+    if args.build_root is None:
+        args.build_root = Path("build/integration") / args.backend
     return args
 
 
@@ -379,7 +444,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     build_root = resolve_from_project(args.build_root)
     prefix = build_root / "prefix"
     manifest_path = build_root / "manifest.json"
-    operator_config = read_operator_config()
+    operator_config_path = resolve_from_project(args.operator_config)
+    operator_config = read_operator_config(operator_config_path)
     revisions = {
         name: validate_submodule(infinicore_root, relative_path)
         for name, relative_path in SUBMODULES.items()
@@ -393,6 +459,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     print(f"InfiniRT: {revisions['InfiniRT']}")
     print(f"InfiniOps: {revisions['InfiniOps']}")
     print(f"InfiniCCL: {revisions['InfiniCCL']}")
+    print(f"Backend: {args.backend}")
     print(f"Operators ({len(operator_config)}): {','.join(operator_config)}")
 
     if not args.dry_run:
@@ -407,6 +474,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.jobs,
         args.cuda_arch,
         args.test,
+        backend=args.backend,
+        iluvatar_arch=args.iluvatar_arch,
     ):
         run(command, PROJECT_ROOT, build_env, args.dry_run)
 
@@ -419,7 +488,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.build_type,
         args.jobs,
         args.cuda_arch,
-        OPERATOR_CONFIG,
+        operator_config_path,
+        backend=args.backend,
+        iluvatar_arch=args.iluvatar_arch,
     ):
         run(command, PROJECT_ROOT, integration_env, args.dry_run)
 
@@ -431,6 +502,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         args.jobs,
         args.cuda_arch,
         args.test,
+        backend=args.backend,
+        iluvatar_arch=args.iluvatar_arch,
     ):
         run(command, PROJECT_ROOT, integration_env, args.dry_run)
 
@@ -446,6 +519,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             args.cuda_arch,
             args.jobs,
             args.test,
+            args.backend,
+            args.iluvatar_arch,
         )
     return 0
 

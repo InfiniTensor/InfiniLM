@@ -251,6 +251,32 @@ class BuildInfiniStackTest(unittest.TestCase):
         ):
             build_infini_stack.parse_args([])
 
+    def test_iluvatar_requires_external_operator_config(self):
+        with (
+            mock.patch.object(build_infini_stack.sys, "stderr"),
+            self.assertRaisesRegex(SystemExit, "2"),
+        ):
+            build_infini_stack.parse_args(
+                ["--infinicore-root", "core", "--backend", "iluvatar"]
+            )
+
+    def test_iluvatar_accepts_external_operator_config(self):
+        args = build_infini_stack.parse_args(
+            [
+                "--infinicore-root",
+                "core",
+                "--backend",
+                "iluvatar",
+                "--operator-config",
+                "../local/infiniops_ops_iluvatar.json",
+            ]
+        )
+
+        self.assertEqual(
+            args.operator_config,
+            Path("../local/infiniops_ops_iluvatar.json"),
+        )
+
     def test_cuda_arch_list_is_converted_for_cmake(self):
         commands = build_infini_stack.build_infinirt_commands(
             Path("rt"),
@@ -342,6 +368,51 @@ class BuildInfiniStackTest(unittest.TestCase):
         )
         self.assertEqual(commands[-1][1:3], ["-g", "2"])
 
+    def test_iluvatar_commands_use_corex_toolchain(self):
+        rt = build_infini_stack.build_infinirt_commands(
+            Path("rt"),
+            Path("build/rt"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+        ops = build_infini_stack.build_infiniops_commands(
+            Path("ops"),
+            Path("build/ops"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            Path("iluvatar-ops.json"),
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+        ccl = build_infini_stack.build_infiniccl_commands(
+            Path("ccl"),
+            Path("build/ccl"),
+            Path("build/prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="iluvatar",
+            iluvatar_arch="ivcore11",
+        )[0]
+
+        for command in (rt, ops, ccl):
+            self.assertIn("-DWITH_ILUVATAR=ON", command)
+            self.assertIn("-DILUVATAR_ARCH=ivcore11", command)
+            self.assertIn("-DCMAKE_CUDA_ARCHITECTURES=ivcore11", command)
+        self.assertIn("-DCMAKE_CUDA_FLAGS=", rt)
+        self.assertIn("-DINFINI_OPS_OPS=iluvatar-ops.json", ops)
+        self.assertIn("-DCMAKE_CXX_COMPILER=/usr/local/corex/bin/clang++", ccl)
+        self.assertIn("-DNCCL_INC=/usr/local/corex/include", ccl)
+        self.assertIn("-DNCCL_LIB=/usr/local/corex/lib64/libnccl.so", ccl)
+
     def test_main_uses_core_sources_infini_lm_cwd_and_one_prefix(self):
         args = build_infini_stack.parse_args(
             [
@@ -425,6 +496,10 @@ class BuildInfiniStackTest(unittest.TestCase):
                 build_root / "infiniops",
                 prefix,
             ),
+        )
+        self.assertEqual(
+            build_infiniops.call_args.args[6],
+            build_infini_stack.DEFAULT_OPERATOR_CONFIG.resolve(),
         )
         self.assertEqual(
             build_infiniccl.call_args.args[:3],
