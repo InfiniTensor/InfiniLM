@@ -35,13 +35,28 @@ export INFINI_ROOT="$PWD/build/integration/nvidia/prefix"
 export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 ```
 
+For Iluvatar CoreX, select the Iluvatar component configuration and match the
+CoreX PyTorch C++ ABI. Keep the Iluvatar operator configuration outside the
+InfiniLM checkout and pass its path explicitly:
+
+```shell
+python3 scripts/build_infini_stack.py \
+  --infinicore-root ../InfiniCore \
+  --backend iluvatar \
+  --operator-config /path/to/infiniops_ops_iluvatar.json \
+  --jobs 16
+export INFINI_ROOT="$PWD/build/integration/iluvatar/prefix"
+export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
+export INFINILM_CXX11_ABI=0
+```
+
 Then build and install InfiniLM:
 
 ```shell
 python3 -m pip install . --no-build-isolation
 ```
 
-Current migration validation is limited to NVIDIA A100 and dense,
+Current migration validation covers NVIDIA A100 and Iluvatar BI-V150 dense,
 non-quantized configurations. Real-weight, two-token static-attention smoke
 tests have passed for the Baichuan, ChatGLM, FM9G, GLM4, InternLM3, Llama,
 MiniCPM4 (`model_type=minicpm` normalized to `minicpm4`), Qwen2, and Qwen3
@@ -51,9 +66,14 @@ Qwen3-0.6B has also passed paged attention, eager and graph execution,
 single-request and batch-2 inference, greedy and non-greedy sampling, TP2,
 PP2, and combined TP2+PP2. Explicit FlashAttention passed eager and graph
 execution on Qwen3-0.6B and BF16 TP4 inference on Qwen3-32B. FlashAttention
-also passed eager and graph execution on Llama-3.2-3B. It requires NVIDIA, an
-FP16 or BF16 model, a head dimension divisible by 8 and no greater than 256,
-and a paged KV cache whose block size is a nonzero multiple of 256.
+also passed eager and graph execution on Llama-3.2-3B. On Iluvatar BI-V150,
+9G-8B BF16 real-weight single-GPU inference passed explicit FlashAttention with
+InfiniRT graph execution at batch sizes 1, 4, and 16; batch size 64 exceeded the
+device's 32 GiB memory capacity during graph compilation. FlashAttention is
+enabled on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar. It requires an FP16 or
+BF16 model, a head dimension divisible by 8 and no greater than 256, and a paged
+KV cache whose block size is a nonzero multiple of 256. Moore and Iluvatar
+additionally require a head dimension of 64 or 128.
 
 Qwen3-0.6B with attention, attention-output, and MLP bias enabled passed TP1
 and TP2 static and explicit FlashAttention inference, one-time weight
@@ -63,8 +83,11 @@ The modern model factory enables `baichuan`, `chatglm`, `fm9g`, `fm9g7b`,
 `glm4`, `internlm3`, `llama`, `minicpm`, `minicpm4`, `minicpm_eagle`,
 `qwen2`, and `qwen3`. The MiniCPM Eagle path passed NVIDIA A100 MTP inference
 with segmented graph replay at batch 16, input length 1024, and output length
-256. GPT-2, Mistral, other MoE and multimodal families, and quantized models
-remain gated. Backend validation remains model- and feature-specific.
+256. Iluvatar paged attention passed eager and segmented InfiniRT graph
+execution on Qwen3-0.6B; FM9G 8B static and paged TP8 execution paths passed
+with weight loading skipped. GPT-2, Mistral, other MoE and multimodal families,
+and quantized models remain gated. Backend validation remains model- and
+feature-specific.
 
 When using CoreX PyTorch, export `INFINILM_CXX11_ABI=0` before installing
 InfiniLM so that PyTorch, InfiniLM, and the installed Infini stack use the same

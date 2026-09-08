@@ -69,12 +69,15 @@ InferEngine::InferEngine(
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
     }
     if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
+        // These backends register both canonical InfiniOps flash-attention
+        // providers used by the paged prefill and decode paths below.
         if (device_type != infinicore::Device::Type::kNvidia
             && device_type != infinicore::Device::Type::kMetax
             && device_type != infinicore::Device::Type::kMoore
-            && device_type != infinicore::Device::Type::kCambricon) {
+            && device_type != infinicore::Device::Type::kCambricon
+            && device_type != infinicore::Device::Type::kIluvatar) {
             throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA, MetaX, Moore, and Cambricon devices");
+                "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, and Iluvatar devices");
         }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {
@@ -114,6 +117,12 @@ InferEngine::InferEngine(
             && head_dim != 128) {
             throw std::invalid_argument(
                 "flash-attn on Moore requires head_dim to be 64 or 128");
+        }
+        if (device_type == infinicore::Device::Type::kIluvatar
+            && head_dim != 64
+            && head_dim != 128) {
+            throw std::invalid_argument(
+                "flash-attn on Iluvatar requires head_dim to be 64 or 128");
         }
     }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
