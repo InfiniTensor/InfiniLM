@@ -18,6 +18,70 @@ _MODEL_DEFAULTS = {
 }
 
 
+class _PagedDecodeMetadataBuffers:
+    def __init__(self, batch_size: int, slot_stride: int):
+        import numpy as np
+
+        self._np = np
+        self._storage_views = []
+        self.position_ids, self._position_ids_values = self._empty(
+            [batch_size], infinicore.int64, np.int64
+        )
+        self.slot_mapping, self._slot_mapping_values = self._empty(
+            [batch_size], infinicore.int64, np.int64
+        )
+        self.past_kv_lengths, self._past_kv_lengths_values = self._empty(
+            [batch_size], infinicore.int32, np.int32
+        )
+        self.total_kv_lengths, self._total_kv_lengths_values = self._empty(
+            [batch_size], infinicore.int32, np.int32
+        )
+        self.cu_seqlens, self._cu_seqlens_values = self._empty(
+            [batch_size + 1], infinicore.int32, np.int32
+        )
+        self.input_offsets, self._input_offsets_values = self._empty(
+            [batch_size + 1], infinicore.int32, np.int32
+        )
+
+        self._slot_bases = np.arange(batch_size, dtype=np.int64) * slot_stride
+        self._sequence_indices = np.arange(batch_size + 1, dtype=np.int32)
+        self._input_offsets_values[:] = self._sequence_indices
+
+    def _empty(self, shape, dtype, numpy_dtype):
+        tensor = infinicore.empty(shape, dtype=dtype)
+        scalar_type = self._np.ctypeslib.as_ctypes_type(
+            self._np.dtype(numpy_dtype)
+        )
+        storage = (scalar_type * tensor.numel()).from_address(tensor.data_ptr())
+        values = self._np.ctypeslib.as_array(storage).reshape(shape)
+        self._storage_views.append(storage)
+        return tensor, values
+
+    def update(self, past_seq_len: int):
+        total_seq_len = past_seq_len + 1
+        self._position_ids_values.fill(past_seq_len)
+        self._np.add(
+            self._slot_bases,
+            past_seq_len,
+            out=self._slot_mapping_values,
+        )
+        self._past_kv_lengths_values.fill(past_seq_len)
+        self._total_kv_lengths_values.fill(total_seq_len)
+        self._np.multiply(
+            self._sequence_indices,
+            total_seq_len,
+            out=self._cu_seqlens_values,
+        )
+        return (
+            self.position_ids,
+            self.slot_mapping,
+            self.past_kv_lengths,
+            self.total_kv_lengths,
+            self.cu_seqlens,
+            self.input_offsets,
+        )
+
+
 def _apply_torch_dtype_defaults(config: dict) -> dict:
     if config.get("torch_dtype") is None:
         config["torch_dtype"] = config.get("dtype") or _MODEL_DEFAULTS.get(
@@ -571,15 +635,38 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=infinicore.int32,
             )
 
+        decode_metadata = None
         for iter in range(0, generation_config.max_new_tokens):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
 
             batch_size, seq_len = input_ids.shape[:2]
+            reuse_decode_metadata = (
+                self.enable_paged_attn
+                and iter > 0
+                and seq_len == 1
+                and prompt_position_ids is None
+                and self.position_id_axes == 1
+                and mamba_state_indices is None
+            )
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
-                if prompt_position_ids is not None:
+                if reuse_decode_metadata:
+                    if decode_metadata is None:
+                        decode_metadata = _PagedDecodeMetadataBuffers(
+                            batch_size,
+                            max_blocks_per_batch * paged_block_size,
+                        )
+                    (
+                        position_ids,
+                        slot_mapping,
+                        past_kv_lengths,
+                        total_kv_lengths,
+                        cu_seqlens,
+                        input_offsets,
+                    ) = decode_metadata.update(past_seq_len)
+                elif prompt_position_ids is not None:
                     if iter == 0:
                         position_ids_list = [
                             list(axis) * batch_size for axis in prompt_position_ids
@@ -605,35 +692,36 @@ class InferEngine(_infinilm.InferEngine):
                         position_ids_list = [
                             position_ids_list for _ in range(self.position_id_axes)
                         ]
-                position_ids = infinicore.from_list(
-                    position_ids_list, dtype=infinicore.int64
-                )
+                if not reuse_decode_metadata:
+                    position_ids = infinicore.from_list(
+                        position_ids_list, dtype=infinicore.int64
+                    )
 
-                if iter == 0:
-                    slot_mapping_list = []
-                    for b in range(batch_size):
-                        slot_mapping_list.extend(
-                            [
-                                b * max_blocks_per_batch * paged_block_size + i
-                                for i in range(seq_len)
-                            ]
-                        )
-                else:
-                    slot_mapping_list = [
-                        i
-                        for i in range(
-                            past_seq_len,
-                            max_blocks_per_batch
-                            * paged_block_size
-                            * initial_batch_size,
-                            max_blocks_per_batch * paged_block_size,
-                        )
-                    ]
+                    if iter == 0:
+                        slot_mapping_list = []
+                        for b in range(batch_size):
+                            slot_mapping_list.extend(
+                                [
+                                    b * max_blocks_per_batch * paged_block_size + i
+                                    for i in range(seq_len)
+                                ]
+                            )
+                    else:
+                        slot_mapping_list = [
+                            i
+                            for i in range(
+                                past_seq_len,
+                                max_blocks_per_batch
+                                * paged_block_size
+                                * initial_batch_size,
+                                max_blocks_per_batch * paged_block_size,
+                            )
+                        ]
 
-                slot_mapping = infinicore.from_list(
-                    slot_mapping_list,
-                    dtype=infinicore.int64,
-                )
+                    slot_mapping = infinicore.from_list(
+                        slot_mapping_list,
+                        dtype=infinicore.int64,
+                    )
             else:
                 position_ids = infinicore.from_list(
                     [
@@ -645,19 +733,22 @@ class InferEngine(_infinilm.InferEngine):
 
                 slot_mapping = None
 
-            past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int32
-            )
-            total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
-            )
-            cu_seqlens = infinicore.from_list(
-                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
-                dtype=infinicore.int32,
-            )
-            input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
-            )
+            if not reuse_decode_metadata:
+                past_kv_lengths = infinicore.from_list(
+                    [past_seq_len] * batch_size, dtype=infinicore.int32
+                )
+                total_kv_lengths = infinicore.from_list(
+                    [past_seq_len + seq_len] * batch_size,
+                    dtype=infinicore.int32,
+                )
+                cu_seqlens = infinicore.from_list(
+                    [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
+                input_offsets = infinicore.from_list(
+                    [seq_len * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
 
             mamba_init_state_indices = None
             mamba_final_state_indices = None
