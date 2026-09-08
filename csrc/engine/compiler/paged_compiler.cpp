@@ -14,10 +14,10 @@
 namespace infinilm::engine {
 namespace {
 
-constexpr size_t kP13ShortDecodeBlockTableWidth = 8;
-constexpr size_t kP13ShortDecodeBlockSize = 256;
-constexpr size_t kP13ShortDecodeMaxSequenceLength =
-    kP13ShortDecodeBlockTableWidth * kP13ShortDecodeBlockSize;
+constexpr size_t kShortDecodeBlockTableWidth = 8;
+constexpr size_t kShortDecodeBlockSize = 256;
+constexpr size_t kShortDecodeMaxSequenceLength =
+    kShortDecodeBlockTableWidth * kShortDecodeBlockSize;
 
 constexpr char kBaichuanFixedPrefillGraphEnv[] =
     "INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH";
@@ -172,7 +172,7 @@ bool is_exact_baichuan_fixed_prefill_input(
             {0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
 }
 
-bool supports_p13_short_decode_graph(
+bool supports_reviewed_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config) {
     if (model_config == nullptr) {
@@ -185,14 +185,28 @@ bool supports_p13_short_decode_graph(
     const size_t head_dim = model_config->get_or<size_t>(
         "head_dim",
         num_attention_heads == 0 ? 0 : hidden_size / num_attention_heads);
+    const auto model_type =
+        model_config->get_or<std::string>("model_type", "");
+    const bool p13_profile = model_type == "internlm3";
+    const bool p12_profile =
+        model_type == "chatglm"
+        && paged_config.num_blocks() == 512
+        && infinilm::global_state::get_tensor_model_parallel_world_size() == 1
+        && model_config->get_or<size_t>("num_hidden_layers", 0) == 28
+        && model_config->get_or<size_t>("position_id_axes", 1) == 1
+        && model_config->get_dtype() == infinicore::DataType::kFloat16
+        && model_config->get_quant_scheme()
+               == quantization::QuantScheme::NONE
+        && model_config->get_kv_quant_scheme()
+               == quantization::KVQuantAlgo::NONE;
 
     return infinicore::context::getDevice().type()
                == infinicore::Device::Type::kNvidia
         && infinilm::global_state::get_infinilm_config().attention_backend
                == backends::AttentionBackend::FLASH_ATTN
-        && paged_config.block_size() == kP13ShortDecodeBlockSize
-        && paged_config.num_blocks() >= kP13ShortDecodeBlockTableWidth
-        && model_config->get_or<std::string>("model_type", "") == "internlm3"
+        && paged_config.block_size() == kShortDecodeBlockSize
+        && paged_config.num_blocks() >= kShortDecodeBlockTableWidth
+        && (p13_profile || p12_profile)
         && hidden_size == 4096
         && num_attention_heads == 32
         && model_config->get_or<size_t>("num_key_value_heads", 0) == 2
@@ -514,16 +528,16 @@ void PagedCompiler::compile() {
                 capture_decode(b, nblocks, block_tables_holder_);
         }
 
-        if (supports_p13_short_decode_graph(
+        if (supports_reviewed_short_decode_graph(
                 *paged_config, model_->get_model_config().get())) {
             short_block_tables_holder_ = infinicore::Tensor::empty(
-                {kP13ShortDecodeBlockTableWidth},
+                {kShortDecodeBlockTableWidth},
                 infinicore::DataType::kInt32,
                 infinicore::context::getDevice());
             set_zeros(short_block_tables_holder_);
             compiled_short_decode_b1_.emplace(capture_decode(
                 1,
-                kP13ShortDecodeBlockTableWidth,
+                kShortDecodeBlockTableWidth,
                 short_block_tables_holder_));
         }
 
@@ -612,12 +626,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                         total_sequence_lengths.value()->data())[0];
                 if (total_sequence_length > 0
                     && static_cast<size_t>(total_sequence_length)
-                           <= kP13ShortDecodeMaxSequenceLength) {
+                           <= kShortDecodeMaxSequenceLength) {
                     required_pages =
                         1
                         + (static_cast<size_t>(total_sequence_length) - 1)
                               / paged_config->block_size();
-                    if (required_pages <= kP13ShortDecodeBlockTableWidth
+                    if (required_pages <= kShortDecodeBlockTableWidth
                         && block_per_req >= required_pages) {
                         selected_result = &compiled_short_decode_b1_.value();
                         use_short_decode_graph = true;

@@ -38,6 +38,12 @@ bool MhaKVCache::supports_device_graph_capture(
 
     // Keep graph capture limited to shapes validated with the persistent
     // InfiniOps provider. Other decode shapes retain the eager fallback.
+    const bool p12_shape =
+        q->shape() == Shape({1, 1, 32, 128})
+        && out->shape() == Shape({1, 1, 32, 128})
+        && k_cache->shape() == Shape({512, 256, 2, 128})
+        && seqlens_k->shape() == Shape({1})
+        && block_table->shape() == Shape({1, 8});
     const bool p13_shape =
         q->shape() == Shape({1, 1, 32, 128})
         && k_cache->size(1) == 256
@@ -82,8 +88,13 @@ bool MhaKVCache::supports_device_graph_capture(
     const bool p14_layout =
         q->strides() == Strides({4608, 4608, 128, 1})
         && out->strides() == Strides({4096, 4096, 128, 1});
+    // P12 has the same fused QKV projection layout at batch size one.
+    const bool p12_layout =
+        q->strides() == Strides({4608, 4608, 128, 1})
+        && out->strides() == Strides({4096, 4096, 128, 1});
     const bool reviewed_shape_and_layout =
-        (p13_shape && p13_layout)
+        (p12_shape && p12_layout)
+        || (p13_shape && p13_layout)
         || (p09_shape && p09_layout)
         || (p11_shape && p11_layout)
         || (p14_shape && p14_layout);
