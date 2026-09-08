@@ -45,6 +45,33 @@ size_t max_length_from_offsets(
     return max_length;
 }
 
+std::optional<size_t> first_sequence_length(
+    const std::optional<infinicore::Tensor> &lengths,
+    const char *name) {
+    if (!lengths.has_value()) {
+        return std::nullopt;
+    }
+
+    auto cpu_lengths = lengths.value();
+    if (cpu_lengths->device().type() != infinicore::Device::Type::kCpu) {
+        cpu_lengths = cpu_lengths->to(
+            infinicore::Device{infinicore::Device::Type::kCpu});
+    }
+
+    if (cpu_lengths->dtype() != infinicore::DataType::kInt32
+        || cpu_lengths->shape().size() != 1
+        || cpu_lengths->shape()[0] == 0) {
+        throw std::invalid_argument(
+            std::string(name) + " must be a non-empty one-dimensional int32 tensor");
+    }
+
+    const auto value = reinterpret_cast<const int32_t *>(cpu_lengths->data())[0];
+    if (value < 0) {
+        throw std::invalid_argument(std::string(name) + " must contain nonnegative lengths");
+    }
+    return static_cast<size_t>(value);
+}
+
 } // namespace
 
 //------------------------------------------------------
@@ -238,7 +265,10 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 // forward
 //------------------------------------------------------
 infinilm::InfinilmModel::Input
-InferEngine::Input::to_model_input(infinicore::Device device) const {
+InferEngine::Input::to_model_input(
+    infinicore::Device device,
+    bool snapshot_static_sequence_lengths,
+    bool preserve_target_hidden_device) const {
 
     auto to_device = [&](const std::optional<infinicore::Tensor> &t)
         -> std::optional<infinicore::Tensor> {
@@ -264,6 +294,15 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     const size_t max_query_length = is_prefill ? max_length_from_offsets(input_offsets, "input_offsets") : 0;
     const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : 0;
 
+    std::optional<size_t> first_past_sequence_length;
+    std::optional<size_t> first_total_sequence_length;
+    if (snapshot_static_sequence_lengths) {
+        first_past_sequence_length = first_sequence_length(
+            past_sequence_lengths, "past_sequence_lengths");
+        first_total_sequence_length = first_sequence_length(
+            total_sequence_lengths, "total_sequence_lengths");
+    }
+
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
@@ -281,10 +320,13 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states),
+        preserve_target_hidden_device
+            ? target_hidden_states
+            : to_device(target_hidden_states),
         sample_all_positions};
 
-    infinilm::global_state::get_forward_context().attn_metadata = {
+    auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
@@ -293,6 +335,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.slot_mapping,
         max_query_length,
         max_sequence_length};
+    attn_metadata.first_past_sequence_length = first_past_sequence_length;
+    attn_metadata.first_total_sequence_length = first_total_sequence_length;
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,

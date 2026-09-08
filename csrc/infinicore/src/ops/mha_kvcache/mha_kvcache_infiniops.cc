@@ -7,12 +7,15 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace infinicore::op::mha_kvcache_impl::infiniops {
 namespace {
 
 using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
+using FlashAttnOperator =
+    infini::ops::Operator<infini::ops::FlashAttnWithKvcache>;
 
 // TODO: Remove backend-specific implementation indices from InfiniLM once
 // InfiniOps provides device-aware default selection for these operators.
@@ -109,7 +112,57 @@ struct PlannedMeta {
         seqlens_k_tensor, block_table_tensor;
     std::optional<graph::GraphTensor> alibi_slopes_tensor;
     float scale;
+    std::unique_ptr<FlashAttnOperator> graph_safe_provider;
 };
+
+std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
+    PlannedMeta &planned) {
+    const auto config =
+        ::infinicore::op::infiniops::configForImplementation<
+            infini::ops::FlashAttnWithKvcache>(
+            infini::ops::Device::Type::kNvidia, 17);
+
+    const auto q = planned.q.tensor(planned.q_tensor);
+    const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);
+    const auto v_cache = planned.v_cache.tensor(planned.v_cache_tensor);
+    const std::optional<infini::ops::Tensor> no_tensor;
+    const std::optional<infini::ops::Tensor> cache_seqlens{
+        planned.seqlens_k.tensor(planned.seqlens_k_tensor)};
+    const std::optional<infini::ops::Tensor> block_table{
+        planned.block_table.tensor(planned.block_table_tensor)};
+    const std::optional<double> softmax_scale{planned.scale};
+    const bool causal = true;
+    const std::vector<std::int64_t> window_size{-1, -1};
+    const double softcap = 0.0;
+    const bool rotary_interleaved = true;
+    const std::int64_t num_splits = 0;
+    const bool return_softmax_lse = false;
+    const auto out = planned.out.tensor(planned.out_tensor);
+
+    return FlashAttnOperator::Make(
+        config,
+        q,
+        k_cache,
+        v_cache,
+        no_tensor,
+        no_tensor,
+        no_tensor,
+        no_tensor,
+        cache_seqlens,
+        no_tensor,
+        no_tensor,
+        block_table,
+        no_tensor,
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        rotary_interleaved,
+        num_splits,
+        return_softmax_lse,
+        out,
+        no_tensor);
+}
 
 } // namespace
 
@@ -123,7 +176,7 @@ void *plan(Tensor out,
            float scale) {
     INFINICORE_ASSERT(is_supported(
         out, q, k_cache, v_cache, seqlens_k, block_table, alibi_slopes));
-    return new PlannedMeta{
+    auto planned = std::unique_ptr<PlannedMeta>{new PlannedMeta{
         TensorMeta(out),
         TensorMeta(q),
         TensorMeta(k_cache),
@@ -141,18 +194,33 @@ void *plan(Tensor out,
         alibi_slopes
             ? std::optional<graph::GraphTensor>{graph::GraphTensor(*alibi_slopes)}
             : std::nullopt,
-        scale};
+        scale,
+        nullptr}};
+    if (context::isGraphRecording()
+        && MhaKVCache::supports_device_graph_capture(
+            out,
+            q,
+            k_cache,
+            v_cache,
+            seqlens_k,
+            block_table,
+            alibi_slopes)) {
+        planned->graph_safe_provider =
+            make_graph_safe_provider(*planned);
+    }
+    return planned.release();
 }
 
 void run(void *planned_meta) {
     auto *planned = reinterpret_cast<PlannedMeta *>(planned_meta);
     infini::ops::Handle handle;
     handle.set_stream(context::getStream());
-    const auto device_type = planned->q.device.type();
-    const auto implementation_index = implementation_index_for_device(device_type);
-    auto config = ::infinicore::op::infiniops::configForImplementation<
-        infini::ops::FlashAttnWithKvcache>(device_type, implementation_index);
 
+    const auto q = planned->q.tensor(planned->q_tensor);
+    const auto k_cache =
+        planned->k_cache.tensor(planned->k_cache_tensor);
+    const auto v_cache =
+        planned->v_cache.tensor(planned->v_cache_tensor);
     const std::optional<infini::ops::Tensor> no_tensor;
     const std::optional<infini::ops::Tensor> cache_seqlens{
         planned->seqlens_k.tensor(planned->seqlens_k_tensor)};
@@ -162,13 +230,55 @@ void run(void *planned_meta) {
                                                               ? std::optional<infini::ops::Tensor>{
                                                                     planned->alibi_slopes->tensor(*planned->alibi_slopes_tensor)}
                                                               : std::nullopt;
+    const std::optional<double> softmax_scale{planned->scale};
+    const bool causal = true;
+    const std::vector<std::int64_t> window_size{-1, -1};
+    const double softcap = 0.0;
+    const bool rotary_interleaved = true;
+    const std::int64_t num_splits = 0;
+    const bool return_softmax_lse = false;
+    const auto out = planned->out.tensor(planned->out_tensor);
+
+    if (planned->graph_safe_provider) {
+        (*planned->graph_safe_provider)(
+            handle,
+            q,
+            k_cache,
+            v_cache,
+            no_tensor,
+            no_tensor,
+            no_tensor,
+            no_tensor,
+            cache_seqlens,
+            no_tensor,
+            no_tensor,
+            block_table,
+            no_tensor,
+            softmax_scale,
+            causal,
+            window_size,
+            softcap,
+            rotary_interleaved,
+            num_splits,
+            return_softmax_lse,
+            out,
+            no_tensor);
+        return;
+    }
+
+    const auto device_type = planned->q.device.type();
+    const auto implementation_index = implementation_index_for_device(device_type);
+    const auto config =
+        ::infinicore::op::infiniops::configForImplementation<
+            infini::ops::FlashAttnWithKvcache>(
+            device_type, implementation_index);
 
     infini::ops::FlashAttnWithKvcache::Call(
         handle,
         config,
-        planned->q.tensor(planned->q_tensor),
-        planned->k_cache.tensor(planned->k_cache_tensor),
-        planned->v_cache.tensor(planned->v_cache_tensor),
+        q,
+        k_cache,
+        v_cache,
         no_tensor,
         no_tensor,
         no_tensor,
@@ -178,14 +288,14 @@ void run(void *planned_meta) {
         no_tensor,
         block_table,
         alibi_slopes,
-        std::optional<double>{planned->scale},
-        true,
-        std::vector<std::int64_t>{-1, -1},
-        0.0,
-        true,
-        std::int64_t{0},
-        false,
-        planned->out.tensor(planned->out_tensor),
+        softmax_scale,
+        causal,
+        window_size,
+        softcap,
+        rotary_interleaved,
+        num_splits,
+        return_softmax_lse,
+        out,
         no_tensor);
 }
 

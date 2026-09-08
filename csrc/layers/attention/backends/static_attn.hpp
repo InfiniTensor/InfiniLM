@@ -31,7 +31,7 @@ public:
                                                                           const infinicore::Tensor key,
                                                                           const infinicore::Tensor value,
                                                                           infinicore::Tensor &kv_cache,
-                                                                          const infinicore::Tensor past_sequence_lengths) const;
+                                                                          size_t cache_pos) const;
 
 private:
     infinicore::Tensor forward_graph_(
