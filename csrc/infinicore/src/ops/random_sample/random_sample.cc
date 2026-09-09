@@ -22,7 +22,8 @@ bool tryGreedyWithInfiniOps(
          && device_type != Device::Type::kIluvatar
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
-         && device_type != Device::Type::kAscend)
+         && device_type != Device::Type::kAscend
+         && device_type != Device::Type::kHygon)
         || (random_value != 0.0f
             && top_p != 0.0f
             && top_k != 1

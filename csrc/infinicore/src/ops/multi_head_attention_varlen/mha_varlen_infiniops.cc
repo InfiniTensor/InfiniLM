@@ -44,7 +44,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
-         && device_type != Device::Type::kIluvatar)
+         && device_type != Device::Type::kIluvatar
+         && device_type != Device::Type::kHygon)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -251,6 +252,12 @@ static bool registered = []() {
         Device::Type::kIluvatar, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kIluvatar, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kHygon, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kHygon, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kHygon, &cleanup);
     return true;
 }();
 

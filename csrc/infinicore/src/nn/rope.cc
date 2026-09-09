@@ -83,7 +83,8 @@ void RoPE::initialize_cache() {
          || device_.type() == Device::Type::kIluvatar
          || device_.type() == Device::Type::kMoore
          || device_.type() == Device::Type::kCambricon
-         || device_.type() == Device::Type::kAscend)
+         || device_.type() == Device::Type::kAscend
+         || device_.type() == Device::Type::kHygon)
         && !mrope_section_) {
         INFINICORE_NN_BUFFER_INIT(cos_sin_cache, ({max_seq_len_, rotary_dim_}, dtype_, device_));
     }
