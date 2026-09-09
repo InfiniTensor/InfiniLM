@@ -1,97 +1,244 @@
 #include "communication_group.hpp"
-#include "../../utils.hpp"
 #include "tcp_rendezvous.hpp"
 
+#include <infini/rt.h>
+#include <spdlog/spdlog.h>
+
+#include <condition_variable>
 #include <exception>
+#include <limits>
+#include <mutex>
 #include <stdexcept>
+#include <string>
 #include <thread>
+#include <unordered_set>
 
 namespace infinilm::engine::distributed {
+namespace {
 
-CommunicationGroup::CommunicationGroup(const DistConfig &dist_config, infinicore::Device::Type device_type)
-    : dist_config_(dist_config), device_type_(device_type),
-      communicators_(std::vector<infinicclComm_t>(dist_config.tp_device_ids.size(), nullptr)),
-      world_communicators_(std::vector<infinicclComm_t>(dist_config.tp_device_ids.size(), nullptr)) {
+void checkInfiniccl(const char *operation, infinicclResult_t result) {
+    if (result == infinicclSuccess) {
+        return;
+    }
+    throw std::runtime_error("InfiniCCL operation `" + std::string(operation)
+                             + "` failed with result " + std::to_string(static_cast<int>(result)));
+}
 
-    if (dist_config_.pp_size < 1) {
-        throw std::runtime_error("DistConfig.pp_size must be at least 1");
-    }
-    if (dist_config_.pp_stage < 0 || dist_config_.pp_stage >= dist_config_.pp_size) {
-        throw std::runtime_error("DistConfig.pp_stage must be in [0, pp_size)");
-    }
-
-    size_t world_size = dist_config_.tp_device_ids.size();
-    size_t device_count = infinicore::context::getDeviceCount(device_type);
-    if (device_count < world_size) {
-        throw std::runtime_error("infinilm::engine::distributed::CommunicationGroup error, world size is larger than the number of available GPUs. world size: " + std::to_string(world_size) + ", device count: " + std::to_string(device_count));
+void destroyCommunicators(infinicore::Device::Type device_type,
+                          const std::vector<int> &device_ids,
+                          std::vector<infinicclComm_t> &communicators) noexcept {
+    infinicore::Device previous_device;
+    bool restore_device = false;
+    try {
+        previous_device = infinicore::context::getDevice();
+        restore_device = true;
+    } catch (...) {
     }
 
-    if (infinicore::context::getDevice().getType() != device_type_) {
-        infinicore::context::setDevice(infinicore::Device(device_type_, 0));
-    }
-    if (world_size > 1) {
-        RUN_INFINI(infinicclCommInitAll(
-            (infiniDevice_t)infinicore::context::getDevice().getType(),
-            communicators_.data(),
-            dist_config.tp_device_ids.size(),
-            dist_config.tp_device_ids.data()));
-        spdlog::info(
-            "Intra-node TP communicator established: node_rank={}, local_ranks={}",
-            dist_config_.pp_stage,
-            world_size);
-    }
-    if (dist_config_.pp_size > 1) {
-        // Bootstrap one InfiniCCL unique ID across nodes over a short-lived TCP
-        // rendezvous. The resulting world communicator is independent of TCP
-        // and is shared by PP activation transfers and final-token delivery.
-        infinicclUniqueId_t unique_id;
-        if (dist_config_.pp_stage == 0) {
-            RUN_INFINI(infinicclGetUniqueId(&unique_id));
+    for (size_t rank = 0; rank < communicators.size(); ++rank) {
+        if (communicators[rank] == nullptr) {
+            continue;
         }
-        broadcast_rendezvous_payload(
-            TcpRendezvousConfig{
-                dist_config_.master_addr,
-                dist_config_.master_port,
-                dist_config_.pp_size,
-                dist_config_.pp_stage,
-            },
-            &unique_id,
-            sizeof(unique_id));
+        try {
+            infinicore::context::setDevice(infinicore::Device(device_type, device_ids[rank]));
+            (void)infinicclCommDestroy(communicators[rank]);
+        } catch (...) {
+        }
+        communicators[rank] = nullptr;
+    }
 
-        const int tp_size = static_cast<int>(dist_config_.tp_device_ids.size());
-        const int pp_world_size = dist_config_.pp_size * tp_size;
-        std::vector<std::thread> init_threads;
-        std::vector<std::exception_ptr> exceptions(tp_size);
-        init_threads.reserve(tp_size);
-        for (int local_rank = 0; local_rank < tp_size; ++local_rank) {
-            init_threads.emplace_back([&, local_rank] {
+    if (restore_device) {
+        try {
+            infinicore::context::setDevice(previous_device);
+        } catch (...) {
+        }
+    }
+}
+
+void initializeCommunicators(infinicore::Device::Type device_type,
+                             const std::vector<int> &device_ids,
+                             int world_size,
+                             const infinicclUniqueId &unique_id,
+                             int rank_offset,
+                             std::vector<infinicclComm_t> &communicators) {
+    const size_t local_size = device_ids.size();
+    if (communicators.size() != local_size) {
+        throw std::logic_error("communicator and device counts do not match");
+    }
+
+    std::vector<std::exception_ptr> errors(local_size);
+    std::vector<std::thread> workers;
+    workers.reserve(local_size);
+    std::mutex start_mutex;
+    std::condition_variable start_cv;
+    bool start = false;
+    bool cancel = false;
+    try {
+        for (size_t local_rank = 0; local_rank < local_size; ++local_rank) {
+            workers.emplace_back([&, local_rank] {
+                {
+                    std::unique_lock<std::mutex> lock(start_mutex);
+                    start_cv.wait(lock, [&] { return start || cancel; });
+                    if (cancel) {
+                        return;
+                    }
+                }
                 try {
-                    infinicore::context::setDevice(infinicore::Device(device_type_, dist_config_.tp_device_ids[local_rank]));
-                    const int global_rank = dist_config_.pp_stage * tp_size + local_rank;
-                    RUN_INFINI(infinicclCommInitRank(&world_communicators_[local_rank],
-                                                     pp_world_size,
-                                                     unique_id,
-                                                     global_rank));
+                    // InfiniCCL only requires the native device to be current. Avoid creating
+                    // thread-local InfiniCore runtimes in these short-lived initialization threads.
+                    infini::rt::set_runtime_device_type(device_type);
+                    const auto set_device_status = infini::rt::runtime::SetDevice(device_ids[local_rank]);
+                    if (set_device_status != infini::rt::runtime::kSuccess) {
+                        throw std::runtime_error(
+                            "InfiniRT device selection failed with result "
+                            + std::to_string(static_cast<long long>(set_device_status)));
+                    }
+                    checkInfiniccl(
+                        "infinicclCommInitRank",
+                        infinicclCommInitRank(
+                            &communicators[local_rank],
+                            world_size,
+                            unique_id,
+                            rank_offset + static_cast<int>(local_rank)));
                 } catch (...) {
-                    exceptions[local_rank] = std::current_exception();
+                    errors[local_rank] = std::current_exception();
                 }
             });
         }
-        for (auto &thread : init_threads) {
-            thread.join();
+    } catch (...) {
+        {
+            std::lock_guard<std::mutex> lock(start_mutex);
+            cancel = true;
         }
-        for (auto &exception : exceptions) {
-            if (exception) {
-                std::rethrow_exception(exception);
-            }
+        start_cv.notify_all();
+        for (auto &worker : workers) {
+            worker.join();
+        }
+        destroyCommunicators(device_type, device_ids, communicators);
+        throw;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(start_mutex);
+        start = true;
+    }
+    start_cv.notify_all();
+    for (auto &worker : workers) {
+        worker.join();
+    }
+    for (const auto &error : errors) {
+        if (error) {
+            destroyCommunicators(device_type, device_ids, communicators);
+            std::rethrow_exception(error);
+        }
+    }
+}
+
+} // namespace
+
+CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
+                                       infinicore::Device::Type device_type)
+    : dist_config_(dist_config),
+      device_type_(device_type),
+      communicators_(dist_config.tp_device_ids.size(), nullptr),
+      world_communicators_(dist_config.tp_device_ids.size(), nullptr) {
+    if (dist_config_.pp_size < 1) {
+        throw std::invalid_argument("pipeline parallel size must be at least 1");
+    }
+    if (dist_config_.pp_stage < 0 || dist_config_.pp_stage >= dist_config_.pp_size) {
+        throw std::invalid_argument("pipeline parallel stage must be in [0, pp_size)");
+    }
+
+    const size_t tp_size = dist_config_.tp_device_ids.size();
+    const size_t rank_limit = static_cast<size_t>(std::numeric_limits<int>::max());
+    if (tp_size == 0) {
+        throw std::invalid_argument("tensor parallel device list must not be empty");
+    }
+    if (tp_size > rank_limit) {
+        throw std::invalid_argument("tensor parallel world size exceeds the InfiniCCL rank limit");
+    }
+    if (tp_size > rank_limit / static_cast<size_t>(dist_config_.pp_size)) {
+        throw std::invalid_argument("combined tensor and pipeline parallel world size exceeds the InfiniCCL rank limit");
+    }
+
+    const size_t device_count = infinicore::context::getDeviceCount(device_type_);
+    std::unordered_set<int> unique_device_ids;
+    for (int device_id : dist_config_.tp_device_ids) {
+        if (device_id < 0 || static_cast<size_t>(device_id) >= device_count) {
+            throw std::invalid_argument("tensor parallel device ID " + std::to_string(device_id)
+                                        + " is outside the available range [0, "
+                                        + std::to_string(device_count) + ")");
+        }
+        if (!unique_device_ids.insert(device_id).second) {
+            throw std::invalid_argument("tensor parallel device ID " + std::to_string(device_id)
+                                        + " is duplicated");
+        }
+    }
+
+    if (tp_size > 1) {
+        if (device_type_ == infinicore::Device::Type::kCambricon) {
+            checkInfiniccl(
+                "infinicclCommInitAll",
+                infinicclCommInitAll(
+                    communicators_.data(),
+                    static_cast<int>(tp_size),
+                    dist_config_.tp_device_ids.data()));
+        } else {
+            infinicclUniqueId unique_id{};
+            checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
+            initializeCommunicators(
+                device_type_,
+                dist_config_.tp_device_ids,
+                static_cast<int>(tp_size),
+                unique_id,
+                0,
+                communicators_);
         }
         spdlog::info(
-            "Global InfiniCCL communicator established: role={}, node_rank={}, nodes={}, local_tp_ranks={}, world_size={}",
-            dist_config_.pp_stage == 0 ? "coordinator" : "participant",
+            "Intra-node TP communicator established: node_rank={}, local_ranks={}",
             dist_config_.pp_stage,
-            dist_config_.pp_size,
-            tp_size,
-            pp_world_size);
+            tp_size);
+    }
+
+    if (dist_config_.pp_size > 1) {
+        try {
+            infinicclUniqueId unique_id{};
+            if (dist_config_.pp_stage == 0) {
+                checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
+            }
+            broadcast_rendezvous_payload(
+                TcpRendezvousConfig{
+                    dist_config_.master_addr,
+                    dist_config_.master_port,
+                    dist_config_.pp_size,
+                    dist_config_.pp_stage,
+                },
+                &unique_id,
+                sizeof(unique_id));
+
+            const int local_tp_size = static_cast<int>(tp_size);
+            const int pp_world_size = dist_config_.pp_size * local_tp_size;
+            initializeCommunicators(
+                device_type_,
+                dist_config_.tp_device_ids,
+                pp_world_size,
+                unique_id,
+                dist_config_.pp_stage * local_tp_size,
+                world_communicators_);
+            spdlog::info(
+                "Global InfiniCCL communicator established: role={}, node_rank={}, nodes={}, local_tp_ranks={}, world_size={}",
+                dist_config_.pp_stage == 0 ? "coordinator" : "participant",
+                dist_config_.pp_stage,
+                dist_config_.pp_size,
+                local_tp_size,
+                pp_world_size);
+        } catch (...) {
+            destroyCommunicators(
+                device_type_, dist_config_.tp_device_ids, world_communicators_);
+            destroyCommunicators(
+                device_type_, dist_config_.tp_device_ids, communicators_);
+            throw;
+        }
     }
 }
 
@@ -100,10 +247,14 @@ const DistConfig &CommunicationGroup::get_dist_config() const {
 }
 
 RankInfo CommunicationGroup::get_rank_info(int rank) const {
-    RankInfo info;
-    info.tp_size = dist_config_.tp_device_ids.size();
+    if (rank < 0 || static_cast<size_t>(rank) >= dist_config_.tp_device_ids.size()) {
+        throw std::out_of_range("tensor parallel rank " + std::to_string(rank)
+                                + " is out of range");
+    }
+
+    RankInfo info(infinicore::Device(device_type_, dist_config_.tp_device_ids[rank]));
+    info.tp_size = static_cast<int>(dist_config_.tp_device_ids.size());
     info.tp_rank = rank;
-    info.device = infinicore::Device(device_type_, dist_config_.tp_device_ids[rank]);
     info.comm = communicators_[rank];
     info.pp_size = dist_config_.pp_size;
     info.pp_stage = dist_config_.pp_stage;
@@ -114,20 +265,12 @@ RankInfo CommunicationGroup::get_rank_info(int rank) const {
 }
 
 int CommunicationGroup::get_world_size() const {
-    return dist_config_.tp_device_ids.size();
+    return static_cast<int>(dist_config_.tp_device_ids.size());
 }
 
 CommunicationGroup::~CommunicationGroup() {
-    if (communicators_.size() > 1) {
-        for (auto &comm : communicators_) {
-            infinicclCommDestroy(comm);
-        }
-    }
-    for (auto &comm : world_communicators_) {
-        if (comm != nullptr) {
-            infinicclCommDestroy(comm);
-        }
-    }
+    destroyCommunicators(device_type_, dist_config_.tp_device_ids, world_communicators_);
+    destroyCommunicators(device_type_, dist_config_.tp_device_ids, communicators_);
 }
 
 } // namespace infinilm::engine::distributed

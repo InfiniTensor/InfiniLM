@@ -26,7 +26,7 @@ public:
     InferEngine(
         const std::string &config_str,
         const distributed::DistConfig &distributed_config = distributed::DistConfig(),
-        infinicore::Device::Type device_type = infinicore::context::getDevice().getType(),
+        infinicore::Device::Type device_type = infinicore::context::getDevice().type(),
         const cache::CacheConfig *cache_config = nullptr,
         bool enable_graph_compiling = false,
         backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,

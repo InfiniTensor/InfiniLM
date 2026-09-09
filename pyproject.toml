@@ -7,7 +7,18 @@ name = "InfiniLM"
 version = "0.1.0"
 description = "InfiniLM model implementations"
 readme = "README.md"
-dependencies = []
+dependencies = [
+    "janus",
+    "numpy",
+    "Pillow",
+    "safetensors",
+    "tokenizers",
+    "torch",
+    "tqdm",
+    "transformers",
+    "typing-extensions",
+    "xxhash",
+]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",

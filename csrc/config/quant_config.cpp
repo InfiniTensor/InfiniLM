@@ -1,4 +1,5 @@
 #include "quant_config.hpp"
+#include <stdexcept>
 
 namespace infinilm::config {
 QuantConfig::QuantConfig(const nlohmann::json &json) : quantization_config(json) {
@@ -13,20 +14,20 @@ QuantConfig::get_quantization_method() const {
 
     const std::string quant_method = quantization_config.value("quant_method", "");
 
-    // Determine the quantization scheme from the JSON config
     if (quant_method == "compressed-tensors") {
-        return std::make_shared<infinilm::quantization::CompressedTensors>(quantization_config);
+        throw std::runtime_error(
+            "`compressed-tensors` quantization is unsupported because InfiniLM lacks the end-to-end activation quantization and scaled-GEMM integration.");
     } else if (quant_method == "awq") {
-        return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
+        throw std::runtime_error(
+            "AWQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense AWQ GEMM path.");
     } else if (quant_method == "gptq") {
-        return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
+        throw std::runtime_error(
+            "GPTQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense GPTQ/Marlin GEMM path.");
     } else if (quant_method == "quark") {
-        return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
+        throw std::runtime_error(
+            "MXFP4 quantization is unsupported because InfiniLM has no InfiniOps-backed MXFP4 execution path.");
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }
-    // Add other schemes as needed
-
-    return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config); // Default case if no matching scheme
 }
 } // namespace infinilm::config

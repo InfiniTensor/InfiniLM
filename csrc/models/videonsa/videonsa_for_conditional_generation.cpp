@@ -43,7 +43,7 @@ VideoNSAForConditionalGeneration::VideoNSAForConditionalGeneration(std::shared_p
 void VideoNSAForConditionalGeneration::replace_embeddings(infinicore::Tensor inputs_embeds,
                                                           const infinicore::Tensor &vision_hidden,
                                                           const infinicore::Tensor &image_bound) const {
-    auto bounds_cpu = image_bound->to(infinicore::Device::cpu());
+    auto bounds_cpu = image_bound->to(infinicore::Device{infinicore::Device::Type::kCpu});
     auto out_slice = inputs_embeds->squeeze(0);
     auto bound_slice = bounds_cpu->squeeze(0);
     auto bound_count = bound_slice->size(0);
@@ -70,7 +70,7 @@ infinilm::InfinilmModel::Output VideoNSAForConditionalGeneration::forward(const 
         }
         auto input_ids = input.input_ids.value();
         auto inputs_embeds = model_->embed_tokens(input_ids);
-        auto input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device::cpu());
+        auto input_offsets_cpu = input.input_offsets.value()->to(infinicore::Device{infinicore::Device::Type::kCpu});
         int32_t *offsets = reinterpret_cast<int32_t *>(input_offsets_cpu->data());
 
         const auto &image_req_ids = global_state::get_forward_context().mm_metadata.image_req_ids.value();
@@ -93,7 +93,7 @@ infinilm::InfinilmModel::Output VideoNSAForConditionalGeneration::forward(const 
         size_t vision_offset = 0;
         for (size_t media_idx = 0; media_idx < image_req_ids.size(); ++media_idx) {
             const size_t req_id = image_req_ids[media_idx];
-            auto bounds_cpu = input.image_bound.value().at(media_idx)->to(infinicore::Device::cpu())->squeeze(0);
+            auto bounds_cpu = input.image_bound.value().at(media_idx)->to(infinicore::Device{infinicore::Device::Type::kCpu})->squeeze(0);
             auto bound_count = bounds_cpu->size(0);
             auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
             size_t vision_len = 0;

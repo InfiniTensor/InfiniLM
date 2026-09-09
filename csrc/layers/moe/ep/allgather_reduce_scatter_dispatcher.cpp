@@ -11,7 +11,7 @@ namespace infinilm::layers::moe {
 namespace {
 
 bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
+    return tensor && tensor->device().type() == device.type() && tensor->device().index() == device.index();
 }
 
 void ensure_tensor(infinicore::Tensor &tensor,
@@ -71,7 +71,7 @@ void AllGatherReduceScatterDispatcher::reduce_scatter_dim0_(
         output,
         input,
         equal_split_sizes(local_dim0),
-        INFINICCL_SUM,
+        infinicclSum,
         communicator_);
 }
 

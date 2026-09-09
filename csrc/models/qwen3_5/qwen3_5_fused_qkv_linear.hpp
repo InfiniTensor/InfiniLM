@@ -16,7 +16,7 @@ public:
                          infinilm::layers::linear::RegisterParamFn register_fn,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                          bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
+                         const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                          const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 

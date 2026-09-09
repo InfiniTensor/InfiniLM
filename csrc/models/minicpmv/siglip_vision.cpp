@@ -46,14 +46,14 @@ infinicore::Tensor SiglipVisionEmbeddings::forward(const infinicore::Tensor &pix
     auto embeddings = patch_embeds->view({batch_size, hidden_size_, seq_len})->permute({0, 2, 1});
 
     // Build position ids on CPU
-    auto pos_ids_cpu = infinicore::Tensor::zeros({batch_size, seq_len}, infinicore::DataType::I64, infinicore::Device::cpu());
+    auto pos_ids_cpu = infinicore::Tensor::zeros({batch_size, seq_len}, infinicore::DataType::kInt64, infinicore::Device{infinicore::Device::Type::kCpu});
     auto *pos_ptr = reinterpret_cast<int64_t *>(pos_ids_cpu->data());
 
     const size_t num_patches_per_side = static_cast<size_t>(std::sqrt(static_cast<double>(num_positions_)));
 
     std::vector<int64_t> tgt_sizes_host;
 
-    auto tgt_cpu = tgt_sizes->to(infinicore::Device::cpu());
+    auto tgt_cpu = tgt_sizes->to(infinicore::Device{infinicore::Device::Type::kCpu});
     auto n = tgt_cpu->numel();
     tgt_sizes_host.resize(n);
     std::memcpy(tgt_sizes_host.data(), tgt_cpu->data(), n * sizeof(int64_t));

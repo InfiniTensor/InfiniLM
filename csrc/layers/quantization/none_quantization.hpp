@@ -6,7 +6,7 @@ namespace infinilm::quantization {
 class NoneQuantization : public BaseQuantization {
 public:
     explicit NoneQuantization(const nlohmann::json &quant_config)
-        : BaseQuantization(quant_config){};
+        : BaseQuantization(quant_config) {};
 
     NoneQuantization();
 
@@ -25,13 +25,6 @@ public:
         const ParamsMap &params,
         const infinicore::Tensor &input,
         bool has_bias,
-        float alpha = 1.0f) const override;
-
-    infinicore::Tensor forward_allreduce(
-        const ParamsMap &params,
-        const infinicore::Tensor &input,
-        bool has_bias,
-        infinicclComm_t communicator,
         float alpha = 1.0f) const override;
 
     std::vector<SplitParam> split_params(

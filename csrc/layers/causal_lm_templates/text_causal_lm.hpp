@@ -4,7 +4,9 @@
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/ops/select_last_token_hidden.hpp"
+#include "infinicore/ops/add.hpp"
+#include "infinicore/ops/embedding.hpp"
+#include <cstdint>
 #include <stdexcept>
 
 namespace infinilm::layers::causal_lm_templates {
@@ -44,6 +46,11 @@ public:
         model_ = this->register_module<Model>("model", model_config, device);
         if (is_last_pp_stage()) {
             lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+            auto last_token_shift_cpu = infinicore::Tensor::empty(
+                {1}, infinicore::DataType::kInt32,
+                infinicore::Device{infinicore::Device::Type::kCpu});
+            *reinterpret_cast<int32_t *>(last_token_shift_cpu->data()) = -1;
+            last_token_shift_ = last_token_shift_cpu->to(device);
         }
     }
 
@@ -63,12 +70,16 @@ public:
                                         && hidden_states->size(0) == 1
                                         && hidden_states->size(1) > num_requests;
             if (is_packed_prefill) {
-                lm_head_input = infinicore::Tensor::empty(
-                    {1, num_requests, hidden_states->size(2)},
-                    hidden_states->dtype(),
-                    hidden_states->device());
-                infinicore::op::select_last_token_hidden_(
-                    lm_head_input, hidden_states, input.input_offsets.value());
+                auto end_offsets = input.input_offsets.value()->narrow(
+                    {{0, 1, num_requests}});
+                auto last_token_positions = infinicore::op::add(
+                    end_offsets, last_token_shift_);
+                auto packed_hidden = hidden_states->view(
+                    {hidden_states->size(1), hidden_states->size(2)});
+                lm_head_input = infinicore::op::embedding(
+                                    last_token_positions, packed_hidden)
+                                    ->view({1, num_requests,
+                                            hidden_states->size(2)});
             }
         }
 
@@ -94,6 +105,7 @@ private:
 
     size_t pp_size_{1};
     size_t pp_stage_{0};
+    infinicore::Tensor last_token_shift_;
 };
 
 } // namespace infinilm::layers::causal_lm_templates

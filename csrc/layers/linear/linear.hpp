@@ -4,7 +4,7 @@
 #include "base_linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/ops.hpp"
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 #include <optional>
 
 namespace infinilm::nn {
@@ -13,14 +13,14 @@ class Linear : public BaseLinear {
 public:
     // Without quantization (backward compat)
     Linear(size_t in_features, size_t out_features, bool bias,
-           const infinicore::DataType &dtype = infinicore::DataType::F32,
+           const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
            const infinicore::Device &device = infinicore::Device());
 
     // With quantization
     Linear(size_t in_features, size_t out_features,
            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
            bool bias = true,
-           const infinicore::DataType &dtype = infinicore::DataType::F32,
+           const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
            const infinicore::Device &device = infinicore::Device());
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
@@ -39,7 +39,7 @@ public:
     ColumnParallelLinear(size_t in_features, size_t out_features,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                          bool bias = true,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
+                         const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                          const infinicore::Device &device = infinicore::Device(),
                          infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
                          int tp_num_heads = -1);
@@ -64,7 +64,7 @@ public:
     RowParallelLinear(size_t in_features, size_t out_features,
                       std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                       bool bias = true,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
+                      const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                       const infinicore::Device &device = infinicore::Device(),
                       infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
                       infinicclComm_t communicator = nullptr);

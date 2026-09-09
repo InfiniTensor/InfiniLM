@@ -8,7 +8,7 @@
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 
 #include <memory>
 #include <tuple>

@@ -188,7 +188,7 @@ VideoNSAVisionModel::VideoNSAVisionModel(const nlohmann::json &config,
 }
 
 VideoNSAVisionModel::WindowMetadata VideoNSAVisionModel::build_window_metadata_(const infinicore::Tensor &grid_thw) const {
-    auto grid_cpu = grid_thw->to(infinicore::Device::cpu());
+    auto grid_cpu = grid_thw->to(infinicore::Device{infinicore::Device::Type::kCpu});
     const int64_t *grid = reinterpret_cast<const int64_t *>(grid_cpu->data());
     const size_t n = grid_cpu->size(0);
     const int64_t vit_window = static_cast<int64_t>(window_size_ / spatial_merge_size_ / patch_size_);
@@ -264,7 +264,7 @@ infinicore::Tensor VideoNSAVisionModel::gather_rows_(const infinicore::Tensor &h
             flat_indices[r * width + c] = src_row * static_cast<int64_t>(width) + static_cast<int64_t>(c);
         }
     }
-    auto indices = infinicore::Tensor::empty({rows, width}, infinicore::DataType::I64, hidden_states->device());
+    auto indices = infinicore::Tensor::empty({rows, width}, infinicore::DataType::kInt64, hidden_states->device());
     infinicore::context::memcpyH2D(indices->data(), flat_indices.data(), flat_indices.size() * sizeof(int64_t), false);
     return infinicore::op::take(hidden_states->contiguous(), indices);
 }

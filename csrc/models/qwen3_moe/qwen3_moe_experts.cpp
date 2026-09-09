@@ -63,7 +63,7 @@ infinicore::Tensor Qwen3MoeExperts::forward(const infinicore::Tensor &hidden_sta
     auto output = infinicore::op::fused_moe(hidden_states, top_k_index, top_k_weights, w1_, w2_, std::nullopt, std::nullopt,
                                             infinicore::op::FusedMoeActivation::Swiglu);
     if (tp_size_ > 1 && communicator_ != nullptr) {
-        infinicore::op::distributed::allreduce_(output, output, INFINICCL_SUM, communicator_);
+        infinicore::op::distributed::allreduce_(output, output, infinicclSum, communicator_);
     }
     return output;
 }

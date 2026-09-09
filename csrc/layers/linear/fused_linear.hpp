@@ -14,7 +14,7 @@ public:
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
                                bool q_bias, bool k_bias, bool v_bias,
                                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
+                               const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -23,7 +23,7 @@ public:
                                size_t num_q_head, size_t num_kv_head,
                                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                                bool bias = false,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
+                               const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -34,7 +34,7 @@ public:
                       const std::string &q_name, const std::string &k_name, const std::string &v_name,
                       RegisterParamFn register_fn,
                       std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
+                      const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                       const infinicore::Device &device = infinicore::Device(),
                       engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -45,7 +45,7 @@ public:
                       RegisterParamFn register_fn,
                       std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                       bool bias = false,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
+                      const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                       const infinicore::Device &device = infinicore::Device(),
                       engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
@@ -98,13 +98,13 @@ public:
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                          bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
+                         const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                          const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
+                         const infinicore::DataType &dtype = infinicore::DataType::kFloat32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size,
@@ -112,7 +112,7 @@ public:
                          RegisterParamFn register_fn,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
                          bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
+                         const infinicore::DataType &dtype = infinicore::DataType::kFloat32,
                          const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 

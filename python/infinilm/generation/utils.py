@@ -1,47 +1,13 @@
 import time
 from typing import Optional
+
 import infinicore
+
 from ..cache_utils import Cache, DynamicCache
-import numpy as np
-
-
-def infini_to_ctype_dtype(infini_dtype):
-    """Convert PyTorch data type to infinicore data type"""
-    import ctypes
-
-    if infini_dtype == infinicore.int32:
-        return ctypes.c_int32
-    elif infini_dtype == infinicore.float32:
-        return ctypes.c_float
-    elif infini_dtype == infinicore.int64:
-        return ctypes.c_int64
-    else:
-        raise ValueError(f"Unsupported py_dtype: {infini_dtype}")
 
 
 def infini_to_numpy(infini_tensor: infinicore.Tensor):
-    if infini_tensor.device.type != "cpu":
-        infini_tensor_cpu = infini_tensor.to(infinicore.device("cpu", 0))
-    else:
-        infini_tensor_cpu = infini_tensor
-
-    # 获取数据指针和形状信息
-    data_ptr = infini_tensor_cpu.data_ptr()
-    num_elements = infini_tensor_cpu.numel()
-    original_shape = infini_tensor_cpu.shape
-
-    # 创建1D NumPy数组（共享内存）
-    ArrayType = infini_to_ctype_dtype(infini_tensor_cpu.dtype) * num_elements
-    array = ArrayType.from_address(data_ptr)
-    np_flat = np.ctypeslib.as_array(array)
-
-    # 重塑为原始形状
-    np_array = np_flat.reshape(original_shape)
-
-    return np.copy(np_array)
-
-
-infinicore.Tensor.to_numpy = infini_to_numpy
+    return infini_tensor.to_numpy()
 
 
 class GenerationMixin:

@@ -199,8 +199,8 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
-                "ali, cambricon, ascend, kunlun, hygon, or backend name "
+                "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
+                "cambricon, ascend, hygon, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
         )
@@ -255,7 +255,7 @@ class BaseConfig:
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",
-            help="enable weight pre-transposition optimization (Ascend)",
+            help="enable one-time weight pre-transposition for packed GEMM",
         )
         self.parser.add_argument(
             "--use-mla",
@@ -532,7 +532,6 @@ class BaseConfig:
             ("moore", ["mthreads-gmi"]),
             ("metax", ["mx-smi", "ht-smi"]),
             ("hygon", ["hy-smi"]),
-            ("ali", ["ppu-smi"]),
             ("iluvatar", ["ixsmi"]),
             ("nvidia", ["nvidia-smi"]),
         ]
@@ -554,21 +553,24 @@ class BaseConfig:
             "musa": "musa",
             "npu": "npu",
             "nvidia": "cuda",
-            "qy": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
-            "metax": "cuda",
+            "metax": "metax",
             "moore": "musa",
-            "iluvatar": "cuda",
-            "kunlun": "cuda",
-            "hygon": "cuda",
-            "ali": "cuda",
+            "iluvatar": "iluvatar",
+            "hygon": "hygon",
         }
         device = device.lower()
         if device == "auto":
             device = self.detect_device()
             print(f"Auto-detected device platform: {device}")
-        return DEVICE_STR_MAP.get(device, "cpu")
+        try:
+            return DEVICE_STR_MAP[device]
+        except KeyError:
+            supported = ", ".join(sorted(DEVICE_STR_MAP))
+            raise ValueError(
+                f"unsupported device platform {device!r}; expected one of: {supported}"
+            ) from None
 
     def __repr__(self):
         """String representation of configuration"""
