@@ -40,7 +40,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
-         && device_type != Device::Type::kIluvatar)
+         && device_type != Device::Type::kIluvatar
+         && device_type != Device::Type::kHygon)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -210,6 +211,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kIluvatar, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kIluvatar, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kIluvatar, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kHygon, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kHygon, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kHygon, &cleanup);
     return true;
 }();
 

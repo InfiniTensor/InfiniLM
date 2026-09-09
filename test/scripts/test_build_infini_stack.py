@@ -251,31 +251,32 @@ class BuildInfiniStackTest(unittest.TestCase):
         ):
             build_infini_stack.parse_args([])
 
-    def test_iluvatar_requires_external_operator_config(self):
-        with (
-            mock.patch.object(build_infini_stack.sys, "stderr"),
-            self.assertRaisesRegex(SystemExit, "2"),
-        ):
-            build_infini_stack.parse_args(
-                ["--infinicore-root", "core", "--backend", "iluvatar"]
+    def test_non_nvidia_backends_require_external_operator_config(self):
+        for backend in ("iluvatar", "hygon"):
+            with (
+                self.subTest(backend=backend),
+                mock.patch.object(build_infini_stack.sys, "stderr"),
+                self.assertRaisesRegex(SystemExit, "2"),
+            ):
+                build_infini_stack.parse_args(
+                    ["--infinicore-root", "core", "--backend", backend]
+                )
+
+    def test_non_nvidia_backends_accept_external_operator_config(self):
+        for backend in ("iluvatar", "hygon"):
+            config = Path(f"../local/infiniops_ops_{backend}.json")
+            args = build_infini_stack.parse_args(
+                [
+                    "--infinicore-root",
+                    "core",
+                    "--backend",
+                    backend,
+                    "--operator-config",
+                    str(config),
+                ]
             )
 
-    def test_iluvatar_accepts_external_operator_config(self):
-        args = build_infini_stack.parse_args(
-            [
-                "--infinicore-root",
-                "core",
-                "--backend",
-                "iluvatar",
-                "--operator-config",
-                "../local/infiniops_ops_iluvatar.json",
-            ]
-        )
-
-        self.assertEqual(
-            args.operator_config,
-            Path("../local/infiniops_ops_iluvatar.json"),
-        )
+            self.assertEqual(args.operator_config, config)
 
     def test_cuda_arch_list_is_converted_for_cmake(self):
         commands = build_infini_stack.build_infinirt_commands(
@@ -412,6 +413,53 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertIn("-DCMAKE_CXX_COMPILER=/usr/local/corex/bin/clang++", ccl)
         self.assertIn("-DNCCL_INC=/usr/local/corex/include", ccl)
         self.assertIn("-DNCCL_LIB=/usr/local/corex/lib64/libnccl.so", ccl)
+
+    def test_hygon_commands_select_hygon_backend_and_architecture(self):
+        rt = build_infini_stack.build_infinirt_commands(
+            Path("rt"),
+            Path("build/rt"),
+            Path("prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="hygon",
+            hygon_arch="gfx936",
+        )[0]
+        ops = build_infini_stack.build_infiniops_commands(
+            Path("ops"),
+            Path("build/ops"),
+            Path("prefix"),
+            "Release",
+            8,
+            None,
+            Path("hygon.json"),
+            backend="hygon",
+            hygon_arch="gfx936",
+        )[0]
+        ccl = build_infini_stack.build_infiniccl_commands(
+            Path("ccl"),
+            Path("build/ccl"),
+            Path("prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="hygon",
+        )[0]
+
+        for configure in (rt, ops, ccl):
+            self.assertIn("-DWITH_HYGON=ON", configure)
+            self.assertNotIn("-DWITH_NVIDIA=ON", configure)
+        self.assertIn("-DHYGON_ARCH=gfx936", rt)
+        self.assertIn("-DHYGON_ARCH=gfx936", ops)
+        self.assertIn("-DWITH_LINKED=ON", ops)
+        self.assertIn("-DWITH_OMPI=OFF", ccl)
+        self.assertIn("-DWITH_NCCL=ON", ccl)
+        self.assertIn("-DBUILD_EXAMPLES=OFF", ccl)
+        self.assertIn("-DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc", ccl)
+        self.assertIn("-DNCCL_INC=/opt/dtk/include", ccl)
+        self.assertIn("-DNCCL_LIB=/opt/dtk/lib/librccl.so", ccl)
 
     def test_main_uses_core_sources_infini_lm_cwd_and_one_prefix(self):
         args = build_infini_stack.parse_args(
