@@ -1,5 +1,7 @@
+import ast
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -9,6 +11,90 @@ def read_source(relative_path: str) -> str:
 
 
 class InfiniCorePythonContractsTest(unittest.TestCase):
+    def test_paged_decode_reuses_cpu_metadata_storage(self) -> None:
+        import numpy as np
+
+        source = read_source("python/infinilm/infer_engine.py")
+
+        self.assertIn("class _PagedDecodeMetadataBuffers:", source)
+        self.assertIn("self._storage_views.append(storage)", source)
+        self.assertIn("self._input_offsets_values[:] = self._sequence_indices", source)
+        self.assertIn("out=self._slot_mapping_values", source)
+        self.assertIn("out=self._cu_seqlens_values", source)
+
+        generate_start = source.index("    def generate(")
+        generate_end = source.index("    def reset_cache(", generate_start)
+        generate = source[generate_start:generate_end]
+        self.assertIn("decode_metadata = None", generate)
+        self.assertIn("and iter > 0", generate)
+        self.assertIn("and seq_len == 1", generate)
+        self.assertIn("and prompt_position_ids is None", generate)
+        self.assertIn("and self.position_id_axes == 1", generate)
+        self.assertIn("and mamba_state_indices is None", generate)
+        self.assertIn(") = decode_metadata.update(past_seq_len)", generate)
+        self.assertIn("if not reuse_decode_metadata:", generate)
+
+        class FakeTensor:
+            def __init__(self, shape, dtype):
+                self.values = np.empty(shape, dtype=dtype)
+
+            def data_ptr(self):
+                return self.values.ctypes.data
+
+            def numel(self):
+                return self.values.size
+
+        fake_infinicore = SimpleNamespace(
+            int32=np.int32,
+            int64=np.int64,
+            empty=lambda shape, *, dtype: FakeTensor(shape, dtype),
+        )
+        helper_node = next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "_PagedDecodeMetadataBuffers"
+        )
+        namespace = {"infinicore": fake_infinicore}
+        exec(
+            compile(
+                ast.Module(body=[helper_node], type_ignores=[]),
+                "infer_engine.py",
+                "exec",
+            ),
+            namespace,
+        )
+
+        buffers = namespace["_PagedDecodeMetadataBuffers"](3, 2048)
+        first = buffers.update(1024)
+        first_pointers = [tensor.data_ptr() for tensor in first]
+        self.assertEqual(
+            [tensor.values.shape for tensor in first],
+            [(3,), (3,), (3,), (3,), (4,), (4,)],
+        )
+        self.assertEqual(
+            [tensor.values.dtype for tensor in first],
+            [np.int64, np.int64, np.int32, np.int32, np.int32, np.int32],
+        )
+        self.assertEqual(first[0].values.tolist(), [1024, 1024, 1024])
+        self.assertEqual(first[1].values.tolist(), [1024, 3072, 5120])
+        self.assertEqual(first[2].values.tolist(), [1024, 1024, 1024])
+        self.assertEqual(first[3].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(first[4].values.tolist(), [0, 1025, 2050, 3075])
+        self.assertEqual(first[5].values.tolist(), [0, 1, 2, 3])
+
+        second = buffers.update(1025)
+        self.assertEqual(
+            [tensor.data_ptr() for tensor in second],
+            first_pointers,
+        )
+        self.assertEqual(second[0].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(second[1].values.tolist(), [1025, 3073, 5121])
+        self.assertEqual(second[2].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(second[3].values.tolist(), [1026, 1026, 1026])
+        self.assertEqual(second[4].values.tolist(), [0, 1026, 2052, 3078])
+        self.assertEqual(second[5].values.tolist(), [0, 1, 2, 3])
+
     def test_build_installs_one_shared_runtime_for_both_extensions(self) -> None:
         xmake = read_source("xmake.lua")
         setup = read_source("setup.py")

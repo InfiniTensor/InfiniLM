@@ -22,9 +22,9 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
     Device::Type::kCpu,
 };
 
-void warn_graph_cleanup_failure(const char *operation, const char *detail) noexcept {
+void warn_context_cleanup_failure(const char *operation, const char *detail) noexcept {
     try {
-        spdlog::warn("{} failed during graph cleanup: {}", operation, detail);
+        spdlog::warn("{} failed during context cleanup: {}", operation, detail);
     } catch (...) {
     }
 }
@@ -48,7 +48,26 @@ std::shared_ptr<Runtime> ContextImpl::getOrCreateRuntimeLocked(Device device, co
         thread_runtimes.erase(found);
     }
 
-    auto runtime = std::shared_ptr<Runtime>(new Runtime(device));
+    std::shared_ptr<Runtime> runtime;
+    try {
+        runtime = std::shared_ptr<Runtime>(new Runtime(device));
+    } catch (...) {
+        const auto original_error = std::current_exception();
+        if (current_runtime_ != nullptr) {
+            try {
+                current_runtime_->activate();
+            } catch (const std::exception &error) {
+                warn_context_cleanup_failure(
+                    "restoring the current runtime after construction failure",
+                    error.what());
+            } catch (...) {
+                warn_context_cleanup_failure(
+                    "restoring the current runtime after construction failure",
+                    "unknown error");
+            }
+        }
+        std::rethrow_exception(original_error);
+    }
     thread_runtimes.emplace(thread_id, runtime);
     return runtime;
 }
@@ -165,9 +184,9 @@ std::shared_ptr<graph::Graph> ContextImpl::stopGraphRecording() {
         try {
             current_runtime_->activate();
         } catch (const std::exception &error) {
-            warn_graph_cleanup_failure("restoring the previous runtime", error.what());
+            warn_context_cleanup_failure("restoring the previous runtime", error.what());
         } catch (...) {
-            warn_graph_cleanup_failure("restoring the previous runtime", "unknown error");
+            warn_context_cleanup_failure("restoring the previous runtime", "unknown error");
         }
         std::rethrow_exception(original_error);
     }
@@ -184,9 +203,9 @@ void ContextImpl::cancelGraphRecording() noexcept {
     try {
         owner->activate();
     } catch (const std::exception &error) {
-        warn_graph_cleanup_failure("activating the graph runtime", error.what());
+        warn_context_cleanup_failure("activating the graph runtime", error.what());
     } catch (...) {
-        warn_graph_cleanup_failure("activating the graph runtime", "unknown error");
+        warn_context_cleanup_failure("activating the graph runtime", "unknown error");
     }
     owner->cancelGraphRecording();
 
@@ -195,9 +214,9 @@ void ContextImpl::cancelGraphRecording() noexcept {
         try {
             current_runtime_->activate();
         } catch (const std::exception &error) {
-            warn_graph_cleanup_failure("restoring the previous runtime", error.what());
+            warn_context_cleanup_failure("restoring the previous runtime", error.what());
         } catch (...) {
-            warn_graph_cleanup_failure("restoring the previous runtime", "unknown error");
+            warn_context_cleanup_failure("restoring the previous runtime", "unknown error");
         }
     }
 }

@@ -15,7 +15,9 @@ MultiheadAttentionVarlen::MultiheadAttentionVarlen(Tensor out,
                                                    int max_seqlen_q,
                                                    int max_seqlen_k,
                                                    std::optional<Tensor> alibi_slopes,
-                                                   float scale) {
+                                                   float scale)
+    : device_graph_capture_safe_(
+          out->device().type() != Device::Type::kNvidia) {
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, q, k, v, cum_seqlens_q, cum_seqlens_kv);
     if (block_table.has_value()) {
         INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, block_table.value());

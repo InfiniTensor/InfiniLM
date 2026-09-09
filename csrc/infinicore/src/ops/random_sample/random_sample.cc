@@ -17,6 +17,8 @@ bool tryGreedyWithInfiniOps(
     float random_value, float top_p, int top_k, float temperature) {
     const auto dtype = logits->dtype();
     const auto device_type = logits->device().type();
+    const bool batched = logits->ndim() == 2;
+    const size_t num_rows = batched ? logits->size(0) : 1;
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
          && device_type != Device::Type::kIluvatar
@@ -28,11 +30,13 @@ bool tryGreedyWithInfiniOps(
             && top_p != 0.0f
             && top_k != 1
             && temperature != 0.0f)
-        || logits->ndim() != 1
+        || (logits->ndim() != 1
+            && !(device_type == Device::Type::kNvidia && batched))
         || logits->numel() == 0
         || !logits->is_contiguous()
         || (dtype != DataType::kFloat16 && dtype != DataType::kBFloat16 && dtype != DataType::kFloat32)
-        || indices->numel() != 1
+        || indices->numel() != num_rows
+        || (batched && (indices->ndim() != 1 || indices->size(0) != num_rows))
         || indices->dtype() != DataType::kInt64
         || !indices->is_contiguous()) {
         return false;
@@ -44,12 +48,14 @@ bool tryGreedyWithInfiniOps(
     const infiniops::TensorMeta indices_meta(indices);
     auto argmax_config = infiniops::defaultConfigForDevice<infini::ops::Argmax>(
         logits_meta.device.type());
-    const std::optional<int64_t> no_dim;
+    const std::optional<int64_t> dim = batched
+                                         ? std::optional<int64_t>{1}
+                                         : std::nullopt;
     infini::ops::Argmax::Call(
         handle,
         argmax_config,
         logits_meta.tensor(logits),
-        no_dim,
+        dim,
         false,
         indices_meta.tensor(indices));
     return true;
