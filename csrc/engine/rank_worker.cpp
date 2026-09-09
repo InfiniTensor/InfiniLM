@@ -418,18 +418,25 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
-                        // All-position speculative/MTP runs need eager mode because
-                        // hidden states are not part of compiled graph outputs.
+                        // Packed all-position runs do not match the one-token-per-request
+                        // output shape captured by the compiled decode graphs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device{infinicore::Device::Type::kCpu}));
+                            auto [graph, output] = compiler_->get_compiled(
+                                local_args.to_model_input(
+                                    infinicore::Device{infinicore::Device::Type::kCpu},
+                                    false,
+                                    true));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                hidden_states = output->hidden_states;
                             }
                         }
                         // Fall back to eager mode
                         if (!logits) {
-                            auto model_args = local_args.to_model_input(rank_info_.device);
+                            auto model_args = local_args.to_model_input(
+                                rank_info_.device,
+                                attention_backend_ == backends::AttentionBackend::STATIC_ATTN);
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
@@ -484,16 +491,41 @@ void RankWorker::thread_loop() {
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
                             auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::kInt64, rank_info_.device)};
 
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions && !logits_are_last_token_only) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                            const bool parameter_greedy = top_p == 0.0f || top_k == 1 || temperature == 0.0f;
+                            const auto logits_dtype = logits->dtype();
+                            const bool batch_greedy = rank_info_.device.type() == infinicore::Device::Type::kNvidia
+                                                   && parameter_greedy
+                                                   && n_out > 0
+                                                   && logits_positions == n_out
+                                                   && logits->is_contiguous()
+                                                   && (logits_dtype == infinicore::DataType::kFloat16
+                                                       || logits_dtype == infinicore::DataType::kBFloat16
+                                                       || logits_dtype == infinicore::DataType::kFloat32)
+                                                   && (sample_all_positions || logits_are_last_token_only);
+                            if (batch_greedy) {
+                                float random_val = 0.0f;
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 }
-                                auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
                                 infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                                    output_ids,
+                                    logits->view({logits_positions, vocab_size}),
+                                    random_val,
+                                    top_p,
+                                    top_k,
+                                    temperature);
+                            } else {
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    size_t score_idx = i;
+                                    if (!sample_all_positions && !logits_are_last_token_only) {
+                                        score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    }
+                                    auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
+                                }
                             }
 
                             if (rank_info_.pp_size > 1) {

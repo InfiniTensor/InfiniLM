@@ -15,8 +15,7 @@ class ContextImpl;
 class Runtime : public std::enable_shared_from_this<Runtime> {
 private:
     Device device_;
-    mutable std::mutex stream_mutex_;
-    mutable infini::rt::runtime::Stream stream_ = nullptr;
+    infini::rt::runtime::Stream stream_ = nullptr;
     std::unique_ptr<PinnableBlockAllocator> device_memory_allocator_;
     std::unique_ptr<MemoryAllocator> pinned_host_memory_allocator_;
     std::unique_ptr<graph::GraphManager> graph_manager_;

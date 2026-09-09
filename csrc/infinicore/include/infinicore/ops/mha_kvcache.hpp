@@ -61,9 +61,21 @@ public:
                         std::optional<Tensor> alibi_slopes,
                         float scale);
 
-    // Some FlashAttention providers allocate temporary storage outside the
-    // graph lease, so decode remains a conservative host segment.
-    bool is_device_graph_capture_safe() const override { return false; }
+    static bool supports_device_graph_capture(
+        const Tensor &out,
+        const Tensor &q,
+        const Tensor &k_cache,
+        const Tensor &v_cache,
+        const Tensor &seqlens_k,
+        const Tensor &block_table,
+        const std::optional<Tensor> &alibi_slopes);
+
+    bool is_device_graph_capture_safe() const override {
+        return device_graph_capture_safe_;
+    }
+
+private:
+    bool device_graph_capture_safe_;
 };
 
 Tensor mha_kvcache(const Tensor &q,

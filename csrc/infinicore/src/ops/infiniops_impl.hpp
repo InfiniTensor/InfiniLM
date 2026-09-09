@@ -106,6 +106,25 @@ infini::ops::Config configForImplementation(
 
 template <typename Operator>
 infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type) {
+    if (device_type == infini::ops::Device::Type::kNvidia) {
+        static const std::size_t implementation_index = [] {
+            const auto implementation_indices = Operator::active_implementation_indices(
+                infini::ops::Device::Type::kNvidia);
+            if (implementation_indices.empty()) {
+                throw std::runtime_error(
+                    "InfiniOps operator has no active implementation for device '"
+                    + std::string(infini::ops::Device::StringFromType(
+                        infini::ops::Device::Type::kNvidia))
+                    + "'.");
+            }
+            return implementation_indices.front();
+        }();
+
+        infini::ops::Config config;
+        config.set_implementation_index(implementation_index);
+        return config;
+    }
+
     const auto implementation_indices = Operator::active_implementation_indices(device_type);
     if (implementation_indices.empty()) {
         throw std::runtime_error(

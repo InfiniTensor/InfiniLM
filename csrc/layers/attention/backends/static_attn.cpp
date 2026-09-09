@@ -6,6 +6,23 @@
 #include "infinicore/ops/per_tensor_quant_i8.hpp"
 
 namespace infinilm::layers::attention::backends {
+namespace {
+
+size_t sequence_length_from_metadata(
+    const std::optional<size_t> &snapshot,
+    const std::optional<infinicore::Tensor> &lengths) {
+    if (snapshot.has_value()) {
+        return snapshot.value();
+    }
+
+    ASSERT(lengths.has_value());
+    return reinterpret_cast<const int32_t *>(
+        lengths.value()
+            ->to(infinicore::Device{infinicore::Device::Type::kCpu})
+            ->data())[0];
+}
+
+} // namespace
 
 StaticAttentionImpl::StaticAttentionImpl(size_t num_heads,
                                          size_t head_size,
@@ -48,20 +65,23 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     size_t seq_len = shape[2];
     size_t value_head_dim = v_reshaped->size(3);
 
-    auto past_sequence_lengths = attn_metadata.past_sequence_lengths;
-    auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
-
     if (infinicore::context::isGraphRecording()) {
         ASSERT(this->kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE);
         return forward_graph_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata);
     }
 
+    const size_t cache_pos = sequence_length_from_metadata(
+        attn_metadata.first_past_sequence_length,
+        attn_metadata.past_sequence_lengths);
+    const size_t total_seq_len = sequence_length_from_metadata(
+        attn_metadata.first_total_sequence_length,
+        attn_metadata.total_sequence_lengths);
+
     // update static kv cache
     // k_total:  [bs, n_kv_head, max_seq_len, head_dim]
     // v_total : [bs, n_kv_head, max_seq_len, head_dim]
-    auto [k_total, v_total] = do_kv_cache_update(layer, k_permuted, v_permuted, kv_cache, past_sequence_lengths.value());
-
-    size_t total_seq_len = reinterpret_cast<int32_t *>(total_sequence_lengths.value()->to(infinicore::Device{infinicore::Device::Type::kCpu})->data())[0];
+    auto [k_total, v_total] = do_kv_cache_update(
+        layer, k_permuted, v_permuted, kv_cache, cache_pos);
 
     if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
         infinilm::KVQuantUtils::dequantize(
@@ -138,7 +158,7 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_ca
                                                                                            const infinicore::Tensor key,
                                                                                            const infinicore::Tensor value,
                                                                                            infinicore::Tensor &kv_cache,
-                                                                                           const infinicore::Tensor past_sequence_lengths) const {
+                                                                                           size_t cache_pos) const {
 
     auto batch_size = key->size(0);
     auto update_len = key->size(2);
@@ -152,7 +172,6 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> StaticAttentionImpl::do_kv_ca
 
     ASSERT_EQ(batch_size, max_batch_size);
 
-    size_t cache_pos = reinterpret_cast<int32_t *>(past_sequence_lengths->to(infinicore::Device{infinicore::Device::Type::kCpu})->data())[0];
     auto result_len = cache_pos + update_len;
     ASSERT(result_len <= max_seq_len);
 

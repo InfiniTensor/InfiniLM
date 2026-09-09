@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace {
@@ -64,6 +65,9 @@ void StaticBatchingCompiler::compile() {
         return;
     }
     const size_t cache_page_size = *static_graph_cache_page_size(b);
+    const auto &model_config = model_->get_model_config();
+    const bool uses_target_hidden_states = model_config
+                                        && model_config->get_or<std::string>("model_type", "") == "minicpm_eagle";
     {
         InfinilmModel::Input input;
         input.input_ids = infinicore::Tensor::empty({b, 1}, infinicore::DataType::kInt64, infinicore::context::getDevice());
@@ -87,6 +91,13 @@ void StaticBatchingCompiler::compile() {
             slot_mapping_vec[i] = static_cast<int64_t>(i * cache_page_size);
         }
         infinicore::context::memcpyH2D(input.slot_mapping.value()->data(), slot_mapping_vec.data(), b * sizeof(int64_t), false);
+        if (uses_target_hidden_states) {
+            input.target_hidden_states = infinicore::Tensor::empty(
+                {b, 1, model_config->get<size_t>("hidden_size")},
+                model_config->get_dtype(),
+                infinicore::context::getDevice());
+            set_zeros(input.target_hidden_states.value());
+        }
 
         // Attention reads attn_metadata from thread-local forward context.
         infinilm::global_state::get_forward_context().attn_metadata = {
@@ -97,6 +108,8 @@ void StaticBatchingCompiler::compile() {
             input.block_tables,
             input.slot_mapping,
         };
+        infinilm::global_state::get_forward_context().attn_metadata.first_past_sequence_length = 0;
+        infinilm::global_state::get_forward_context().attn_metadata.first_total_sequence_length = 1;
 
         barrier_->wait();
         (void)model_->forward(input);
@@ -107,7 +120,18 @@ void StaticBatchingCompiler::compile() {
         auto graph = recording.finish();
         barrier_->wait();
 
-        auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+        infinicore::Tensor graph_hidden_states;
+        if (output.hidden_states) {
+            graph_hidden_states = infinicore::graph::GraphTensor(
+                output.hidden_states,
+                infinicore::graph::GraphTensor::SnapshotPolicy::kBlob);
+        }
+        auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+            new InfinilmModel::Output{
+                infinicore::graph::GraphTensor(
+                    output.logits,
+                    infinicore::graph::GraphTensor::SnapshotPolicy::kBlob),
+                graph_hidden_states});
 
         compiled_map_[std::make_tuple(b, 1)] = CompiledResult{
             std::move(input), std::make_tuple(graph, shared_output), cache_page_size};
@@ -124,10 +148,26 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
             return std::make_tuple(nullptr, nullptr);
         } else {
             auto &graph_input = result->second.input;
+            const bool graph_has_target_hidden_states = graph_input.target_hidden_states.has_value();
+            const bool input_has_target_hidden_states = input.target_hidden_states.has_value();
+            if (graph_has_target_hidden_states != input_has_target_hidden_states) {
+                return std::make_tuple(nullptr, nullptr);
+            }
+            if (graph_has_target_hidden_states
+                && (graph_input.target_hidden_states.value()->shape()
+                        != input.target_hidden_states.value()->shape()
+                    || graph_input.target_hidden_states.value()->dtype()
+                           != input.target_hidden_states.value()->dtype())) {
+                return std::make_tuple(nullptr, nullptr);
+            }
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());
             graph_input.past_sequence_lengths.value()->copy_from(input.past_sequence_lengths.value());
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
+            if (graph_has_target_hidden_states) {
+                graph_input.target_hidden_states.value()->copy_from(
+                    input.target_hidden_states.value());
+            }
 
             ASSERT(input.past_sequence_lengths.value()->device().type() == infinicore::Device::Type::kCpu);
             ASSERT(input.past_sequence_lengths.value()->dtype() == infinicore::DataType::kInt32);
@@ -148,7 +188,15 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
                 false);
 
             auto graph = std::get<0>(result->second.compiled);
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            const auto &compiled_output = std::get<1>(result->second.compiled);
+            infinicore::Tensor hidden_states;
+            if (compiled_output->hidden_states) {
+                hidden_states = compiled_output->hidden_states->resume_from_blob_();
+            }
+            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+                new InfinilmModel::Output{
+                    compiled_output->logits->resume_from_blob_(),
+                    hidden_states});
             return std::make_tuple(graph, shared_output);
         }
     } else {

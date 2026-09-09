@@ -21,11 +21,9 @@ void *plan(Tensor k_cache, Tensor v_cache, const Tensor &k, const Tensor &v, con
     INFINICORE_ASSERT(::infinicore::op::infiniops::isSupportedDevice(k_cache->device().type()));
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(k_cache, v_cache, k, v, slot_mapping);
 
-    // The canonical API requires valid scales even though the "auto" path does
-    // not apply quantization.
+    // The canonical "auto" path requires valid scale metadata, but its
+    // backends do not read scale values.
     auto scale = Tensor::empty({1}, DataType::kFloat32, k_cache->device());
-    constexpr float one = 1.0f;
-    context::memcpyH2D(scale->data(), &one, sizeof(one), false);
     return new PlannedMeta{
         TensorMeta(k), TensorMeta(v), TensorMeta(slot_mapping), TensorMeta(scale), TensorMeta(k_cache), TensorMeta(v_cache),
         graph::GraphTensor(k), graph::GraphTensor(v), graph::GraphTensor(slot_mapping), graph::GraphTensor(scale), graph::GraphTensor(k_cache), graph::GraphTensor(v_cache),
