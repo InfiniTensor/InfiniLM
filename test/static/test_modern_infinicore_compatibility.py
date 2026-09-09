@@ -210,6 +210,7 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                 "kCambricon",
                 "kIluvatar",
                 "kHygon",
+                "kAscend",
             ):
                 with self.subTest(adapter=relative_path, device=device):
                     self.assertIn(f"device_type != Device::Type::{device}", attention)
@@ -219,6 +220,10 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
                     )
             self.assertIn("configForImplementation<", attention)
             self.assertIn("implementation_index_for_device(device_type)", attention)
+            self.assertIn(
+                "device_type == infini::ops::Device::Type::kAscend",
+                attention,
+            )
             self.assertIn("device_type == Device::Type::kMoore", attention)
             self.assertIn("device_type == Device::Type::kIluvatar", attention)
             self.assertIn("return 0;", attention)
@@ -258,7 +263,11 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             engine,
         )
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, and Hygon devices",
+            "device_type != infinicore::Device::Type::kAscend",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, and Ascend devices",
             engine,
         )
         self.assertIn(

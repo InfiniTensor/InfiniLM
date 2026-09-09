@@ -18,7 +18,8 @@ using TensorMeta = ::infinicore::op::infiniops::TensorMeta;
 // InfiniOps provides device-aware default selection for these operators.
 std::size_t implementation_index_for_device(
     infini::ops::Device::Type device_type) {
-    if (device_type == infini::ops::Device::Type::kIluvatar) {
+    if (device_type == infini::ops::Device::Type::kIluvatar
+        || device_type == infini::ops::Device::Type::kAscend) {
         return 0;
     }
     if (device_type == infini::ops::Device::Type::kMoore) {
@@ -45,7 +46,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
-         && device_type != Device::Type::kHygon)
+         && device_type != Device::Type::kHygon
+         && device_type != Device::Type::kAscend)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -258,6 +260,12 @@ static bool registered = []() {
         Device::Type::kHygon, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kHygon, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kAscend, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kAscend, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kAscend, &cleanup);
     return true;
 }();
 
