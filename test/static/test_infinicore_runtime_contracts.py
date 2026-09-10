@@ -56,6 +56,22 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                     source.count("GraphTensor::SnapshotPolicy::kBlob"), count
                 )
 
+    def test_ascend_single_node_tp_uses_comm_init_all(self) -> None:
+        source = read_source("csrc/engine/distributed/communication_group.cpp")
+        constructor = function_body(
+            source,
+            "CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,",
+        )
+
+        self.assertIn("const bool use_single_node_init_all", constructor)
+        self.assertIn(
+            "device_type_ == infinicore::Device::Type::kAscend",
+            constructor,
+        )
+        self.assertIn("infinicclCommInitAll(", constructor)
+        self.assertIn("communicators_", constructor)
+        self.assertNotIn("infinicclCommInitRank", constructor)
+
     def test_standard_mlp_consumes_packed_gate_up_without_repacking(self) -> None:
         consumers = (
             (
