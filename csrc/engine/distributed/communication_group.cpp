@@ -176,7 +176,9 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
     }
 
     if (tp_size > 1) {
-        if (device_type_ == infinicore::Device::Type::kCambricon) {
+        const bool use_single_node_init_all = device_type_ == infinicore::Device::Type::kCambricon
+                                           || device_type_ == infinicore::Device::Type::kAscend;
+        if (use_single_node_init_all) {
             checkInfiniccl(
                 "infinicclCommInitAll",
                 infinicclCommInitAll(
