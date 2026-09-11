@@ -23,7 +23,7 @@ std::size_t implementation_index_for_device(
         return 0;
     }
     if (device_type == infini::ops::Device::Type::kMoore) {
-        return 8;
+        return 16;
     }
     return 16;
 }
