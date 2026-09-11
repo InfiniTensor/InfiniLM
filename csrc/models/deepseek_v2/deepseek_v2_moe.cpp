@@ -1,4 +1,5 @@
 #include "deepseek_v2_moe.hpp"
+#include "../../layers/moe/kt_moe_callback.hpp"
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
@@ -131,9 +132,14 @@ infinicore::Tensor DeepseekV2Experts::forward(const infinicore::Tensor &hidden_s
 }
 
 DeepseekV2MoE::DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                             const infinicore::Device &device) {
+                             size_t layer_idx,
+                             const infinicore::Device &device)
+    : layer_idx_(layer_idx) {
+    skip_experts_ = model_config->get_or<bool>("use_kt_moe", false);
     INFINICORE_NN_MODULE_INIT(gate, model_config, device);
-    INFINICORE_NN_MODULE_INIT(experts, model_config, device);
+    if (!skip_experts_) {
+        INFINICORE_NN_MODULE_INIT(experts, model_config, device);
+    }
 
     const size_t n_shared_experts = model_config->get_or<size_t>("n_shared_experts", 0);
     has_shared_experts_ = n_shared_experts > 0;
@@ -151,7 +157,26 @@ infinicore::Tensor DeepseekV2MoE::forward(const infinicore::Tensor &hidden_state
     auto hidden_states_reshaped = hidden_states->view({shape[0] * shape[1], shape[2]});
 
     auto [routing_weights, selected_experts] = gate_->forward(hidden_states_reshaped);
-    auto final_hidden_states = experts_->forward(hidden_states_reshaped, selected_experts, routing_weights)->view(shape);
+
+    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+    infinicore::Tensor expert_output;
+    auto kt_cb = infinilm::layers::moe::KTMoECallbackRegistry::instance().get(static_cast<int>(layer_idx_));
+    if (kt_cb) {
+        if (rank_info.tp_size > 1) {
+            // Each rank would run KT on the full expert weights and the native path's
+            // partial-sum allreduce semantics do not apply -> explicit refusal.
+            throw std::runtime_error(
+                "DeepseekV2MoE: KT offload does not support tensor_parallel_size > 1");
+        }
+        expert_output = (*kt_cb)(hidden_states_reshaped, routing_weights, selected_experts, static_cast<int>(layer_idx_));
+    } else if (skip_experts_) {
+        throw std::runtime_error(
+            "DeepseekV2MoE: use_kt_moe is enabled but no KT callback is registered for layer "
+            + std::to_string(layer_idx_));
+    } else {
+        expert_output = experts_->forward(hidden_states_reshaped, selected_experts, routing_weights);
+    }
+    auto final_hidden_states = expert_output->view(shape);
     if (has_shared_experts_) {
         auto shared_out = shared_experts_->forward(hidden_states);
         final_hidden_states = infinicore::op::add(final_hidden_states, shared_out);

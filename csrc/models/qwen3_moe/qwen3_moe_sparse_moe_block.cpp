@@ -43,6 +43,9 @@ infinicore::Tensor Qwen3MoeSparseMoeBlock::forward(const infinicore::Tensor &hid
         infinicore::Tensor(),
     };
 
+    // KT (KTransformers) offload is handled inside FusedMoE::forward when
+    // a KT callback is registered for this layer.
+
     auto final_hidden_states = fused_moe_->forward(
         hidden_states_reshaped,
         topk_output,

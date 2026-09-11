@@ -63,6 +63,7 @@ protected:
 class DeepseekV2MoE : public infinicore::nn::Module {
 public:
     DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                  size_t layer_idx,
                   const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
@@ -72,6 +73,8 @@ protected:
     INFINICORE_NN_MODULE(DeepseekV2Experts, experts);
     INFINICORE_NN_MODULE(DeepseekV2MLP, shared_experts);
     bool has_shared_experts_{false};
+    size_t layer_idx_{0};
+    bool skip_experts_{false};
 };
 
 } // namespace infinilm::models::deepseek_v2

@@ -22,7 +22,7 @@ DeepseekDecoderLayer::DeepseekDecoderLayer(std::shared_ptr<infinilm::config::Mod
 
     if (use_moe) {
         mlp_ = std::make_shared<DeepseekMLP>(
-            this->register_module<deepseek_v2::DeepseekV2MoE>("mlp", model_config, device));
+            this->register_module<deepseek_v2::DeepseekV2MoE>("mlp", model_config, layer_idx, device));
     } else {
         mlp_ = std::make_shared<DeepseekMLP>(
             this->register_module<deepseek_v2::DeepseekV2MLP>("mlp", model_config, device));
