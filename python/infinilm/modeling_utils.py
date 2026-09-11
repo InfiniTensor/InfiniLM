@@ -129,7 +129,9 @@ def load_state_dict(
         for k in f.keys():
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            if tensor.is_floating_point() and k.endswith(".weight_scale"):
+                tensor = tensor.to(device=device, dtype=torch.float32)
+            elif tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
