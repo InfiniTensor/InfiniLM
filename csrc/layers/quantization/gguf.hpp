@@ -138,10 +138,6 @@ private:
     std::unordered_map<std::string, TypeEntry> types_;
     std::string key_prefix_;
     std::vector<ActVPerm> vperm_; // Empty when the converted model needs no permutation.
-    // Mutable because layout queries are logically const.
-    mutable size_t n_blob_ = 0;
-    mutable size_t n_dense_ = 0;
-    mutable size_t n_group_ = 0;
 };
 
 } // namespace infinilm::quantization

@@ -2,14 +2,11 @@
 
 #include "../models_registry.hpp"
 #include "infinicore/ops/gemm.hpp"
-#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
-
-// TextModel diagnostic hooks are compiled into this Qwen3.5 translation unit.
 
 Qwen35ForCausalLM::Qwen35ForCausalLM(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -30,15 +27,6 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
 InfinilmModel::Output Qwen35ForCausalLM::forward(
     const InfinilmModel::Input &input) const {
     auto hidden_states = model_->forward(input);
-    const char *dump_dir = std::getenv("INFINILM_LAYER_DUMP_DIR");
-    const char *dump_numel = std::getenv("INFINILM_LAYER_DUMP_NUMEL");
-    if (dump_dir != nullptr && dump_dir[0] != '\0'
-        && dump_numel != nullptr && dump_numel[0] != '\0'
-        && hidden_states->numel()
-               == std::strtoull(dump_numel, nullptr, 10)) {
-        hidden_states->debug(
-            std::string(dump_dir) + "/infini_result_norm.bin");
-    }
     infinicore::Tensor logits;
     if (fp32_lm_head_output_) {
         auto hidden = hidden_states->is_contiguous()
