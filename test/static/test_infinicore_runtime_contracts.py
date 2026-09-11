@@ -832,7 +832,16 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("class PinLease", allocator_header)
         self.assertIn("size_t pin_count = 0", allocator_header)
         self.assertIn("std::shared_ptr<PinLease> commit_pin_mode()", allocator_header)
-        self.assertIn("block->pin_count == 0", allocator_source)
+        allocator_allocate = function_body(
+            allocator_source,
+            "std::byte *PinnableBlockAllocator::allocate(size_t size)",
+        )
+        self.assertIn("return !block->in_use;", allocator_allocate)
+        self.assertIn(
+            "return b->size >= size && !b->in_use;",
+            allocator_allocate,
+        )
+        self.assertNotIn("block->pin_count == 0", allocator_allocate)
         self.assertIn("retain_for_capture", allocator_source)
         self.assertIn("context::retainGraphMemory", tensor_source)
         self.assertIn("std::shared_ptr<void> allocation_lease_", graph_header)

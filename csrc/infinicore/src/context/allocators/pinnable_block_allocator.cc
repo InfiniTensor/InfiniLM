@@ -149,7 +149,7 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
             const auto free_block = std::find_if(
                 cls.free_blocks.begin(), cls.free_blocks.end(),
                 [](const auto &block) {
-                    return !block->in_use && block->pin_count == 0;
+                    return !block->in_use;
                 });
             if (free_block != cls.free_blocks.end()) {
                 block = *free_block;
@@ -174,10 +174,12 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
     }
 
     // 2. Large block allocation
-    // Try to reuse an unpinned free large block.
+    // A pinned free block can be reused once its tensor owners release it. The
+    // pin keeps the underlying storage alive for graph replay without making
+    // the address exclusive to one captured graph.
     auto it = std::find_if(large_blocks_.begin(), large_blocks_.end(),
                            [size](const std::shared_ptr<Block> &b) {
-                               return b->size >= size && !b->in_use && b->pin_count == 0;
+                               return b->size >= size && !b->in_use;
                            });
 
     if (it != large_blocks_.end()) {
