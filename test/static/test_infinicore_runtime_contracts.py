@@ -72,6 +72,39 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("communicators_", constructor)
         self.assertNotIn("infinicclCommInitRank", constructor)
 
+    def test_ascend_hccl_allreduce_stays_out_of_device_graph(self) -> None:
+        source = read_source("csrc/infinicore/src/ops/distributed/allreduce.cc")
+        self.assertIn(
+            "device_graph_capture_safe_(output->device().type() "
+            "!= Device::Type::kAscend)",
+            source,
+        )
+        self.assertIn(
+            "bool AllReduce::is_device_graph_capture_safe() const",
+            source,
+        )
+
+    def test_ascend_attention_with_host_lengths_stays_out_of_device_graph(
+        self,
+    ) -> None:
+        varlen = read_source(
+            "csrc/infinicore/src/ops/multi_head_attention_varlen/mha_varlen.cc"
+        )
+        kvcache = read_source("csrc/infinicore/src/ops/mha_kvcache/mha_kvcache.cc")
+
+        self.assertIn(
+            "out->device().type() != Device::Type::kNvidia",
+            varlen,
+        )
+        self.assertIn(
+            "!= Device::Type::kAscend",
+            varlen,
+        )
+        self.assertIn(
+            "device.type() == Device::Type::kNvidia",
+            kvcache,
+        )
+
     def test_standard_mlp_consumes_packed_gate_up_without_repacking(self) -> None:
         consumers = (
             (
