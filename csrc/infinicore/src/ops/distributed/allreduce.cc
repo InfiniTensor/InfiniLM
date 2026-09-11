@@ -10,12 +10,18 @@ struct PlannedMeta {
     infinicclComm_t communicator;
 };
 
-AllReduce::AllReduce(Tensor output, const Tensor &input, infinicclRedOp_t op, infinicclComm_t communicator) {
+// HCCL collectives are not capture-safe with the current CANN RI graph API.
+AllReduce::AllReduce(Tensor output, const Tensor &input, infinicclRedOp_t op, infinicclComm_t communicator)
+    : device_graph_capture_safe_(output->device().type() != Device::Type::kAscend) {
     INFINICORE_ASSERT(output->dtype() == input->dtype());
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(output, input);
     INFINICORE_ASSERT(output->is_contiguous() && input->is_contiguous());
     INFINICORE_ASSERT(output->numel() == input->numel());
     planned_meta_ = new PlannedMeta{graph::GraphTensor(output), graph::GraphTensor(input), op, communicator};
+}
+
+bool AllReduce::is_device_graph_capture_safe() const {
+    return device_graph_capture_safe_;
 }
 AllReduce::~AllReduce() {
     if (planned_meta_) {
