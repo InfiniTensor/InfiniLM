@@ -10,38 +10,12 @@
 #include <infinicore/ops/silu.hpp>
 
 #include <cstdint>
-#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_next {
-namespace {
-
-bool should_dump_gdn(size_t layer_idx, size_t seq_len) {
-    const char *target_layer = std::getenv("INFINILM_GDN_DUMP_LAYER");
-    const char *target_seq_len = std::getenv("INFINILM_GDN_DUMP_SEQ_LEN");
-    return target_layer != nullptr && target_layer[0] != '\0'
-        && target_seq_len != nullptr && target_seq_len[0] != '\0'
-        && layer_idx == std::strtoull(target_layer, nullptr, 10)
-        && seq_len == std::strtoull(target_seq_len, nullptr, 10);
-}
-
-void dump_gdn_tensor(const infinicore::Tensor &tensor,
-                     const std::string &name,
-                     size_t layer_idx,
-                     size_t seq_len) {
-    const char *dump_dir = std::getenv("INFINILM_LAYER_DUMP_DIR");
-    if (dump_dir == nullptr || dump_dir[0] == '\0' || !tensor
-        || !should_dump_gdn(layer_idx, seq_len)) {
-        return;
-    }
-    tensor->debug(std::string(dump_dir) + "/infini_gdn_" + name + "_"
-                  + std::to_string(layer_idx) + ".bin");
-}
-
-} // namespace
 
 Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                              size_t layer_idx,
@@ -185,16 +159,11 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     auto z = in_proj_z_->forward(hidden_states_mutable);
     auto a = in_proj_a_->forward(hidden_states_mutable);
     auto b = in_proj_b_->forward(hidden_states_mutable);
-    dump_gdn_tensor(qkv, "qkv_mixed", layer_idx_, seq_len);
-    dump_gdn_tensor(z, "z", layer_idx_, seq_len);
-    dump_gdn_tensor(a, "alpha", layer_idx_, seq_len);
-    dump_gdn_tensor(b, "beta", layer_idx_, seq_len);
 
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
 
     auto conv_qkv = this->conv1d_->forward(qkv);
-    dump_gdn_tensor(conv_qkv, "conv_output_silu", layer_idx_, seq_len);
 
     auto q = conv_qkv->narrow({{2, 0, local_key_dim_}});
     auto k = conv_qkv->narrow({{2, local_key_dim_, local_key_dim_}});
@@ -220,8 +189,6 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {seq_len, 1, local_num_value_heads_},
             {b->stride(1), b->stride(0), 1});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
-        dump_gdn_tensor(g, "gate", layer_idx_, seq_len);
-        dump_gdn_tensor(beta, "beta_sigmoid", layer_idx_, seq_len);
 
         delta_out = infinicore::op::recurrent_gated_delta_rule_indexed(
             q_delta,
@@ -255,8 +222,6 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {1, seq_len, local_num_value_heads_},
             {b->stride(0), b->stride(1), 1});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
-        dump_gdn_tensor(g, "gate", layer_idx_, seq_len);
-        dump_gdn_tensor(beta, "beta_sigmoid", layer_idx_, seq_len);
 
         delta_out = infinicore::op::chunk_gated_delta_rule(
             q_delta,
@@ -277,17 +242,12 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     auto delta_out_2d = delta_out->as_strided(
         {batch_size * seq_len * local_num_value_heads_, value_head_dim_},
         {static_cast<infinicore::Stride>(value_head_dim_), 1});
-    dump_gdn_tensor(delta_out, "delta_out", layer_idx_, seq_len);
     auto v_norm_2d = norm_->forward(delta_out_2d);
     auto v_norm = v_norm_2d->as_strided(
         {batch_size, seq_len, local_value_dim_},
         {static_cast<infinicore::Stride>(seq_len * local_value_dim_), static_cast<infinicore::Stride>(local_value_dim_), 1});
-    dump_gdn_tensor(v_norm, "v_norm", layer_idx_, seq_len);
     auto gated = infinicore::op::mul(v_norm, infinicore::op::silu(z));
-    dump_gdn_tensor(gated, "gated", layer_idx_, seq_len);
-    dump_gdn_tensor(gated, "final_output", layer_idx_, seq_len);
     auto output = out_proj_->forward(gated);
-    dump_gdn_tensor(output, "linear_attn_out", layer_idx_, seq_len);
     return output;
 }
 

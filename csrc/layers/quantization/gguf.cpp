@@ -3,11 +3,8 @@
 #include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/linear.hpp>
 #include <infinicore/ops/linear_gguf.hpp>
-#include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <atomic>
-#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 
@@ -54,20 +51,6 @@ std::string supported_types() {
 
 constexpr const char *DENSE_MARK = "dense_bf16";
 
-bool env_enabled(const char *name) {
-    const char *value = std::getenv(name);
-    return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
-}
-
-bool use_f32_decode_output(const std::string &table_key, size_t m_count) {
-    if (!env_enabled("INFINI_GGUF_F32_DECODE_OUT") || m_count > 16) {
-        return false;
-    }
-    const char *match = std::getenv("INFINI_GGUF_F32_DECODE_OUT_MATCH");
-    return match == nullptr || match[0] == '\0'
-        || table_key.find(match) != std::string::npos;
-}
-
 } // namespace
 
 GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
@@ -83,9 +66,6 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
         throw std::runtime_error("GGUFBlockQuantization: ggml_types is empty");
     }
 
-    size_t n_blob = 0;
-    size_t n_dense = 0;
-    size_t n_outside = 0;
     for (const auto &kv : table.items()) {
         const std::string &name = kv.key();
         // Keep keys outside key_prefix unchanged. This includes root-level
@@ -93,8 +73,6 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
         std::string key = name;
         if (!key_prefix_.empty() && name.compare(0, key_prefix_.size(), key_prefix_) == 0) {
             key = name.substr(key_prefix_.size());
-        } else {
-            ++n_outside;
         }
 
         int64_t id = DENSE_BF16;
@@ -105,7 +83,6 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
                     "GGUFBlockQuantization: value '" + v + "' for '" + name
                     + "' is neither an integer type id nor \"" + DENSE_MARK + "\"");
             }
-            ++n_dense;
         } else {
             if (!kv.value().is_number_integer()) {
                 throw std::runtime_error(
@@ -122,7 +99,6 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
                     + std::to_string(id) + " (supported: " + supported_types()
                     + "); unsupported types must be converted to dense BF16");
             }
-            ++n_blob;
         }
 
         if (!types_.emplace(std::move(key), TypeEntry{id, name}).second) {
@@ -172,33 +148,9 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
         }
     }
 
-    static std::atomic<bool> config_logged{false};
-    if (!config_logged.exchange(true, std::memory_order_relaxed)) {
-        spdlog::info(
-            "GGUF block quantization: {} entries (blob {} / dense {} / outside prefix {}), key_prefix='{}'{}",
-            types_.size(), n_blob, n_dense, n_outside, key_prefix_,
-            key_prefix_.empty()
-                ? " (not set; table keys are relative safetensors names)"
-                : " (for example, root-level lm_head entries)");
-
-        std::string vs;
-        for (const auto &r : vperm_) {
-            if (!vs.empty()) {
-                vs += ", ";
-            }
-            vs += r.suffix + "=" + std::to_string(r.n_k) + "x" + std::to_string(r.r) + "x" + std::to_string(r.hd);
-        }
-        spdlog::info("GGUF block quantization: {} activation V-head permutation rules (grouped->tiled): {}",
-                     vperm_.size(), vs.empty() ? "none" : vs);
-    }
 }
 
-GGUFBlockQuantization::~GGUFBlockQuantization() {
-    if (n_blob_ + n_dense_ + n_group_ > 0) {
-        spdlog::debug("GGUF block quantization: layout matches blob {} / dense {} / fused group {}",
-                      n_blob_, n_dense_, n_group_);
-    }
-}
+GGUFBlockQuantization::~GGUFBlockQuantization() = default;
 
 bool GGUFBlockQuantization::is_known_type(int64_t type_id) {
     return ggml_block(type_id) != nullptr;
@@ -336,18 +288,15 @@ std::vector<ParamDescriptor> GGUFBlockQuantization::get_param_layout(
                 "GGUFBlockQuantization: fused-group stem '" + stem
                 + "' has no '" + stem + ".<shard>.*' entry in the type table");
         }
-        ++n_group_;
         return {};
     }
 
     const int64_t id = resolve(stem);
     if (id == DENSE_BF16) {
-        ++n_dense_;
         // The converter stored this tensor as dense BF16; use regular GEMM.
         return {{"weight", {out_features, in_features}, dtype, split_dim, tp_rank, tp_size}};
     }
 
-    ++n_blob_;
     const size_t rb = row_bytes(in_features, id);
     return {{{BLOB_SUFFIX}, {out_features, rb}, infinicore::DataType::U8, split_dim, tp_rank, tp_size}};
 }
@@ -401,26 +350,8 @@ infinicore::Tensor GGUFBlockQuantization::forward_shard(
 
         auto flat = x->view({M, K});
         flat = flat->is_contiguous() ? flat : flat->contiguous();
-        const bool f32_decode_out = use_f32_decode_output(table_key, M);
-        const auto out_dtype = f32_decode_out
-                                 ? infinicore::DataType::F32
-                                 : input->dtype();
-        auto out = infinicore::Tensor::empty({M, N}, out_dtype, input->device());
-        // Log the first packed invocation as a lightweight wiring diagnostic.
-        static std::atomic<long> blob_calls{0};
-        if (blob_calls.fetch_add(1) == 0) {
-            spdlog::info(
-                "linear_gguf: first packed forward {} -- M={} N={} K={} ggml_type={} row_bytes={}",
-                table_key, M, N, K, type_id, w->size(1));
-        }
-        if (f32_decode_out) {
-            static std::atomic<long> f32_calls{0};
-            if (f32_calls.fetch_add(1) == 0) {
-                spdlog::warn(
-                    "linear_gguf: experimental F32 decode output enabled; first match {} -- M={} N={} K={}",
-                    table_key, M, N, K);
-            }
-        }
+        auto out = infinicore::Tensor::empty(
+            {M, N}, input->dtype(), input->device());
         infinicore::op::linear_gguf_(out, flat, w, type_id);
 
         std::vector<size_t> out_shape(x_shape.begin(), x_shape.end() - 1);
@@ -469,13 +400,6 @@ infinicore::Tensor GGUFBlockQuantization::forward(
         }
     } else if (rule) {
         x = gather_grouped_to_tiled(*rule, input, describe(stem));
-        // Log the first permutation as a lightweight wiring diagnostic.
-        static std::atomic<long> vperm_applied{0};
-        if (vperm_applied.fetch_add(1) == 0) {
-            spdlog::info(
-                "linear_gguf: first activation V-head permutation {} -- grouped->tiled {}x{}x{}",
-                describe(stem), rule->n_k, rule->r, rule->hd);
-        }
     }
 
     // A non-fused layer owns exactly one weight or weight_bytes parameter.
