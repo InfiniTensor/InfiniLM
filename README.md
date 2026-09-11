@@ -169,6 +169,24 @@
         > 注意：`--cache-dir` 应指向包含 `ceval___ceval-exam` 和 `cais___mmlu` 等数据集子目录的父目录，而不是直接指向这些子目录
 
   - 试验中功能
+    - 请求优先级调度
+
+      OpenAI 兼容接口接受可选的整数参数 `priority`，范围为 0 到 10，数值越大越优先。默认值为 0；相同有效优先级的请求保持 FIFO。该功能只调整等待请求进入 Prefill 的顺序，不抢占正在运行的请求。
+
+      ```json
+      {
+        "model": "model-name",
+        "messages": [{"role": "user", "content": "Hello"}],
+        "priority": 8
+      }
+      ```
+
+      为避免低优先级请求饥饿，等待请求默认每 5 秒提升一级有效优先级。可在启动服务时调整 Aging 间隔：
+
+      ```bash
+      python python/infinilm/server/inference_server.py --model=<model-path> --priority-aging-interval=10
+      ```
+
     - Warm Up
       ```bash
       python examples/bench.py --device nvidia --model=<model-path> --warmup

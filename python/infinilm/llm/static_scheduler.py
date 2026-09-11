@@ -3,12 +3,23 @@ Static Scheduler - Single-batch request scheduling for Static KV Cache.
 """
 
 import logging
-import queue
-from typing import List, Optional
+import time
+from collections import deque
+from itertools import count
+from typing import Callable, List, Optional
 
 import janus
 
+from infinilm.config.engine_config import (
+    DEFAULT_PRIORITY_AGING_INTERVAL,
+    validate_priority_aging_interval,
+)
 from infinilm.llm.prefix_cache import BlockHash
+from infinilm.llm.priority_scheduling import (
+    PrioritySchedulingStats,
+    drain_priority_ordered,
+    mark_request_enqueued,
+)
 from infinilm.llm.request import (
     FinishReason,
     InferenceRequest,
@@ -51,12 +62,20 @@ class StaticScheduler:
         self,
         max_cache_len: int = 4096,
         enable_prefix_caching: bool = True,
+        priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL,
+        clock: Callable[[], float] = time.monotonic,
     ):
+        self.priority_aging_interval = validate_priority_aging_interval(
+            priority_aging_interval
+        )
         self.waiting_queue = janus.Queue()
         self.running_request: Optional[InferenceRequest] = None
         self.max_cache_len = max_cache_len
         self.enable_prefix_caching = enable_prefix_caching
         self.cached_block_hashes: List[BlockHash] = []
+        self._clock = clock
+        self._enqueue_sequence = count()
+        self.priority_scheduling_stats = PrioritySchedulingStats()
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -67,10 +86,12 @@ class StaticScheduler:
                 self.enable_prefix_caching and not request.has_multimodal_inputs,
             )
             request.status = RequestStatus.WAITING
+            mark_request_enqueued(request, next(self._enqueue_sequence), self._clock)
             self.waiting_queue.sync_q.put(request)
 
     def schedule(self) -> Optional[StaticSchedulerOutput]:
         """Schedule and return single request to execute."""
+        waiting_requests = None
         while True:
             # Case 1: Continue running request (decode phase)
             if self.running_request is not None:
@@ -107,10 +128,17 @@ class StaticScheduler:
                 return StaticSchedulerOutput(scheduled_requests=[req], is_prefill=False)
 
             # Case 2: Get new request from waiting queue (prefill phase)
-            try:
-                req = self.waiting_queue.sync_q.get_nowait()
-            except queue.Empty:
+            if waiting_requests is None:
+                waiting_requests = deque(
+                    drain_priority_ordered(
+                        self.waiting_queue.sync_q,
+                        self.priority_aging_interval,
+                        self._clock,
+                    )
+                )
+            if not waiting_requests:
                 return None
+            req = waiting_requests.popleft()
 
             if req.is_finished():
                 continue
@@ -166,6 +194,24 @@ class StaticScheduler:
 
             req.status = RequestStatus.RUNNING
             self.running_request = req
+            now = self._clock()
+            wait_time, admission_priority, aged = (
+                self.priority_scheduling_stats.record_admission(
+                    req, now, self.priority_aging_interval
+                )
+            )
+            logger.debug(
+                "Admitting request %s with priority=%d, effective_priority=%d, "
+                "wait_time=%.3fs, waiting_queue_size=%d, aged=%s.",
+                req.request_id[:8],
+                req.priority,
+                admission_priority,
+                wait_time,
+                len(waiting_requests) + self.waiting_queue.sync_q.qsize(),
+                aged,
+            )
+            for waiting_req in waiting_requests:
+                self.waiting_queue.sync_q.put(waiting_req)
             return StaticSchedulerOutput(
                 scheduled_requests=[req], is_prefill=True, prefix_hit_len=prefix_hit_len
             )
@@ -212,4 +258,5 @@ class StaticScheduler:
                 self.running_request.request_id if self.running_request else None
             ),
             "waiting_queue_size": self.waiting_queue.sync_q.qsize(),
+            "priority_scheduling": self.priority_scheduling_stats.snapshot(),
         }

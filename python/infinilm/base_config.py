@@ -5,6 +5,7 @@ import os
 import shutil
 import warnings
 
+from infinilm.config.engine_config import DEFAULT_PRIORITY_AGING_INTERVAL
 from infinilm.moe_config import MOE_EP_BACKEND_HELP
 
 
@@ -81,6 +82,7 @@ class BaseConfig:
         self.num_blocks = self.args.num_blocks
         self.block_size = self.args.block_size
         self.max_cache_len = self.args.max_cache_len
+        self.priority_aging_interval = self.args.priority_aging_interval
         self.kv_cache_dtype = self.args.kv_cache_dtype
         self.skip_load = self.args.skip_load
         self.weight_load_mode = self.args.weight_load_mode
@@ -282,6 +284,12 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--max-cache-len", type=int, default=4096, help="maximum cache length"
+        )
+        self.parser.add_argument(
+            "--priority-aging-interval",
+            type=float,
+            default=DEFAULT_PRIORITY_AGING_INTERVAL,
+            help="seconds before a waiting request gains one priority level",
         )
         self.parser.add_argument(
             "--kv-cache-dtype",

@@ -17,7 +17,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
+from infinilm.config.engine_config import DEFAULT_PRIORITY_AGING_INTERVAL
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
+from infinilm.llm.request import validate_request_priority
 from infinilm.moe_config import configure_moe_ep_backend
 
 logger = logging.getLogger(__name__)
@@ -125,6 +127,7 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL,
     ):
         """Initialize inference server.
 
@@ -154,6 +157,8 @@ class InferenceServer:
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            priority_aging_interval: Seconds before a waiting request gains one
+                priority level.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -174,6 +179,7 @@ class InferenceServer:
         self.num_blocks = num_blocks
         self.block_size = block_size
         self.max_cache_len = max_cache_len
+        self.priority_aging_interval = priority_aging_interval
         self.temperature = temperature
         self.top_p = top_p
         self.top_k = top_k
@@ -221,6 +227,7 @@ class InferenceServer:
                 num_blocks=self.num_blocks,
                 block_size=self.block_size,
                 max_cache_len=self.max_cache_len,
+                priority_aging_interval=self.priority_aging_interval,
                 temperature=self.temperature,
                 top_p=self.top_p,
                 top_k=self.top_k,
@@ -268,6 +275,11 @@ class InferenceServer:
 
             # Normalize messages to handle multimodal content (list format)
             data["messages"] = data.get("messages", [])
+
+            try:
+                data["priority"] = validate_request_priority(data.get("priority", 0))
+            except ValueError as error:
+                return JSONResponse(content={"error": str(error)}, status_code=400)
 
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
@@ -399,6 +411,7 @@ class InferenceServer:
                 sampling_params=sampling_params,
                 request_id=request_id,
                 request_data=data,
+                priority=data["priority"],
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
@@ -504,6 +517,7 @@ class InferenceServer:
                 sampling_params=sampling_params,
                 request_id=request_id,
                 request_data=data,
+                priority=data["priority"],
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
@@ -653,6 +667,7 @@ def main():
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
         max_cache_len=cfg.max_cache_len,
+        priority_aging_interval=cfg.priority_aging_interval,
         temperature=cfg.temperature,
         top_p=cfg.top_p,
         top_k=cfg.top_k,

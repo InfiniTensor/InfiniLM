@@ -4,11 +4,23 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 
 import logging
 import queue
-from typing import List, Optional
+import time
+from collections import deque
+from itertools import count
+from typing import Callable, List, Optional
 
 import janus
 
+from infinilm.config.engine_config import (
+    DEFAULT_PRIORITY_AGING_INTERVAL,
+    validate_priority_aging_interval,
+)
 from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
+from infinilm.llm.priority_scheduling import (
+    PrioritySchedulingStats,
+    drain_priority_ordered,
+    mark_request_enqueued,
+)
 from infinilm.llm.request import InferenceRequest, RequestStatus
 
 logger = logging.getLogger(__name__)
@@ -71,10 +83,18 @@ class Scheduler:
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
+        priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL,
+        clock: Callable[[], float] = time.monotonic,
     ):
+        self.priority_aging_interval = validate_priority_aging_interval(
+            priority_aging_interval
+        )
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
+        self._clock = clock
+        self._enqueue_sequence = count()
+        self.priority_scheduling_stats = PrioritySchedulingStats()
 
         self.finished_receiving_kv_req_ids: set[str] = set()
         self.failed_receiving_kv_req_ids: set[str] = set()
@@ -106,6 +126,7 @@ class Scheduler:
                 and not request.has_multimodal_inputs,
             )
             request.status = RequestStatus.WAITING
+            mark_request_enqueued(request, next(self._enqueue_sequence), self._clock)
             self.waiting_queue.sync_q.put(request)
 
     def _exceeds_token_budget(
@@ -133,16 +154,21 @@ class Scheduler:
         is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
+        waiting_requests = deque(
+            drain_priority_ordered(
+                self.waiting_queue.sync_q,
+                self.priority_aging_interval,
+                self._clock,
+            )
+        )
 
         # Process Waiting queue (prefill phase)
         while (
-            len(scheduled_requests) < self.max_batch_size
+            waiting_requests
+            and len(scheduled_requests) < self.max_batch_size
             and current_num_batched_tokens < self.max_num_batched_tokens
         ):
-            try:
-                req = self.waiting_queue.sync_q.get_nowait()
-            except queue.Empty:
-                break
+            req = waiting_requests.popleft()
             # Skip requests that were already finished (e.g., timed out/canceled while waiting)
             if req.is_finished():
                 self.complete_requests([req])
@@ -272,6 +298,23 @@ class Scheduler:
                     break
                 self.commit_computed_tokens(req, req.num_computed_tokens)
 
+            now = self._clock()
+            wait_time, admission_priority, aged = (
+                self.priority_scheduling_stats.record_admission(
+                    req, now, self.priority_aging_interval
+                )
+            )
+            logger.debug(
+                "Admitting request %s with priority=%d, effective_priority=%d, "
+                "wait_time=%.3fs, waiting_queue_size=%d, aged=%s.",
+                req.request_id[:8],
+                req.priority,
+                admission_priority,
+                wait_time,
+                len(waiting_requests) + self.waiting_queue.sync_q.qsize(),
+                aged,
+            )
+
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
                 self.remote_kv_requests[req.request_id] = req
@@ -291,6 +334,8 @@ class Scheduler:
         if deferred_requests:
             for req in deferred_requests:
                 self.waiting_queue.sync_q.put(req)
+        for req in waiting_requests:
+            self.waiting_queue.sync_q.put(req)
 
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
@@ -584,6 +629,9 @@ class Scheduler:
             "num_free_blocks": self.cache_manager.get_num_free_blocks(),
             "usable_blocks": self.cache_manager.get_total_usable_blocks(),
             "num_used_blocks": len(self.cache_manager.used_block_ids),
+            "waiting_queue_size": self.waiting_queue.sync_q.qsize(),
+            "running_queue_size": self.running_queue.sync_q.qsize(),
+            "priority_scheduling": self.priority_scheduling_stats.snapshot(),
         }
         if self.mamba_cache_manager is not None:
             stats.update(

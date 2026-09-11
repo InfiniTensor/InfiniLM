@@ -1,7 +1,24 @@
+import math
 from dataclasses import dataclass
 from typing import Optional
 
 from infinilm.config.kv_transfer import KVTransferConfig
+
+DEFAULT_PRIORITY_AGING_INTERVAL = 5.0
+
+
+def validate_priority_aging_interval(interval: float) -> float:
+    """Validate and normalize the priority aging interval."""
+    if (
+        isinstance(interval, bool)
+        or not isinstance(interval, (int, float))
+        or not math.isfinite(interval)
+        or interval <= 0
+    ):
+        raise ValueError(
+            "`priority_aging_interval` must be a finite number greater than zero."
+        )
+    return float(interval)
 
 
 @dataclass
@@ -27,6 +44,7 @@ class EngineConfig:
         num_blocks: Number of KV cache blocks (only for paged cache).
         block_size: Size of each KV cache block (only for paged cache).
         max_cache_len: Maximum sequence length (only for static cache).
+        priority_aging_interval: Seconds before a waiting request gains one priority level.
         enable_prefix_caching: Whether to reuse KV cache across requests.
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
@@ -69,6 +87,7 @@ class EngineConfig:
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL
 
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:
@@ -84,6 +103,9 @@ class EngineConfig:
 
         if self.weight_load_mode not in {"async", "sync"}:
             raise ValueError("weight_load_mode must be either 'async' or 'sync'")
+        self.priority_aging_interval = validate_priority_aging_interval(
+            self.priority_aging_interval
+        )
 
         if (
             self.kv_transfer_config is not None

@@ -16,7 +16,10 @@ from typing import AsyncIterator, List, Optional, Union
 
 import janus
 
-from infinilm.config.engine_config import EngineConfig
+from infinilm.config.engine_config import (
+    DEFAULT_PRIORITY_AGING_INTERVAL,
+    EngineConfig,
+)
 from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.infer_engine import model_uses_mamba_cache, read_hf_config
 from infinilm.kv_connector import KVConnectorFactory, KVConnectorRole
@@ -70,6 +73,7 @@ class LLMEngine:
             self.scheduler = StaticScheduler(
                 max_cache_len=config.max_cache_len,
                 enable_prefix_caching=config.enable_prefix_caching,
+                priority_aging_interval=config.priority_aging_interval,
             )
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
@@ -110,6 +114,7 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                priority_aging_interval=config.priority_aging_interval,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
@@ -366,6 +371,7 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL,
     ):
         """Initialize LLM.
 
@@ -387,6 +393,8 @@ class LLM:
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            priority_aging_interval: Seconds before a waiting request gains one
+                priority level.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -407,6 +415,7 @@ class LLM:
             num_blocks=num_blocks,
             block_size=block_size,
             max_cache_len=max_cache_len,
+            priority_aging_interval=priority_aging_interval,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -594,6 +603,7 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        priority_aging_interval: float = DEFAULT_PRIORITY_AGING_INTERVAL,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -619,6 +629,8 @@ class AsyncLLMEngine:
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             skip_load: Whether to skip loading model weights.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
+            priority_aging_interval: Seconds before a waiting request gains one
+                priority level.
         """
         config = EngineConfig(
             model_path=model_path,
@@ -639,6 +651,7 @@ class AsyncLLMEngine:
             num_blocks=num_blocks,
             block_size=block_size,
             max_cache_len=max_cache_len,
+            priority_aging_interval=priority_aging_interval,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
@@ -784,6 +797,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
+        priority: int = 0,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -813,6 +827,7 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict (for server use).
+            priority: Request admission priority from 0 to 10.
 
         Returns:
             The created InferenceRequest object.
@@ -878,6 +893,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
+            priority=priority,
         )
 
         if request_data and "kv_transfer_params" in request_data:
@@ -897,6 +913,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
+        priority: int = 0,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -906,6 +923,7 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict.
+            priority: Request admission priority from 0 to 10.
 
         Returns:
             The created InferenceRequest object.
@@ -918,6 +936,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            priority=priority,
         )
 
     async def stream_request(

@@ -21,6 +21,22 @@ from infinilm.llm.sampling_params import SamplingParams
 
 logger = logging.getLogger(__name__)
 
+MIN_REQUEST_PRIORITY = 0
+MAX_REQUEST_PRIORITY = 10
+
+
+def validate_request_priority(priority: int) -> int:
+    """Validate and return a request priority."""
+    error = (
+        f"`priority` must be an integer between {MIN_REQUEST_PRIORITY} "
+        f"and {MAX_REQUEST_PRIORITY}."
+    )
+    if isinstance(priority, bool) or not isinstance(priority, int):
+        raise ValueError(error)
+    if not MIN_REQUEST_PRIORITY <= priority <= MAX_REQUEST_PRIORITY:
+        raise ValueError(error)
+    return priority
+
 
 class _SequenceView(Sequence):
     """Live read-only view over an internally mutable list."""
@@ -158,6 +174,7 @@ class InferenceRequest:
         request_data: Optional[dict] = None,
         *,
         has_multimodal_inputs: bool = False,
+        priority: int = MIN_REQUEST_PRIORITY,
     ):
         self.arrival_time: float = arrival_time or time.time()
         self.finished_time: Optional[float] = None
@@ -174,7 +191,9 @@ class InferenceRequest:
         self.has_multimodal_inputs: bool = has_multimodal_inputs or bool(
             mm_token_index_mappings
         )
-        self.priority: int = 0
+        self.priority = validate_request_priority(priority)
+        self.scheduling_enqueue_time: Optional[float] = None
+        self.scheduling_sequence: Optional[int] = None
 
         # Sampling & stopping criteria
         self.sampling_params: SamplingParams = sampling_params or SamplingParams()
