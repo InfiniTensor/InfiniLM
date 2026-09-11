@@ -1,6 +1,7 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
 #include "../models_registry.hpp"
+#include "infinicore/ops/gemm.hpp"
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -14,6 +15,9 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t vocab_size = model_config->get<size_t>("vocab_size");
     const auto &dtype = model_config->get_dtype();
+    fp32_lm_head_output_ = model_config->get_config_json().value(
+                               "lm_head_output_dtype", std::string())
+                        == "float32";
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
     INFINICORE_NN_MODULE_INIT(
@@ -23,7 +27,31 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
 InfinilmModel::Output Qwen35ForCausalLM::forward(
     const InfinilmModel::Input &input) const {
     auto hidden_states = model_->forward(input);
-    return {lm_head_->forward(hidden_states)};
+    infinicore::Tensor logits;
+    if (fp32_lm_head_output_) {
+        auto hidden = hidden_states->is_contiguous()
+                        ? hidden_states
+                        : hidden_states->contiguous();
+        const size_t ndim = hidden->ndim();
+        auto output_shape = hidden->shape();
+        output_shape[ndim - 1] = lm_head_->out_features();
+        logits = infinicore::Tensor::empty(
+            output_shape, infinicore::DataType::F32, hidden->device());
+        size_t rows = 1;
+        for (size_t i = 0; i + 1 < ndim; ++i) {
+            rows *= hidden->shape()[i];
+        }
+        auto weight = lm_head_->weight()->contiguous();
+        infinicore::op::gemm_(
+            logits->view({rows, lm_head_->out_features()}),
+            hidden->view({rows, lm_head_->in_features()}),
+            weight->permute({1, 0}),
+            1.0f,
+            0.0f);
+    } else {
+        logits = lm_head_->forward(hidden_states);
+    }
+    return {logits, hidden_states};
 }
 
 void Qwen35ForCausalLM::reset_cache(

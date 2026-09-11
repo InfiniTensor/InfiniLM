@@ -217,6 +217,12 @@ class ModelRunner:
             self.config.top_p,
             self.config.top_k,
         )
+        model_input["suppressed_token_ids"] = [
+            list(req.eos_token_ids or self.model_engine.eos_token_id or [])
+            if req.sampling_params.ignore_eos
+            else []
+            for req in scheduler_output.scheduled_requests
+        ]
 
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)

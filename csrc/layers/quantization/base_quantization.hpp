@@ -38,7 +38,7 @@ struct SplitParam {
 
 class BaseQuantization : public std::enable_shared_from_this<BaseQuantization> {
 public:
-    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config){};
+    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config) {};
     virtual ~BaseQuantization() = default;
 
     const nlohmann::json &get_config() const { return quant_config_; }
@@ -61,6 +61,67 @@ public:
         bool has_bias,
         float alpha = 1.0f) const
         = 0;
+
+    // ---- Name-aware variants -------------------------------------------------
+    // Some schemes decide a parameter's layout from the *checkpoint tensor name*
+    // instead of from the module's (in_features, out_features) pair: GGUF block
+    // quantization has one ggml type per tensor, and `row_bytes` is a function of
+    // that type, so nothing can be derived from the logical shape alone.
+    //
+    // `stem` is the checkpoint path of the weight *without* the final tensor-name
+    // component, relative to quantization_config.key_prefix, and it always keeps
+    // the trailing separator:
+    //   "layers.0.mlp.gate_proj."            -> that one weight
+    //   "layers.0.self_attn."                -> ditto (probes weight / weight_bytes)
+    //   "layers.0.self_attn" (no trailing '.') -> a fused linear: this scheme owns
+    //        no buffer, each shard has its own checkpoint entry and is registered
+    //        separately (see BaseLinear::init_fused_shards).
+    //        An empty stem is always an error for such schemes.
+    //
+    // The default implementations forward to the name-less versions, so the
+    // existing quantization classes need no change.
+    virtual std::vector<ParamDescriptor> get_param_layout(
+        size_t in_features, size_t out_features,
+        int split_dim, int tp_rank, int tp_size,
+        int tp_num_heads,
+        const infinicore::DataType &dtype,
+        bool bias,
+        const std::string &stem) const {
+        return get_param_layout(in_features, out_features, split_dim, tp_rank,
+                                tp_size, tp_num_heads, dtype, bias);
+    }
+
+    virtual infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha,
+        const std::string &stem) const {
+        return forward(params, input, has_bias, alpha);
+    }
+
+    // A fused linear's `stem` is only the *group* name (no trailing '.'), which is
+    // not enough for name-driven schemes: each shard has its own checkpoint entry
+    // and its own format (measured on Qwen3.8: 0 of 16 full-attn groups share one
+    // ggml type across q/k/v, 4 of 32 FFN groups across gate/up).
+    //
+    // `shard_stems[i]` is the checkpoint stem of the shard behind parameter key
+    // "shard<i>.<suffix>" — both are produced by the same loop in
+    // BaseLinear::init_fused_shards, so index correspondence is a local invariant,
+    // not a cross-phase assumption. Empty vector = not a fused linear.
+    //
+    // Default forwards to the stem-only version, so quantization classes without
+    // per-shard formats need no change.
+    virtual infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias,
+        float alpha,
+        const std::string &stem,
+        const std::vector<std::string> &shard_stems) const {
+        (void)shard_stems;
+        return forward(params, input, has_bias, alpha, stem);
+    }
 
     virtual infinicore::Tensor forward_allreduce(
         const ParamsMap &params,
