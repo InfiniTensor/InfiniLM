@@ -1,0 +1,655 @@
+diff --git a/src/base/lightning_attention_infinilm.h b/src/base/lightning_attention_infinilm.h
+new file mode 100644
+index 0000000..a7f7135
+--- /dev/null
++++ b/src/base/lightning_attention_infinilm.h
+@@ -0,0 +1,167 @@
++#ifndef INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
++#define INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
++
++#include <cassert>
++#include <cstddef>
++
++#include "data_type.h"
++#include "operator.h"
++#include "tensor.h"
++
++namespace infini::ops {
++
++/// Lightning attention with an indexed recurrent-state pool.
++///
++/// The operator evaluates the recurrent form of MiniMax-style linear attention
++/// with a per-head ALiBi-style decay, one token at a time:
++///
++///   ratio[h] = exp(-slope[h])
++///   S        = ratio[h] * S + outer(k_t[h], v_t[h])
++///   out_t[h] = q_t[h] @ S
++///
++/// The recurrent state of request `b` is read from
++/// `initial_state[initial_state_indices[b]]` and the final state is written to
++/// `initial_state[final_state_indices[b]]`. The row referenced by
++/// `initial_state_indices` is left untouched, so a caller may keep using it.
++///
++/// This operator is InfiniLM-specific and is therefore classified as custom
++/// rather than aligned to an open-source operator. The closest public
++/// reference implementation is Flash-Linear-Attention's
++/// `fused_recurrent_lightning_attn`; `dexp` there is the per-head decay factor
++/// `exp(-slope)` used here.
++class LightningAttentionInfinilm
++    : public Operator<LightningAttentionInfinilm> {
++ public:
++  LightningAttentionInfinilm(const Tensor q, const Tensor k, const Tensor v,
++                             const Tensor slope, const Tensor initial_state,
++                             const Tensor initial_state_indices,
++                             const Tensor final_state_indices, Tensor out)
++      : data_type_{q.dtype()},
++        index_dtype_{initial_state_indices.dtype()},
++        batch_size_{q.size(0)},
++        seq_len_{q.size(1)},
++        num_heads_{q.size(2)},
++        head_dim_{q.size(3)},
++        state_pool_size_{initial_state.size(0)},
++        state_pool_stride_{initial_state.stride(0)},
++        state_head_stride_{initial_state.stride(1)},
++        state_row_stride_{initial_state.stride(2)},
++        state_column_stride_{initial_state.stride(3)},
++        q_batch_stride_{q.stride(0)},
++        q_seq_stride_{q.stride(1)},
++        q_head_stride_{q.stride(2)},
++        k_batch_stride_{k.stride(0)},
++        k_seq_stride_{k.stride(1)},
++        k_head_stride_{k.stride(2)},
++        v_batch_stride_{v.stride(0)},
++        v_seq_stride_{v.stride(1)},
++        v_head_stride_{v.stride(2)},
++        out_batch_stride_{out.stride(0)},
++        out_seq_stride_{out.stride(1)},
++        out_head_stride_{out.stride(2)},
++        slope_stride_{slope.stride(0)},
++        initial_index_stride_{initial_state_indices.stride(0)},
++        final_index_stride_{final_state_indices.stride(0)} {
++    assert(q.ndim() == 4 && k.ndim() == 4 && v.ndim() == 4 && out.ndim() == 4 &&
++           "`LightningAttentionInfinilm` expects [batch, seq, heads, head_dim] tensors");
++    assert(q.dtype() == k.dtype() && k.dtype() == v.dtype() &&
++           v.dtype() == out.dtype() && out.dtype() == data_type_ &&
++           initial_state.dtype() == data_type_ &&
++           "`LightningAttentionInfinilm` requires all data tensors to share one dtype");
++    assert((data_type_ == DataType::kFloat32 ||
++            data_type_ == DataType::kFloat16 ||
++            data_type_ == DataType::kBFloat16) &&
++           "`LightningAttentionInfinilm` supports float32, float16 and bfloat16");
++    assert(q.shape() == k.shape() && k.shape() == v.shape() &&
++           v.shape() == out.shape() &&
++           "`LightningAttentionInfinilm` requires q, k, v and out to share a shape");
++    assert(slope.dtype() == DataType::kFloat32 && slope.ndim() == 1 &&
++           slope.size(0) == num_heads_ && slope_stride_ == 1 &&
++           "`LightningAttentionInfinilm` expects `slope` to be a contiguous float32 tensor of size num_heads");
++    assert(initial_state.ndim() == 4 && initial_state.size(1) == num_heads_ &&
++           initial_state.size(2) == head_dim_ &&
++           initial_state.size(3) == head_dim_ &&
++           "`LightningAttentionInfinilm` expects `initial_state` to be [pool, heads, head_dim, head_dim]");
++    assert(state_pool_size_ > 0 && state_column_stride_ == 1 &&
++           "`LightningAttentionInfinilm` expects a contiguous state pool on the last dimension");
++    assert(initial_state_indices.ndim() == 1 &&
++           final_state_indices.ndim() == 1 &&
++           initial_state_indices.size(0) == batch_size_ &&
++           final_state_indices.size(0) == batch_size_ &&
++           "`LightningAttentionInfinilm` expects one state index per request");
++    assert(IsIndexDtype(index_dtype_) &&
++           final_state_indices.dtype() == index_dtype_ &&
++           initial_index_stride_ == 1 && final_index_stride_ == 1 &&
++           "`LightningAttentionInfinilm` expects contiguous int32/int64 state indices");
++    assert(q.stride(3) == 1 && k.stride(3) == 1 && v.stride(3) == 1 &&
++           out.stride(3) == 1 &&
++           "`LightningAttentionInfinilm` requires a contiguous last dimension");
++  }
++
++  virtual void operator()(const Tensor q, const Tensor k, const Tensor v,
++                          const Tensor slope, const Tensor initial_state,
++                          const Tensor initial_state_indices,
++                          const Tensor final_state_indices,
++                          Tensor out) const = 0;
++
++ protected:
++  static bool IsIndexDtype(DataType dtype) {
++    return dtype == DataType::kInt32 || dtype == DataType::kInt64;
++  }
++
++  DataType data_type_;
++
++  DataType index_dtype_;
++
++  Tensor::Size batch_size_{0};
++
++  Tensor::Size seq_len_{0};
++
++  Tensor::Size num_heads_{0};
++
++  Tensor::Size head_dim_{0};
++
++  Tensor::Size state_pool_size_{0};
++
++  Tensor::Stride state_pool_stride_{0};
++
++  Tensor::Stride state_head_stride_{0};
++
++  Tensor::Stride state_row_stride_{0};
++
++  Tensor::Stride state_column_stride_{0};
++
++  Tensor::Stride q_batch_stride_{0};
++
++  Tensor::Stride q_seq_stride_{0};
++
++  Tensor::Stride q_head_stride_{0};
++
++  Tensor::Stride k_batch_stride_{0};
++
++  Tensor::Stride k_seq_stride_{0};
++
++  Tensor::Stride k_head_stride_{0};
++
++  Tensor::Stride v_batch_stride_{0};
++
++  Tensor::Stride v_seq_stride_{0};
++
++  Tensor::Stride v_head_stride_{0};
++
++  Tensor::Stride out_batch_stride_{0};
++
++  Tensor::Stride out_seq_stride_{0};
++
++  Tensor::Stride out_head_stride_{0};
++
++  Tensor::Stride slope_stride_{0};
++
++  Tensor::Stride initial_index_stride_{0};
++
++  Tensor::Stride final_index_stride_{0};
++};
++
++}  // namespace infini::ops
++
++#endif  // INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
+diff --git a/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h b/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h
+new file mode 100644
+index 0000000..3b4f3b3
+--- /dev/null
++++ b/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h
+@@ -0,0 +1,139 @@
++#ifndef INFINI_OPS_CPU_LIGHTNING_ATTENTION_INFINILM_H_
++#define INFINI_OPS_CPU_LIGHTNING_ATTENTION_INFINILM_H_
++
++#include <cmath>
++#include <cstdint>
++#include <vector>
++
++#include "base/lightning_attention_infinilm.h"
++#include "common/generic_utils.h"
++#include "data_type.h"
++#include "native/cpu/caster_.h"
++#include "tensor.h"
++
++namespace infini::ops {
++
++template <>
++class Operator<LightningAttentionInfinilm, Device::Type::kCpu>
++    : public LightningAttentionInfinilm, Caster<Device::Type::kCpu> {
++ public:
++  Operator(const Tensor q, const Tensor k, const Tensor v, const Tensor slope,
++           const Tensor initial_state, const Tensor initial_state_indices,
++           const Tensor final_state_indices, Tensor out)
++      : LightningAttentionInfinilm{q,     k,     v,     slope, initial_state,
++                                   initial_state_indices, final_state_indices,
++                                   out} {}
++
++  void operator()(const Tensor q, const Tensor k, const Tensor v,
++                  const Tensor slope, const Tensor initial_state,
++                  const Tensor initial_state_indices,
++                  const Tensor final_state_indices, Tensor out) const override {
++    DispatchFunc<Device::Type::kCpu, AllFloatTypes>(
++        out.dtype(),
++        [&](auto tag) {
++          using T = typename decltype(tag)::type;
++          Compute<T>(q, k, v, slope, initial_state, initial_state_indices,
++                     final_state_indices, out);
++        },
++        "`Operator<LightningAttentionInfinilm, Device::Type::kCpu>::operator()`");
++  }
++
++ private:
++  template <typename T>
++  void Compute(const Tensor q, const Tensor k, const Tensor v,
++               const Tensor slope, const Tensor initial_state,
++               const Tensor initial_state_indices,
++               const Tensor final_state_indices, Tensor out) const {
++    const auto* q_ptr = static_cast<const T*>(q.data());
++    const auto* k_ptr = static_cast<const T*>(k.data());
++    const auto* v_ptr = static_cast<const T*>(v.data());
++    const auto* slope_ptr = static_cast<const float*>(slope.data());
++    auto* state_ptr = static_cast<T*>(initial_state.data());
++    auto* out_ptr = static_cast<T*>(out.data());
++
++    const bool int64_indices = index_dtype_ == DataType::kInt64;
++    const auto* initial_indices = initial_state_indices.data();
++    const auto* final_indices = final_state_indices.data();
++
++    // The recurrent state of one request, accumulated in float32.
++    std::vector<float> state(num_heads_ * head_dim_ * head_dim_);
++
++    for (Tensor::Size b = 0; b < batch_size_; ++b) {
++      Tensor::Size initial_row;
++      Tensor::Size final_row;
++      if (int64_indices) {
++        initial_row = static_cast<Tensor::Size>(
++            static_cast<const int64_t*>(initial_indices)[b]);
++        final_row =
++            static_cast<Tensor::Size>(static_cast<const int64_t*>(final_indices)[b]);
++      } else {
++        initial_row = static_cast<Tensor::Size>(
++            static_cast<const int32_t*>(initial_indices)[b]);
++        final_row =
++            static_cast<Tensor::Size>(static_cast<const int32_t*>(final_indices)[b]);
++      }
++
++      const T* initial_row_ptr = state_ptr + initial_row * state_pool_stride_;
++      for (Tensor::Size h = 0; h < num_heads_; ++h) {
++        const T* head_ptr = initial_row_ptr + h * state_head_stride_;
++        float* state_head = state.data() + h * head_dim_ * head_dim_;
++        for (Tensor::Size i = 0; i < head_dim_; ++i) {
++          for (Tensor::Size j = 0; j < head_dim_; ++j) {
++            state_head[i * head_dim_ + j] =
++                Cast<float>(head_ptr[i * state_row_stride_ +
++                                     j * state_column_stride_]);
++          }
++        }
++      }
++
++      for (Tensor::Size t = 0; t < seq_len_; ++t) {
++        for (Tensor::Size h = 0; h < num_heads_; ++h) {
++          const float ratio = std::exp(-slope_ptr[h * slope_stride_]);
++          const T* q_row = q_ptr + b * q_batch_stride_ + t * q_seq_stride_ +
++                           h * q_head_stride_;
++          const T* k_row = k_ptr + b * k_batch_stride_ + t * k_seq_stride_ +
++                           h * k_head_stride_;
++          const T* v_row = v_ptr + b * v_batch_stride_ + t * v_seq_stride_ +
++                           h * v_head_stride_;
++          float* state_head = state.data() + h * head_dim_ * head_dim_;
++
++          for (Tensor::Size i = 0; i < head_dim_; ++i) {
++            const float k_i = Cast<float>(k_row[i]);
++            for (Tensor::Size j = 0; j < head_dim_; ++j) {
++              state_head[i * head_dim_ + j] =
++                  ratio * state_head[i * head_dim_ + j] +
++                  k_i * Cast<float>(v_row[j]);
++            }
++          }
++
++          T* out_row = out_ptr + b * out_batch_stride_ + t * out_seq_stride_ +
++                       h * out_head_stride_;
++          for (Tensor::Size j = 0; j < head_dim_; ++j) {
++            float acc = 0.0f;
++            for (Tensor::Size i = 0; i < head_dim_; ++i) {
++              acc += Cast<float>(q_row[i]) * state_head[i * head_dim_ + j];
++            }
++            out_row[j] = Cast<T>(acc);
++          }
++        }
++      }
++
++      // Only the destination row is updated; the initial row stays untouched.
++      T* final_row_ptr = state_ptr + final_row * state_pool_stride_;
++      for (Tensor::Size h = 0; h < num_heads_; ++h) {
++        T* head_ptr = final_row_ptr + h * state_head_stride_;
++        const float* state_head = state.data() + h * head_dim_ * head_dim_;
++        for (Tensor::Size i = 0; i < head_dim_; ++i) {
++          for (Tensor::Size j = 0; j < head_dim_; ++j) {
++            head_ptr[i * state_row_stride_ + j * state_column_stride_] =
++                Cast<T>(state_head[i * head_dim_ + j]);
++          }
++        }
++      }
++    }
++  }
++};
++
++}  // namespace infini::ops
++
++#endif  // INFINI_OPS_CPU_LIGHTNING_ATTENTION_INFINILM_H_
+diff --git a/src/native/cuda/nvidia/ops/lightning_attention_infinilm/kernel.h b/src/native/cuda/nvidia/ops/lightning_attention_infinilm/kernel.h
+new file mode 100644
+index 0000000..9a21f93
+--- /dev/null
++++ b/src/native/cuda/nvidia/ops/lightning_attention_infinilm/kernel.h
+@@ -0,0 +1,22 @@
++#ifndef INFINI_OPS_NVIDIA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
++#define INFINI_OPS_NVIDIA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
++
++#include <utility>
++
++#include "native/cuda/nvidia/caster.cuh"
++#include "native/cuda/nvidia/runtime_.h"
++#include "native/cuda/ops/lightning_attention_infinilm/kernel.h"
++
++namespace infini::ops {
++
++template <>
++class Operator<LightningAttentionInfinilm, Device::Type::kNvidia>
++    : public CudaLightningAttentionInfinilm<Runtime<Device::Type::kNvidia>> {
++ public:
++  using CudaLightningAttentionInfinilm<
++      Runtime<Device::Type::kNvidia>>::CudaLightningAttentionInfinilm;
++};
++
++}  // namespace infini::ops
++
++#endif  // INFINI_OPS_NVIDIA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
+diff --git a/src/native/cuda/ops/lightning_attention_infinilm/kernel.cuh b/src/native/cuda/ops/lightning_attention_infinilm/kernel.cuh
+new file mode 100644
+index 0000000..35861cf
+--- /dev/null
++++ b/src/native/cuda/ops/lightning_attention_infinilm/kernel.cuh
+@@ -0,0 +1,98 @@
++#ifndef INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_CUH_
++#define INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_CUH_
++
++#include <cstddef>
++
++#include "native/cuda/caster.cuh"
++#include "native/cuda/kernel_commons.cuh"
++
++namespace infini::ops {
++
++/// One block per `(batch, head)` and one thread per state/output column.
++///
++/// The recurrent state `[head_dim, head_dim]` of the destination pool row is
++/// staged first (the source row is copied into it when the two rows differ, so
++/// the source row stays untouched), then updated in place:
++///
++///   state[i][j] = ratio * state[i][j] + k[i] * v[j]
++///   out[j]      = sum_i q[i] * state[i][j]
++///
++/// Thread `j` owns column `j`, so the state update needs no cross-thread
++/// synchronization; only the shared `k`/`q` rows do. The kernel must be
++/// launched with exactly `head_dim` threads so that every thread reaches the
++/// barriers.
++template <Device::Type kDev, typename Data, typename Index>
++__global__ void LightningAttentionInfinilmKernel(
++    Data* out, Data* state_pool, const Data* q, const Data* k, const Data* v,
++    const float* slope, const Index* initial_state_indices,
++    const Index* final_state_indices, size_t seq_len, size_t head_dim,
++    ptrdiff_t state_pool_stride, ptrdiff_t state_head_stride,
++    ptrdiff_t state_row_stride, ptrdiff_t q_batch_stride, ptrdiff_t q_seq_stride,
++    ptrdiff_t q_head_stride, ptrdiff_t k_batch_stride, ptrdiff_t k_seq_stride,
++    ptrdiff_t k_head_stride, ptrdiff_t v_batch_stride, ptrdiff_t v_seq_stride,
++    ptrdiff_t v_head_stride, ptrdiff_t out_batch_stride, ptrdiff_t out_seq_stride,
++    ptrdiff_t out_head_stride, ptrdiff_t slope_stride) {
++  const size_t batch = blockIdx.y;
++  const size_t head = blockIdx.x;
++  const size_t column = threadIdx.x;
++
++  const size_t initial_row = static_cast<size_t>(initial_state_indices[batch]);
++  const size_t final_row = static_cast<size_t>(final_state_indices[batch]);
++
++  Data* state = state_pool + final_row * state_pool_stride +
++                head * state_head_stride;
++  if (initial_row != final_row) {
++    const Data* source = state_pool + initial_row * state_pool_stride +
++                         head * state_head_stride;
++    for (size_t index = column; index < head_dim * head_dim;
++         index += blockDim.x) {
++      const size_t i = index / head_dim;
++      const size_t j = index % head_dim;
++      state[i * state_row_stride + j] = source[i * state_row_stride + j];
++    }
++  }
++  __syncthreads();
++
++  extern __shared__ float shared[];
++  float* shared_k = shared;
++  float* shared_q = shared + head_dim;
++
++  const float ratio = expf(-slope[head * slope_stride]);
++  const Data* q_head = q + batch * q_batch_stride + head * q_head_stride;
++  const Data* k_head = k + batch * k_batch_stride + head * k_head_stride;
++  const Data* v_head = v + batch * v_batch_stride + head * v_head_stride;
++  Data* out_head = out + batch * out_batch_stride + head * out_head_stride;
++
++  for (size_t t = 0; t < seq_len; ++t) {
++    shared_k[column] = Caster<kDev>::template Cast<float>(
++        k_head[t * k_seq_stride + column]);
++    shared_q[column] = Caster<kDev>::template Cast<float>(
++        q_head[t * q_seq_stride + column]);
++    __syncthreads();
++
++    const float v_column = Caster<kDev>::template Cast<float>(
++        v_head[t * v_seq_stride + column]);
++    for (size_t i = 0; i < head_dim; ++i) {
++      Data* element = state + i * state_row_stride + column;
++      const float updated = ratio * Caster<kDev>::template Cast<float>(*element) +
++                            shared_k[i] * v_column;
++      *element = Caster<kDev>::template Cast<Data>(updated);
++    }
++
++    float accumulator = 0.0f;
++    for (size_t i = 0; i < head_dim; ++i) {
++      accumulator += shared_q[i] * Caster<kDev>::template Cast<float>(
++                                       state[i * state_row_stride + column]);
++    }
++    out_head[t * out_seq_stride + column] =
++        Caster<kDev>::template Cast<Data>(accumulator);
++
++    // The next iteration overwrites the shared rows, so all threads must have
++    // finished reading them.
++    __syncthreads();
++  }
++}
++
++}  // namespace infini::ops
++
++#endif  // INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_CUH_
+diff --git a/src/native/cuda/ops/lightning_attention_infinilm/kernel.h b/src/native/cuda/ops/lightning_attention_infinilm/kernel.h
+new file mode 100644
+index 0000000..e350318
+--- /dev/null
++++ b/src/native/cuda/ops/lightning_attention_infinilm/kernel.h
+@@ -0,0 +1,78 @@
++#ifndef INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
++#define INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
++
++#include <cassert>
++#include <cstddef>
++#include <cstdint>
++
++#include "base/lightning_attention_infinilm.h"
++#include "data_type.h"
++#include "dispatcher.h"
++#include "native/cuda/kernel_commons.cuh"
++#include "native/cuda/ops/lightning_attention_infinilm/kernel.cuh"
++#include "native/cuda/runtime_utils.h"
++
++namespace infini::ops {
++
++using LightningAttentionInfinilmDataTypes =
++    ConcatType<List<DataType::kFloat32>, ReducedFloatTypes>;
++
++using LightningAttentionInfinilmIndexTypes =
++    List<DataType::kInt32, DataType::kInt64>;
++
++template <typename Backend>
++class CudaLightningAttentionInfinilm : public LightningAttentionInfinilm {
++ public:
++  using LightningAttentionInfinilm::LightningAttentionInfinilm;
++
++  void operator()(const Tensor q, const Tensor k, const Tensor v,
++                  const Tensor slope, const Tensor initial_state,
++                  const Tensor initial_state_indices,
++                  const Tensor final_state_indices, Tensor out) const override {
++    auto cuda_stream =
++        static_cast<typename Backend::Stream>(stream_ ? stream_ : 0);
++
++    // One thread per state column, so `head_dim` has to fit into one block.
++    assert(head_dim_ > 0 &&
++           static_cast<int>(head_dim_) <= BackendMaxBlockSize<Backend>::value &&
++           "`LightningAttentionInfinilm` requires head_dim to fit one block");
++    assert(batch_size_ <= 65535 &&
++           "`LightningAttentionInfinilm` requires batch_size <= 65535");
++
++    dim3 grid(static_cast<unsigned>(num_heads_),
++              static_cast<unsigned>(batch_size_));
++    dim3 block(static_cast<unsigned>(head_dim_));
++    const size_t shared_bytes = 2 * head_dim_ * sizeof(float);
++
++    DispatchFunc<LightningAttentionInfinilmDataTypes,
++                 LightningAttentionInfinilmIndexTypes>(
++        {static_cast<int64_t>(out.dtype()), static_cast<int64_t>(index_dtype_)},
++        [&](auto list_tag) {
++          using T = TypeMapType<Backend::kDeviceType, ListGet<0>(list_tag)>;
++          using TIndex =
++              TypeMapType<Backend::kDeviceType, ListGet<1>(list_tag)>;
++
++          LightningAttentionInfinilmKernel<Backend::kDeviceType, T, TIndex>
++              <<<grid, block, shared_bytes, cuda_stream>>>(
++                  reinterpret_cast<T*>(out.data()),
++                  reinterpret_cast<T*>(initial_state.data()),
++                  reinterpret_cast<const T*>(q.data()),
++                  reinterpret_cast<const T*>(k.data()),
++                  reinterpret_cast<const T*>(v.data()),
++                  static_cast<const float*>(slope.data()),
++                  reinterpret_cast<const TIndex*>(initial_state_indices.data()),
++                  reinterpret_cast<const TIndex*>(final_state_indices.data()),
++                  seq_len_, head_dim_, state_pool_stride_, state_head_stride_,
++                  state_row_stride_, q_batch_stride_, q_seq_stride_,
++                  q_head_stride_, k_batch_stride_, k_seq_stride_, k_head_stride_,
++                  v_batch_stride_, v_seq_stride_, v_head_stride_,
++                  out_batch_stride_, out_seq_stride_, out_head_stride_,
++                  slope_stride_);
++        },
++        "CudaLightningAttentionInfinilm::operator()");
++  }
++};
++
++}  // namespace infini::ops
++
++#endif  // INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
+diff --git a/tests/test_lightning_attention_infinilm.py b/tests/test_lightning_attention_infinilm.py
+new file mode 100644
+index 0000000..6d1f92a
+--- /dev/null
++++ b/tests/test_lightning_attention_infinilm.py
+@@ -0,0 +1,115 @@
++import infini.ops
++import pytest
++import torch
++
++from tests.utils import Payload, empty_strided, get_stream, randn_strided
++
++# (batch, seq_len, num_heads, head_dim, pool_size)
++_SHAPES = (
++    (1, 1, 2, 4, 1),
++    (2, 3, 2, 4, 4),
++    (3, 1, 4, 8, 6),
++    (1, 5, 4, 8, 2),
++)
++
++_DTYPE_CASES = (
++    (torch.float32, 1e-5, 1e-6),
++    (torch.float16, 2e-2, 2e-2),
++    (torch.bfloat16, 2e-2, 2e-2),
++)
++
++
++def _make_tensors(shape, dtype, device):
++    batch, seq_len, num_heads, head_dim, pool_size = shape
++
++    q = randn_strided((batch, seq_len, num_heads, head_dim), None, dtype=dtype, device=device)
++    k = randn_strided((batch, seq_len, num_heads, head_dim), None, dtype=dtype, device=device)
++    v = randn_strided((batch, seq_len, num_heads, head_dim), None, dtype=dtype, device=device)
++    # The decay has to be positive, otherwise `exp(-slope)` would grow.
++    slope = randn_strided((num_heads,), None, dtype=torch.float32, device=device).abs() * 0.5
++    state = randn_strided(
++        (pool_size, num_heads, head_dim, head_dim), None, dtype=dtype, device=device
++    )
++
++    # Deliberately read and write different pool rows so that the test also
++    # covers the "initial row must stay untouched" contract.
++    initial_indices = torch.arange(batch, dtype=torch.int32, device=device) % pool_size
++    final_indices = (initial_indices + 1) % pool_size
++
++    out = empty_strided((batch, seq_len, num_heads, head_dim), None, dtype=dtype, device=device)
++
++    return q, k, v, slope, state, initial_indices, final_indices, out
++
++
++def _torch_lightning_attention(q, k, v, slope, state, initial_indices, final_indices):
++    """Recurrent reference: S <- ratio * S + k^T v ; out = q @ S."""
++
++    q = q.float()
++    k = k.float()
++    v = v.float()
++    state = state.float().clone()
++    out = torch.empty_like(q)
++    ratio = torch.exp(-slope.float())
++
++    for b in range(q.shape[0]):
++        initial_row = int(initial_indices[b].item())
++        final_row = int(final_indices[b].item())
++
++        current = state[initial_row].clone()  # [heads, head_dim, head_dim]
++        for t in range(q.shape[1]):
++            current = ratio[:, None, None] * current + k[b, t].unsqueeze(-1) * v[b, t].unsqueeze(-2)
++            out[b, t] = torch.einsum("hd,hde->he", q[b, t], current)
++
++        state[final_row] = current
++
++    return out, state
++
++
++def _run_lightning_attention(q, k, v, slope, state, initial_indices, final_indices, out):
++    infini.ops.lightning_attention_infinilm(
++        q,
++        k,
++        v,
++        slope,
++        state,
++        initial_indices,
++        final_indices,
++        out,
++        stream=get_stream(q.device),
++    )
++    return out
++
++
++@pytest.mark.auto_act_and_assert
++@pytest.mark.parametrize("shape", _SHAPES)
++@pytest.mark.parametrize(("dtype", "rtol", "atol"), _DTYPE_CASES)
++def test_lightning_attention_infinilm(shape, dtype, device, rtol, atol):
++    tensors = _make_tensors(shape, dtype, device)
++
++    return Payload(_run_lightning_attention, _reference_out, tensors, {}, rtol=rtol, atol=atol)
++
++
++@pytest.mark.auto_act_and_assert
++@pytest.mark.parametrize("shape", _SHAPES)
++@pytest.mark.parametrize(("dtype", "rtol", "atol"), _DTYPE_CASES)
++def test_lightning_attention_infinilm_state_pool(shape, dtype, device, rtol, atol):
++    tensors = _make_tensors(shape, dtype, device)
++
++    return Payload(_run_lightning_attention_state, _reference_state, tensors, {}, rtol=rtol, atol=atol)
++
++
++def _reference_out(q, k, v, slope, state, initial_indices, final_indices, out):
++    reference, _ = _torch_lightning_attention(q, k, v, slope, state, initial_indices, final_indices)
++    out.copy_(reference.to(out.dtype))
++    return out
++
++
++def _reference_state(q, k, v, slope, state, initial_indices, final_indices, out):
++    _, reference = _torch_lightning_attention(q, k, v, slope, state, initial_indices, final_indices)
++    state.copy_(reference.to(state.dtype))
++    return state
++
++
++def _run_lightning_attention_state(q, k, v, slope, state, initial_indices, final_indices, out):
++    _run_lightning_attention(q, k, v, slope, state, initial_indices, final_indices, out)
++    return state

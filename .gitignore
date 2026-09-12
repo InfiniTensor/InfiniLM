@@ -2,6 +2,11 @@
 .xmake/
 build/
 python/infinilm/lib/*.so
+python/infinilm/lib/*.pyd
+python/infinilm/lib/*.dll
+python/infinilm/lib/*.lib
+python/infinilm/lib/*.dylib
+python/infinilm/bin/
 
 # MacOS Cache
 .DS_Store
@@ -34,3 +39,4 @@ __pycache__/
 *.http
 
 *.nsys-rep
+

@@ -1071,6 +1071,55 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+
+
+def _remap_minimax(state_dict, config):
+    """Adapt HF transformers `minimax` (MiniMax-Text-01) keys to InfiniLM keys."""
+    # Lightning layers use `self_attn.{qkv_proj,output_gate,out_proj,norm}` in HF
+    # and `linear_attn.*` in InfiniLM; full-attention `self_attn.q/k/v/o_proj` keep
+    # their names.
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "self_attn.qkv_proj": "linear_attn.qkv_proj",
+            "self_attn.output_gate": "linear_attn.output_gate",
+            "self_attn.out_proj": "linear_attn.out_proj",
+            "self_attn.norm": "linear_attn.norm",
+        },
+    )
+
+    num_experts = config.get("num_local_experts", config.get("num_experts", 8))
+    if num_experts == 1:
+        # A single-expert MoE is mathematically a dense SwiGLU MLP (softmax over a
+        # single router logit is 1.0): fold experts.{gate_up,down}_proj into the
+        # dense `mlp.{gate_proj,up_proj,down_proj}` module, squeezing the expert dim.
+        # NB: HF `minimax` stores expert params without a ".weight" suffix.
+        remapped = {}
+        for key, tensor in state_dict.items():
+            if key.endswith("mlp.experts.gate_up_proj"):
+                gate_up = tensor.squeeze(0)  # [2 * I, H]
+                gate, up = gate_up.chunk(2, dim=0)
+                base = key[: -len("mlp.experts.gate_up_proj")]
+                remapped[base + "mlp.gate_proj.weight"] = gate
+                remapped[base + "mlp.up_proj.weight"] = up
+            elif key.endswith("mlp.experts.down_proj"):
+                base = key[: -len("mlp.experts.down_proj")]
+                remapped[base + "mlp.down_proj.weight"] = tensor.squeeze(0)
+            else:
+                remapped[key] = tensor
+        return remapped
+
+    # Multi-expert MoE: HF packs experts as 3D gate_up_proj/down_proj tensors;
+    # InfiniLM FusedMoeExperts stores them as w13_weight/w2_weight.
+    return rename_keys(
+        state_dict,
+        {
+            "mlp.experts.gate_up_proj": "mlp.experts.w13_weight",
+            "mlp.experts.down_proj": "mlp.experts.w2_weight",
+        },
+    )
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1082,5 +1131,8 @@ _WEIGHT_REMAPPER = {
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
+    "minimax": _remap_minimax,
     "kimi_k3": _remap_kimi_k3,
 }
+
+
