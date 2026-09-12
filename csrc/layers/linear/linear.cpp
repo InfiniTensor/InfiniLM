@@ -1,4 +1,5 @@
 #include "linear.hpp"
+#include "infinicore/context/context.hpp"
 
 namespace infinilm::nn {
 
@@ -83,7 +84,9 @@ RowParallelLinear::RowParallelLinear(size_t in_features, size_t out_features,
 
 infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
     if (tp_size_ > 1 && communicator_ != nullptr) {
-        return compute_linear_allreduce(input, communicator_);
+        auto output = compute_linear_allreduce(input, communicator_);
+        infinicore::context::syncStream();
+        return output;
     }
     return BaseLinear::forward(input);
 }
