@@ -1,9 +1,9 @@
 diff --git a/src/base/lightning_attention_infinilm.h b/src/base/lightning_attention_infinilm.h
 new file mode 100644
-index 0000000..a7f7135
+index 0000000..3cedb49
 --- /dev/null
 +++ b/src/base/lightning_attention_infinilm.h
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,171 @@
 +#ifndef INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
 +#define INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
 +
@@ -30,6 +30,10 @@ index 0000000..a7f7135
 +/// `initial_state[final_state_indices[b]]`. The row referenced by
 +/// `initial_state_indices` is left untouched, so a caller may keep using it.
 +///
++/// Requests are independent and may execute concurrently, so a row used as the
++/// destination of one request must not be the source row of another request in
++/// the same call.
++///
 +/// This operator is InfiniLM-specific and is therefore classified as custom
 +/// rather than aligned to an open-source operator. The closest public
 +/// reference implementation is Flash-Linear-Attention's
@@ -39,7 +43,7 @@ index 0000000..a7f7135
 +    : public Operator<LightningAttentionInfinilm> {
 + public:
 +  LightningAttentionInfinilm(const Tensor q, const Tensor k, const Tensor v,
-+                             const Tensor slope, const Tensor initial_state,
++                             const Tensor slope, Tensor initial_state,
 +                             const Tensor initial_state_indices,
 +                             const Tensor final_state_indices, Tensor out)
 +      : data_type_{q.dtype()},
@@ -105,7 +109,7 @@ index 0000000..a7f7135
 +  }
 +
 +  virtual void operator()(const Tensor q, const Tensor k, const Tensor v,
-+                          const Tensor slope, const Tensor initial_state,
++                          const Tensor slope, Tensor initial_state,
 +                          const Tensor initial_state_indices,
 +                          const Tensor final_state_indices,
 +                          Tensor out) const = 0;
@@ -173,7 +177,7 @@ index 0000000..a7f7135
 +#endif  // INFINI_OPS_BASE_LIGHTNING_ATTENTION_INFINILM_H_
 diff --git a/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h b/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h
 new file mode 100644
-index 0000000..3b4f3b3
+index 0000000..8e8ef1c
 --- /dev/null
 +++ b/src/native/cpu/ops/lightning_attention_infinilm/lightning_attention_infinilm.h
 @@ -0,0 +1,139 @@
@@ -197,14 +201,14 @@ index 0000000..3b4f3b3
 +    : public LightningAttentionInfinilm, Caster<Device::Type::kCpu> {
 + public:
 +  Operator(const Tensor q, const Tensor k, const Tensor v, const Tensor slope,
-+           const Tensor initial_state, const Tensor initial_state_indices,
++           Tensor initial_state, const Tensor initial_state_indices,
 +           const Tensor final_state_indices, Tensor out)
 +      : LightningAttentionInfinilm{q,     k,     v,     slope, initial_state,
 +                                   initial_state_indices, final_state_indices,
 +                                   out} {}
 +
 +  void operator()(const Tensor q, const Tensor k, const Tensor v,
-+                  const Tensor slope, const Tensor initial_state,
++                  const Tensor slope, Tensor initial_state,
 +                  const Tensor initial_state_indices,
 +                  const Tensor final_state_indices, Tensor out) const override {
 +    DispatchFunc<Device::Type::kCpu, AllFloatTypes>(
@@ -220,7 +224,7 @@ index 0000000..3b4f3b3
 + private:
 +  template <typename T>
 +  void Compute(const Tensor q, const Tensor k, const Tensor v,
-+               const Tensor slope, const Tensor initial_state,
++               const Tensor slope, Tensor initial_state,
 +               const Tensor initial_state_indices,
 +               const Tensor final_state_indices, Tensor out) const {
 +    const auto* q_ptr = static_cast<const T*>(q.data());
@@ -450,7 +454,7 @@ index 0000000..35861cf
 +#endif  // INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_CUH_
 diff --git a/src/native/cuda/ops/lightning_attention_infinilm/kernel.h b/src/native/cuda/ops/lightning_attention_infinilm/kernel.h
 new file mode 100644
-index 0000000..e350318
+index 0000000..e90c52b
 --- /dev/null
 +++ b/src/native/cuda/ops/lightning_attention_infinilm/kernel.h
 @@ -0,0 +1,78 @@
@@ -482,7 +486,7 @@ index 0000000..e350318
 +  using LightningAttentionInfinilm::LightningAttentionInfinilm;
 +
 +  void operator()(const Tensor q, const Tensor k, const Tensor v,
-+                  const Tensor slope, const Tensor initial_state,
++                  const Tensor slope, Tensor initial_state,
 +                  const Tensor initial_state_indices,
 +                  const Tensor final_state_indices, Tensor out) const override {
 +    auto cuda_stream =
@@ -534,10 +538,10 @@ index 0000000..e350318
 +#endif  // INFINI_OPS_CUDA_LIGHTNING_ATTENTION_INFINILM_KERNEL_H_
 diff --git a/tests/test_lightning_attention_infinilm.py b/tests/test_lightning_attention_infinilm.py
 new file mode 100644
-index 0000000..6d1f92a
+index 0000000..a31e725
 --- /dev/null
 +++ b/tests/test_lightning_attention_infinilm.py
-@@ -0,0 +1,115 @@
+@@ -0,0 +1,119 @@
 +import infini.ops
 +import pytest
 +import torch
@@ -572,9 +576,10 @@ index 0000000..6d1f92a
 +    )
 +
 +    # Deliberately read and write different pool rows so that the test also
-+    # covers the "initial row must stay untouched" contract.
++    # covers the "initial row must stay untouched" contract. Rows are disjoint
++    # across requests because requests may execute concurrently.
 +    initial_indices = torch.arange(batch, dtype=torch.int32, device=device) % pool_size
-+    final_indices = (initial_indices + 1) % pool_size
++    final_indices = (initial_indices + batch) % pool_size
 +
 +    out = empty_strided((batch, seq_len, num_heads, head_dim), None, dtype=dtype, device=device)
 +
@@ -598,7 +603,10 @@ index 0000000..6d1f92a
 +        current = state[initial_row].clone()  # [heads, head_dim, head_dim]
 +        for t in range(q.shape[1]):
 +            current = ratio[:, None, None] * current + k[b, t].unsqueeze(-1) * v[b, t].unsqueeze(-2)
-+            out[b, t] = torch.einsum("hd,hde->he", q[b, t], current)
++            # The implementation stores the recurrent state in the tensor dtype,
++            # so the reference has to round it before the next read.
++            current = current.to(state.dtype)
++            out[b, t] = torch.einsum("hd,hde->he", q[b, t], current.float())
 +
 +        state[final_row] = current
 +
