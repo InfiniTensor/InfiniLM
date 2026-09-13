@@ -189,6 +189,11 @@ def get_model_state_dict(
     return model_param_infini
 
 
+def _kt_expert_key(key: str) -> bool:
+    """True for routed-expert weight keys skipped when use_kt_moe is enabled."""
+    return ".mlp.experts." in key or ".mlp.fused_moe." in key
+
+
 def load_model_state_dict_by_file(
     model: infinicore.nn.Module,
     model_path: str,
@@ -274,6 +279,12 @@ def load_model_state_dict_by_file(
             # --------------------------------------------------------- #
             #         model_param_infini references torch.Tensor
             # --------------------------------------------------------- #
+            # Skip expert weights when KT offload is enabled
+            use_kt_moe = model.hf_config.get("use_kt_moe", False)
+            if use_kt_moe:
+                model_param = {
+                    k: v for k, v in model_param.items() if not _kt_expert_key(k)
+                }
             model_param_infini = {}
             for key in model_param.keys():
                 model_param_infini[key] = infinicore.from_torch(model_param[key])
@@ -319,6 +330,13 @@ def load_model_state_dict_by_file(
                 if key in model_key_set
             }
 
+        # Skip expert weights BEFORE conversion when KT offload is enabled
+        use_kt_moe = model.hf_config.get("use_kt_moe", False)
+        if use_kt_moe:
+            model_params = {
+                k: v for k, v in model_params.items() if not _kt_expert_key(k)
+            }
+
         model_param_infini = {}
         for key in model_params.keys():
             target_dtype = (
@@ -331,7 +349,8 @@ def load_model_state_dict_by_file(
             )
             already_loaded_keys.append(key)
 
-        model.load_state_dict(model_param_infini, strict=True)
+        # strict=False under KT: expert keys are intentionally absent
+        model.load_state_dict(model_param_infini, strict=not use_kt_moe)
         infinicore.sync_device()
         del model_param_infini
         del model_params
@@ -350,7 +369,15 @@ def load_model_state_dict_by_file(
             embed_tokens_torch_unscaled = None
             gc.collect()
 
-    check_parameters(model_keys, already_loaded_keys)
+    use_kt_moe = model.hf_config.get("use_kt_moe", False)
+    if use_kt_moe:
+        # Keep the safety net for non-expert weights; expert keys are expected missing.
+        check_parameters(
+            [k for k in model_keys if not _kt_expert_key(k)],
+            [k for k in already_loaded_keys if not _kt_expert_key(k)],
+        )
+    else:
+        check_parameters(model_keys, already_loaded_keys)
 
     if not weights_processed:
         model.process_weights_after_loading()
@@ -428,7 +455,14 @@ def load_model_state_dict_by_tensor(
             model.load_param("lm_head.weight", lm_head_tensor)
             already_loaded_keys.append("lm_head.weight")
 
-    check_parameters(model_keys, already_loaded_keys)
+    use_kt_moe = model.hf_config.get("use_kt_moe", False)
+    if use_kt_moe:
+        check_parameters(
+            [k for k in model_keys if not _kt_expert_key(k)],
+            [k for k in already_loaded_keys if not _kt_expert_key(k)],
+        )
+    else:
+        check_parameters(model_keys, already_loaded_keys)
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")

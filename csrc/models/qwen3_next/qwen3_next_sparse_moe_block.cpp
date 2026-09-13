@@ -64,6 +64,7 @@ Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::confi
     gate_ = this->register_module<infinilm::layers::moe::TopKRouter>("gate", model_config, device);
     experts_ = this->register_module<infinilm::layers::moe::FusedMoeExperts>("experts", model_config, device);
     fused_moe_ = this->register_module<infinilm::layers::moe::FusedMoE>("fused_moe", model_config, device, layer_idx);
+    (void)layer_idx;
     shared_expert_ = this->register_module<Qwen3NextSharedExpert>("shared_expert", model_config, device);
     shared_expert_gate_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>(
         "shared_expert_gate",
@@ -86,6 +87,8 @@ infinicore::Tensor Qwen3NextSparseMoeBlock::forward(const infinicore::Tensor &hi
         selected_experts,
         infinicore::Tensor(),
     };
+    // KT (KTransformers) offload is handled inside FusedMoE::forward when
+    // a KT callback is registered for this layer.
     auto routed_states = fused_moe_->forward(
         hidden_states_reshaped,
         topk_output,
