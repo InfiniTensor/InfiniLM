@@ -321,9 +321,12 @@ class LLMEngine:
         messages: List[dict],
         add_generation_prompt: bool = True,
         chat_template_kwargs: Optional[dict] = None,
+        tools: Optional[List[dict]] = None,
     ) -> str:
         """Apply chat template to messages."""
         chat_template_kwargs = chat_template_kwargs or {}
+        if tools is not None:
+            chat_template_kwargs["tools"] = tools
         return self.processor.apply_chat_template(
             conversation=messages,
             add_generation_prompt=add_generation_prompt,
@@ -784,6 +787,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -813,6 +817,8 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict (for server use).
+            chat_template_kwargs: Optional extra keyword arguments forwarded to
+                ``apply_chat_template()`` (e.g. ``tools`` definitions).
 
         Returns:
             The created InferenceRequest object.
@@ -838,7 +844,9 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs,
             )
 
             mm_inputs = resolve_multimodal_inputs(messages)
@@ -897,7 +905,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
-        **kwargs,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
 
@@ -906,6 +914,9 @@ class AsyncLLMEngine:
             sampling_params: Sampling parameters.
             request_id: Optional request ID.
             request_data: Optional request data dict.
+            add_generation_prompt: Whether to add a generation prompt.
+            chat_template_kwargs: Optional extra keyword arguments forwarded to
+                ``apply_chat_template()`` (e.g. ``tools`` definitions).
 
         Returns:
             The created InferenceRequest object.
@@ -918,6 +929,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            chat_template_kwargs=chat_template_kwargs,
         )
 
     async def stream_request(

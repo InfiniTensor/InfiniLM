@@ -15,6 +15,16 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from infinilm.agents import AgentStreamParser, parse_full_response
+from infinilm.agents.anthropic import (
+    AnthropicMessagesRequest,
+    anthropic_error_body,
+    convert_anthropic_request,
+    convert_openai_sse_stream,
+    convert_openai_to_anthropic_response,
+)
+from infinilm.agents.message_adapter import adapt_messages, prepare_chat_template_kwargs
+from infinilm.agents.protocol import chunk_json, completion_json
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
@@ -24,69 +34,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
-
-
-def chunk_json(
-    id_, content=None, role=None, finish_reason=None, model: str = "unknown"
-):
-    """Generate JSON chunk for streaming response."""
-    delta = {}
-    if content:
-        delta["content"] = content
-    if role:
-        delta["role"] = role
-    return {
-        "id": id_,
-        "object": "chat.completion.chunk",
-        "created": int(time.time()),
-        "model": model,
-        "system_fingerprint": None,
-        "choices": [
-            {
-                "index": 0,
-                "text": content,
-                "delta": delta,
-                "logprobs": None,
-                "finish_reason": finish_reason,
-            }
-        ],
-    }
-
-
-def completion_json(
-    id_,
-    content,
-    role="assistant",
-    finish_reason="stop",
-    model: str = "unknown",
-    prompt_tokens: int = 0,
-    completion_tokens: int = 0,
-    total_tokens: int = 0,
-):
-    """Generate JSON response for non-streaming completion."""
-    return {
-        "id": id_,
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model,
-        "system_fingerprint": None,
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": role,
-                    "content": content,
-                },
-                "logprobs": None,
-                "finish_reason": finish_reason,
-            }
-        ],
-        "usage": {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        },
-    }
 
 
 class InferenceServer:
@@ -125,6 +72,8 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        tool_call_parser: Optional[str] = None,
+        reasoning_parser: Optional[str] = None,
     ):
         """Initialize inference server.
 
@@ -188,6 +137,8 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
+        self.tool_call_parser = tool_call_parser
+        self.reasoning_parser = reasoning_parser
 
         self.engine: AsyncLLMEngine = None
 
@@ -266,13 +217,11 @@ class InferenceServer:
                 else:
                     data["messages"] = [{"role": "user", "content": data.get("prompt")}]
 
-            # Normalize messages to handle multimodal content (list format)
             data["messages"] = data.get("messages", [])
-
-            stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
+            prepare_chat_template_kwargs(data)
 
-            if stream:
+            if data.get("stream", False):
                 return StreamingResponse(
                     self._stream_chat(request_id, data, request),
                     media_type="text/event-stream",
@@ -282,6 +231,38 @@ class InferenceServer:
                 if isinstance(response, JSONResponse):
                     return response
                 return JSONResponse(content=response)
+
+        # Anthropic-compatible Messages API endpoint.
+        @app.post("/v1/messages")
+        async def anthropic_messages(request: Request):
+            try:
+                anthropic_req = AnthropicMessagesRequest(**await request.json())
+                openai_data = convert_anthropic_request(anthropic_req)
+            except Exception as e:
+                logger.error(f"Failed to parse Anthropic request: {e}")
+                return JSONResponse(
+                    content=anthropic_error_body(str(e)), status_code=400
+                )
+
+            request_id = f"msg_{uuid.uuid4().hex}"
+            prepare_chat_template_kwargs(openai_data)
+
+            if openai_data.get("stream", False):
+                return StreamingResponse(
+                    self._anthropic_stream(request_id, openai_data, request),
+                    media_type="text/event-stream",
+                )
+            response = await self._chat(request_id, openai_data, request)
+            if isinstance(response, JSONResponse):
+                return response
+            return JSONResponse(
+                content=convert_openai_to_anthropic_response(response, self.model_id)
+            )
+
+        @app.head("/api/hello")
+        @app.get("/api/hello")
+        async def api_hello():
+            return {"status": "ok"}
 
         @app.get("/health")
         async def health():
@@ -315,39 +296,6 @@ class InferenceServer:
         @app.get("/models")
         async def list_models_legacy():
             return _models_payload()
-
-    def _normalize_messages(self, messages: list) -> list:
-        """Normalize messages to handle multimodal content (list format).
-
-        Converts content from list format [{"type": "text", "text": "..."}]
-        to string format for chat template compatibility.
-        """
-        normalized = []
-        for msg in messages:
-            if not isinstance(msg, dict):
-                normalized.append(msg)
-                continue
-
-            content = msg.get("content")
-            if isinstance(content, list):
-                # Extract text from multimodal content list
-                text_parts = []
-                for part in content:
-                    if isinstance(part, dict):
-                        if part.get("type") == "text" and "text" in part:
-                            text_parts.append(part["text"])
-                        elif isinstance(part, str):
-                            text_parts.append(part)
-                    elif isinstance(part, str):
-                        text_parts.append(part)
-                # Join all text parts
-                normalized_msg = msg.copy()
-                normalized_msg["content"] = "".join(text_parts) if text_parts else ""
-                normalized.append(normalized_msg)
-            else:
-                normalized.append(msg)
-
-        return normalized
 
     def _build_sampling_params(self, data: dict) -> SamplingParams:
         """Build SamplingParams from request data."""
@@ -391,7 +339,15 @@ class InferenceServer:
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
+            # The stream parser is stateful; a dedicated instance per request
+            # keeps concurrent streams from clobbering each other's buffers.
+            agent_parser = AgentStreamParser(
+                tool_call_parser=self.tool_call_parser,
+                reasoning_parser=self.reasoning_parser,
+                tools=data.get("tools") or [],
+            )
+
+            messages = adapt_messages(data.get("messages", []), self.tool_call_parser)
             sampling_params = self._build_sampling_params(data)
 
             req = self.engine.add_chat_request(
@@ -439,24 +395,34 @@ class InferenceServer:
                 )
 
                 if not is_eos_token and token_output.token_text:
-                    # Send token
-                    chunk = json.dumps(
-                        chunk_json(
-                            request_id,
-                            content=token_output.token_text,
-                            model=self.model_id,
-                        ),
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {chunk}\n\n"
+                    # All parsing and protocol formatting lives in the agents
+                    # package; the server only relays the rendered SSE lines.
+                    for event in agent_parser.delta_events(
+                        token_output.token_text, request_id, self.model_id
+                    ):
+                        yield event
 
                 if token_output.finished:
+                    # Flush any remaining buffered tool-call arguments before
+                    # emitting the final finish chunk.
+                    for event in agent_parser.flush_events(request_id, self.model_id):
+                        yield event
+
                     finish_reason = self._convert_finish_reason(
                         token_output.finish_reason
                     )
+                    if agent_parser.has_tool_calls:
+                        finish_reason = "tool_calls"
                     chunk = json.dumps(
                         chunk_json(
-                            request_id, finish_reason=finish_reason, model=self.model_id
+                            request_id,
+                            finish_reason=finish_reason,
+                            model=self.model_id,
+                            usage={
+                                "prompt_tokens": req.get_prompt_length(),
+                                "completion_tokens": req.get_num_generated_tokens(),
+                                "total_tokens": req.get_total_length(),
+                            },
                         ),
                         ensure_ascii=False,
                     )
@@ -496,7 +462,7 @@ class InferenceServer:
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
+            messages = adapt_messages(data.get("messages", []), self.tool_call_parser)
             sampling_params = self._build_sampling_params(data)
 
             req = self.engine.add_chat_request(
@@ -537,17 +503,31 @@ class InferenceServer:
                     break
 
             output_text = output_text.strip()
+
+            # One-shot parse of the complete response into reasoning /
+            # content / tool_calls (all parsing lives in the agents package).
+            reasoning_content, normal_text, tool_calls = parse_full_response(
+                output_text,
+                tool_call_parser=self.tool_call_parser,
+                reasoning_parser=self.reasoning_parser,
+                tools=data.get("tools") or [],
+            )
+
             finish_reason = self._convert_finish_reason(req.finish_reason)
+            if tool_calls:
+                finish_reason = "tool_calls"
 
             response = completion_json(
                 request_id,
-                content=output_text,
+                content=normal_text,
                 role="assistant",
                 finish_reason=finish_reason or "stop",
                 model=self.model_id,
                 prompt_tokens=req.get_prompt_length(),
                 completion_tokens=req.get_num_generated_tokens(),
                 total_tokens=req.get_total_length(),
+                reasoning_content=reasoning_content,
+                tool_calls=tool_calls,
             )
             return response
 
@@ -574,6 +554,16 @@ class InferenceServer:
             return "stop"
 
         return reason.value
+
+    # ---------- Anthropic stream conversion ----------
+
+    def _anthropic_stream(self, request_id: str, data: dict, http_request: Request):
+        """Consume the OpenAI-format stream and emit Anthropic-format SSE events."""
+        return convert_openai_sse_stream(
+            self._stream_chat(request_id, data, http_request),
+            message_id=f"msg_{uuid.uuid4().hex}",
+            model=self.model_id,
+        )
 
 
 def setup_logging(log_level: str = "INFO"):
@@ -667,6 +657,8 @@ def main():
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        tool_call_parser=cfg.tool_call_parser,
+        reasoning_parser=cfg.reasoning_parser,
     )
     server.start()
 

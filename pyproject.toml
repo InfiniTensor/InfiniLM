@@ -7,7 +7,12 @@ name = "InfiniLM"
 version = "0.1.0"
 description = "InfiniLM model implementations"
 readme = "README.md"
-dependencies = []
+dependencies = [
+    # Incremental (streaming) parsing of incomplete tool-call arguments.
+    # Without it the fallback decoder can only parse fully-formed JSON, so
+    # streamed tool-call arguments are held back until the object is complete.
+    "partial-json-parser>=0.2.1.1",
+]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",

@@ -35,6 +35,42 @@ class BasicLLMProcessor(InfinilmProcessor):
         # "pt" or "np" or "tf".
         return self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
 
+    @staticmethod
+    def normalize_conversation(conversation):
+        """Normalize message content for chat-template rendering.
+
+        Chat templates render message content as a string, but chat/agent
+        clients commonly send text as a content-part list
+        (``[{"type": "text", "text": ...}, ...]``). Text-only lists are
+        joined into a single string here; content containing non-text parts
+        is rejected, since multimodal media is handled by the dedicated
+        multimodal processors instead.
+        """
+        normalized = []
+        for message in conversation:
+            content = message.get("content")
+            if isinstance(content, list):
+                if not all(
+                    isinstance(item, dict)
+                    and item.get("type") == "text"
+                    and "text" in item
+                    for item in content
+                ):
+                    raise ValueError(
+                        "Only text content parts are supported in message "
+                        "content lists; media parts require a multimodal "
+                        "model/processor."
+                    )
+                normalized.append(
+                    {
+                        **message,
+                        "content": "".join(item["text"] for item in content),
+                    }
+                )
+            else:
+                normalized.append(message)
+        return normalized
+
     @override
     def apply_chat_template(
         self,
@@ -43,23 +79,8 @@ class BasicLLMProcessor(InfinilmProcessor):
         tokenize: bool = True,
         **kwargs,
     ):
-        normalized_conversation = []
-        for message in conversation:
-            if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, (
-                    "Only one content item supported in list"
-                )
-                content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, (
-                    "Content dict must have 'type' and 'text' keys"
-                )
-                normalized_conversation.append(
-                    {"role": message["role"], "content": content_item["text"]}
-                )
-            else:
-                normalized_conversation.append(message)
         return self.tokenizer.apply_chat_template(
-            conversation=normalized_conversation,
+            conversation=self.normalize_conversation(conversation),
             add_generation_prompt=add_generation_prompt,
             tokenize=tokenize,
             **kwargs,
