@@ -239,6 +239,16 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
+        to_device(video_hidden_states),
+        to_device(audio_hidden_states),
+        to_device(encoder_hidden_states),
+        to_device(timestep),
+        to_device(timestep_indices),
+        to_device(token_tags),
+        to_device(rotary_cos_sin_cache),
+        to_device(video_indices),
+        to_device(audio_indices),
+        to_device(text_indices),
         to_device(target_hidden_states),
         sample_all_positions};
 

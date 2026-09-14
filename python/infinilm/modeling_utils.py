@@ -105,6 +105,7 @@ def load_state_dict(
     device="cpu",
     dtype=torch.bfloat16,
     preserve_fp32_suffixes: Tuple[str, ...] = (".e_score_correction_bias",),
+    preserve_fp32_prefixes: tuple[str, ...] = (),
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
@@ -128,7 +129,12 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            preserve_fp32 = k.endswith(preserve_fp32_suffixes)
+            # MoE router correction bias is consumed as FP32 by moe_topk_softmax.
+            preserve_fp32 = (
+                k.endswith(".e_score_correction_bias")
+                or k.startswith(preserve_fp32_prefixes)
+                or k.endswith(preserve_fp32_suffixes)
+            )
             if tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
@@ -211,6 +217,7 @@ def load_model_state_dict_by_file(
     model_key_set = set(model_keys)
     dist_config = getattr(model, "distributed_config", None)
     is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
+    load_only_model_keys = bool(model.hf_config.get("load_only_model_keys", False))
     scale_emb = _get_scale_emb(model_path)
 
     already_loaded_keys = []
@@ -218,6 +225,21 @@ def load_model_state_dict_by_file(
     weights_processed = False
 
     remapper = _WEIGHT_REMAPPER.get(model_type)
+    preserve_fp32_prefixes = (
+        (
+            "proj_in.",
+            "audio_proj_in.",
+            "time_embedder.",
+            "proj_out.",
+            "audio_proj_out.",
+            "video_patch_proj.",
+            "audio_patch_proj.",
+            "final_layer.video_out.",
+            "final_layer.audio_out.",
+        )
+        if model_type == "minimax_h3"
+        else ()
+    )
 
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
     if os.path.exists(index_file_path):
@@ -246,6 +268,7 @@ def load_model_state_dict_by_file(
                 device=torch_device,
                 dtype=torch_dtype,
                 preserve_fp32_suffixes=preserve_fp32_suffixes,
+                preserve_fp32_prefixes=preserve_fp32_prefixes,
             )
 
             # Apply model-specific weight remapping
@@ -262,7 +285,7 @@ def load_model_state_dict_by_file(
                         embed_tokens_torch_unscaled * float(scale_emb)
                     )
 
-            if is_pipeline_parallel:
+            if is_pipeline_parallel or load_only_model_keys:
                 model_param = {
                     key: tensor
                     for key, tensor in model_param.items()
@@ -312,7 +335,7 @@ def load_model_state_dict_by_file(
                     embed_tokens_torch_unscaled * float(scale_emb)
                 )
 
-        if is_pipeline_parallel:
+        if is_pipeline_parallel or load_only_model_keys:
             model_params = {
                 key: tensor
                 for key, tensor in model_params.items()
@@ -1068,6 +1091,95 @@ def _remap_kimi_k3(state_dict, config):
             # the bundled reference module and KDA ABI consume one per head.
             state_dict[key] = tensor[:num_heads].contiguous()
 
+
+def _remap_minimax_h3(state_dict, config):
+    # InfiniCore RoPE reconstructs the frequency table from the config.
+    state_dict.pop("rope.inv_freq", None)
+
+    # The original MiniMax checkpoint and the Diffusers conversion use the
+    # same tensors under different module names. Accept the original layout
+    # as well so task-specific partitions do not need to be rewritten on
+    # disk. Fused QKV and SwiGLU are unpacked here for the native tensor-
+    # parallel linear layers.
+    legacy_prefixes = (
+        "blocks.",
+        "video_patch_proj.",
+        "audio_patch_proj.",
+        "condition_proj.",
+        "final_layer.",
+    )
+    if any(key.startswith(legacy_prefixes) for key in state_dict):
+        remapped = {}
+        for key, tensor in state_dict.items():
+            legacy_fc1 = key.endswith(".mlp.fc1.weight")
+            key = re.sub(
+                r"^token_refiner\.blocks\.(\d+)\.",
+                r"token_refiner.refiner_blocks.\1.",
+                key,
+            )
+            key = re.sub(r"^blocks\.(\d+)\.", r"transformer_blocks.\1.", key)
+            prefix_replacements = (
+                ("video_patch_proj.", "proj_in."),
+                ("audio_patch_proj.", "audio_proj_in."),
+                ("condition_proj.", "context_embedder."),
+                ("time_embedder.proj_in.", "time_embedder.linear_1."),
+                ("time_embedder.proj_out.", "time_embedder.linear_2."),
+                ("final_layer.norm.", "norm_out.norm."),
+                ("final_layer.adaln_proj.linear.", "norm_out.linear."),
+                ("final_layer.video_out.", "proj_out."),
+                ("final_layer.audio_out.", "audio_proj_out."),
+            )
+            for source, target in prefix_replacements:
+                if key.startswith(source):
+                    key = target + key[len(source) :]
+                    break
+
+            key = key.replace(".attn.q_norm.", ".attn.norm_q.")
+            key = key.replace(".attn.k_norm.", ".attn.norm_k.")
+            key = key.replace(".attn.out_proj.", ".attn.to_out.0.")
+            key = key.replace(".mlp.fc1.", ".ff.net.0.proj.")
+            key = key.replace(".mlp.fc2.", ".ff.net.2.")
+
+            if key.endswith(".attn.qkv_proj.weight"):
+                num_heads = config["num_attention_heads"]
+                head_dim = config["attention_head_dim"]
+                expected_rows = num_heads * 3 * head_dim
+                if tensor.shape[0] != expected_rows:
+                    raise ValueError(
+                        f"MiniMax-H3 QKV expected {expected_rows} rows, "
+                        f"but {key} has shape {tuple(tensor.shape)}"
+                    )
+                packed = tensor.view(num_heads, 3, head_dim, tensor.shape[1])
+                query, key_weight, value = packed.unbind(dim=1)
+                prefix = key[: -len("qkv_proj.weight")]
+                remapped[prefix + "to_q.weight"] = query.reshape(
+                    num_heads * head_dim, tensor.shape[1]
+                ).contiguous()
+                remapped[prefix + "to_k.weight"] = key_weight.reshape(
+                    num_heads * head_dim, tensor.shape[1]
+                ).contiguous()
+                remapped[prefix + "to_v.weight"] = value.reshape(
+                    num_heads * head_dim, tensor.shape[1]
+                ).contiguous()
+            elif legacy_fc1:
+                gate, up = tensor.chunk(2, dim=0)
+                prefix = key[: -len("weight")]
+                remapped[prefix + "up_proj.weight"] = up
+                remapped[prefix + "gate_proj.weight"] = gate
+            else:
+                remapped[key] = tensor
+        state_dict = remapped
+
+    # Diffusers stores SwiGLU as one [up, gate] projection. Split it before
+    # loading so GateUpParallelLinear can place corresponding up/gate shards
+    # together on every tensor-parallel rank.
+    for key in list(state_dict):
+        if not key.endswith(".ff.net.0.proj.weight"):
+            continue
+        up, gate = state_dict.pop(key).chunk(2, dim=0)
+        prefix = key[: -len("weight")]
+        state_dict[prefix + "up_proj.weight"] = up.contiguous()
+        state_dict[prefix + "gate_proj.weight"] = gate.contiguous()
     return state_dict
 
 
@@ -1083,4 +1195,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "minimax_h3": _remap_minimax_h3,
 }

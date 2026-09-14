@@ -68,6 +68,26 @@ public:
         std::optional<std::vector<size_t>> image_req_ids;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
         std::optional<std::vector<size_t>> visual_token_ranges;
+        /// MiniMax-H3 patchified video latent rows.
+        std::optional<infinicore::Tensor> video_hidden_states;
+        /// MiniMax-H3 audio latent rows.
+        std::optional<infinicore::Tensor> audio_hidden_states;
+        /// MiniMax-H3 Qwen3-VL conditioning states.
+        std::optional<infinicore::Tensor> encoder_hidden_states;
+        /// MiniMax-H3 distinct flow timesteps.
+        std::optional<infinicore::Tensor> timestep;
+        /// MiniMax-H3 packed row to timestep mapping.
+        std::optional<infinicore::Tensor> timestep_indices;
+        /// MiniMax-H3 packed row modality tags.
+        std::optional<infinicore::Tensor> token_tags;
+        /// MiniMax-H3 continuous-position rotary cache.
+        std::optional<infinicore::Tensor> rotary_cos_sin_cache;
+        /// MiniMax-H3 packed positions of video rows.
+        std::optional<infinicore::Tensor> video_indices;
+        /// MiniMax-H3 packed positions of audio rows.
+        std::optional<infinicore::Tensor> audio_indices;
+        /// MiniMax-H3 packed positions of text rows.
+        std::optional<infinicore::Tensor> text_indices;
         /// Target model hidden states for draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.

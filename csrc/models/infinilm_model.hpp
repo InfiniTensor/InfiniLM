@@ -53,6 +53,26 @@ public:
         std::optional<std::vector<size_t>> image_req_ids;
         /// Flattened [start, end) visual token ranges in the packed language sequence.
         std::optional<std::vector<size_t>> visual_token_ranges;
+        /// MiniMax-H3 patchified video latent rows: [batch, video_tokens, video_patch_dim].
+        std::optional<infinicore::Tensor> video_hidden_states;
+        /// MiniMax-H3 audio latent rows: [batch, audio_tokens, audio_latent_dim].
+        std::optional<infinicore::Tensor> audio_hidden_states;
+        /// MiniMax-H3 Qwen3-VL conditioning states: [batch, text_tokens, text_dim].
+        std::optional<infinicore::Tensor> encoder_hidden_states;
+        /// Distinct MiniMax-H3 flow timesteps: [num_timesteps].
+        std::optional<infinicore::Tensor> timestep;
+        /// Packed row to timestep mapping: [sequence_length].
+        std::optional<infinicore::Tensor> timestep_indices;
+        /// Packed row modality tags (video=0, text=1, audio=2): [sequence_length].
+        std::optional<infinicore::Tensor> token_tags;
+        /// Per-row NeoX rotary cache `[sequence_length, rotary_dim]`, laid out as [cos, sin].
+        std::optional<infinicore::Tensor> rotary_cos_sin_cache;
+        /// Packed positions of video rows: [video_tokens].
+        std::optional<infinicore::Tensor> video_indices;
+        /// Packed positions of audio rows: [audio_tokens].
+        std::optional<infinicore::Tensor> audio_indices;
+        /// Packed positions of text rows: [text_tokens].
+        std::optional<infinicore::Tensor> text_indices;
         /// Target model hidden states consumed by draft/MTP models.
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.

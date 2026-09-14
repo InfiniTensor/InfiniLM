@@ -14,12 +14,15 @@
 
 namespace infinilm::models::qwen3_5 {
 
+struct Qwen35VisionOutput {
+    infinicore::Tensor pooler_output;
+    std::vector<infinicore::Tensor> deepstack_features;
+};
+
 class Qwen35VisionPatchProj : public infinicore::nn::Module {
 public:
-    Qwen35VisionPatchProj(size_t in_channels,
-                          size_t hidden_size,
-                          size_t temporal_patch_size,
-                          size_t patch_size,
+    Qwen35VisionPatchProj(size_t in_channels, size_t hidden_size,
+                          size_t temporal_patch_size, size_t patch_size,
                           const infinicore::DataType &dtype,
                           const infinicore::Device &device);
 
@@ -103,13 +106,15 @@ class Qwen35VisionPatchMerger : public infinicore::nn::Module {
 public:
     Qwen35VisionPatchMerger(const nlohmann::json &config,
                             const infinicore::DataType &dtype,
-                            const infinicore::Device &device);
+                            const infinicore::Device &device,
+                            bool use_postshuffle_norm = false);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
 private:
     size_t hidden_size_;
     size_t merged_size_;
+    bool use_postshuffle_norm_;
     INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc1);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc2);
@@ -124,20 +129,28 @@ public:
     infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
                                const infinicore::Tensor &image_grid_thw) const;
 
+    Qwen35VisionOutput
+    forward_with_deepstack(const infinicore::Tensor &pixel_values,
+                           const infinicore::Tensor &image_grid_thw) const;
+
 private:
-    infinicore::Tensor fast_pos_embed_interpolate(const infinicore::Tensor &image_grid_thw) const;
-    infinicore::Tensor build_rotary_position_ids(const infinicore::Tensor &image_grid_thw) const;
+    infinicore::Tensor
+    fast_pos_embed_interpolate(const infinicore::Tensor &image_grid_thw) const;
+    infinicore::Tensor
+    build_rotary_position_ids(const infinicore::Tensor &image_grid_thw) const;
 
     size_t hidden_size_;
     size_t num_heads_;
     size_t head_dim_;
     size_t spatial_merge_size_;
     size_t num_grid_per_side_;
+    std::vector<size_t> deepstack_visual_indexes_;
 
     INFINICORE_NN_MODULE(Qwen35VisionPatchEmbed, patch_embed);
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, pos_embed);
     INFINICORE_NN_MODULE_VEC(Qwen35VisionBlock, blocks);
     INFINICORE_NN_MODULE(Qwen35VisionPatchMerger, merger);
+    INFINICORE_NN_MODULE_VEC(Qwen35VisionPatchMerger, deepstack_merger_list);
 };
 
 } // namespace infinilm::models::qwen3_5

@@ -159,6 +159,16 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<std::vector<infinicore::Tensor>> image_grid_thw,
                          std::optional<std::vector<size_t>> image_req_ids,
                          std::optional<std::vector<size_t>> visual_token_ranges,
+                         std::optional<infinicore::Tensor> video_hidden_states,
+                         std::optional<infinicore::Tensor> audio_hidden_states,
+                         std::optional<infinicore::Tensor> encoder_hidden_states,
+                         std::optional<infinicore::Tensor> timestep,
+                         std::optional<infinicore::Tensor> timestep_indices,
+                         std::optional<infinicore::Tensor> token_tags,
+                         std::optional<infinicore::Tensor> rotary_cos_sin_cache,
+                         std::optional<infinicore::Tensor> video_indices,
+                         std::optional<infinicore::Tensor> audio_indices,
+                         std::optional<infinicore::Tensor> text_indices,
                          std::optional<infinicore::Tensor> target_hidden_states,
                          bool sample_all_positions,
                          py::kwargs kwargs) {
@@ -179,6 +189,16 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(image_grid_thw),
                     std::move(image_req_ids),
                     std::move(visual_token_ranges),
+                    std::move(video_hidden_states),
+                    std::move(audio_hidden_states),
+                    std::move(encoder_hidden_states),
+                    std::move(timestep),
+                    std::move(timestep_indices),
+                    std::move(token_tags),
+                    std::move(rotary_cos_sin_cache),
+                    std::move(video_indices),
+                    std::move(audio_indices),
+                    std::move(text_indices),
                     std::move(target_hidden_states),
                     sample_all_positions,
                 };
@@ -230,6 +250,16 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("image_grid_thw") = std::nullopt,
             py::arg("image_req_ids") = std::nullopt,
             py::arg("visual_token_ranges") = std::nullopt,
+            py::arg("video_hidden_states") = std::nullopt,
+            py::arg("audio_hidden_states") = std::nullopt,
+            py::arg("encoder_hidden_states") = std::nullopt,
+            py::arg("timestep") = std::nullopt,
+            py::arg("timestep_indices") = std::nullopt,
+            py::arg("token_tags") = std::nullopt,
+            py::arg("rotary_cos_sin_cache") = std::nullopt,
+            py::arg("video_indices") = std::nullopt,
+            py::arg("audio_indices") = std::nullopt,
+            py::arg("text_indices") = std::nullopt,
             py::arg("target_hidden_states") = std::nullopt,
             py::arg("sample_all_positions") = false)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
@@ -248,6 +278,16 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("image_grid_thw", &InferEngine::Input::image_grid_thw)
         .def_readwrite("image_req_ids", &InferEngine::Input::image_req_ids)
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
+        .def_readwrite("video_hidden_states", &InferEngine::Input::video_hidden_states)
+        .def_readwrite("audio_hidden_states", &InferEngine::Input::audio_hidden_states)
+        .def_readwrite("encoder_hidden_states", &InferEngine::Input::encoder_hidden_states)
+        .def_readwrite("timestep", &InferEngine::Input::timestep)
+        .def_readwrite("timestep_indices", &InferEngine::Input::timestep_indices)
+        .def_readwrite("token_tags", &InferEngine::Input::token_tags)
+        .def_readwrite("rotary_cos_sin_cache", &InferEngine::Input::rotary_cos_sin_cache)
+        .def_readwrite("video_indices", &InferEngine::Input::video_indices)
+        .def_readwrite("audio_indices", &InferEngine::Input::audio_indices)
+        .def_readwrite("text_indices", &InferEngine::Input::text_indices)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
         .def_readwrite("temperature", &InferEngine::Input::temperature)

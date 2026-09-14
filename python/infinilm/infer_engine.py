@@ -75,6 +75,13 @@ def read_hf_config(model_path):
     with open(config_path, "r") as f:
         config_dict = json.load(f)
 
+    if config_dict.get("_class_name") in {
+        "MiniMaxH3DiTModel",
+        "MiniMaxH3Transformer3DModel",
+    }:
+        config_dict["model_type"] = "minimax_h3"
+        config_dict.setdefault("torch_dtype", "bfloat16")
+
     if "model_type" not in config_dict:
         raise ValueError(
             f"`model_type` is not specified in the config file `{config_path}`."
@@ -165,8 +172,21 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_size=1,
         use_legacy_moe=False,
         pre_transpose=False,
+        hf_config_overrides=None,
     ):
         self.hf_config = read_hf_config(model_path)
+        if hf_config_overrides:
+
+            def apply_overrides(destination, overrides):
+                for key, value in overrides.items():
+                    if isinstance(value, dict) and isinstance(
+                        destination.get(key), dict
+                    ):
+                        apply_overrides(destination[key], value)
+                    else:
+                        destination[key] = value
+
+            apply_overrides(self.hf_config, hf_config_overrides)
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
@@ -273,6 +293,16 @@ class InferEngine(_infinilm.InferEngine):
         image_grid_thw=None,
         image_req_ids=None,
         visual_token_ranges=None,
+        video_hidden_states=None,
+        audio_hidden_states=None,
+        encoder_hidden_states=None,
+        timestep=None,
+        timestep_indices=None,
+        token_tags=None,
+        rotary_cos_sin_cache=None,
+        video_indices=None,
+        audio_indices=None,
+        text_indices=None,
         target_hidden_states=None,
         sample_all_positions=False,
         temperature=None,
@@ -294,6 +324,16 @@ class InferEngine(_infinilm.InferEngine):
         slot_mapping = unwrap_tensor(slot_mapping)
         mamba_init_state_indices = unwrap_tensor(mamba_init_state_indices)
         mamba_final_state_indices = unwrap_tensor(mamba_final_state_indices)
+        video_hidden_states = unwrap_tensor(video_hidden_states)
+        audio_hidden_states = unwrap_tensor(audio_hidden_states)
+        encoder_hidden_states = unwrap_tensor(encoder_hidden_states)
+        timestep = unwrap_tensor(timestep)
+        timestep_indices = unwrap_tensor(timestep_indices)
+        token_tags = unwrap_tensor(token_tags)
+        rotary_cos_sin_cache = unwrap_tensor(rotary_cos_sin_cache)
+        video_indices = unwrap_tensor(video_indices)
+        audio_indices = unwrap_tensor(audio_indices)
+        text_indices = unwrap_tensor(text_indices)
         target_hidden_states = unwrap_tensor(target_hidden_states)
 
         def convert_tensor_list(tensor_list_):
@@ -331,6 +371,16 @@ class InferEngine(_infinilm.InferEngine):
             image_grid_thw=image_grid_thw,
             image_req_ids=image_req_ids,
             visual_token_ranges=visual_token_ranges,
+            video_hidden_states=video_hidden_states,
+            audio_hidden_states=audio_hidden_states,
+            encoder_hidden_states=encoder_hidden_states,
+            timestep=timestep,
+            timestep_indices=timestep_indices,
+            token_tags=token_tags,
+            rotary_cos_sin_cache=rotary_cos_sin_cache,
+            video_indices=video_indices,
+            audio_indices=audio_indices,
+            text_indices=text_indices,
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
             temperature=temperature,
@@ -357,6 +407,16 @@ class InferEngine(_infinilm.InferEngine):
         image_grid_thw=None,
         image_req_ids=None,
         visual_token_ranges=None,
+        video_hidden_states=None,
+        audio_hidden_states=None,
+        encoder_hidden_states=None,
+        timestep=None,
+        timestep_indices=None,
+        token_tags=None,
+        rotary_cos_sin_cache=None,
+        video_indices=None,
+        audio_indices=None,
+        text_indices=None,
         target_hidden_states=None,
         temperature=None,
         top_k=None,
@@ -429,6 +489,16 @@ class InferEngine(_infinilm.InferEngine):
                         image_grid_thw=image_grid_thw,
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
+                        video_hidden_states=video_hidden_states,
+                        audio_hidden_states=audio_hidden_states,
+                        encoder_hidden_states=encoder_hidden_states,
+                        timestep=timestep,
+                        timestep_indices=timestep_indices,
+                        token_tags=token_tags,
+                        rotary_cos_sin_cache=rotary_cos_sin_cache,
+                        video_indices=video_indices,
+                        audio_indices=audio_indices,
+                        text_indices=text_indices,
                         target_hidden_states=target_hidden_states,
                         temperature=temperature,
                         top_k=top_k,
@@ -455,8 +525,19 @@ class InferEngine(_infinilm.InferEngine):
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
+        image_grid_thw=None,
         image_req_ids=None,
         visual_token_ranges=None,
+        video_hidden_states=None,
+        audio_hidden_states=None,
+        encoder_hidden_states=None,
+        timestep=None,
+        timestep_indices=None,
+        token_tags=None,
+        rotary_cos_sin_cache=None,
+        video_indices=None,
+        audio_indices=None,
+        text_indices=None,
         target_hidden_states=None,
         sample_all_positions=True,
         temperature=None,
@@ -477,8 +558,19 @@ class InferEngine(_infinilm.InferEngine):
                     pixel_values=pixel_values,
                     image_bound=image_bound,
                     tgt_sizes=tgt_sizes,
+                    image_grid_thw=image_grid_thw,
                     image_req_ids=image_req_ids,
                     visual_token_ranges=visual_token_ranges,
+                    video_hidden_states=video_hidden_states,
+                    audio_hidden_states=audio_hidden_states,
+                    encoder_hidden_states=encoder_hidden_states,
+                    timestep=timestep,
+                    timestep_indices=timestep_indices,
+                    token_tags=token_tags,
+                    rotary_cos_sin_cache=rotary_cos_sin_cache,
+                    video_indices=video_indices,
+                    audio_indices=audio_indices,
+                    text_indices=text_indices,
                     target_hidden_states=target_hidden_states,
                     sample_all_positions=sample_all_positions,
                     temperature=temperature,

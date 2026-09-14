@@ -435,6 +435,18 @@ void RankWorker::thread_loop() {
                             hidden_states = model_output.hidden_states;
                         }
 
+                        // Diffusion-style models return dense predictions and do
+                        // not have a vocabulary dimension to sample from.
+                        if (model_config_->get_or<bool>("skip_sampling", false)) {
+                            auto output_ids = infinicore::Tensor::empty(
+                                {0}, infinicore::DataType::I64,
+                                infinicore::Device::cpu());
+                            output_ = Output{output_ids, logits, hidden_states};
+                            job_done_ = true;
+                            cv_.notify_all();
+                            continue;
+                        }
+
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
                             infinicore::Tensor output_ids;
                             if (rank_info_.pp_stage == 0 && rank_info_.tp_rank == 0) {
