@@ -1,7 +1,6 @@
 import os
 
 import torch
-from transformers import AutoConfig, AutoProcessor
 from typing_extensions import override
 
 from .processor import InfinilmProcessor, register_processor
@@ -65,6 +64,8 @@ def decode_video_frames(video_path, num_frames=None):
 @register_processor("videonsa")
 class VideoNSAProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
+        from transformers import AutoConfig, AutoProcessor
+
         self.config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
         self.processor = AutoProcessor.from_pretrained(
             model_dir_path, trust_remote_code=True

@@ -3,7 +3,7 @@ import os
 
 import infinicore
 import torch
-from transformers import AutoProcessor, AutoTokenizer
+from transformers import AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
@@ -20,6 +20,8 @@ class KimiK3Processor(BasicLLMProcessor):
         self.media_token_id = int(config["media_placeholder_token_id"])
         dtype_name = config.get("dtype", "bfloat16")
         self.pixel_values_dtype = getattr(torch, str(dtype_name))
+        from transformers import AutoProcessor
+
         self.processor = AutoProcessor.from_pretrained(
             model_dir_path, trust_remote_code=True
         )

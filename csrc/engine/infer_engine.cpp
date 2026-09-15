@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <future>
+#include <mutex>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -211,6 +212,16 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     const size_t max_query_length = is_prefill ? max_length_from_offsets(input_offsets, "input_offsets") : 0;
     const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : 0;
 
+    // MACA maps a registered user pointer to only one node. Serialize H2D
+    // copies so TP ranks never access the same host registration concurrently.
+    static std::mutex maca_host_copy_mutex;
+    const bool serialize_host_copy
+        = device.getType() == infinicore::Device::Type::METAX;
+    std::unique_lock<std::mutex> maca_host_copy_lock;
+    if (serialize_host_copy) {
+        maca_host_copy_lock = std::unique_lock<std::mutex>(maca_host_copy_mutex);
+    }
+
     infinilm::InfinilmModel::Input input = {
         to_device(input_ids), // @todo: on device in the future
         to_device(position_ids),
@@ -230,6 +241,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         visual_token_ranges,
         to_device(target_hidden_states),
         sample_all_positions};
+
+    if (serialize_host_copy) {
+        infinicore::context::syncStream();
+    }
 
     infinilm::global_state::get_forward_context().attn_metadata = {
         input.past_sequence_lengths,
