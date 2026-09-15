@@ -1,6 +1,10 @@
 #pragma once
 
+#include "../../layers/linear/linear.hpp"
 #include "../../models/qwen3/qwen3_for_causal_lm.hpp"
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
+#include "qwen3_vl_vision.hpp"
 
 namespace infinilm::models::qwen3_vl {
 
@@ -14,7 +18,12 @@ public:
     infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const;
 
 protected:
+    void replace_image_embeddings_(infinicore::Tensor inputs_embeds,
+                                   const infinicore::Tensor &image_bound,
+                                   const infinicore::Tensor &image_embeds) const;
+
     INFINICORE_NN_MODULE(Qwen3VLTextModel, language_model);
+    INFINICORE_NN_MODULE(Qwen3VLVisionModel, visual);
 };
 
 class Qwen3VLForConditionalGeneration : public InfinilmModel {
