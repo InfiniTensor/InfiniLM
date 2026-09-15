@@ -606,13 +606,14 @@ def main():
         model = VLLMBenchmark(cfg.model, device_str, cfg.tp, cfg.bench)
     elif cfg.backend in {"infinilm", "cpp", "python"}:
         model = InfiniLMBenchmark(
-            cfg.model,
-            device_str,
-            cfg.tp,
-            cfg.bench,
-            cfg.enable_paged_attn,
-            cfg.enable_graph,
-            cfg.attn,
+            model_dir_path=cfg.model,
+            device_type_str=device_str,
+            tensor_parallel_size=cfg.tp,
+            benchmark=cfg.bench,
+            enable_paged_attn=cfg.enable_paged_attn,
+            enable_graph=cfg.enable_graph,
+            attn_backend=cfg.attn,
+            weight_load_mode=cfg.weight_load_mode,
         )
     else:
         raise ValueError(f"Unsupported backend: {cfg.backend}")
