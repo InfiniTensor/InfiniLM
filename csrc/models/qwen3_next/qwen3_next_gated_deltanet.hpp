@@ -34,8 +34,11 @@ public:
                            const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    void process_weights_after_loading() override;
 
 private:
+    std::shared_ptr<layers::linear::MergedColumnParallelLinear> in_proj_qkvz_;
+    std::shared_ptr<layers::linear::GateUpParallelLinear> in_proj_ba_;
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_z_;
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_a_;

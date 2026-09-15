@@ -82,11 +82,17 @@ std::vector<SplitParam> NoneQuantization::split_params(
     std::vector<SplitParam> result;
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
+    // Keep named parameters in checkpoint layout [OC, IC], even when the
+    // backing weight is packed as [IC, OC]. This view still aliases the packed
+    // storage, so TP loading through the named parameters updates the GEMM weight.
+    auto weight = weight_prepacked_
+                    ? weight_it->second->permute({1, 0})
+                    : static_cast<const infinicore::Tensor &>(weight_it->second);
 
     for (const auto &s : splits) {
         result.push_back({s.prefix + ".weight",
                           infinicore::nn::Parameter(
-                              weight_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
+                              weight->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
                               narrow_dim, tp_rank, tp_size, s.num_shards)});
         if (bias_it != params.end()) {
             result.push_back({s.prefix + ".bias",
