@@ -23,7 +23,7 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
 InfinilmModel::Output Qwen35ForCausalLM::forward(
     const InfinilmModel::Input &input) const {
     auto hidden_states = model_->forward(input);
-    return {lm_head_->forward(hidden_states)};
+    return {lm_head_->forward(hidden_states), hidden_states};
 }
 
 void Qwen35ForCausalLM::reset_cache(

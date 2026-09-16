@@ -800,6 +800,49 @@ def _remap_qwen3_5(state_dict, config):
     return state_dict
 
 
+def _remap_qwen3_5_mtp(state_dict, config):
+    """Extract the embedded Qwen3.5 MTP draft weights for the draft model."""
+    text_config = config.get("text_config", config)
+    if text_config.get("mtp_use_dedicated_embeddings", False):
+        raise NotImplementedError(
+            "Qwen3.5 MTP checkpoints with dedicated draft embeddings are not supported"
+        )
+
+    norm_weight_suffixes = (
+        "input_layernorm.weight",
+        "post_attention_layernorm.weight",
+        "self_attn.q_norm.weight",
+        "self_attn.k_norm.weight",
+        "pre_fc_norm_embedding.weight",
+        "pre_fc_norm_hidden.weight",
+    )
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if not key.startswith("mtp."):
+            continue
+        new_key = "model." + key[len("mtp.") :]
+        # Qwen3.5 stores zero-centered RMSNorm scales; InfiniCore RMSNorm
+        # multiplies directly, so shift the stored weight to the effective one.
+        if new_key == "model.norm.weight" or new_key.endswith(norm_weight_suffixes):
+            tensor = tensor + torch.ones_like(tensor)
+        remapped[new_key] = tensor
+
+    embed_tokens_key = "model.language_model.embed_tokens.weight"
+    embed_tokens_fallback_key = "model.embed_tokens.weight"
+    embed_tokens = state_dict.get(embed_tokens_key)
+    if embed_tokens is None:
+        embed_tokens = state_dict.get(embed_tokens_fallback_key)
+    if (
+        config.get("tie_word_embeddings", text_config.get("tie_word_embeddings", False))
+        and embed_tokens is not None
+    ):
+        remapped.setdefault("model.embed_tokens.weight", embed_tokens)
+        remapped.setdefault("lm_head.weight", embed_tokens)
+
+    return remapped
+
+
 def _remap_ernie4_5_moe_vl(state_dict, config=None):
     """Apply ERNIE 4.5 VL load-time weight fixes.
 
@@ -1079,6 +1122,7 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "qwen3_5_mtp": _remap_qwen3_5_mtp,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,

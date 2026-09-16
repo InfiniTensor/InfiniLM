@@ -242,4 +242,40 @@ void MiniCPMSALAForCausalLM::reset_cache(const cache::CacheConfig *cache_config)
 
 ---
 
+## 5. Speculative Decoding with Qwen3.5 MTP Draft Models
+
+Qwen3.5 checkpoints embed their MTP draft weights under `mtp.*` keys (transformers loads and ignores them). The speculative runner accepts such a checkpoint as `--draft-model`, derives a standalone single-layer draft config from the checkpoint's own `config.json`, and verifies draft tokens against the target model — the weight shards are shared via symlinks, no copies are made.
+
+### Usage
+
+- Python: `LLM(model_path=<qwen3.5 checkpoint>, draft_model_path=<same checkpoint>, num_draft_tokens=K, ...)`.
+- CLI: `--draft-model <checkpoint>` with `--num-draft-tokens K` (`examples/bench.py`, `test/models/qwen3_5_mtp/test_speculative_lossless.py`).
+- Hybrid Qwen3.5 targets (linear-attention + full-attention layers) require the paged attention backend with prefix caching disabled: `cache_type="paged"`, `attn_backend="paged-attn"`, `enable_prefix_caching=False`.
+- Greedy decoding only (`temperature=1.0`, `top_k=1`): the current MTP verification is exact for greedy decoding; non-greedy sampling falls back to the non-speculative path.
+
+### Parameters
+
+- `num_draft_tokens` (`--num-draft-tokens`): number of draft tokens verified per target step. **Losslessness is only verified for `num_draft_tokens=1`**: with K=1 the greedy output matches speculation-off token for token. For K>1, a partial accept would leave the target's recurrent linear-attention state advanced past the accepted sequence; a state snapshot/restore mechanism is required before K>1 outputs can be considered lossless.
+
+### Verification and benchmarking
+
+```bash
+# Losslessness: speculative vs non-speculative greedy output, token by token.
+python test/models/qwen3_5_mtp/test_speculative_lossless.py --device cuda --num-draft-tokens 1
+
+# Latency: speculation off vs on over the same prompt set, multiple rounds.
+python test/models/qwen3_5_mtp/test_speculative_latency.py --device cuda --num-draft-tokens 1
+
+# Throughput matrix over batch sizes (speculative off):
+python examples/bench.py --model ~/models/Qwen3.5-2B --device cuda --dtype bfloat16 \
+    --enable-paged-attn --batch-size 1 --input-len 128 --output-len 64
+
+# Same matrix with MTP speculation on:
+python examples/bench.py --model ~/models/Qwen3.5-2B --device cuda --dtype bfloat16 \
+    --enable-paged-attn --batch-size 1 --input-len 128 --output-len 64 \
+    --draft-model ~/models/Qwen3.5-2B --num-draft-tokens 1
+```
+
+---
+
 *This document may lag behind code changes; for definitive behavior, refer to the source code in `csrc/models`.*

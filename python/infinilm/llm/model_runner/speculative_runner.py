@@ -1,3 +1,7 @@
+import json
+import os
+import tempfile
+
 import infinicore
 from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -17,8 +21,9 @@ class SpeculativeRunner:
         draft_cache_config = StaticKVCacheConfig(
             max_batch_size=config.max_batch_size, max_cache_len=config.max_cache_len
         )
+        draft_model_path = self._resolve_draft_model_path(config.draft_model_path)
         self.draft_model_engine = InferEngine(
-            model_path=config.draft_model_path,
+            model_path=draft_model_path,
             device=device,
             distributed_config=DistConfig(config.tensor_parallel_size),
             cache_config=draft_cache_config,
@@ -27,17 +32,64 @@ class SpeculativeRunner:
             use_mla=False,
             weight_load_mode=config.weight_load_mode,
         )
-        if self.draft_model_engine.model_type != "minicpm_eagle":
+        self.draft_model_type = self.draft_model_engine.model_type
+        if self.draft_model_type not in ("minicpm_eagle", "qwen3_5_mtp"):
             raise RuntimeError(
-                f"draft_model_path must point to a MiniCPM Eagle draft model, "
-                f"got model_type={self.draft_model_engine.model_type}"
+                f"draft_model_path must point to a MiniCPM Eagle draft model or "
+                f"a Qwen3.5 checkpoint with embedded MTP weights, "
+                f"got model_type={self.draft_model_type}"
             )
         if not config.skip_load:
             load_model_state_dict_by_file(
                 self.draft_model_engine,
-                config.draft_model_path,
+                draft_model_path,
                 dtype=self.draft_model_engine.dtype,
             )
+
+    def _resolve_draft_model_path(self, draft_model_path):
+        """Return the directory the draft engine should be built from.
+
+        A Qwen3.5 checkpoint embeds its draft weights under "mtp.*" keys, so the
+        draft engine needs a standalone single-layer config; such a checkpoint
+        is materialized into a fixture directory that reuses the checkpoint's
+        own weight shards.
+        """
+        config_path = os.path.join(draft_model_path, "config.json")
+        if not os.path.exists(config_path):
+            return draft_model_path
+        with open(config_path, "r") as f:
+            hf_config = json.load(f)
+        text_config = hf_config.get("text_config", hf_config)
+        model_type = hf_config.get("model_type", "")
+        # Keep the fixture rewrite scoped to the Qwen3.5 family, whose config
+        # layout the qwen3_5_mtp model factory understands.
+        if (
+            model_type != "qwen3_5_mtp"
+            and model_type.startswith("qwen3_5")
+            and "mtp_num_hidden_layers" in text_config
+        ):
+            return self._build_mtp_draft_fixture(draft_model_path, hf_config)
+        return draft_model_path
+
+    def _build_mtp_draft_fixture(self, model_path, hf_config):
+        # The fixture only symlinks the checkpoint shards, so it must outlive
+        # the draft engine; the temp directory is intentionally not cleaned up.
+        fixture = tempfile.mkdtemp(prefix="infinilm_mtp_draft_")
+        text_config = dict(hf_config.get("text_config", hf_config))
+        hf_config = dict(hf_config)
+        hf_config["model_type"] = "qwen3_5_mtp"
+        num_draft_layers = int(text_config["mtp_num_hidden_layers"])
+        # Mirror the standalone draft shape the model factory derives from the
+        # embedded config, keeping the python-side cache view consistent.
+        text_config["num_hidden_layers"] = num_draft_layers
+        text_config["layer_types"] = ["full_attention"] * num_draft_layers
+        hf_config["text_config"] = text_config
+        with open(os.path.join(fixture, "config.json"), "w") as f:
+            json.dump(hf_config, f)
+        for name in os.listdir(model_path):
+            if name.endswith(".safetensors") or name == "model.safetensors.index.json":
+                os.symlink(os.path.join(model_path, name), os.path.join(fixture, name))
+        return fixture
 
     def forward(self, scheduler_output, model_input):
         cache_ops = getattr(scheduler_output, "speculative_cache_ops", None)
@@ -233,9 +285,7 @@ class SpeculativeRunner:
                 input_ids=infinicore.from_list(
                     [[token] for token in input_tokens], dtype=infinicore.int64
                 ),
-                position_ids=infinicore.from_list(
-                    [[pos] for pos in positions], dtype=infinicore.int64
-                ),
+                position_ids=self._build_draft_position_ids(positions),
                 past_kv_lengths=infinicore.from_list(
                     [step] * draft_batch, dtype=infinicore.int32
                 ),
@@ -265,6 +315,16 @@ class SpeculativeRunner:
 
         return draft_tokens_by_job
 
+    def _build_draft_position_ids(self, positions: list[int]) -> infinicore.Tensor:
+        # Qwen3.5 drafts apply mrope: text-only steps repeat the same position
+        # on every axis, matching the [3, num_tokens] layout the target
+        # processor emits for this model family.
+        if self.draft_model_type == "qwen3_5_mtp":
+            return infinicore.from_list([list(positions)] * 3, dtype=infinicore.int64)
+        return infinicore.from_list(
+            [[pos] for pos in positions], dtype=infinicore.int64
+        )
+
     def _build_paged_verify_batch_input(self, candidates: list[dict]) -> dict:
         tokens = []
         position_ids = []
@@ -293,7 +353,7 @@ class SpeculativeRunner:
                 req.block_table + [-1] * (max_block_table_len - len(req.block_table))
             )
 
-        return {
+        verify_input = {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(past_lens, dtype=infinicore.int32),
@@ -308,3 +368,18 @@ class SpeculativeRunner:
             "top_k": 1,
             "top_p": 1.0,
         }
+
+        # Hybrid targets carry recurrent linear-attention state per request.
+        # Route the verified tokens through each request's own state slot so
+        # the state advances with them: a fully-accepted verification leaves
+        # the state matching the kept sequence, while a multi-token
+        # verification accepted only in part would leave it ahead.
+        state_indices = [candidate["req"].mamba_cache_index for candidate in candidates]
+        if all(index is not None for index in state_indices):
+            verify_input["mamba_init_state_indices"] = infinicore.from_list(
+                state_indices, dtype=infinicore.int32
+            )
+            verify_input["mamba_final_state_indices"] = infinicore.from_list(
+                state_indices, dtype=infinicore.int32
+            )
+        return verify_input
