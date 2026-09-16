@@ -43,6 +43,13 @@ and visible devices for PP stages. The counter is required only with `--graph`.
 
 ## Performance boundaries
 
+The [component performance report](performance-ablation.md) provides baseline
+versus candidate numbers, hardware, shapes, dtype, sample counts and costs for
+LRU, SLRU, TP2 chunking, intermediate-output omission and C500 graph modes.
+Its [measurement export](validation/performance-ablation.json) contains
+per-run evidence. Those component experiments precede final integration;
+they must not be presented as a full rerun of this revision.
+
 A final TP2 mixed-request smoke comparison used chunk512, a 2048-token long
 prompt, two 128-token short prompts, 160 output tokens, and prefix reuse off.
 One window per mode measured 161.71 token/s eager and 161.02 token/s with
