@@ -15,12 +15,6 @@ public:
 
 private:
     std::vector<size_t> decode_batch_sizes_;
-    // Experimental fixed-size, single-request Prefill graphs. Unmatched tails
-    // keep the ordinary eager path; intermediate graphs do not run the LM head.
-    size_t prefill_chunk_size_{0};
-    size_t prefill_max_sequence_length_{0};
-    void compile_prefill();
-    Compiled get_compiled_prefill(const InfinilmModel::Input &input);
 
     infinicore::Tensor block_tables_holder_;
 
@@ -33,6 +27,5 @@ private:
         size_t, // num_requests
         CompiledResult>
         compiled_map_decode_;
-    std::unordered_map<bool, CompiledResult> compiled_map_prefill_;
 };
 } // namespace infinilm::engine

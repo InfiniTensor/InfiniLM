@@ -74,14 +74,10 @@ attention backends are `paged-attn` on NVIDIA A6000 and `flash-attn` on MetaX
 C500; `cuda` maps to MACA on the MetaX build. Other devices have not been
 validated for these combinations.
 
-Experimental fixed-size Prefill graphs additionally require MetaX, TP1, ordinary
-paged KV and Flash Attention. Set `INFINILM_PREFILL_GRAPH_CHUNK_SIZE=512` before
-creating the engine. Only a single request of exactly the selected size uses
-this Prefill graph; other shapes retain the existing path. Single-token tails
-may use Decode graphs. Separate intermediate/final graphs retain persistent
-buffers for IDs, positions, KV lengths, offsets, page tables and slot mappings.
-An intermediate graph with no logits has still executed and must not run again
-in eager mode. PP graphs and TP2 Prefill graphs are excluded.
+Intermediate Prefill chunks use eager execution. A single-token final tail
+may use the existing Decode graph because it has the same one-query attention
+semantics. This change adds no Prefill graph capture or configuration switch.
+PP2 chunking remains eager.
 
 ## Validation and tradeoffs
 

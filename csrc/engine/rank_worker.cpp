@@ -418,7 +418,6 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
-                        bool graph_executed = false;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
@@ -426,11 +425,10 @@ void RankWorker::thread_loop() {
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
-                                graph_executed = true;
                             }
                         }
                         // Fall back to eager mode
-                        if (!graph_executed) {
+                        if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
