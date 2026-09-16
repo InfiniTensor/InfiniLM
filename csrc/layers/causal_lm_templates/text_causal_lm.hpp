@@ -52,7 +52,7 @@ public:
      */
     Output forward(const Input &input) const override {
         auto hidden_states = model_->forward(input);
-        if (!is_last_pp_stage()) {
+        if (!is_last_pp_stage() || input.prefill_only) {
             return {infinicore::Tensor(), hidden_states};
         }
 

@@ -8,6 +8,17 @@ import warnings
 from infinilm.moe_config import MOE_EP_BACKEND_HELP
 
 
+def parse_nonnegative_int(value: str) -> int:
+    """Parse an integer option that uses zero to disable its feature."""
+    try:
+        result = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("value must be a nonnegative integer")
+    if result < 0:
+        raise argparse.ArgumentTypeError("value must be a nonnegative integer")
+    return result
+
+
 def parse_list(value: str):
     """Parse parse_list argument: can be a single int or a list of ints.
 
@@ -76,6 +87,18 @@ class BaseConfig:
         self.enable_graph = self.args.enable_graph
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
+        self.prefix_cache_policy = self.args.prefix_cache_policy
+        self.prefix_cache_protected_ratio = self.args.prefix_cache_protected_ratio
+        if not 0 < self.prefix_cache_protected_ratio < 1:
+            self.parser.error("--prefix-cache-protected-ratio must be between 0 and 1")
+        self.prefill_chunk_size = self.args.prefill_chunk_size
+        # Worker entrypoints branch before constructing the host LLM engine.
+        if self.prefill_chunk_size and (
+            (self.tp, self.pp) not in {(1, 1), (2, 1), (1, 2)}
+        ):
+            self.parser.error("--prefill-chunk-size requires TP/PP=1/1, 2/1 or 1/2")
+        if self.prefill_chunk_size and self.draft_model:
+            self.parser.error("--prefill-chunk-size does not support --draft-model")
         self.use_mla = self.args.use_mla
         self.pre_transpose = self.args.pre_transpose
         self.num_blocks = self.args.num_blocks
@@ -273,6 +296,24 @@ class BaseConfig:
             action="store_false",
             default=True,
             help="disable KV prefix cache reuse",
+        )
+        self.parser.add_argument(
+            "--prefix-cache-policy",
+            choices=["lru", "slru"],
+            default="lru",
+            help="paged prefix-cache eviction policy",
+        )
+        self.parser.add_argument(
+            "--prefix-cache-protected-ratio",
+            type=float,
+            default=0.8,
+            help="fraction of paged blocks protected by SLRU (strictly between 0 and 1)",
+        )
+        self.parser.add_argument(
+            "--prefill-chunk-size",
+            type=parse_nonnegative_int,
+            default=0,
+            help="maximum prompt tokens per prefill step (0 disables; paged TP/PP=1/1, 2/1 or 1/2; graphs require PP=1)",
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"

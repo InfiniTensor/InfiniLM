@@ -42,6 +42,18 @@ class LLMEngine:
         self.config = config
         hf_config = read_hf_config(config.model_path)
         has_mamba_cache = model_uses_mamba_cache(hf_config)
+        if config.prefill_chunk_size:
+            text_config = hf_config.get("text_config", hf_config)
+            if (
+                has_mamba_cache
+                or any(
+                    text_config.get(key)
+                    for key in ("num_experts", "num_local_experts", "n_routed_experts")
+                )
+                or "vision_config" in hf_config
+                or "audio_config" in hf_config
+            ):
+                raise ValueError("Chunked prefill supports dense text models only.")
         if has_mamba_cache and config.enable_prefix_caching:
             model_type = hf_config["model_type"]
             raise RuntimeError(
@@ -110,6 +122,9 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                prefix_cache_policy=config.prefix_cache_policy,
+                prefix_cache_protected_ratio=config.prefix_cache_protected_ratio,
+                prefill_chunk_size=config.prefill_chunk_size,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
@@ -157,6 +172,19 @@ class LLMEngine:
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
+        end = getattr(scheduler_output, "prefill_end", None)
+        if end is not None:
+            req = scheduler_output.scheduled_requests[0]
+            req.num_computed_tokens = end
+            if end < req.get_prompt_length():
+                self.scheduler.commit_computed_tokens(req, end)
+                if req.is_aborted() or req.is_finished():
+                    if not req.is_finished():
+                        req.mark_canceled()
+                    self.scheduler.complete_requests([req])
+                else:
+                    self.scheduler.requeue_prefill(req)
+                return True, []
         pending = self._update_requests(
             scheduler_output.scheduled_requests,
             sampled_token_ids,
@@ -366,6 +394,9 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        prefix_cache_policy: str = "lru",
+        prefix_cache_protected_ratio: float = 0.8,
+        prefill_chunk_size: int = 0,
     ):
         """Initialize LLM.
 
@@ -379,7 +410,10 @@ class LLM:
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
+            prefill_chunk_size: Prompt tokens per prefill step; 0 disables chunking.
             max_cache_len: Maximum sequence length (only for static cache).
+            prefix_cache_policy: Paged prefix-cache eviction policy ('lru' or 'slru').
+            prefix_cache_protected_ratio: Fraction of paged blocks protected by SLRU.
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -418,6 +452,9 @@ class LLM:
             skip_load=skip_load,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            prefix_cache_policy=prefix_cache_policy,
+            prefix_cache_protected_ratio=prefix_cache_protected_ratio,
+            prefill_chunk_size=prefill_chunk_size,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -594,6 +631,9 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        prefix_cache_policy: str = "lru",
+        prefix_cache_protected_ratio: float = 0.8,
+        prefill_chunk_size: int = 0,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -607,7 +647,10 @@ class AsyncLLMEngine:
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
+            prefill_chunk_size: Prompt tokens per prefill step; 0 disables chunking.
             max_cache_len: Maximum sequence length (only for static cache).
+            prefix_cache_policy: Paged prefix-cache eviction policy ('lru' or 'slru').
+            prefix_cache_protected_ratio: Fraction of paged blocks protected by SLRU.
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -651,6 +694,9 @@ class AsyncLLMEngine:
             weight_load_mode=weight_load_mode,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            prefix_cache_policy=prefix_cache_policy,
+            prefix_cache_protected_ratio=prefix_cache_protected_ratio,
+            prefill_chunk_size=prefill_chunk_size,
         )
         self.engine = LLMEngine(config)
         self.config = config

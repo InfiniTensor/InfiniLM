@@ -38,6 +38,10 @@ def run_worker(cfg: BaseConfig) -> None:
         weight_load_mode=cfg.weight_load_mode,
         skip_load=cfg.skip_load,
         use_legacy_moe=cfg.use_legacy_moe,
+        prefill_chunk_size=cfg.prefill_chunk_size,
+        enable_prefix_caching=cfg.enable_prefix_caching,
+        prefix_cache_policy=cfg.prefix_cache_policy,
+        prefix_cache_protected_ratio=cfg.prefix_cache_protected_ratio,
     )
 
     runner = ModelRunner(config, initialize_processor=False)

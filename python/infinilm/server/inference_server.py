@@ -125,6 +125,9 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        prefix_cache_policy: str = "lru",
+        prefix_cache_protected_ratio: float = 0.8,
+        prefill_chunk_size: int = 0,
     ):
         """Initialize inference server.
 
@@ -142,6 +145,8 @@ class InferenceServer:
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
+            prefix_cache_policy: Paged prefix-cache eviction policy ('lru' or 'slru').
+            prefix_cache_protected_ratio: Fraction of paged blocks protected by SLRU.
             temperature: Default sampling temperature.
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
@@ -154,6 +159,7 @@ class InferenceServer:
             weight_load_mode: Weight loading mode across tensor-parallel workers.
             ignore_eos: Whether to ignore EOS tokens during generation.
             kv_transfer_config: Optional configuration for the KV transfer mechanism.
+            prefill_chunk_size: Maximum prompt tokens per prefill step; 0 disables chunking.
         """
         self.model_path = model_path
         # vLLM-like served model id: directory name of model_path
@@ -187,7 +193,10 @@ class InferenceServer:
         self.ignore_eos = ignore_eos
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
+        self.prefix_cache_policy = prefix_cache_policy
+        self.prefix_cache_protected_ratio = prefix_cache_protected_ratio
         self.pre_transpose = pre_transpose
+        self.prefill_chunk_size = prefill_chunk_size
 
         self.engine: AsyncLLMEngine = None
 
@@ -231,7 +240,10 @@ class InferenceServer:
                 weight_load_mode=self.weight_load_mode,
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
+                prefix_cache_policy=self.prefix_cache_policy,
+                prefix_cache_protected_ratio=self.prefix_cache_protected_ratio,
                 pre_transpose=self.pre_transpose,
+                prefill_chunk_size=self.prefill_chunk_size,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -666,7 +678,10 @@ def main():
         ignore_eos=cfg.ignore_eos,
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
+        prefix_cache_policy=cfg.prefix_cache_policy,
+        prefix_cache_protected_ratio=cfg.prefix_cache_protected_ratio,
         pre_transpose=cfg.pre_transpose,
+        prefill_chunk_size=cfg.prefill_chunk_size,
     )
     server.start()
 

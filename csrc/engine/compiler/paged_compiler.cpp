@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -177,9 +179,132 @@ void PagedCompiler::compile() {
             compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
         }
     }
+    compile_prefill();
+}
+
+void PagedCompiler::compile_prefill() {
+    compiled_map_prefill_.clear();
+    prefill_chunk_size_ = 0;
+    const char *size_env = std::getenv("INFINILM_PREFILL_GRAPH_CHUNK_SIZE");
+    if (size_env == nullptr) {
+        return;
+    }
+    // This opt-in experiment deliberately has a smaller support scope than
+    // the existing Decode compiler. Do not silently capture unsupported paths.
+    char *end = nullptr;
+    const auto chunk = std::strtoul(size_env, &end, 10);
+    const auto *cache = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+    const auto &config = infinilm::global_state::get_infinilm_config();
+    auto &ctx = infinilm::global_state::get_forward_context();
+    if (end == size_env || *end != '\0' || chunk < 2 || chunk > 4096
+        || cache == nullptr || chunk > cache->num_blocks() * cache->block_size()
+        || config.attention_backend != infinilm::backends::AttentionBackend::FLASH_ATTN
+        || config.use_mla || has_mamba_cache(ctx)
+        || infinilm::global_state::get_tensor_model_parallel_world_size() != 1
+        || infinicore::context::getDevice().getType() != infinicore::Device::Type::METAX) {
+        throw std::invalid_argument("Experimental Prefill graphs require C500/MetaX, TP1, flash-attn, ordinary paged KV and chunk size 2..4096 within cache capacity");
+    }
+    prefill_chunk_size_ = chunk;
+    // Flash Attention's scalar maximum is fixed during capture. The actual
+    // KV length remains a device tensor and can grow across continuation chunks.
+    prefill_max_sequence_length_ = cache->num_blocks() * cache->block_size();
+    auto make_tensor = [](const std::vector<size_t> &shape, infinicore::DataType dtype) {
+        return infinicore::Tensor::empty(shape, dtype, infinicore::context::getDevice());
+    };
+    for (bool intermediate : {true, false}) {
+        InfinilmModel::Input input;
+        input.prefill_only = intermediate;
+        input.input_ids = make_tensor({1, chunk}, infinicore::DataType::I64);
+        input.position_ids = make_tensor({chunk}, infinicore::DataType::I64);
+        input.total_sequence_lengths = make_tensor({1}, infinicore::DataType::I32);
+        input.input_offsets = make_tensor({2}, infinicore::DataType::I32);
+        input.cu_seqlens = make_tensor({2}, infinicore::DataType::I32);
+        input.block_tables = make_tensor({1, cache->num_blocks()}, infinicore::DataType::I32);
+        input.slot_mapping = make_tensor({chunk}, infinicore::DataType::I64);
+        set_zeros(input.input_ids.value());
+        std::vector<int64_t> positions(chunk);
+        std::iota(positions.begin(), positions.end(), 0);
+        std::vector<int32_t> pages(cache->num_blocks());
+        std::iota(pages.begin(), pages.end(), 0);
+        const std::vector<int32_t> offsets{0, static_cast<int32_t>(chunk)};
+        auto upload = [](infinicore::Tensor dst, const auto &values) {
+            infinicore::context::memcpyH2D(dst->data(), values.data(), values.size() * sizeof(values[0]), false);
+        };
+        upload(input.position_ids.value(), positions);
+        upload(input.slot_mapping.value(), positions);
+        upload(input.block_tables.value(), pages);
+        upload(input.input_offsets.value(), offsets);
+        upload(input.cu_seqlens.value(), offsets);
+        upload(input.total_sequence_lengths.value(), std::vector<int32_t>{static_cast<int32_t>(chunk)});
+        ctx.attn_metadata = {input.past_sequence_lengths, input.total_sequence_lengths,
+                             input.input_offsets, input.cu_seqlens, input.block_tables,
+                             input.slot_mapping, chunk, prefill_max_sequence_length_};
+        (void)model_->forward(input);
+        infinicore::context::syncStream();
+        model_->reset_runtime_state();
+        infinicore::context::syncStream();
+        infinicore::context::startGraphRecording();
+        auto output = model_->forward(input);
+        auto graph = infinicore::context::stopGraphRecording();
+        auto saved = std::make_shared<InfinilmModel::Output>();
+        if (output.logits) {
+            saved->logits = infinicore::graph::GraphTensor(output.logits);
+        }
+        if (output.hidden_states) {
+            saved->hidden_states = infinicore::graph::GraphTensor(output.hidden_states);
+        }
+        compiled_map_prefill_[intermediate] = CompiledResult{std::move(input), {graph, saved}};
+    }
+}
+
+PagedCompiler::Compiled PagedCompiler::get_compiled_prefill(const InfinilmModel::Input &input) {
+    if (prefill_chunk_size_ == 0 || input.input_ids.value()->numel() != prefill_chunk_size_
+        || input.block_tables.value()->size(0) != 1 || input.sample_all_positions
+        || input.mamba_init_state_indices.has_value() || input.pixel_values.has_value()) {
+        return {nullptr, nullptr};
+    }
+    auto &entry = compiled_map_prefill_.at(input.prefill_only);
+    auto &target = entry.input;
+    const auto &lengths = input.total_sequence_lengths.value();
+    if (lengths->device().getType() != infinicore::Device::Type::CPU
+        || lengths->dtype() != infinicore::DataType::I32 || lengths->numel() != 1) {
+        throw std::invalid_argument("Prefill graph replay requires CPU int32 sequence lengths");
+    }
+    const auto length = *reinterpret_cast<const int32_t *>(lengths->data());
+    const size_t width = input.block_tables.value()->size(1);
+    if (length < static_cast<int32_t>(prefill_chunk_size_)
+        || static_cast<size_t>(length) > prefill_max_sequence_length_
+        || width > target.block_tables.value()->size(1)
+        || input.position_ids.value()->shape() != target.position_ids.value()->shape()) {
+        return {nullptr, nullptr};
+    }
+    target.input_ids.value()->copy_from(input.input_ids.value());
+    target.position_ids.value()->copy_from(input.position_ids.value());
+    target.total_sequence_lengths.value()->copy_from(lengths);
+    target.input_offsets.value()->copy_from(input.input_offsets.value());
+    target.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+    target.slot_mapping.value()->copy_from(input.slot_mapping.value());
+    set_minus_one_device_async(target.block_tables.value());
+    target.block_tables.value()->narrow({{1, 0, width}})->copy_from(input.block_tables.value());
+    model_->reset_runtime_state();
+    auto saved = std::get<1>(entry.compiled);
+    auto output = std::make_shared<InfinilmModel::Output>();
+    if (saved->logits) {
+        output->logits = saved->logits->resume_from_blob_();
+    }
+    return {std::get<0>(entry.compiled), output};
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    if (prefill_chunk_size_ != 0) {
+        auto result = get_compiled_prefill(input);
+        if (std::get<0>(result)) {
+            return result;
+        }
+    }
+    if (input.prefill_only) {
+        return {nullptr, nullptr};
+    }
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);

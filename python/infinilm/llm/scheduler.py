@@ -4,6 +4,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 
 import logging
 import queue
+from collections import deque
 from typing import List, Optional
 
 import janus
@@ -44,12 +45,14 @@ class SchedulerOutput:
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
         speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
+        prefill_end: int | None = None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
         self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
+        self.prefill_end = prefill_end
 
 
 class Scheduler:
@@ -71,7 +74,16 @@ class Scheduler:
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
+        prefix_cache_policy: str = "lru",
+        prefix_cache_protected_ratio: float = 0.8,
+        prefill_chunk_size: int = 0,
     ):
+        if type(prefill_chunk_size) is not int or prefill_chunk_size < 0:
+            raise ValueError("`prefill_chunk_size` must be a nonnegative integer.")
+        if prefill_chunk_size and (connector is not None or has_mamba_cache):
+            raise ValueError("Chunked prefill does not support remote KV or Mamba.")
+        if prefill_chunk_size and max_num_batched_tokens <= 0:
+            raise ValueError("Chunked prefill requires a positive token budget.")
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
@@ -82,7 +94,12 @@ class Scheduler:
         self.pending_kv_decode_blocks: int = 0
         self.remote_kv_requests: dict[str, InferenceRequest] = {}
 
-        self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
+        self.cache_manager = BlockManager(
+            num_blocks=num_blocks,
+            block_size=block_size,
+            prefix_cache_policy=prefix_cache_policy,
+            prefix_cache_protected_ratio=prefix_cache_protected_ratio,
+        )
         self.has_mamba_cache = has_mamba_cache
         self.mamba_cache_manager = (
             MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
@@ -94,9 +111,16 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
+        self.prefill_chunk_size = prefill_chunk_size
+        self.chunking_queue: deque[InferenceRequest] = deque()
+        self._next_chunk_phase = 0
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
+            if self.prefill_chunk_size and request.has_multimodal_inputs:
+                raise ValueError(
+                    "Chunked prefill does not support multimodal requests."
+                )
             # TODO: Remove the multimodal exclusion once media-aware prefix
             # hashing and model-side cache-boundary handling are supported.
             request.initialize_block_hashes(
@@ -128,6 +152,8 @@ class Scheduler:
 
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
+        if self.prefill_chunk_size:
+            return self._schedule_chunked()
         deferred_requests = []
         scheduled_requests = []
         is_prefill = False
@@ -258,6 +284,7 @@ class Scheduler:
                         num_external_computed_tokens,
                         self.block_size,
                     )
+                self.cache_manager.record_cache_hit(cached_block_table)
             else:
                 load_kv_async = False
                 num_tokens_this_step = (
@@ -375,6 +402,115 @@ class Scheduler:
             return scheduler_output
 
         return None
+
+    def _schedule_chunked(self) -> Optional[SchedulerOutput]:
+        """Rotate dispatch opportunities across decode, continuation, and admission."""
+        phases = (
+            self._schedule_chunk_decode,
+            self._schedule_continuation,
+            self._admit_chunk_request,
+        )
+        for offset in range(len(phases)):
+            phase = (self._next_chunk_phase + offset) % len(phases)
+            output = phases[phase]()
+            if output is not None:
+                self._next_chunk_phase = (phase + 1) % len(phases)
+                return output
+        return None
+
+    def _schedule_chunk_decode(self) -> Optional[SchedulerOutput]:
+        requests = []
+        while len(requests) < self.max_batch_size:
+            try:
+                req = self.running_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            req.block_table, slot = self.cache_manager.append_slot(
+                req.block_table, req.get_total_length()
+            )
+            req.slot_mapping = [slot]
+            req.num_blocks = len(req.block_table)
+            req.num_local_cached_tokens = req.get_total_length() - 1
+            requests.append(req)
+        if requests:
+            return SchedulerOutput(
+                requests, speculative_cache_ops=self.speculative_cache_ops
+            )
+        return None
+
+    def _schedule_continuation(self) -> Optional[SchedulerOutput]:
+        while self.chunking_queue:
+            req = self.chunking_queue.popleft()
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            return self._prefill_chunk(req)
+        return None
+
+    def _admit_chunk_request(self) -> Optional[SchedulerOutput]:
+        while True:
+            try:
+                req = self.waiting_queue.sync_q.get_nowait()
+            except queue.Empty:
+                return None
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+            cached_table, cached_tokens = (
+                self.cache_manager.get_computed_blocks(
+                    req.block_hashes, req.get_prompt_length() - 1
+                )
+                if self.enable_prefix_caching
+                else ([], 0)
+            )
+            # Partial prompts own their prompt pages but still need decode headroom.
+            chunk_headroom = sum(
+                self._get_prefill_extra_blocks(other)
+                for other in self.chunking_queue
+                if not other.is_finished()
+            )
+            allocation = None
+            if self.can_accept_request(req, cached_tokens, chunk_headroom):
+                allocation = self.cache_manager.allocate_slots(
+                    req.get_prompt_length() - cached_tokens,
+                    num_computed_tokens=cached_tokens,
+                    cached_block_table=cached_table,
+                )
+            if allocation is None:
+                self.cache_manager.free_blocks(cached_table)
+                self.waiting_queue.sync_q.put(req)
+                return None
+            self.cache_manager.record_cache_hit(cached_table)
+            req.block_table, _ = allocation
+            req.num_blocks = len(req.block_table)
+            req.num_cache_indexed_blocks = len(cached_table)
+            req.num_computed_tokens = cached_tokens
+            req.status = RequestStatus.RUNNING
+            return self._prefill_chunk(req)
+
+    def _prefill_chunk(self, req: InferenceRequest) -> SchedulerOutput:
+        start = req.num_computed_tokens
+        end = min(
+            req.get_prompt_length(),
+            start + min(self.prefill_chunk_size, self.max_num_batched_tokens),
+        )
+        req.num_local_cached_tokens = start
+        req.slot_mapping = self.cache_manager.update_blocks_slot(
+            req.block_table, start, end
+        )
+        return SchedulerOutput(
+            [req],
+            is_prefill=True,
+            speculative_cache_ops=self.speculative_cache_ops,
+            prefill_end=end,
+        )
+
+    def requeue_prefill(self, request: InferenceRequest) -> None:
+        """Retain ownership while waiting for the next prefill segment."""
+        self.chunking_queue.append(request)
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)

@@ -28,6 +28,9 @@ class EngineConfig:
         block_size: Size of each KV cache block (only for paged cache).
         max_cache_len: Maximum sequence length (only for static cache).
         enable_prefix_caching: Whether to reuse KV cache across requests.
+        prefix_cache_policy: Paged prefix-cache eviction policy ('lru' or 'slru').
+        prefix_cache_protected_ratio: Fraction of paged blocks protected by SLRU.
+        prefill_chunk_size: Maximum prompt tokens per prefill step; 0 disables chunking.
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
@@ -69,8 +72,49 @@ class EngineConfig:
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    prefix_cache_policy: str = "lru"
+    prefix_cache_protected_ratio: float = 0.8
+
+    prefill_chunk_size: int = 0
 
     def __post_init__(self) -> None:
+        if self.prefix_cache_policy not in {"lru", "slru"}:
+            raise ValueError("prefix_cache_policy must be either 'lru' or 'slru'")
+        if not 0 < self.prefix_cache_protected_ratio < 1:
+            raise ValueError("prefix_cache_protected_ratio must be between 0 and 1")
+        if self.prefix_cache_policy == "slru" and self.cache_type != "paged":
+            raise ValueError("prefix_cache_policy='slru' requires cache_type='paged'")
+
+        if (
+            isinstance(self.prefill_chunk_size, bool)
+            or not isinstance(self.prefill_chunk_size, int)
+            or self.prefill_chunk_size < 0
+        ):
+            raise ValueError("prefill_chunk_size must be a nonnegative integer")
+        if self.prefill_chunk_size:
+            if self.cache_type != "paged":
+                raise ValueError("prefill_chunk_size requires cache_type='paged'")
+            if (self.tensor_parallel_size, self.pipeline_parallel_size) not in {
+                (1, 1),
+                (2, 1),
+                (1, 2),
+            }:
+                raise ValueError("prefill_chunk_size requires TP/PP=1/1, 2/1 or 1/2")
+            if self.enable_graph and (
+                self.pipeline_parallel_size != 1
+                or self.device != "cuda"
+                or self.attn_backend not in {"default", "paged-attn", "flash-attn"}
+            ):
+                raise ValueError(
+                    "prefill_chunk_size with enable_graph requires PP=1, "
+                    "device='cuda' and a supported paged attention backend"
+                )
+            if self.use_mla:
+                raise ValueError("prefill_chunk_size does not support MLA")
+            if self.draft_model_path:
+                raise ValueError("prefill_chunk_size does not support draft models")
+            if self.kv_transfer_config and self.kv_transfer_config.kv_connector:
+                raise ValueError("prefill_chunk_size does not support KV transfer")
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
         if self.pipeline_parallel_size < 1:

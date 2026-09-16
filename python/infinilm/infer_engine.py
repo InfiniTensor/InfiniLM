@@ -275,6 +275,7 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=False,
+        prefill_only=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -333,6 +334,7 @@ class InferEngine(_infinilm.InferEngine):
             visual_token_ranges=visual_token_ranges,
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
+            prefill_only=prefill_only,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
@@ -358,6 +360,7 @@ class InferEngine(_infinilm.InferEngine):
         image_req_ids=None,
         visual_token_ranges=None,
         target_hidden_states=None,
+        prefill_only=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -409,34 +412,34 @@ class InferEngine(_infinilm.InferEngine):
             tgt_sizes = convert_tensor_list(tgt_sizes)
             image_grid_thw = convert_tensor_list(image_grid_thw)
 
-            return infinicore.Tensor(
-                super()
-                .forward(
-                    self._build_input(
-                        input_ids,
-                        position_ids=position_ids,
-                        past_kv_lengths=past_kv_lengths,
-                        total_kv_lengths=total_kv_lengths,
-                        input_offsets=input_offsets,
-                        cu_seqlens=cu_seqlens,
-                        block_tables=block_tables,
-                        slot_mapping=slot_mapping,
-                        mamba_init_state_indices=mamba_init_state_indices,
-                        mamba_final_state_indices=mamba_final_state_indices,
-                        pixel_values=pixel_values,
-                        image_bound=image_bound,
-                        tgt_sizes=tgt_sizes,
-                        image_grid_thw=image_grid_thw,
-                        image_req_ids=image_req_ids,
-                        visual_token_ranges=visual_token_ranges,
-                        target_hidden_states=target_hidden_states,
-                        temperature=temperature,
-                        top_k=top_k,
-                        top_p=top_p,
-                    )
+            output = super().forward(
+                self._build_input(
+                    input_ids,
+                    position_ids=position_ids,
+                    past_kv_lengths=past_kv_lengths,
+                    total_kv_lengths=total_kv_lengths,
+                    input_offsets=input_offsets,
+                    cu_seqlens=cu_seqlens,
+                    block_tables=block_tables,
+                    slot_mapping=slot_mapping,
+                    mamba_init_state_indices=mamba_init_state_indices,
+                    mamba_final_state_indices=mamba_final_state_indices,
+                    pixel_values=pixel_values,
+                    image_bound=image_bound,
+                    tgt_sizes=tgt_sizes,
+                    image_grid_thw=image_grid_thw,
+                    image_req_ids=image_req_ids,
+                    visual_token_ranges=visual_token_ranges,
+                    target_hidden_states=target_hidden_states,
+                    prefill_only=prefill_only,
+                    temperature=temperature,
+                    top_k=top_k,
+                    top_p=top_p,
                 )
-                .output_ids
             )
+            if prefill_only:
+                return None
+            return infinicore.Tensor(output.output_ids)
         except BaseException as e:
             handle_oom_and_exit(e)
             raise

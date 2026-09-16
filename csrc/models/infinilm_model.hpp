@@ -57,6 +57,8 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Intermediate prefill does not need the language-model head.
+        bool prefill_only{false};
     };
 
     struct Output {

@@ -418,6 +418,7 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        bool graph_executed = false;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
@@ -425,14 +426,33 @@ void RankWorker::thread_loop() {
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                graph_executed = true;
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
+                        if (!graph_executed) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
+                        }
+
+                        if (local_args.prefill_only) {
+                            if (rank_info_.tp_rank == 0) {
+                                // Preserve the old sampler's RNG advancement, but
+                                // avoid LM output sampling and the token D2H copy.
+                                const auto n_req = local_args.input_offsets.value()->numel() - 1;
+                                for (size_t i = 0; i < n_req; ++i) {
+                                    (void)std::uniform_real_distribution<float>(0, 1)(rng_);
+                                }
+                                // Keep the ordinary forward completion contract.
+                                // Publication/cancellation follows this return.
+                                infinicore::context::syncStream();
+                            }
+                            output_ = Output{};
+                            job_done_ = true;
+                            cv_.notify_all();
+                            continue;
                         }
 
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {

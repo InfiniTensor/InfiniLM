@@ -1,0 +1,278 @@
+{
+  "date": "2026-09-16",
+  "cpu_tests": 108,
+  "nvidia": {
+    "model": "Qwen2.5-1.5B",
+    "dtype": "FP16",
+    "hardware": "2 x A6000 (shared, not exclusive)",
+    "cases": [
+      {
+        "case": "tp1-pp1-c0-g0-lru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 1,
+        "chunk": 0,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 6,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp1-c300-g0-lru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 1,
+        "chunk": 300,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 12,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp1-c300-g1-lru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 1,
+        "chunk": 300,
+        "graph": true,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 12,
+        "device_graph_launches": 14,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp1-c300-g1-slru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 1,
+        "chunk": 300,
+        "graph": true,
+        "policy": "slru",
+        "prefix_enabled": true,
+        "kv_span_checks": 12,
+        "device_graph_launches": 14,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp2-c0-g0-lru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 2,
+        "chunk": 0,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 54,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp2-c300-g0-lru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 2,
+        "chunk": 300,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 52,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp2-c300-g0-slru-off0",
+        "passed": true,
+        "tp": 1,
+        "pp": 2,
+        "chunk": 300,
+        "graph": false,
+        "policy": "slru",
+        "prefix_enabled": true,
+        "kv_span_checks": 52,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp1-pp2-c300-g0-slru-off1",
+        "passed": true,
+        "tp": 1,
+        "pp": 2,
+        "chunk": 300,
+        "graph": false,
+        "policy": "slru",
+        "prefix_enabled": false,
+        "kv_span_checks": 72,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp2-pp1-c0-g0-lru-off0",
+        "passed": true,
+        "tp": 2,
+        "pp": 1,
+        "chunk": 0,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 12,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp2-pp1-c300-g0-lru-off0",
+        "passed": true,
+        "tp": 2,
+        "pp": 1,
+        "chunk": 300,
+        "graph": false,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 24,
+        "device_graph_launches": 0,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp2-pp1-c300-g1-lru-off0",
+        "passed": true,
+        "tp": 2,
+        "pp": 1,
+        "chunk": 300,
+        "graph": true,
+        "policy": "lru",
+        "prefix_enabled": true,
+        "kv_span_checks": 24,
+        "device_graph_launches": 28,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp2-pp1-c300-g1-slru-off0",
+        "passed": true,
+        "tp": 2,
+        "pp": 1,
+        "chunk": 300,
+        "graph": true,
+        "policy": "slru",
+        "prefix_enabled": true,
+        "kv_span_checks": 24,
+        "device_graph_launches": 28,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      },
+      {
+        "case": "tp2-pp1-c300-g1-slru-off1",
+        "passed": true,
+        "tp": 2,
+        "pp": 1,
+        "chunk": 300,
+        "graph": true,
+        "policy": "slru",
+        "prefix_enabled": false,
+        "kv_span_checks": 44,
+        "device_graph_launches": 28,
+        "usable_blocks": 16,
+        "baseline_tokens_equal": true
+      }
+    ]
+  },
+  "metax": {
+    "models": [
+      "Qwen3-0.6B",
+      "Qwen3-4B"
+    ],
+    "dtype": "BF16",
+    "hardware": "C500 50% compute slice, 32000 MiB",
+    "cases": [
+      {
+        "case": "c500-Qwen3-0.6B-lru-p0-off0",
+        "passed": true,
+        "policy": "lru",
+        "kv_span_checks": 10,
+        "device_graph_launches": 14,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      },
+      {
+        "case": "c500-Qwen3-0.6B-lru-p512-off0",
+        "passed": true,
+        "policy": "lru",
+        "kv_span_checks": 10,
+        "device_graph_launches": 16,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      },
+      {
+        "case": "c500-Qwen3-0.6B-slru-p0-off0",
+        "passed": true,
+        "policy": "slru",
+        "kv_span_checks": 10,
+        "device_graph_launches": 14,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      },
+      {
+        "case": "c500-Qwen3-0.6B-slru-p512-off0",
+        "passed": true,
+        "policy": "slru",
+        "kv_span_checks": 10,
+        "device_graph_launches": 16,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      },
+      {
+        "case": "c500-Qwen3-0.6B-slru-p512-off1",
+        "passed": true,
+        "policy": "slru",
+        "kv_span_checks": 18,
+        "device_graph_launches": 21,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      },
+      {
+        "case": "c500-Qwen3-4B-slru-p512-off0",
+        "passed": true,
+        "policy": "slru",
+        "kv_span_checks": 10,
+        "device_graph_launches": 16,
+        "usable_blocks": 16,
+        "repeat_tokens_equal": true
+      }
+    ]
+  },
+  "core_adapter_cases": 12,
+  "tp2_mixed_short_check": [
+    {
+      "graph": false,
+      "active_itl_median_ms": 6.079213693737984,
+      "long_ttft_ms": 175.9560825303197,
+      "window_tokens_s": 161.71175184476675
+    },
+    {
+      "graph": true,
+      "active_itl_median_ms": 5.886984057724476,
+      "long_ttft_ms": 188.25936783105135,
+      "window_tokens_s": 161.0190469587565
+    }
+  ],
+  "limitations": [
+    "13+6 lifecycle configurations are not a full model/shape/platform matrix.",
+    "PP graphs, TP2/PP2, distributed remote KV, MoE and quantization are excluded.",
+    "Historical near-tied FP16 prefix-shape token mismatch remains documented.",
+    "One mixed window per mode; no sustained-throughput or significance claim."
+  ]
+}

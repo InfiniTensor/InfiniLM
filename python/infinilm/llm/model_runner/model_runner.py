@@ -221,6 +221,14 @@ class ModelRunner:
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
+        end = getattr(scheduler_output, "prefill_end", None)
+        prefill_only = (
+            end is not None
+            and end < scheduler_output.scheduled_requests[0].get_prompt_length()
+        )
+        if prefill_only:
+            model_input["prefill_only"] = True
+
         # Wake every stage before stage 0 enters forward. Each worker receives
         # the same metadata and then blocks in its model on the activation from
         # the preceding stage. Stage 0 waits for all acknowledgements afterward.
@@ -237,6 +245,8 @@ class ModelRunner:
             raise
         if self.pipeline_control is not None:
             self.pipeline_control.wait_forward()
+        if prefill_only:
+            return []
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
 
         return sampled_tokens_list

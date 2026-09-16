@@ -1,6 +1,6 @@
 """Paged KV cache allocation and source-agnostic prefix lookup."""
 
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Sequence
 from typing import Dict, List, Set
 
@@ -71,16 +71,32 @@ class MambaCacheManager:
 class BlockManager:
     """Manage physical paged-cache blocks and published prefix hashes."""
 
-    def __init__(self, num_blocks: int, block_size: int):
+    def __init__(
+        self,
+        num_blocks: int,
+        block_size: int,
+        prefix_cache_policy: str = "lru",
+        prefix_cache_protected_ratio: float = 0.8,
+    ):
         if num_blocks <= 0 or block_size <= 0:
             raise ValueError("num_blocks and block_size must be positive")
+        if prefix_cache_policy not in {"lru", "slru"}:
+            raise ValueError("`prefix_cache_policy` must be 'lru' or 'slru'.")
+        if not 0 < prefix_cache_protected_ratio < 1:
+            raise ValueError("`prefix_cache_protected_ratio` must be between 0 and 1.")
         self.num_blocks = num_blocks
         self.block_size = block_size
+        self.prefix_cache_policy = prefix_cache_policy
+        self._protected_capacity = int(num_blocks * prefix_cache_protected_ratio)
 
         self.blocks: List[Block] = [Block(i) for i in range(num_blocks)]
         self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
+        self._evictable_blocks: OrderedDict[int, None] = OrderedDict()
+        self._protected_evictable_blocks: OrderedDict[int, None] = OrderedDict()
+        # Membership survives pinning so active requests cannot bypass the cap.
+        self._protected_blocks: OrderedDict[int, None] = OrderedDict()
 
     def __repr__(self) -> str:
         return (
@@ -115,6 +131,9 @@ class BlockManager:
             f"Block {block_id} ref_count not zero, cannot deallocate"
         )
         self._remove_block_hash(block)
+        self._evictable_blocks.pop(block_id, None)
+        self._protected_evictable_blocks.pop(block_id, None)
+        self._protected_blocks.pop(block_id, None)
         block.free()
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
@@ -126,12 +145,11 @@ class BlockManager:
         return len(self.free_block_ids)
 
     def get_total_usable_blocks(self) -> int:
-        freeable_used_blocks = sum(
-            1
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
+        return (
+            len(self.free_block_ids)
+            + len(self._evictable_blocks)
+            + len(self._protected_evictable_blocks)
         )
-        return len(self.free_block_ids) + freeable_used_blocks
 
     def get_computed_blocks(
         self,
@@ -151,9 +169,29 @@ class BlockManager:
             block_id = next(iter(block_ids))
             block = self.blocks[block_id]
             assert block.hash == block_hash and block_id in self.used_block_ids
+            if block.ref_count == 0:
+                if block_id in self._protected_blocks:
+                    del self._protected_evictable_blocks[block_id]
+                else:
+                    del self._evictable_blocks[block_id]
             block.ref_count += 1
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
+
+    def record_cache_hit(self, block_table: Sequence[int]) -> None:
+        """Promote locally matched blocks only after request admission succeeds."""
+        if self.prefix_cache_policy != "slru":
+            return
+        for block_id in reversed(block_table):
+            block = self.blocks[block_id]
+            assert block.ref_count > 0 and block.hash != EMPTY_BLOCK_HASH
+            self._protected_blocks[block_id] = None
+            self._protected_blocks.move_to_end(block_id)
+        while len(self._protected_blocks) > self._protected_capacity:
+            block_id, _ = self._protected_blocks.popitem(last=False)
+            if self.blocks[block_id].ref_count == 0:
+                del self._protected_evictable_blocks[block_id]
+                self._evictable_blocks[block_id] = None
 
     def allocate_slots(
         self,
@@ -328,23 +366,28 @@ class BlockManager:
         return block_table, last_block_id * self.block_size + offset
 
     def free_blocks(self, block_table: Sequence[int]) -> None:
-        """Release request references while retaining computed blocks for reuse."""
+        """Release references and retain only reusable computed blocks."""
         for block_id in reversed(block_table):
             block = self.blocks[block_id]
-            assert block.ref_count > 0, "block ref_count must be greater than 0"
+            assert block.ref_count > 0, "Block reference count must be positive."
             block.ref_count -= 1
+            if block.ref_count == 0:
+                if block.hash == EMPTY_BLOCK_HASH:
+                    self._deallocate_block(block_id)
+                elif block_id in self._protected_blocks:
+                    self._protected_blocks.move_to_end(block_id)
+                    self._protected_evictable_blocks[block_id] = None
+                else:
+                    self._evictable_blocks[block_id] = None
 
     def try_free_blocks(self, num_required: int) -> bool:
-        """Evict unreferenced blocks until the requested capacity is available."""
-        to_free = [
-            block_id
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        ]
-        for block_id in to_free:
+        """Reclaim probationary blocks before protected blocks, oldest first."""
+        while not self.can_allocate(num_required):
+            candidates = self._evictable_blocks or self._protected_evictable_blocks
+            if not candidates:
+                break
+            block_id = next(iter(candidates))
             self._deallocate_block(block_id)
-            if self.can_allocate(num_required):
-                return True
         return self.can_allocate(num_required)
 
     def update_blocks_slot(
