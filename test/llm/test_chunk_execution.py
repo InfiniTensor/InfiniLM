@@ -3,8 +3,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from chunk_test_support import MODULES
-from test_chunk_config import LLM_MODULE, load_module
+from cache_test_support import MODULES
+from config_test_support import LLM_MODULE, load_module
 
 
 def load_processor():
@@ -53,7 +53,7 @@ class ChunkExecutionTests(unittest.TestCase):
         self.assertIsNone(inputs["slot_mapping"])
 
     def test_unsupported_models_rejected_before_native_initialization(self):
-        from test_chunk_config import EngineConfig
+        from config_test_support import EngineConfig
 
         for hf in ({"num_experts": 8}, {"vision_config": {}}, {"audio_config": {}}):
             with (

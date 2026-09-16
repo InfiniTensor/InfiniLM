@@ -156,7 +156,6 @@ class Scheduler:
             return self._schedule_chunked()
         deferred_requests = []
         scheduled_requests = []
-        is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
 
@@ -321,17 +320,13 @@ class Scheduler:
 
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
-            is_prefill = True
-            scheduler_output = SchedulerOutput(
-                scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
-                speculative_cache_ops=self.speculative_cache_ops,
-            )
-            if self.connector is not None:
-                meta = self.connector.build_connector_meta()
-                scheduler_output.kv_connector_metadata = meta
-            return scheduler_output
+            return self._make_output(scheduled_requests, is_prefill=True)
 
+        return self._schedule_decode()
+
+    def _schedule_decode(self) -> Optional[SchedulerOutput]:
+        """Schedule Decode and remote-KV progress for either Prefill policy."""
+        scheduled_requests = []
         # Process Running queue (decode phase)
         while len(scheduled_requests) < self.max_batch_size:
             try:
@@ -378,35 +373,30 @@ class Scheduler:
                     else:
                         break  # Defer promotion to next schedule() if batch is full
 
-        # Return decode batch if any running requests were scheduled
-        if scheduled_requests:
-            is_prefill = False
-            scheduler_output = SchedulerOutput(
-                scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
-                speculative_cache_ops=self.speculative_cache_ops,
-            )
-
-            if self.connector is not None:
-                meta = self.connector.build_connector_meta()
-                scheduler_output.kv_connector_metadata = meta
-            return scheduler_output
-
-        if self.connector is not None:
-            scheduler_output = SchedulerOutput(
-                scheduled_requests=[],
-                speculative_cache_ops=self.speculative_cache_ops,
-            )
-            meta = self.connector.build_connector_meta()
-            scheduler_output.kv_connector_metadata = meta
-            return scheduler_output
-
+        if scheduled_requests or self.connector is not None:
+            return self._make_output(scheduled_requests)
         return None
+
+    def _make_output(
+        self,
+        requests: List[InferenceRequest],
+        is_prefill: bool = False,
+        prefill_end: int | None = None,
+    ) -> SchedulerOutput:
+        output = SchedulerOutput(
+            requests,
+            is_prefill=is_prefill,
+            speculative_cache_ops=self.speculative_cache_ops,
+            prefill_end=prefill_end,
+        )
+        if self.connector is not None:
+            output.kv_connector_metadata = self.connector.build_connector_meta()
+        return output
 
     def _schedule_chunked(self) -> Optional[SchedulerOutput]:
         """Rotate dispatch opportunities across decode, continuation, and admission."""
         phases = (
-            self._schedule_chunk_decode,
+            self._schedule_decode,
             self._schedule_continuation,
             self._admit_chunk_request,
         )
@@ -416,29 +406,6 @@ class Scheduler:
             if output is not None:
                 self._next_chunk_phase = (phase + 1) % len(phases)
                 return output
-        return None
-
-    def _schedule_chunk_decode(self) -> Optional[SchedulerOutput]:
-        requests = []
-        while len(requests) < self.max_batch_size:
-            try:
-                req = self.running_queue.sync_q.get_nowait()
-            except queue.Empty:
-                break
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-            req.block_table, slot = self.cache_manager.append_slot(
-                req.block_table, req.get_total_length()
-            )
-            req.slot_mapping = [slot]
-            req.num_blocks = len(req.block_table)
-            req.num_local_cached_tokens = req.get_total_length() - 1
-            requests.append(req)
-        if requests:
-            return SchedulerOutput(
-                requests, speculative_cache_ops=self.speculative_cache_ops
-            )
         return None
 
     def _schedule_continuation(self) -> Optional[SchedulerOutput]:
@@ -501,10 +468,9 @@ class Scheduler:
         req.slot_mapping = self.cache_manager.update_blocks_slot(
             req.block_table, start, end
         )
-        return SchedulerOutput(
+        return self._make_output(
             [req],
             is_prefill=True,
-            speculative_cache_ops=self.speculative_cache_ops,
             prefill_end=end,
         )
 

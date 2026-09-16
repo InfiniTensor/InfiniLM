@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import test_chunk_execution
-from test_chunk_config import EngineConfig, load_module
+from config_test_support import EngineConfig, load_module
 
 
 def load_runner():

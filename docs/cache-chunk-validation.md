@@ -28,8 +28,9 @@ selects the signature of the installed wheel; older signatures have fixture
 coverage, not execution on older hardware/software installations.
 
 Structured results: [cache-chunk-graphs.json](validation/cache-chunk-graphs.json).
-The CPU suite has 108 passing tests, including successful-admission-only SLRU
-promotion in chunk mode and PP worker configuration forwarding:
+The CPU suite now has 111 passing tests, including successful-admission-only
+SLRU promotion, PP worker configuration forwarding, shared Decode scheduling
+across page boundaries and connector metadata on idle dispatch:
 
 ```sh
 python -m unittest discover -s test/llm -p 'test_*.py'
@@ -40,6 +41,20 @@ Native reproduction commands and prerequisites are in
 `check_chunk_tp.py` accepts `--tp`, `--pp`, `--stage`, `--port`, `--graph`,
 `--policy`, `--cache-off`, `--chunk-size` and `--output`. Use separate processes
 and visible devices for PP stages. The counter is required only with `--graph`.
+
+## Scheduler reuse follow-up
+
+Both Prefill policies now reuse the original Decode scheduling path; output
+construction also shares speculative operations and connector metadata setup.
+The configuration tests share one isolated module loader. The follow-up passed
+111 CPU tests (108 existing and three additional cases) and one A6000 smoke
+run: Qwen2.5-1.5B FP16, TP1/PP1, SLRU, page256/pool16, chunk300, eager Prefill
+and Decode graphs. It observed 14 device-graph launches, matched the archived
+same-configuration output tokens, and returned all 16 pages with zero references
+after shared/repeated requests and cancellation. It used the refactored Python
+source with the unchanged native binary from the integration checks. This was
+a correctness check; the full GPU matrix and archived performance measurements
+were not repeated for this Python refactor.
 
 ## Performance boundaries
 

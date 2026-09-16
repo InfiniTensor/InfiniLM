@@ -27,6 +27,39 @@ class SchedulerCacheTests(unittest.TestCase):
     def output(**connector_output):
         return SimpleNamespace(kv_connector_output=SimpleNamespace(**connector_output))
 
+    def test_connector_metadata_survives_prefill_decode_and_idle_dispatch(self):
+        metadata = object()
+        connector = SimpleNamespace(
+            build_connector_meta=lambda: metadata,
+            get_num_new_matched_tokens=lambda req, cached: (0, False),
+            update_state_after_alloc=lambda *args: None,
+            request_finished=lambda *args: (False, None),
+        )
+        scheduler = self.make_scheduler(
+            num_blocks=4, block_size=16, connector=connector
+        )
+        req = InferenceRequest(
+            "metadata",
+            prompt_token_ids=[11],
+            sampling_params=SamplingParams(max_tokens=2),
+        )
+        scheduler.add_request(req)
+        prefill = scheduler.schedule()
+        self.assertTrue(prefill.is_prefill)
+        self.assertIs(prefill.kv_connector_metadata, metadata)
+        req.append_generated_token_id(12)
+        scheduler.complete_requests([req])
+        decode = scheduler.schedule()
+        self.assertFalse(decode.is_prefill)
+        self.assertEqual(decode.scheduled_requests, [req])
+        self.assertIs(decode.kv_connector_metadata, metadata)
+        req.mark_canceled()
+        scheduler.complete_requests([req])
+        idle = scheduler.schedule()
+        self.assertEqual(idle.scheduled_requests, [])
+        self.assertIs(idle.kv_connector_metadata, metadata)
+        assert_state(self, scheduler.cache_manager)
+
     def test_send_completion_releases_exactly_once(self):
         scheduler = self.make_scheduler(
             num_blocks=1, block_size=16, connector=DelayedConnector()

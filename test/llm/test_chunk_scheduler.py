@@ -1,6 +1,6 @@
 import unittest
 
-from chunk_test_support import MODULES
+from cache_test_support import MODULES
 
 Scheduler = MODULES["scheduler"].Scheduler
 Request = MODULES["request"].InferenceRequest
@@ -88,6 +88,43 @@ class ChunkSchedulerTests(unittest.TestCase):
         self.assertIsNone(step.prefill_end)
         self.assertEqual(len(req.slot_mapping), 35)
         self.assertFalse(scheduler.chunking_queue)
+
+    def test_decode_page_boundary_and_cancellation_match_without_chunking(self):
+        from cache_test_support import assert_state
+
+        slots = []
+        for chunk_size in (0, 16):
+            with self.subTest(chunk_size=chunk_size):
+                scheduler = self.scheduler(
+                    num_blocks=8, max_batch_size=2, prefill_chunk_size=chunk_size
+                )
+                requests = [self.request(name, 16) for name in ("cancel", "a", "b")]
+                for req in requests:
+                    req.block_table, _ = scheduler.cache_manager.allocate_slots(16)
+                    req.num_blocks = 1
+                    req.num_computed_tokens = 16
+                    req.status = Status.RUNNING
+                    req.append_generated_token_id(12)
+                    scheduler.running_queue.sync_q.put(req)
+                requests[0].mark_canceled()
+
+                step = scheduler.schedule()
+
+                self.assertFalse(step.is_prefill)
+                self.assertIsNone(step.prefill_end)
+                self.assertEqual(step.scheduled_requests, requests[1:])
+                for req in step.scheduled_requests:
+                    self.assertEqual(req.num_local_cached_tokens, 16)
+                    self.assertEqual(req.num_blocks, 2)
+                    self.assertEqual(req.slot_mapping, [req.block_table[1] * 16])
+                slots.append([req.slot_mapping for req in step.scheduled_requests])
+                self.assertEqual(scheduler.cache_manager.get_total_usable_blocks(), 4)
+                for req in step.scheduled_requests:
+                    req.mark_canceled()
+                scheduler.complete_requests(step.scheduled_requests)
+                self.assertEqual(scheduler.cache_manager.get_total_usable_blocks(), 8)
+                assert_state(self, scheduler.cache_manager)
+        self.assertEqual(slots[0], slots[1])
 
     def test_nonaligned_chunks_reconstruct_physical_slots(self):
         scheduler = self.scheduler(prefill_chunk_size=11)
