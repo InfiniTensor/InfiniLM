@@ -136,7 +136,9 @@ class ChunkSchedulerTests(unittest.TestCase):
             kinds.append(
                 "decode"
                 if not step.is_prefill
-                else "continue" if req.request_id in seen else "admit"
+                else "continue"
+                if req.request_id in seen
+                else "admit"
             )
             seen.add(req.request_id)
             self.finish_step(scheduler, step)

@@ -182,9 +182,9 @@ def run(args):
             row["elapsed_ms"] = (time.perf_counter() - started) * 1000
             row["graph_launches"] = counter() - before_launches
             if args.graph:
-                assert row["graph_launches"] == (
-                    0 if output.is_prefill else args.tp
-                ), row
+                assert row["graph_launches"] == (0 if output.is_prefill else args.tp), (
+                    row
+                )
             if output.is_prefill:
                 allowed = np.zeros(16 * 256, dtype=bool)
                 for r in output.scheduled_requests:
