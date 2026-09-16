@@ -366,52 +366,6 @@ class InferEngine(_infinilm.InferEngine):
         top_p=None,
     ):
         try:
-            # TODO: Remove `_underlying` and simplify the corresponding code.
-            input_ids = input_ids._underlying if input_ids is not None else None
-            position_ids = (
-                position_ids._underlying if position_ids is not None else None
-            )
-            past_kv_lengths = (
-                past_kv_lengths._underlying if past_kv_lengths is not None else None
-            )
-            total_kv_lengths = (
-                total_kv_lengths._underlying if total_kv_lengths is not None else None
-            )
-            input_offsets = (
-                input_offsets._underlying if input_offsets is not None else None
-            )
-            block_tables = (
-                block_tables._underlying if block_tables is not None else None
-            )
-            cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
-            slot_mapping = (
-                slot_mapping._underlying if slot_mapping is not None else None
-            )
-            mamba_init_state_indices = (
-                mamba_init_state_indices._underlying
-                if mamba_init_state_indices is not None
-                else None
-            )
-            mamba_final_state_indices = (
-                mamba_final_state_indices._underlying
-                if mamba_final_state_indices is not None
-                else None
-            )
-
-            def convert_tensor_list(tensor_list_):
-                if tensor_list_ is None:
-                    return None
-                if not isinstance(tensor_list_, list):
-                    tensor_list_ = [tensor_list_]
-                if len(tensor_list_) == 0:
-                    return None
-                return [tensor._underlying for tensor in tensor_list_]
-
-            pixel_values = convert_tensor_list(pixel_values)
-            image_bound = convert_tensor_list(image_bound)
-            tgt_sizes = convert_tensor_list(tgt_sizes)
-            image_grid_thw = convert_tensor_list(image_grid_thw)
-
             output = super().forward(
                 self._build_input(
                     input_ids,

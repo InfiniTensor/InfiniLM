@@ -88,7 +88,8 @@ in eager mode. PP graphs and TP2 Prefill graphs are excluded.
 See [test instructions](../test/llm/README.md) for CPU regressions and opt-in
 native lifecycle checks. Hardware validation covered A6000 Qwen2.5-1.5B FP16
 and C500 Qwen3-0.6B/4B BF16. This does not establish support for every dense
-architecture or backend.
+architecture or backend. Quantized-model chunking has not been validated;
+the dense-model check does not reject quantization metadata.
 
 Chunking can reduce long output pauses and short-request waiting while reducing
 throughput and increasing long-request TTFT. Graphs add initialization time and
