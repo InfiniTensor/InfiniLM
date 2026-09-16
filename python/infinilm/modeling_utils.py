@@ -203,7 +203,7 @@ def load_model_state_dict_by_file(
     model_type = model.hf_config.get("model_type", "")
     preserve_fp32_suffixes = (".e_score_correction_bias",)
     if model_type == "kimi_k3":
-        preserve_fp32_suffixes += (".A_log", ".dt_bias")
+        preserve_fp32_suffixes += (".A_log", ".dt_bias", ".weight_scale")
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)

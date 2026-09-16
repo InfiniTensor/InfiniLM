@@ -10,3 +10,4 @@
 #include "mxfp4.hpp"
 #include "none_quantization.hpp"
 #include "quantization_scheme.hpp"
+#include "w4a8.hpp"

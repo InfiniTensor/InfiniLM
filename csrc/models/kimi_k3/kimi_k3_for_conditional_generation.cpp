@@ -100,8 +100,15 @@ create_kimi_k3_model_config(std::shared_ptr<infinilm::config::ModelConfig> model
             config[it.key()] = it.value();
         }
     }
-    // K3's compressed-tensors ignore list leaves attention, shared MLPs,
-    // vision, and the LM head in BF16. Routed experts load MXFP4 explicitly.
+    // Quantization applies only to routed experts. Other modules listed in the
+    // checkpoint's ignore rules remain BF16 and use the normal linear path.
+    std::string expert_quant_method = "mxfp4";
+    if (config.contains("compression_config")
+        && config.at("compression_config").value("quant_method", "")
+               == "slimquant_w4a8") {
+        expert_quant_method = "slimquant_w4a8";
+    }
+    config["routed_expert_quant_method"] = expert_quant_method;
     config["quantization_config"] = nullptr;
     config["head_dim"] = config.at("qk_nope_head_dim").get<size_t>()
                        + config.at("qk_rope_head_dim").get<size_t>();

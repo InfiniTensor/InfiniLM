@@ -13,11 +13,16 @@
 
 namespace infinilm::models::kimi_k3 {
 
-struct KimiK3Mxfp4MoeWeights {
+struct KimiK3MoeWeights {
     infinicore::Tensor packed_w13;
     infinicore::Tensor w13_scale;
     infinicore::Tensor packed_w2;
     infinicore::Tensor w2_scale;
+};
+
+enum class KimiK3ExpertQuantization {
+    Mxfp4,
+    W4A8,
 };
 
 class KimiK3MLP : public infinicore::nn::Module {
@@ -40,18 +45,24 @@ public:
     KimiK3Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                   const infinicore::Device &device);
 
-    const KimiK3Mxfp4MoeWeights &mxfp4_weights() const;
+    void process_weights_after_loading() override;
+    const KimiK3MoeWeights &weights() const;
+    KimiK3ExpertQuantization quantization() const { return quantization_; }
+    bool weights_are_aiter_shuffled() const { return weights_are_aiter_shuffled_; }
 
 private:
     void register_mxfp4_experts();
+    void register_w4a8_experts();
 
-    KimiK3Mxfp4MoeWeights mxfp4_weights_;
+    KimiK3MoeWeights weights_;
+    KimiK3ExpertQuantization quantization_{KimiK3ExpertQuantization::Mxfp4};
     size_t num_experts_{0};
     size_t hidden_size_{0};
     size_t local_intermediate_size_{0};
     size_t tp_rank_{0};
     size_t tp_size_{1};
     infinicore::Device device_;
+    bool weights_are_aiter_shuffled_{false};
 };
 
 class KimiK3MoE : public infinicore::nn::Module {
