@@ -336,6 +336,34 @@ def load_legacy_h3_transformer(
     return dispatch_model(model, device_map=device_map, force_hooks=True)
 
 
+def module_execution_device(module: torch.nn.Module) -> torch.device:
+    hook = getattr(module, "_hf_hook", None)
+    execution_device = getattr(hook, "execution_device", None)
+    if execution_device is not None:
+        return torch.device(execution_device)
+    return next(module.parameters()).device
+
+
+def install_legacy_output_device_hooks(transformer: torch.nn.Module) -> None:
+    """Keep projected outputs beside Diffusers' packed modality indices."""
+
+    index_device = module_execution_device(transformer.context_embedder)
+
+    def move_to_index_device(
+        _module: torch.nn.Module,
+        _inputs: tuple[torch.Tensor, ...],
+        output: torch.Tensor,
+    ) -> torch.Tensor:
+        return output.to(index_device)
+
+    for name in ("proj_out", "audio_proj_out"):
+        output_head = getattr(transformer, name)
+        if module_execution_device(output_head) == index_device:
+            continue
+        output_head.register_forward_hook(move_to_index_device)
+        print(f"[model] Routing legacy {name} output to {index_device}")
+
+
 @dataclass(frozen=True)
 class ModelPaths:
     modular_dir: Path
@@ -444,6 +472,7 @@ def load_pipeline(
                     legacy_transformer_devices,
                     legacy_memory_fraction,
                 )
+        install_legacy_output_device_hooks(transformer)
     else:
         with timings.measure(
             "model.condition_encoder_create_and_load", synchronize=True

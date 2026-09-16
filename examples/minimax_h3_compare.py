@@ -83,7 +83,25 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         default="minimax_h3_comparison",
     )
-    parser.add_argument("--legacy-gpus", default="0,1,2,3")
+    parser.add_argument(
+        "--legacy-gpus",
+        default="0,1,2,3",
+        help="GPUs used by the PyTorch reference backend (default: 0,1,2,3)",
+    )
+    parser.add_argument(
+        "--legacy-text-gpus",
+        help="Optional explicit Qwen3-VL GPU list for the reference backend",
+    )
+    parser.add_argument(
+        "--legacy-transformer-gpus",
+        help="Optional explicit H3 transformer GPU list for the reference backend",
+    )
+    parser.add_argument(
+        "--legacy-memory-fraction",
+        type=float,
+        default=0.4,
+        help="Per-device placement budget for the reference backend (default: 0.4)",
+    )
     parser.add_argument("--infinilm-gpus", default="0,1,2,3")
     parser.add_argument(
         "--tasks",
@@ -119,6 +137,27 @@ def parse_tasks(value: str) -> tuple[str, ...]:
     if not tasks:
         raise ValueError("--tasks must select fl2va, ref2va, or both")
     return tasks
+
+
+def resolve_legacy_launch(args: argparse.Namespace) -> tuple[str, float]:
+    if (args.legacy_text_gpus is None) != (args.legacy_transformer_gpus is None):
+        raise ValueError(
+            "--legacy-text-gpus and --legacy-transformer-gpus must be supplied together"
+        )
+
+    legacy_gpus = args.legacy_gpus
+    if not legacy_gpus:
+        raise ValueError("--legacy-gpus must select at least one GPU")
+
+    memory_fraction = args.legacy_memory_fraction
+    if not 0.1 <= memory_fraction <= 0.95:
+        raise ValueError("--legacy-memory-fraction must be in [0.1, 0.95]")
+
+    print(
+        f"[config] PyTorch reference gpus={legacy_gpus}, "
+        f"memory_fraction={memory_fraction}"
+    )
+    return legacy_gpus, memory_fraction
 
 
 def parse_timing_line(line: str, timings: dict[str, float]) -> None:
@@ -493,6 +532,9 @@ def build_command(
     first_frame: Path | None = None,
     reference_video: Path | None = None,
     legacy: bool,
+    legacy_text_gpus: str | None = None,
+    legacy_transformer_gpus: str | None = None,
+    legacy_memory_fraction: float | None = None,
 ) -> list[str]:
     prompt = FL2VA_PROMPT if task == "fl2va" else REF2VA_PROMPT
     command = [
@@ -513,6 +555,12 @@ def build_command(
         command.append(f"--reference-video={reference_video}")
     if legacy:
         command.append("--legacy")
+        if legacy_text_gpus is not None:
+            command.append(f"--legacy-text-gpus={legacy_text_gpus}")
+        if legacy_transformer_gpus is not None:
+            command.append(f"--legacy-transformer-gpus={legacy_transformer_gpus}")
+        if legacy_memory_fraction is not None:
+            command.append(f"--legacy-memory-fraction={legacy_memory_fraction}")
     return command
 
 
@@ -561,6 +609,18 @@ def main() -> int:
         provided_outputs[f"{backend}_ref2va"] is None
         for backend in ("reference", "infinilm")
     )
+    needs_legacy_generation = any(
+        provided_outputs[f"reference_{task}"] is None for task in selected_tasks
+    )
+
+    legacy_gpus = args.legacy_gpus
+    legacy_memory_fraction = args.legacy_memory_fraction
+    if needs_legacy_generation:
+        try:
+            legacy_gpus, legacy_memory_fraction = resolve_legacy_launch(args)
+        except ValueError as error:
+            print(f"[error] {error}", file=sys.stderr)
+            return 2
 
     if needs_generation:
         if not generator_script.is_file():
@@ -612,10 +672,13 @@ def main() -> int:
                     generator_script=generator_script,
                     task="fl2va",
                     model_path=model_path,
-                    gpus=args.legacy_gpus,
+                    gpus=legacy_gpus,
                     output_path=generated_outputs["reference_fl2va"],
                     first_frame=first_frame,
                     legacy=True,
+                    legacy_text_gpus=args.legacy_text_gpus,
+                    legacy_transformer_gpus=args.legacy_transformer_gpus,
+                    legacy_memory_fraction=legacy_memory_fraction,
                 ),
                 output_path=generated_outputs["reference_fl2va"],
                 log_path=logs["reference_fl2va"],
@@ -644,10 +707,13 @@ def main() -> int:
                     generator_script=generator_script,
                     task="ref2va",
                     model_path=model_path,
-                    gpus=args.legacy_gpus,
+                    gpus=legacy_gpus,
                     output_path=generated_outputs["reference_ref2va"],
                     reference_video=shared_reference_video,
                     legacy=True,
+                    legacy_text_gpus=args.legacy_text_gpus,
+                    legacy_transformer_gpus=args.legacy_transformer_gpus,
+                    legacy_memory_fraction=legacy_memory_fraction,
                 ),
                 output_path=generated_outputs["reference_ref2va"],
                 log_path=logs["reference_ref2va"],
