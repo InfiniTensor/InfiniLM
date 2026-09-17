@@ -18,6 +18,12 @@ def _get_scale_emb(model_path: str) -> float:
         raise FileNotFoundError(f"config.json not found at {config_path}")
     with open(config_path, "r") as f:
         config = json.load(f)
+    # Gemma multiplies the embedding output by sqrt(hidden_size) at forward
+    # time; bake it into the embedding weight at load time instead. The tied
+    # lm_head is filled from the *unscaled* copy (see the load path), which
+    # matches the HF reference semantics.
+    if config.get("model_type") == "gemma2":
+        return float(config.get("hidden_size", 1.0)) ** 0.5
     if config.get("model_type") not in ("fm9g", "minicpm"):
         return 1.0
     return config.get("scale_emb", 1.0)
@@ -1071,6 +1077,29 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+def _remap_gemma(state_dict, config=None):
+    """Apply Gemma-2 / Gemma-3 load-time weight fixes.
+
+    Gemma checkpoints store each RMSNorm weight as `w - 1` (the module computes
+    `(1 + w) * norm(x)`), so shift them back by +1 before loading. The embedding
+    output scaling by sqrt(hidden_size) is handled by `_get_scale_emb`.
+    Parameter names follow the Llama-style layout and need no renaming.
+    """
+    norm_suffixes = (
+        "input_layernorm.weight",
+        "post_attention_layernorm.weight",
+        "pre_feedforward_layernorm.weight",
+        "post_feedforward_layernorm.weight",
+        "self_attn.q_norm.weight",
+        "self_attn.k_norm.weight",
+        "model.norm.weight",
+    )
+    for key, tensor in state_dict.items():
+        if key.endswith(norm_suffixes):
+            state_dict[key] = tensor + torch.ones_like(tensor)
+    return state_dict
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1083,4 +1112,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "gemma2": _remap_gemma,
 }

@@ -18,7 +18,8 @@ public:
                         size_t head_size,
                         float scale,
                         size_t num_kv_heads,
-                        size_t layer_idx);
+                        size_t layer_idx,
+                        float softcap = 0.0f);
 
     infinicore::Tensor forward(const AttentionLayer &layer,
                                infinicore::Tensor &q_reshaped, // query
@@ -40,6 +41,9 @@ private:
     size_t num_kv_heads_;
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
+    // Attention logit soft-capping (e.g. Gemma-2): scores are squashed with
+    // tanh before the causal mask/softmax. 0 disables the feature.
+    float softcap_;
 
     infinilm::quantization::KVQuantAlgo kv_quant_scheme_;
 };
