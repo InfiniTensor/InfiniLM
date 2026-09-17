@@ -336,11 +336,15 @@ class BlockManager:
 
     def try_free_blocks(self, num_required: int) -> bool:
         """Evict unreferenced blocks until the requested capacity is available."""
-        to_free = [
-            block_id
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        ]
+        # Preserve one eviction, if possible, even when capacity is already enough.
+        num_to_free = max(1, num_required - len(self.free_block_ids))
+        to_free = []
+        for block_id in self.used_block_ids:
+            if self.blocks[block_id].ref_count == 0:
+                to_free.append(block_id)
+                if len(to_free) >= num_to_free:
+                    break
+        # Collect candidates before mutating the set being traversed.
         for block_id in to_free:
             self._deallocate_block(block_id)
             if self.can_allocate(num_required):
