@@ -22,7 +22,7 @@ def _get_scale_emb(model_path: str) -> float:
     # time; bake it into the embedding weight at load time instead. The tied
     # lm_head is filled from the *unscaled* copy (see the load path), which
     # matches the HF reference semantics.
-    if config.get("model_type") == "gemma2":
+    if config.get("model_type") in ("gemma2", "gemma3_text"):
         return float(config.get("hidden_size", 1.0)) ** 0.5
     if config.get("model_type") not in ("fm9g", "minicpm"):
         return 1.0
@@ -1113,4 +1113,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
     "gemma2": _remap_gemma,
+    "gemma3_text": _remap_gemma,
 }
