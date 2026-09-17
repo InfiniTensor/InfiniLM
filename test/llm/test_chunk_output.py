@@ -66,6 +66,7 @@ class ChunkOutputTests(unittest.TestCase):
 
     def test_only_intermediate_chunks_skip_native_output(self):
         engine, req, calls = self.setup_runner()
+        req.sampling_params.max_tokens = 2
         for _ in range(2):
             self.assertEqual(engine.step(), (True, []))
             self.assertEqual(list(req.generated_token_ids), [])
@@ -73,17 +74,12 @@ class ChunkOutputTests(unittest.TestCase):
         engine.step()
         self.assertEqual(calls, [True, True, False])
         self.assertEqual(list(req.generated_token_ids), [77])
+        engine.step()
+        self.assertEqual(calls, [True, True, False, False])
+        self.assertEqual(list(req.generated_token_ids), [77, 77])
         self.assertTrue(
             all(b.ref_count == 0 for b in engine.scheduler.cache_manager.blocks)
         )
-
-    def test_decode_keeps_sampling(self):
-        engine, req, calls = self.setup_runner()
-        req.sampling_params.max_tokens = 2
-        for _ in range(4):
-            engine.step()
-        self.assertEqual(calls, [True, True, False, False])
-        self.assertEqual(list(req.generated_token_ids), [77, 77])
 
     def test_legacy_output_without_chunk_metadata_keeps_sampling(self):
         engine, req, calls = self.setup_runner()
