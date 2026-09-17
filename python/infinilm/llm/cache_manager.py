@@ -81,6 +81,8 @@ class BlockManager:
         self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
+        # Count physical pages with references, including shared prefix pages only once.
+        self._num_referenced_blocks = 0
 
     def __repr__(self) -> str:
         return (
@@ -94,6 +96,7 @@ class BlockManager:
         assert block.ref_count == 0, f"Block {block_id} ref_count not zero"
         block.reset()
         self.used_block_ids.add(block_id)
+        self._num_referenced_blocks += 1
         return block
 
     def _remove_block_hash(self, block: Block) -> None:
@@ -126,12 +129,8 @@ class BlockManager:
         return len(self.free_block_ids)
 
     def get_total_usable_blocks(self) -> int:
-        freeable_used_blocks = sum(
-            1
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        )
-        return len(self.free_block_ids) + freeable_used_blocks
+        # Both never-allocated and unreferenced cached pages are usable.
+        return self.num_blocks - self._num_referenced_blocks
 
     def get_computed_blocks(
         self,
@@ -151,6 +150,8 @@ class BlockManager:
             block_id = next(iter(block_ids))
             block = self.blocks[block_id]
             assert block.hash == block_hash and block_id in self.used_block_ids
+            if block.ref_count == 0:
+                self._num_referenced_blocks += 1
             block.ref_count += 1
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
@@ -277,6 +278,7 @@ class BlockManager:
         for block_id in discarded_block_ids:
             block = self.blocks[block_id]
             block.ref_count = 0
+            self._num_referenced_blocks -= 1
             self._deallocate_block(block_id)
 
         return block_table[:keep_blocks]
@@ -333,6 +335,8 @@ class BlockManager:
             block = self.blocks[block_id]
             assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
+            if block.ref_count == 0:
+                self._num_referenced_blocks -= 1
 
     def try_free_blocks(self, num_required: int) -> bool:
         """Evict unreferenced blocks until the requested capacity is available."""
