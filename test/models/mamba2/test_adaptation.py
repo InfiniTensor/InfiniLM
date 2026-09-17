@@ -349,6 +349,7 @@ def test_processor_rejects_shared_writable_slots():
     "options, message",
     [
         ({"cache_type": "static"}, "paged request-state"),
+        ({"pipeline_parallel_size": 2}, "pipeline_parallel_size"),
         ({"draft_model_path": "unused-draft"}, "rollback"),
         (
             {"kv_transfer_config": SimpleNamespace(kv_connector="unused-connector")},
@@ -364,6 +365,11 @@ def test_unsupported_service_combinations_fail_before_loading(
     from infinilm.llm import llm
 
     monkeypatch.setattr(llm, "read_hf_config", lambda _: {"model_type": "mamba2"})
+
+    def unexpected_runner(_):
+        pytest.fail("Unsupported configurations must fail before worker setup.")
+
+    monkeypatch.setattr(llm, "ModelRunner", unexpected_runner)
     config = EngineConfig("unused-model", **{"enable_prefix_caching": False, **options})
     with pytest.raises((ValueError, RuntimeError), match=message):
         llm.LLMEngine(config)

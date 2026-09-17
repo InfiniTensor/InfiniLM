@@ -51,6 +51,8 @@ class LLMEngine:
             )
 
         if hf_config.get("model_type") == "mamba2":
+            if config.pipeline_parallel_size != 1:
+                raise ValueError("Mamba-2 requires `pipeline_parallel_size=1`.")
             if config.cache_type != "paged":
                 raise ValueError(
                     "Mamba-2 requires the paged request-state cache interface."
