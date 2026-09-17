@@ -133,6 +133,7 @@ class Scheduler:
         is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
+        running_required_blocks = None
 
         # Process Waiting queue (prefill phase)
         while (
@@ -199,10 +200,18 @@ class Scheduler:
                         deferred_requests.append(req)
                         break
 
+                if running_required_blocks is None and (
+                    self.mamba_cache_manager is None
+                    or req.mamba_cache_index is not None
+                    or self.mamba_cache_manager.can_allocate()
+                ):
+                    # Running requests do not advance during this prefill loop.
+                    running_required_blocks = self._get_running_required_blocks()
                 if not self.can_accept_request(
                     req,
                     num_local_computed_tokens,
                     current_prefill_extra_blocks,
+                    running_required_blocks=running_required_blocks,
                 ):
                     logger.warning(
                         "Insufficient KV cache blocks for request %s, deferring.",
@@ -450,22 +459,9 @@ class Scheduler:
                 # Still running, put back in running queue
                 self.running_queue.sync_q.put(req)
 
-    def can_accept_request(
-        self,
-        request: InferenceRequest,
-        num_local_computed_tokens: int,
-        current_prefill_extra_blocks: int = 0,
-    ) -> bool:
-        if (
-            self.mamba_cache_manager is not None
-            and request.mamba_cache_index is None
-            and not self.mamba_cache_manager.can_allocate()
-        ):
-            return False
-
+    def _get_running_required_blocks(self) -> int:
+        """Sum decode reservations while preserving running queue order."""
         total_required_blocks = 0
-
-        # Calculate blocks needed for running requests
         running_queue_size = self.running_queue.sync_q.qsize()
         for _ in range(running_queue_size):
             req = self.running_queue.sync_q.get()
@@ -477,6 +473,29 @@ class Scheduler:
             ) // self.block_size
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
+        return total_required_blocks
+
+    def can_accept_request(
+        self,
+        request: InferenceRequest,
+        num_local_computed_tokens: int,
+        current_prefill_extra_blocks: int = 0,
+        *,
+        running_required_blocks: int | None = None,
+    ) -> bool:
+        """Check capacity, optionally reusing this schedule's running reservations."""
+        if (
+            self.mamba_cache_manager is not None
+            and request.mamba_cache_index is None
+            and not self.mamba_cache_manager.can_allocate()
+        ):
+            return False
+
+        total_required_blocks = (
+            self._get_running_required_blocks()
+            if running_required_blocks is None
+            else running_required_blocks
+        )
 
         # Calculate blocks needed for the new request
         total_length = request.get_prompt_length() - num_local_computed_tokens
