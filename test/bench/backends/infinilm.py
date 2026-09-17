@@ -19,6 +19,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         attn_backend="default",
     ):
         from infinilm import LLM
+        from infinilm.infer_engine import model_uses_mamba_cache
 
         super().__init__(benchmark)
 
@@ -60,6 +61,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             block_size=256,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            enable_prefix_caching=not model_uses_mamba_cache(self.config_dict),
         )
         self.processor = self.model.engine.processor
         self.tokenizer = self.processor.get_tokenizer()

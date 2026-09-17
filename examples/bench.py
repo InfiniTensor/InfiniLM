@@ -10,7 +10,7 @@ import numpy as np
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
-from infinilm.infer_engine import GenerationConfig, InferEngine
+from infinilm.infer_engine import GenerationConfig, InferEngine, model_uses_mamba_cache
 from infinilm.llm.llm import LLM
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.modeling_utils import load_model_state_dict_by_file
@@ -132,15 +132,40 @@ def get_test_cases(
     for batch_size in batch_size_list:
         for input_len in input_len_list:
             for output_len in output_len_list:
-                for data_type in ["bfloat16"]:
+                for data_type in [
+                    config.get("torch_dtype", "bfloat16")
+                    if model_type == "mamba2"
+                    else "bfloat16"
+                ]:
                     data_type_bytes = DATA_TYPE_BYTES[data_type]
 
                     total_seq_len = input_len + output_len
-                    kvcache_memory_bytes = (
-                        data_type_bytes
-                        * (batch_size * total_seq_len * num_key_value_heads * head_dim)
-                        * num_hidden_layers
-                    )
+                    if model_type == "mamba2":
+                        # Estimate active request states plus the reserved zero row.
+                        inner = config["num_heads"] * head_dim
+                        conv_channels = (
+                            inner + 2 * config["n_groups"] * config["state_size"]
+                        )
+                        state_bytes = 4 * inner * config["state_size"]
+                        state_bytes += (
+                            data_type_bytes
+                            * conv_channels
+                            * (config["conv_kernel"] - 1)
+                        )
+                        kvcache_memory_bytes = (
+                            (batch_size + 1) * num_hidden_layers * state_bytes
+                        )
+                    else:
+                        kvcache_memory_bytes = (
+                            data_type_bytes
+                            * (
+                                batch_size
+                                * total_seq_len
+                                * num_key_value_heads
+                                * head_dim
+                            )
+                            * num_hidden_layers
+                        )
                     kvcache_memory_gb = kvcache_memory_bytes / (1024 * 1024 * 1024)
 
                     case_list.append(
@@ -855,6 +880,9 @@ if __name__ == "__main__":
     max_benchmark_cache_len = max(
         case["input_len"] + case["output_len"] for case in cases_dict.values()
     )
+    has_mamba_cache = model_uses_mamba_cache(
+        read_json_file(os.path.join(model_path, "config.json"))
+    )
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
@@ -884,6 +912,8 @@ if __name__ == "__main__":
             )
             max_num_blocks = max(max_num_blocks, warmup_num_blocks)
         max_batch_size = max(batch_size)
+        if has_mamba_cache:
+            max_num_blocks = max(max_num_blocks, 4 * (max_batch_size + 1))
         cache_config = PagedKVCacheConfig(
             max_num_blocks,
             paged_kv_block_size,
@@ -995,6 +1025,8 @@ if __name__ == "__main__":
                     (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
                     // paged_kv_block_size
                 ) * warmup_batch
+                if has_mamba_cache:
+                    warmup_num_blocks = max(warmup_num_blocks, 4 * (warmup_batch + 1))
                 warmup_cache_config = PagedKVCacheConfig(
                     warmup_num_blocks,
                     paged_kv_block_size,
