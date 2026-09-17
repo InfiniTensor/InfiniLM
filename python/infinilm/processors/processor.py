@@ -1,3 +1,6 @@
+import json
+
+
 class InfinilmProcessor:
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
@@ -41,6 +44,50 @@ class InfinilmProcessor:
         Return: [{"start_index": <token_id>, "identifier": <id>}, ...]
         """
         raise NotImplementedError("get_mm_token_index_list is not implemented yet")
+
+
+def normalize_openai_messages(messages: list[dict]) -> list[dict]:
+    """Convert OpenAI JSON-string tool arguments to template mappings."""
+    normalized = []
+    for message in messages:
+        if not isinstance(message, dict):
+            normalized.append(message)
+            continue
+
+        normalized_message = message.copy()
+        if "content" not in normalized_message and normalized_message.get("tool_calls"):
+            normalized_message["content"] = None
+
+        tool_calls = normalized_message.get("tool_calls")
+        if isinstance(tool_calls, list):
+            normalized_calls = []
+            for tool_call in tool_calls:
+                if not isinstance(tool_call, dict):
+                    normalized_calls.append(tool_call)
+                    continue
+                normalized_call = tool_call.copy()
+                function = normalized_call.get("function")
+                if isinstance(function, dict):
+                    normalized_function = function.copy()
+                    arguments = normalized_function.get("arguments")
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError as exc:
+                            raise ValueError(
+                                "tool call function.arguments must be valid JSON"
+                            ) from exc
+                        if not isinstance(arguments, dict):
+                            raise ValueError(
+                                "tool call function.arguments must decode to an object"
+                            )
+                        normalized_function["arguments"] = arguments
+                    normalized_call["function"] = normalized_function
+                normalized_calls.append(normalized_call)
+            normalized_message["tool_calls"] = normalized_calls
+
+        normalized.append(normalized_message)
+    return normalized
 
 
 # Global registry mapping model_type strings to their Processor classes
