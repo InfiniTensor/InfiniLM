@@ -215,7 +215,6 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
-    weights_processed = False
 
     remapper = _WEIGHT_REMAPPER.get(model_type)
 
@@ -290,9 +289,6 @@ def load_model_state_dict_by_file(
             embed_tokens_torch_unscaled = None
             gc.collect()
 
-        model.process_weights_after_loading()
-        weights_processed = True
-
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
@@ -352,8 +348,8 @@ def load_model_state_dict_by_file(
 
     check_parameters(model_keys, already_loaded_keys)
 
-    if not weights_processed:
-        model.process_weights_after_loading()
+    # All weights, including a tied output head, must exist before packing/capture.
+    model.process_weights_after_loading()
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
