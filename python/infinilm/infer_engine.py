@@ -57,6 +57,9 @@ def model_uses_mamba_cache(config: dict) -> bool:
     return (
         config.get("model_type") == "mamba"
         or llm_config.get("model_type") == "mamba"
+        or config.get("model_type") == "granitemoehybrid"
+        or llm_config.get("model_type") == "granitemoehybrid"
+        or "mamba" in layer_types
         or "linear_attention" in layer_types
         or all(
             key in llm_config
