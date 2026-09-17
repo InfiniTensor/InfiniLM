@@ -7,6 +7,13 @@ from typing import Optional
 
 _TOOL_CALL_OPEN = "<tool_call>"
 _TOOL_CALL_CLOSE = "</tool_call>"
+
+
+def strip_reasoning_markers(text: str) -> str:
+    """Remove model reasoning delimiters from visible chat content."""
+    return text.replace("<think>", "").replace("</think>", "")
+
+
 _TOOL_BLOCK_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 _FUNCTION_RE = re.compile(r"<function=([^>\n]+)>\s*(.*?)\s*</function>", re.DOTALL)
 _PARAMETER_RE = re.compile(r"<parameter=([^>\n]+)>\s*(.*?)\s*</parameter>", re.DOTALL)

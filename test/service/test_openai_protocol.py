@@ -6,6 +6,7 @@ from infinilm.server.inference_server import InferenceServer, completion_json
 from infinilm.server.openai_protocol import (
     ToolCallStreamParser,
     parse_tool_calls,
+    strip_reasoning_markers,
 )
 from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import constrain_tools, forced_write_tool_prefix
@@ -446,3 +447,10 @@ def test_successful_direct_write_marks_next_round_complete():
 
     assert kwargs == {}
     assert request_data["_infinilm_direct_write_complete"] is True
+
+
+def test_strip_reasoning_markers_from_visible_content():
+    assert (
+        strip_reasoning_markers("<think>hidden</think>visible</think>")
+        == "hiddenvisible"
+    )

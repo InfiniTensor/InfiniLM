@@ -19,7 +19,11 @@ from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
 from infinilm.moe_config import configure_moe_ep_backend
-from infinilm.server.openai_protocol import ToolCallStreamParser, parse_tool_calls
+from infinilm.server.openai_protocol import (
+    ToolCallStreamParser,
+    parse_tool_calls,
+    strip_reasoning_markers,
+)
 from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import (
     constrain_tools,
@@ -607,6 +611,9 @@ class InferenceServer:
                             token_output.token_text
                         )
                     for content_part in content_parts:
+                        visible_content = strip_reasoning_markers(content_part)
+                        if not visible_content:
+                            continue
                         chunk = chunk_json(
                             request_id, content=content_part, model=self.model_id
                         )
@@ -625,6 +632,9 @@ class InferenceServer:
                     if tool_parser is not None:
                         content_parts, tool_calls = tool_parser.finalize()
                         for content_part in content_parts:
+                            visible_content = strip_reasoning_markers(content_part)
+                            if not visible_content:
+                                continue
                             chunk = chunk_json(
                                 request_id, content=content_part, model=self.model_id
                             )
@@ -763,6 +773,8 @@ class InferenceServer:
                     forced_tool_prefix + output_text,
                     allowed_tool_names=allowed_tool_names,
                 )
+                if output_text is not None:
+                    output_text = strip_reasoning_markers(output_text)
                 if tool_calls:
                     finish_reason = "tool_calls"
 
