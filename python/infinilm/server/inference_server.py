@@ -20,6 +20,12 @@ from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
 from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.server.openai_protocol import ToolCallStreamParser, parse_tool_calls
+from infinilm.server.tool_contract import apply_tool_contract
+from infinilm.server.tool_constraints import (
+    constrain_tools,
+    direct_write_complete,
+    forced_write_tool_prefix,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +423,7 @@ class InferenceServer:
             raise ValueError("chat_template_kwargs must be an object")
         kwargs = raw_kwargs.copy()
 
-        tools = data.get("tools")
+        tools = constrain_tools(data.get("messages", []), data.get("tools") or [])
         tool_choice = data.get("tool_choice")
         if tools and tool_choice != "none":
             if isinstance(tool_choice, dict):
@@ -444,6 +450,20 @@ class InferenceServer:
         if isinstance(thinking, dict) and "type" in thinking:
             kwargs["enable_thinking"] = thinking["type"] != "disabled"
         return kwargs
+
+    def _prepare_chat_request(self, data: dict) -> tuple[list, dict, dict]:
+        messages = data.get("messages", [])
+        original_tools = data.get("tools") or []
+        chat_template_kwargs = self._build_chat_template_kwargs(data)
+        exposed_tools = chat_template_kwargs.get("tools") or []
+        messages = apply_tool_contract(messages, original_tools, exposed_tools)
+        request_data = dict(data)
+        if direct_write_complete(messages, original_tools):
+            request_data["_infinilm_direct_write_complete"] = True
+        forced_prefix = forced_write_tool_prefix(messages, exposed_tools)
+        if forced_prefix is not None:
+            request_data["_infinilm_forced_tool_prefix"] = forced_prefix
+        return messages, chat_template_kwargs, request_data
 
     def _build_sampling_params(self, data: dict) -> SamplingParams:
         """Build SamplingParams from request data."""
@@ -492,15 +512,36 @@ class InferenceServer:
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
+            messages, chat_template_kwargs, request_data = self._prepare_chat_request(
+                data
+            )
             sampling_params = self._build_sampling_params(data)
-            chat_template_kwargs = self._build_chat_template_kwargs(data)
+
+            if request_data.get("_infinilm_direct_write_complete"):
+                role_chunk = chunk_json(
+                    request_id, role="assistant", model=self.model_id
+                )
+                yield f"data: {json.dumps(role_chunk)}\n\n"
+                complete_chunk = chunk_json(
+                    request_id,
+                    content="已写入文件，已按请求停止。",
+                    finish_reason="stop",
+                    model=self.model_id,
+                    usage={
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                yield f"data: {json.dumps(complete_chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
 
             req = self.engine.add_chat_request(
                 messages=messages,
                 sampling_params=sampling_params,
                 request_id=request_id,
-                request_data=data,
+                request_data=request_data,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=chat_template_kwargs,
             )
@@ -508,8 +549,19 @@ class InferenceServer:
             yield f"data: {json.dumps(role_chunk)}\n\n"
 
             tool_parser = (
-                ToolCallStreamParser() if chat_template_kwargs.get("tools") else None
+                ToolCallStreamParser(
+                    allowed_tool_names={
+                        tool["function"]["name"]
+                        for tool in chat_template_kwargs["tools"]
+                    }
+                )
+                if chat_template_kwargs.get("tools")
+                else None
             )
+            forced_tool_prefix = request_data.get("_infinilm_forced_tool_prefix")
+            if tool_parser is not None and forced_tool_prefix:
+                tool_parser.feed(forced_tool_prefix)
+
             tool_call_index = 0
 
             async for token_output in self.engine.stream_request(
@@ -646,15 +698,25 @@ class InferenceServer:
         _abort_reason = FinishReason.CANCELED
 
         try:
-            messages = data.get("messages", [])
+            messages, chat_template_kwargs, request_data = self._prepare_chat_request(
+                data
+            )
             sampling_params = self._build_sampling_params(data)
-            chat_template_kwargs = self._build_chat_template_kwargs(data)
+
+            if request_data.get("_infinilm_direct_write_complete"):
+                return completion_json(
+                    request_id,
+                    content="已写入文件，已按请求停止。",
+                    role="assistant",
+                    finish_reason="stop",
+                    model=self.model_id,
+                )
 
             req = self.engine.add_chat_request(
                 messages=messages,
                 sampling_params=sampling_params,
                 request_id=request_id,
-                request_data=data,
+                request_data=request_data,
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=chat_template_kwargs,
             )
@@ -691,7 +753,16 @@ class InferenceServer:
             finish_reason = self._convert_finish_reason(req.finish_reason)
             tool_calls = None
             if chat_template_kwargs.get("tools"):
-                output_text, tool_calls = parse_tool_calls(output_text)
+                allowed_tool_names = {
+                    tool["function"]["name"] for tool in chat_template_kwargs["tools"]
+                }
+                forced_tool_prefix = request_data.get(
+                    "_infinilm_forced_tool_prefix", ""
+                )
+                output_text, tool_calls = parse_tool_calls(
+                    forced_tool_prefix + output_text,
+                    allowed_tool_names=allowed_tool_names,
+                )
                 if tool_calls:
                     finish_reason = "tool_calls"
 

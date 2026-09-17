@@ -7,6 +7,8 @@ from infinilm.server.openai_protocol import (
     ToolCallStreamParser,
     parse_tool_calls,
 )
+from infinilm.server.tool_contract import apply_tool_contract
+from infinilm.server.tool_constraints import constrain_tools, forced_write_tool_prefix
 
 
 def test_parse_qwen_tool_call_xml():
@@ -172,3 +174,275 @@ def test_max_completion_tokens_alias():
     params = server._build_sampling_params({"max_completion_tokens": 17})
 
     assert params.max_tokens == 17
+
+
+def _tool(name):
+    return {
+        "type": "function",
+        "function": {"name": name, "parameters": {"type": "object"}},
+    }
+
+
+def test_pilotdeck_chinese_constraints_filter_tool_schemas():
+    tools = [
+        _tool("write_file"),
+        _tool("edit_file"),
+        _tool("bash"),
+        _tool("read_file"),
+        _tool("read_skill"),
+        _tool("web_search"),
+        _tool("agent"),
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "把大纲写入 outline.md。约束：禁止 read_skill / WebSearch / "
+                "Agent；仅用 Write/Edit/Bash/Read；写完立即停止。"
+            ),
+        }
+    ]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "write_file"
+    ]
+
+
+def test_direct_write_then_stop_removes_tools_after_success():
+    tools = [_tool("write_file"), _tool("read_file")]
+    messages = [
+        {
+            "role": "user",
+            "content": "把结果写入 outline.md。写完 outline.md 后立即停止。",
+        },
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "write_file",
+                        "arguments": '{"path":"outline.md","content":"ok"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "Successfully wrote outline.md",
+        },
+    ]
+
+    assert constrain_tools(messages, tools) == []
+
+
+def test_direct_write_then_stop_allows_retry_after_failed_write():
+    tools = [_tool("write_file"), _tool("read_file")]
+    messages = [
+        {
+            "role": "user",
+            "content": "把结果写入 outline.md。写完 outline.md 后立即停止。",
+        },
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "function": {"name": "write_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_1",
+            "content": "TOOL_ERROR: permission denied",
+        },
+    ]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "write_file"
+    ]
+
+
+def test_repeated_identical_calls_remove_the_tool_from_later_rounds():
+    tools = [_tool("bash"), _tool("write_file")]
+    call = {
+        "id": "call_1",
+        "function": {"name": "bash", "arguments": '{"command":"pwd"}'},
+    }
+    messages = [
+        {"role": "user", "content": "Inspect and write the result."},
+        {"role": "assistant", "tool_calls": [call]},
+        {"role": "tool", "tool_call_id": "call_1", "content": "ok"},
+        {"role": "assistant", "tool_calls": [{**call, "id": "call_2"}]},
+        {"role": "tool", "tool_call_id": "call_2", "content": "ok"},
+    ]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "write_file"
+    ]
+
+
+def test_parser_rejects_tool_calls_not_exposed_for_this_request():
+    content, calls = parse_tool_calls(
+        "<tool_call><function=read_skill><parameter=name>x</parameter>"
+        "</function></tool_call>",
+        allowed_tool_names={"write_file"},
+    )
+
+    assert content is None
+    assert calls == []
+
+
+def test_filtered_tool_schema_adds_explicit_system_contract():
+    messages = [
+        {"role": "system", "content": "agent instructions"},
+        {"role": "user", "content": "write the result"},
+    ]
+    result = apply_tool_contract(
+        messages,
+        [_tool("write_file"), _tool("bash")],
+        [_tool("write_file")],
+    )
+
+    assert "`write_file`" in result[0]["content"]
+    assert "`bash`" not in result[1]["content"]
+    assert messages[0]["content"] == "agent instructions"
+
+
+def test_unfiltered_tool_schema_does_not_modify_messages():
+    messages = [{"role": "user", "content": "write the result"}]
+    tools = [_tool("write_file")]
+
+    assert apply_tool_contract(messages, tools, tools) is messages
+
+
+def test_stream_parser_hides_rejected_complete_tool_block():
+    parser = ToolCallStreamParser(allowed_tool_names={"write_file"})
+    content_parts, calls = parser.feed(
+        "<tool_call><function=read_file>"
+        "<parameter=file_path>x</parameter></function></tool_call>"
+    )
+    final_content, final_calls = parser.finalize()
+    content_parts.extend(final_content)
+    calls.extend(final_calls)
+
+    assert content_parts == []
+    assert calls == []
+
+
+def test_constraints_survive_pilotdeck_recovery_messages():
+    tools = [_tool("write_file"), _tool("read_file"), _tool("bash")]
+    messages = [
+        {
+            "role": "user",
+            "content": "把结果写入 outline.md。写完 outline.md 后立即停止。",
+        },
+        {"role": "assistant", "content": None},
+        {
+            "role": "user",
+            "content": (
+                "Your previous response was empty (thinking only, no visible "
+                "text). Please provide your answer as visible text output."
+            ),
+        },
+    ]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "write_file"
+    ]
+
+
+def test_tool_contract_is_repeated_for_current_user_round():
+    messages = [
+        {"role": "system", "content": "agent instructions"},
+        {"role": "user", "content": "write the result"},
+    ]
+    result = apply_tool_contract(
+        messages,
+        [_tool("write_file"), _tool("bash")],
+        [_tool("write_file")],
+    )
+
+    assert result[0]["content"].count("<InfiniLM tool contract>") == 1
+    assert result[1]["content"].count("<InfiniLM tool contract>") == 1
+
+
+def test_forced_write_prefix_constrains_generation_to_write_file():
+    messages = [{"role": "user", "content": "把结果写入 outline.md。写完后立即停止。"}]
+    prefix = forced_write_tool_prefix(messages, [_tool("write_file")])
+
+    assert prefix == (
+        "<tool_call>\n<function=write_file>\n<parameter=file_path>\n"
+        "outline.md\n</parameter>\n<parameter=content>\n"
+    )
+
+    parser = ToolCallStreamParser(allowed_tool_names={"write_file"})
+    parser.feed(prefix)
+    content_parts, calls = parser.feed(
+        "outline content\n</parameter>\n</function>\n</tool_call>"
+    )
+    final_content, final_calls = parser.finalize()
+    content_parts.extend(final_content)
+    calls.extend(final_calls)
+
+    assert content_parts == []
+    assert calls[0]["function"]["name"] == "write_file"
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "file_path": "outline.md",
+        "content": "outline content",
+    }
+
+
+def test_prepared_request_carries_forced_tool_prefix():
+    server = InferenceServer("/tmp/model", skip_load=True)
+    messages, kwargs, request_data = server._prepare_chat_request(
+        {
+            "messages": [
+                {"role": "user", "content": "把结果写入 outline.md。写完后立即停止。"}
+            ],
+            "tools": [_tool("write_file"), _tool("read_file")],
+        }
+    )
+
+    assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["write_file"]
+    assert request_data["_infinilm_forced_tool_prefix"].startswith("<tool_call>\n")
+
+
+def test_successful_direct_write_marks_next_round_complete():
+    server = InferenceServer("/tmp/model", skip_load=True)
+    messages, kwargs, request_data = server._prepare_chat_request(
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "把结果写入 outline.md。写完后立即停止。",
+                },
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "function": {
+                                "name": "write_file",
+                                "arguments": "{}",
+                            },
+                        }
+                    ],
+                },
+                {
+                    "role": "tool",
+                    "tool_call_id": "call_1",
+                    "content": "Created outline.md.",
+                },
+            ],
+            "tools": [_tool("write_file"), _tool("read_file")],
+        }
+    )
+
+    assert kwargs == {}
+    assert request_data["_infinilm_direct_write_complete"] is True

@@ -855,19 +855,27 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
 
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages,
                 add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
             )
+
+            forced_tool_prefix = (
+                request_data.get("_infinilm_forced_tool_prefix")
+                if request_data
+                else None
+            )
+            if forced_tool_prefix:
+                prompt += forced_tool_prefix
 
             mm_inputs = resolve_multimodal_inputs(messages)
 

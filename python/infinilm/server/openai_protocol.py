@@ -74,21 +74,31 @@ def _parse_tool_block(body: str) -> list[dict]:
     return calls
 
 
-def parse_tool_calls(text: str) -> tuple[Optional[str], list[dict]]:
+def parse_tool_calls(
+    text: str, allowed_tool_names: Optional[set[str]] = None
+) -> tuple[Optional[str], list[dict]]:
     """Parse Qwen/Hermes tool-call blocks and return OpenAI tool calls."""
     tool_calls = []
     content_parts = []
     cursor = 0
+    saw_tool_block = False
 
     for match in _TOOL_BLOCK_RE.finditer(text):
         parsed = _parse_tool_block(match.group(1))
         if not parsed:
             continue
+        saw_tool_block = True
         content_parts.append(text[cursor : match.start()])
         cursor = match.end()
+        if allowed_tool_names is not None:
+            parsed = [
+                call
+                for call in parsed
+                if call["function"]["name"] in allowed_tool_names
+            ]
         tool_calls.extend(parsed)
 
-    if not tool_calls:
+    if not saw_tool_block:
         content = text.strip()
         return content or None, []
 
@@ -100,9 +110,10 @@ def parse_tool_calls(text: str) -> tuple[Optional[str], list[dict]]:
 class ToolCallStreamParser:
     """Incrementally hide XML markers and emit parsed OpenAI tool calls."""
 
-    def __init__(self):
+    def __init__(self, allowed_tool_names: Optional[set[str]] = None):
         self._buffer = ""
         self.has_tool_calls = False
+        self.allowed_tool_names = allowed_tool_names
 
     @staticmethod
     def _marker_suffix_length(value: str) -> int:
@@ -137,19 +148,27 @@ class ToolCallStreamParser:
             end += len(_TOOL_CALL_CLOSE)
             block = self._buffer[:end]
             self._buffer = self._buffer[end:]
-            _, parsed = parse_tool_calls(block)
+            content, parsed = parse_tool_calls(
+                block, allowed_tool_names=self.allowed_tool_names
+            )
             if parsed:
                 self.has_tool_calls = True
                 tool_calls.extend(parsed)
+            elif self.allowed_tool_names is not None and content is None:
+                # A complete tool block was rejected because its function was
+                # not exposed for this request. Do not leak its XML markup.
+                pass
             else:
-                content_parts.append(block)
+                content_parts.append(content if content is not None else block)
 
         return content_parts, tool_calls
 
     def finalize(self) -> tuple[list[str], list[dict]]:
         if not self._buffer:
             return [], []
-        content, tool_calls = parse_tool_calls(self._buffer)
+        content, tool_calls = parse_tool_calls(
+            self._buffer, allowed_tool_names=self.allowed_tool_names
+        )
         self._buffer = ""
         if tool_calls:
             self.has_tool_calls = True
