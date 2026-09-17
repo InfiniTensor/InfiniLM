@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 
@@ -7,6 +8,8 @@ from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.modeling_utils import load_model_state_dict_by_file
+
+logger = logging.getLogger(__name__)
 
 
 class SpeculativeRunner:
@@ -17,6 +20,12 @@ class SpeculativeRunner:
         self.draft_max_batch_size = config.max_batch_size
         self.eagle_accept_count = 0
         self.eagle_total_count = 0
+        # Rounds that fell back to the frozen single-token path because no
+        # temporary state row was available for the verified batch.
+        self.verify_scratch_exhausted = 0
+        self.accepted_count_histogram: dict[int, int] = {}
+        self._mamba_cache = None
+        self._cache_block_size = target_model_engine.get_cache_config().block_size()
 
         draft_cache_config = StaticKVCacheConfig(
             max_batch_size=config.max_batch_size, max_cache_len=config.max_cache_len
@@ -108,6 +117,10 @@ class SpeculativeRunner:
         if not requests:
             return []
 
+        mamba_cache = cache_ops.mamba_cache()
+        # Used by the post-verification state restore to release the rows.
+        self._mamba_cache = mamba_cache
+
         target_output = self.target_model_engine.forward_raw(**model_input)
         target_token_ids = target_output["output_ids"].to_numpy().tolist()
         if not target_token_ids:
@@ -154,8 +167,27 @@ class SpeculativeRunner:
                 }
             )
 
+        # Verifying more than one token needs a temporary state row per request,
+        # because the committed row must only advance by the accepted count.
+        # Rows are counted here, before any draft runs: a request that cannot get
+        # one drafts a single token instead, which is the frozen path that
+        # advances the committed row in place and stays consistent.
+        if mamba_cache is not None:
+            free_rows = mamba_cache.get_num_free_blocks()
+            needs_row = [job for job in draft_jobs if job["num_tokens"] > 1]
+            for job in needs_row[free_rows:]:
+                self.verify_scratch_exhausted += 1
+                logger.warning(
+                    "No free mamba state row for request %s; drafting a single "
+                    "token this round (free rows: %d)",
+                    job["req"].request_id,
+                    free_rows,
+                )
+                job["num_tokens"] = 1
+
         draft_results = self._draft_eagle_tokens_batch(draft_jobs)
         verify_candidates = []
+        state_replays = []
         for job, draft_tokens in zip(draft_jobs, draft_results):
             req_idx = job["req_idx"]
             req = job["req"]
@@ -177,6 +209,11 @@ class SpeculativeRunner:
             )
             req.block_table = verify_block_table
             req.num_blocks = len(req.block_table)
+            # A multi-token verification must not advance the committed state:
+            # it writes a temporary row while reading the committed one.
+            scratch_index = self._borrow_state_scratch(
+                mamba_cache, req, len(draft_tokens)
+            )
             verify_candidates.append(
                 {
                     "req_idx": req_idx,
@@ -185,6 +222,7 @@ class SpeculativeRunner:
                     "remaining": job["remaining"],
                     "draft_tokens": draft_tokens,
                     "slot_mapping": verify_slots,
+                    "scratch_index": scratch_index,
                 }
             )
 
@@ -219,6 +257,9 @@ class SpeculativeRunner:
                     correction = int(segment[len(draft_tokens) - 1])
 
                 self.eagle_accept_count += accepted
+                self.accepted_count_histogram[accepted] = (
+                    self.accepted_count_histogram.get(accepted, 0) + 1
+                )
                 keep_tokens = candidate["base_len"] + accepted
                 req.block_table = cache_ops.rollback_to_length(
                     req.block_table, keep_tokens
@@ -232,7 +273,130 @@ class SpeculativeRunner:
                     output_tokens = output_tokens[:remaining]
                 output_tokens_by_req[req_idx] = output_tokens
 
+                if candidate["scratch_index"] is None:
+                    continue
+                if accepted == len(draft_tokens):
+                    # Fully accepted: the temporary row already holds the kept
+                    # sequence's state, so ownership just moves to it.
+                    mamba_cache.swap_slots(
+                        req.mamba_cache_index, candidate["scratch_index"]
+                    )
+                    req.mamba_cache_index = candidate["scratch_index"]
+                else:
+                    state_replays.append(
+                        {
+                            "req": req,
+                            "base_len": candidate["base_len"],
+                            "draft_tokens": draft_tokens,
+                            "accepted": accepted,
+                            "scratch_index": candidate["scratch_index"],
+                        }
+                    )
+
+            self._restore_verified_states(state_replays)
+
         return output_tokens_by_req
+
+    def _borrow_state_scratch(self, mamba_cache, req, num_draft_tokens):
+        """Take a temporary row for a multi-token verification, else None.
+
+        A single-token verification keeps the frozen path, which advances the
+        committed row in place because its state already matches the kept
+        sequence; models without state rows have nothing to borrow. Rows were
+        already counted against the free pool before the draft ran, so every
+        multi-token request is guaranteed to get one here.
+        """
+        if mamba_cache is None or req.mamba_cache_index is None:
+            return None
+        if num_draft_tokens < 2:
+            return None
+        scratch_index = mamba_cache.borrow_slot()
+        if scratch_index is None:
+            raise RuntimeError(
+                f"state row for request {req.request_id} was not reserved"
+            )
+        return scratch_index
+
+    def _restore_verified_states(self, state_replays: list[dict]) -> None:
+        """Restore partially accepted requests to their accepted prefix.
+
+        The committed row still holds the pre-verification state, so replaying
+        the accepted tokens through the decode path advances it by exactly the
+        accepted number of steps. All requests replay in one batched call.
+        """
+        if not state_replays:
+            return
+        self.target_model_engine.forward_raw(
+            **self._build_state_replay_batch_input(state_replays)
+        )
+        for replay in state_replays:
+            # The replay wrote the committed row, so the request keeps its index;
+            # the temporary row that ran ahead of it is released untouched.
+            self._mamba_cache.release_slot(replay["scratch_index"])
+
+    def _build_state_replay_batch_input(self, state_replays: list[dict]) -> dict:
+        """Build a decode-shaped batch over the accepted tokens.
+
+        Each request packs the tokens the verification already accepted as one
+        multi-token request, so the decode path advances its committed row.
+        """
+        block_size = self._cache_block_size
+        tokens = []
+        position_ids = []
+        past_lens = []
+        seq_lens = []
+        input_offsets = [0]
+        cu_seqlens = [0]
+        slot_mapping = []
+        block_tables = []
+        state_indices = []
+        max_block_table_len = max(
+            len(replay["req"].block_table) for replay in state_replays
+        )
+
+        for replay in state_replays:
+            req = replay["req"]
+            base_len = replay["base_len"]
+            replay_tokens = replay["draft_tokens"][: replay["accepted"]]
+            tokens.extend(replay_tokens)
+            position_ids.extend(range(base_len, base_len + len(replay_tokens)))
+            past_lens.append(base_len)
+            seq_lens.append(base_len + len(replay_tokens))
+            input_offsets.append(input_offsets[-1] + len(replay_tokens))
+            cu_seqlens.append(cu_seqlens[-1] + base_len + len(replay_tokens))
+            # Every paged batch writes its key/value entries at these slots.
+            for token_idx in range(base_len, base_len + len(replay_tokens)):
+                block_idx, block_offset = divmod(token_idx, block_size)
+                slot_mapping.append(
+                    req.block_table[block_idx] * block_size + block_offset
+                )
+            block_tables.append(
+                req.block_table + [-1] * (max_block_table_len - len(req.block_table))
+            )
+            state_indices.append(req.mamba_cache_index)
+
+        return {
+            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
+            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
+            "past_kv_lengths": infinicore.from_list(past_lens, dtype=infinicore.int32),
+            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
+            "input_offsets": infinicore.from_list(
+                input_offsets, dtype=infinicore.int32
+            ),
+            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
+            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
+            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+            # The replay advances each request's committed row in place.
+            "mamba_init_state_indices": infinicore.from_list(
+                state_indices, dtype=infinicore.int32
+            ),
+            "mamba_final_state_indices": infinicore.from_list(
+                state_indices, dtype=infinicore.int32
+            ),
+            "temperature": 1.0,
+            "top_k": 1,
+            "top_p": 1.0,
+        }
 
     def _get_last_input_token_and_position(self, req, is_prefill):
         if is_prefill:
@@ -370,16 +534,29 @@ class SpeculativeRunner:
         }
 
         # Hybrid targets carry recurrent linear-attention state per request.
-        # Route the verified tokens through each request's own state slot so
-        # the state advances with them: a fully-accepted verification leaves
-        # the state matching the kept sequence, while a multi-token
-        # verification accepted only in part would leave it ahead.
+        # A single-token verification advances each request's own slot in place,
+        # because its state already matches the kept sequence. A multi-token
+        # verification reads that slot but writes a temporary row, so a partial
+        # acceptance is undone by restoring the committed row.
         state_indices = [candidate["req"].mamba_cache_index for candidate in candidates]
         if all(index is not None for index in state_indices):
             verify_input["mamba_init_state_indices"] = infinicore.from_list(
                 state_indices, dtype=infinicore.int32
             )
             verify_input["mamba_final_state_indices"] = infinicore.from_list(
-                state_indices, dtype=infinicore.int32
+                [
+                    candidate["scratch_index"]
+                    if candidate["scratch_index"] is not None
+                    else candidate["req"].mamba_cache_index
+                    for candidate in candidates
+                ],
+                dtype=infinicore.int32,
             )
+        # State the batch shape explicitly instead of letting the model infer it
+        # from the packed layout. The shape is whether the batch holds several
+        # tokens for any request, so a batch of single-token requests states the
+        # decode shape and takes the same path a plain decode step takes.
+        verify_input["mamba_multi_token_batch"] = any(
+            len(candidate["draft_tokens"]) > 1 for candidate in candidates
+        )
         return verify_input

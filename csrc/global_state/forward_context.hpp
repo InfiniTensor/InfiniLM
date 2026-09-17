@@ -61,6 +61,9 @@ struct MambaMetadata {
     std::optional<infinicore::Tensor> init_state_indices;
     /// State cache indices written with the final state of each request forward.
     std::optional<infinicore::Tensor> final_state_indices;
+    /// Explicit batch shape: whether every request holds more than one token.
+    /// Unset falls back to inferring the shape from the packed layout.
+    std::optional<bool> multi_token_batch;
 };
 
 struct ForwardContext {

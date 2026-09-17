@@ -64,6 +64,34 @@ class MambaCacheManager:
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
 
+    def borrow_slot(self) -> int | None:
+        """Take a free row for temporary use; the caller owns it until released."""
+        return self.allocate()
+
+    def release_slot(self, block_id: int | None) -> None:
+        """Return a row taken by :meth:`borrow_slot`."""
+        self.free(block_id)
+
+    def swap_slots(self, old_block_id: int, new_block_id: int) -> None:
+        """Transfer ownership to ``new_block_id``, releasing the row it replaces.
+
+        ``new_block_id`` must already be taken by :meth:`borrow_slot`; ownership
+        moves without touching the state rows, so a request keeps its state under
+        a new index at O(1) cost.
+        """
+        if (
+            new_block_id == self.ZERO_STATE_INDEX
+            or new_block_id not in self.used_block_ids
+        ):
+            raise RuntimeError(f"invalid target state slot {new_block_id}")
+        if old_block_id not in self.used_block_ids:
+            raise RuntimeError(f"state slot {old_block_id} is not owned")
+        if old_block_id == new_block_id:
+            return
+        self.used_block_ids.remove(old_block_id)
+        self.free_block_ids.append(old_block_id)
+        self.used_block_ids.add(new_block_id)
+
     def get_num_free_blocks(self) -> int:
         return len(self.free_block_ids)
 

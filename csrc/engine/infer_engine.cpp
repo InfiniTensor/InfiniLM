@@ -240,7 +240,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         image_req_ids,
         visual_token_ranges,
         to_device(target_hidden_states),
-        sample_all_positions};
+        sample_all_positions,
+        mamba_multi_token_batch};
 
     if (serialize_host_copy) {
         infinicore::context::syncStream();
@@ -259,7 +260,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
         input.mamba_init_state_indices,
-        input.mamba_final_state_indices};
+        input.mamba_final_state_indices,
+        // Only a caller that knows the batch shape states it; otherwise the
+        // marker stays unset and the model infers the shape from the layout.
+        input.mamba_multi_token_batch ? std::optional<bool>(true) : std::nullopt};
 
     global_state::get_forward_context().mm_metadata = {
         image_req_ids,

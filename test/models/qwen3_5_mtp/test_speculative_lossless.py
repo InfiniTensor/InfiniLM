@@ -6,13 +6,15 @@ Greedy-decodes a fixed prompt set twice with the InfiniLM engine: once with
 speculation off (no --draft-model) and once with MTP speculation on (the
 target checkpoint passed as --draft-model). The generated token id sequences
 must match token by token; the speculative run also reports the draft
-acceptance counters.
+acceptance counters and how many tokens were accepted per verification.
 
 The number of draft tokens verified per target step is configurable via
---num-draft-tokens. Losslessness is only verified for the default K=1; for
-K>1 a partial accept would leave the target's recurrent linear-attention
-state ahead of the accepted sequence, so outputs are not guaranteed to be
-lossless.
+--num-draft-tokens. A multi-token verification is only lossless if a partially
+accepted one leaves the target's recurrent linear-attention state matching the
+accepted prefix, so --deterministic-partial corrupts the drafted tail and forces
+that path wherever the draft budget allows it. The check itself compares token
+sequences only; the state-level equivalence behind it is covered separately by
+test_verify_handoff.py.
 """
 
 import argparse
@@ -130,6 +132,46 @@ def report_accept_stats(engine):
         f"   accepted {accepted}/{total} drafted tokens"
         f" ({100.0 * rate:.1f}% acceptance)"
     )
+    histogram = runner.accepted_count_histogram
+    if histogram:
+        rounds = sum(histogram.values())
+        counts = ", ".join(f"{size}:{histogram[size]}" for size in sorted(histogram))
+        print(f"   verification rounds {rounds}, accepted per round {{{counts}}}")
+        if runner.num_draft_tokens > 1:
+            partial = sum(
+                count
+                for size, count in histogram.items()
+                if size < runner.num_draft_tokens
+            )
+            print(
+                "   rounds that accepted fewer than"
+                f" {runner.num_draft_tokens} drafted tokens: {partial}/{rounds}"
+            )
+    if runner.verify_scratch_exhausted:
+        print(f"   ✗ state-row exhaustion fallbacks: {runner.verify_scratch_exhausted}")
+
+
+def force_partial_acceptance(engine):
+    """Make the drafted tail disagree with the target so acceptance is partial.
+
+    The first drafted token stays as drafted (the target's own previous token,
+    always accepted); every later one is replaced by the previous token, which
+    cannot match the target's greedy continuation.
+    """
+    runner = getattr(engine.engine.model_runner, "speculative_runner", None)
+    if runner is None:
+        raise RuntimeError("no speculative runner to patch for partial acceptance")
+    original = runner._draft_eagle_tokens_batch
+
+    def corrupt_tail(jobs):
+        results = original(jobs)
+        for tokens in results:
+            for index in range(1, len(tokens)):
+                tokens[index] = tokens[index - 1]
+        return results
+
+    runner._draft_eagle_tokens_batch = corrupt_tail
+    print("   forced partial acceptance: drafted tail replaced (positions >= 1)")
 
 
 def main():
@@ -158,8 +200,13 @@ def main():
         "--num-draft-tokens",
         type=int,
         default=1,
-        help="Draft tokens verified per target step; losslessness is only "
-        "verified for the default K=1 (default: %(default)s)",
+        help="Draft tokens verified per target step (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--deterministic-partial",
+        action="store_true",
+        help="Corrupt the drafted tail so every verification whose draft budget "
+        "exceeds one token takes the partially accepted path",
     )
     args = parser.parse_args()
 
@@ -172,11 +219,11 @@ def main():
         f"Prompts: {len(DEFAULT_PROMPTS)} fixed inputs, {args.max_new_tokens} new tokens each"
     )
     print(f"Num draft tokens: {args.num_draft_tokens}")
-    if args.num_draft_tokens > 1:
-        print(
-            "   NOTE: losslessness is not verified for num_draft_tokens > 1;"
-            " partial-accept consistency is tracked separately."
-        )
+    if args.deterministic_partial and args.num_draft_tokens < 2:
+        print("✗ --deterministic-partial needs --num-draft-tokens >= 2")
+        return 1
+    if args.deterministic_partial:
+        print("Partial acceptance: forced on every multi-token verification")
     print("=" * 70)
 
     if args.device.startswith("cuda") and not torch.cuda.is_available():
@@ -214,6 +261,8 @@ def main():
         args.num_draft_tokens,
     )
     try:
+        if args.deterministic_partial:
+            force_partial_acceptance(speculative)
         speculative_results = generate_outputs(
             speculative, DEFAULT_PROMPTS, args.max_new_tokens
         )

@@ -57,6 +57,9 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Whether the batch holds more than one token per request for every
+        /// request (the packed multi-token shape) instead of exactly one.
+        bool mamba_multi_token_batch{false};
     };
 
     struct Output {

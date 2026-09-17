@@ -833,12 +833,17 @@ def _remap_qwen3_5_mtp(state_dict, config):
     embed_tokens = state_dict.get(embed_tokens_key)
     if embed_tokens is None:
         embed_tokens = state_dict.get(embed_tokens_fallback_key)
-    if (
-        config.get("tie_word_embeddings", text_config.get("tie_word_embeddings", False))
-        and embed_tokens is not None
-    ):
+    if config.get("tie_word_embeddings", text_config.get("tie_word_embeddings", False)):
+        # Tied checkpoints store a single matrix for the embedding and the head.
+        lm_head = embed_tokens
+    else:
+        # Untied checkpoints carry the target's own output head alongside the
+        # embedding; the draft shares both with the target.
+        lm_head = state_dict.get("lm_head.weight")
+    if embed_tokens is not None:
         remapped.setdefault("model.embed_tokens.weight", embed_tokens)
-        remapped.setdefault("lm_head.weight", embed_tokens)
+    if lm_head is not None:
+        remapped.setdefault("lm_head.weight", lm_head)
 
     return remapped
 

@@ -17,8 +17,17 @@ logger = logging.getLogger(__name__)
 class SpeculativeCacheOps:
     """Limited cache operations needed by speculative verification."""
 
-    def __init__(self, cache_manager: BlockManager):
+    def __init__(
+        self,
+        cache_manager: BlockManager,
+        mamba_cache_manager: Optional[MambaCacheManager] = None,
+    ):
         self._cache_manager = cache_manager
+        self._mamba_cache_manager = mamba_cache_manager
+
+    def mamba_cache(self) -> Optional[MambaCacheManager]:
+        """State-row bookkeeping, or None when the model keeps no state rows."""
+        return self._mamba_cache_manager
 
     def append_verify_slots(
         self,
@@ -89,7 +98,9 @@ class Scheduler:
             if has_mamba_cache
             else None
         )
-        self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
+        self.speculative_cache_ops = SpeculativeCacheOps(
+            self.cache_manager, self.mamba_cache_manager
+        )
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
