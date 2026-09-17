@@ -183,11 +183,9 @@ class BlockManager:
         for _ in range(num_blocks_needed):
             block_table.append(self._allocate_block().block_id)
 
-        slot_mapping = []
-        for token_idx in range(num_computed_tokens, total_tokens):
-            block_idx = token_idx // self.block_size
-            block_offset = token_idx % self.block_size
-            slot_mapping.append(block_table[block_idx] * self.block_size + block_offset)
+        slot_mapping = self.update_blocks_slot(
+            block_table, num_computed_tokens, total_tokens
+        )
         return block_table, slot_mapping
 
     def append_slots(
@@ -217,11 +215,9 @@ class BlockManager:
         for _ in range(additional_blocks):
             block_table.append(self._allocate_block().block_id)
 
-        slots = []
-        for num_tokens in range(start_num_tokens, start_num_tokens + num_slots):
-            token_idx = num_tokens - 1
-            block_idx, block_offset = divmod(token_idx, self.block_size)
-            slots.append(block_table[block_idx] * self.block_size + block_offset)
+        slots = self.update_blocks_slot(
+            block_table, start_num_tokens - 1, max_num_tokens
+        )
         return block_table, slots
 
     def truncate_blocks(
@@ -350,15 +346,19 @@ class BlockManager:
     def update_blocks_slot(
         self, block_table: List[int], num_computed_tokens: int, total_tokens: int
     ) -> List[int]:
-        """Build slots for the recomputed suffix after a partial remote load."""
+        """Build physical slots for a logical token interval."""
         if num_computed_tokens >= total_tokens:
             return []
+        if total_tokens - num_computed_tokens == 1:
+            block_idx, block_offset = divmod(num_computed_tokens, self.block_size)
+            return [block_table[block_idx] * self.block_size + block_offset]
 
         new_slot_mapping = []
-        for token_idx in range(num_computed_tokens, total_tokens):
-            block_idx = token_idx // self.block_size
-            block_offset = token_idx % self.block_size
-            new_slot_mapping.append(
-                block_table[block_idx] * self.block_size + block_offset
-            )
+        token_idx = num_computed_tokens
+        while token_idx < total_tokens:
+            block_idx, block_offset = divmod(token_idx, self.block_size)
+            count = min(self.block_size - block_offset, total_tokens - token_idx)
+            first_slot = block_table[block_idx] * self.block_size + block_offset
+            new_slot_mapping.extend(range(first_slot, first_slot + count))
+            token_idx += count
         return new_slot_mapping
