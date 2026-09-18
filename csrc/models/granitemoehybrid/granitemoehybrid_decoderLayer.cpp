@@ -34,8 +34,8 @@ GraniteMoeHybridDecoderLayer::GraniteMoeHybridDecoderLayer(
     } else {
         throw std::runtime_error(
             "infinilm::models::granitemoehybrid::GraniteMoeHybridDecoderLayer: "
-            "unsupported layer_type '" +
-            layer_type_ + "' for layer " + std::to_string(layer_idx));
+            "unsupported layer_type '"
+            + layer_type_ + "' for layer " + std::to_string(layer_idx));
     }
 }
 

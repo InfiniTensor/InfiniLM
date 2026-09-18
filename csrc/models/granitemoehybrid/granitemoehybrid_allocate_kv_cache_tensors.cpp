@@ -44,9 +44,9 @@ GraniteMoeHybridAllocatedCache granitemoehybrid_allocate_cache_tensors(
 
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const size_t local_mamba_groups = mamba_n_groups >= static_cast<size_t>(rank_info.tp_size)
-                                         ? mamba_n_groups / rank_info.tp_size : 1;
-    const size_t mamba_conv_dim =
-        mamba_expand * hidden_size / rank_info.tp_size + 2 * local_mamba_groups * mamba_d_state;
+                                        ? mamba_n_groups / rank_info.tp_size
+                                        : 1;
+    const size_t mamba_conv_dim = mamba_expand * hidden_size / rank_info.tp_size + 2 * local_mamba_groups * mamba_d_state;
 
     auto allocate_mamba_cache = [&](size_t pool_size) {
         auto conv_state = infinicore::Tensor::zeros(

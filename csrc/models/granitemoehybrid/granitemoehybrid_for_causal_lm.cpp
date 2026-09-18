@@ -54,10 +54,8 @@ void GraniteMoeHybridForCausalLM::reset_cache(const cache::CacheConfig *cache_co
         cache_config,
         model_config_,
         attention_backend);
-    forward_context.kv_cache_vec =
-        std::move(allocated_cache.kv_cache_tensors);
-    forward_context.conv_state_vec =
-        std::move(allocated_cache.conv_state_tensors);
+    forward_context.kv_cache_vec = std::move(allocated_cache.kv_cache_tensors);
+    forward_context.conv_state_vec = std::move(allocated_cache.conv_state_tensors);
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_granitemoehybrid_model_config(
@@ -79,12 +77,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_granitemoehybrid_model_con
         config_json["attention_bias"] = false;
     }
 
-    if (!config_json.contains("position_embedding_type") ||
-        config_json.at("position_embedding_type").is_null()) {
+    if (!config_json.contains("position_embedding_type") || config_json.at("position_embedding_type").is_null()) {
         config_json["position_embedding_type"] = "nope";
     }
-    const std::string position_embedding_type =
-        model_config->get<std::string>("position_embedding_type");
+    const std::string position_embedding_type = model_config->get<std::string>("position_embedding_type");
     if ("rope" != position_embedding_type && "nope" != position_embedding_type) {
         throw std::runtime_error(
             "infinilm::models::granitemoehybrid::create_granitemoehybrid_model_config: "

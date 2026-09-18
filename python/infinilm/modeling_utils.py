@@ -1060,9 +1060,7 @@ def _remap_granitemoehybrid(state_dict, config=None):
     model_config = (config or {}).get("text_config", config or {})
     expected_num_experts = model_config.get("num_local_experts")
     expected_intermediate_size = model_config.get("intermediate_size")
-    expected_shared_intermediate_size = model_config.get(
-        "shared_intermediate_size"
-    )
+    expected_shared_intermediate_size = model_config.get("shared_intermediate_size")
     expert_weight_suffixes = (
         "input_linear.weight",
         "output_linear.weight",
@@ -1075,8 +1073,7 @@ def _remap_granitemoehybrid(state_dict, config=None):
                 model_config.get("mamba_expand", 2) * model_config["hidden_size"]
             )
             bc_size = (
-                model_config.get("mamba_n_groups", 1)
-                * model_config["mamba_d_state"]
+                model_config.get("mamba_n_groups", 1) * model_config["mamba_d_state"]
             )
             sizes = (
                 intermediate_size,
@@ -1144,10 +1141,7 @@ def _remap_granitemoehybrid(state_dict, config=None):
                 f"Expected packed GraniteMoeHybrid {matched_suffix} to be 3D, "
                 f"got {tensor.shape} for {key}"
             )
-        if (
-            expected_num_experts is not None
-            and tensor.shape[0] != expected_num_experts
-        ):
+        if expected_num_experts is not None and tensor.shape[0] != expected_num_experts:
             raise ValueError(
                 f"Expected {expected_num_experts} GraniteMoeHybrid experts, "
                 f"got {tensor.shape[0]} for {key}"
@@ -1173,12 +1167,8 @@ def _remap_granitemoehybrid(state_dict, config=None):
                         f"{expert_weight.shape[0]} for {key}"
                     )
                 gate, up = expert_weight.chunk(2, dim=0)
-                remapped[f"{expert_prefix}input_linear.gate.weight"] = (
-                    gate.contiguous()
-                )
-                remapped[f"{expert_prefix}input_linear.up.weight"] = (
-                    up.contiguous()
-                )
+                remapped[f"{expert_prefix}input_linear.gate.weight"] = gate.contiguous()
+                remapped[f"{expert_prefix}input_linear.up.weight"] = up.contiguous()
             else:
                 remapped[f"{expert_prefix}{matched_suffix}"] = (
                     expert_weight.contiguous()

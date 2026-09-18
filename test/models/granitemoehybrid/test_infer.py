@@ -56,7 +56,9 @@ def test(
     if top_k != 1:
         raise ValueError("Hugging Face token comparison requires --top-k=1")
     if image_path is not None or video_path is not None:
-        raise ValueError("The Granite Hugging Face comparison supports text prompts only")
+        raise ValueError(
+            "The Granite Hugging Face comparison supports text prompts only"
+        )
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
     print("Running Hugging Face (static cache, greedy decoding)...")

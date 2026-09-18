@@ -15,14 +15,11 @@ GraniteMoeHybridExpertMLP::GraniteMoeHybridExpertMLP(
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t intermediate_size = model_config->get<size_t>("intermediate_size");
     const bool use_bias = model_config->get_or<bool>("mlp_bias", false);
-    const std::string hidden_act =
-        model_config->get_or<std::string>("hidden_act", "silu");
+    const std::string hidden_act = model_config->get_or<std::string>("hidden_act", "silu");
 
     const auto &dtype = model_config->get_dtype();
-    const engine::distributed::RankInfo &rank_info =
-        infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (rank_info.tp_size <= 0 ||
-        intermediate_size % static_cast<size_t>(rank_info.tp_size) != 0) {
+    const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+    if (rank_info.tp_size <= 0 || intermediate_size % static_cast<size_t>(rank_info.tp_size) != 0) {
         throw std::runtime_error(
             "infinilm::models::granitemoehybrid::GraniteMoeHybridExpertMLP: "
             "intermediate_size must be divisible by tp_size");
@@ -33,30 +30,28 @@ GraniteMoeHybridExpertMLP::GraniteMoeHybridExpertMLP(
         [this](const std::string &name, infinicore::nn::Parameter parameter) {
             this->register_parameter(name, std::move(parameter));
         };
-    input_linear_ =
-        std::make_shared<infinilm::layers::linear::GateUpParallelLinear>(
-            hidden_size,
-            intermediate_size,
-            "input_linear.gate",
-            "input_linear.up",
-            register_fn,
-            quantization_method,
-            use_bias,
-            dtype,
-            device,
-            rank_info);
-    output_linear_ =
-        this->register_module<infinilm::layers::linear::RowParallelLinear>(
-            "output_linear",
-            intermediate_size,
-            hidden_size,
-            quantization_method,
-            use_bias,
-            dtype,
-            device,
-            rank_info.tp_rank,
-            rank_info.tp_size,
-            rank_info.comm);
+    input_linear_ = std::make_shared<infinilm::layers::linear::GateUpParallelLinear>(
+        hidden_size,
+        intermediate_size,
+        "input_linear.gate",
+        "input_linear.up",
+        register_fn,
+        quantization_method,
+        use_bias,
+        dtype,
+        device,
+        rank_info);
+    output_linear_ = this->register_module<infinilm::layers::linear::RowParallelLinear>(
+        "output_linear",
+        intermediate_size,
+        hidden_size,
+        quantization_method,
+        use_bias,
+        dtype,
+        device,
+        rank_info.tp_rank,
+        rank_info.tp_size,
+        rank_info.comm);
 }
 
 infinicore::Tensor GraniteMoeHybridExpertMLP::forward(
@@ -72,8 +67,7 @@ GraniteMoeHybridExperts::GraniteMoeHybridExperts(
     const infinicore::Device &device) {
     num_experts_ = model_config->get<size_t>("num_local_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
-    residual_multiplier_ =
-        model_config->get_or<float>("residual_multiplier", 1.0f);
+    residual_multiplier_ = model_config->get_or<float>("residual_multiplier", 1.0f);
 
     if (num_experts_ == 0 || num_experts_per_tok_ == 0
         || num_experts_per_tok_ > num_experts_) {
@@ -100,14 +94,10 @@ infinicore::Tensor GraniteMoeHybridExperts::forward(
             "hidden_states must have shape [num_tokens, hidden_size]");
     }
 
-    auto selected_experts_cpu =
-        selected_experts->to(infinicore::Device::Type::CPU);
-    auto routing_weights_cpu =
-        routing_weights->to(infinicore::Device::Type::CPU);
-    const auto *selected_experts_ptr =
-        reinterpret_cast<const int *>(selected_experts_cpu->data());
-    const auto *routing_weights_ptr =
-        reinterpret_cast<const float *>(routing_weights_cpu->data());
+    auto selected_experts_cpu = selected_experts->to(infinicore::Device::Type::CPU);
+    auto routing_weights_cpu = routing_weights->to(infinicore::Device::Type::CPU);
+    const auto *selected_experts_ptr = reinterpret_cast<const int *>(selected_experts_cpu->data());
+    const auto *routing_weights_ptr = reinterpret_cast<const float *>(routing_weights_cpu->data());
 
     const size_t num_tokens = hidden_states->shape()[0];
     auto output = infinicore::Tensor::empty(
@@ -125,9 +115,8 @@ infinicore::Tensor GraniteMoeHybridExperts::forward(
                     "router selected an invalid expert index");
             }
 
-            const float scale =
-                routing_weights_ptr[route_offset + route]
-                * residual_multiplier_;
+            const float scale = routing_weights_ptr[route_offset + route]
+                              * residual_multiplier_;
             auto expert_output = experts_[expert]->forward(token_input);
             expert_output = infinicore::op::mul_scalar(expert_output, scale);
             if (route == 0) {

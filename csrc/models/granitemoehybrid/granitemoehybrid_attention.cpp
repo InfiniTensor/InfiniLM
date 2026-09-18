@@ -23,12 +23,10 @@ GraniteMoeHybridAttention::GraniteMoeHybridAttention(
     const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
     const size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
     const bool use_bias = model_config->get_or<bool>("attention_bias", false);
-    const bool use_output_bias =
-        model_config->get_or<bool>("attention_output_bias", use_bias);
+    const bool use_output_bias = model_config->get_or<bool>("attention_output_bias", use_bias);
 
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
-    const engine::distributed::RankInfo &rank_info =
-        infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const int tp_rank = rank_info.tp_rank;
     const int tp_size = rank_info.tp_size;
     if (tp_size <= 0 || total_num_heads % tp_size != 0) {
@@ -36,8 +34,7 @@ GraniteMoeHybridAttention::GraniteMoeHybridAttention(
             "infinilm::models::granitemoehybrid::GraniteMoeHybridAttention: "
             "num_attention_heads must be divisible by tp_size");
     }
-    if (total_num_kv_heads < static_cast<size_t>(tp_size) ||
-        total_num_kv_heads % tp_size != 0) {
+    if (total_num_kv_heads < static_cast<size_t>(tp_size) || total_num_kv_heads % tp_size != 0) {
         throw std::runtime_error(
             "infinilm::models::granitemoehybrid::GraniteMoeHybridAttention: "
             "num_key_value_heads must be divisible by tp_size");
@@ -50,7 +47,7 @@ GraniteMoeHybridAttention::GraniteMoeHybridAttention(
     auto register_fn = [this](const std::string &name, infinicore::nn::Parameter parameter) {
         this->register_parameter(name, std::move(parameter));
     };
-    
+
     qkv_proj_ = std::make_shared<infinilm::layers::linear::QKVParallelLinear>(
         hidden_size_,
         head_dim_,
@@ -78,14 +75,12 @@ GraniteMoeHybridAttention::GraniteMoeHybridAttention(
         rank_info.comm);
     o_proj_->set_alpha(model_config->get_or<float>("residual_multiplier", 1.0f));
 
-    const std::string position_embedding_type =
-        model_config->get_or<std::string>("position_embedding_type", "nope");
+    const std::string position_embedding_type = model_config->get_or<std::string>("position_embedding_type", "nope");
     if ("rope" == position_embedding_type) {
         rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
     }
 
-    const float attention_multiplier =
-        model_config->get_or<float>("attention_multiplier", 1.0f);
+    const float attention_multiplier = model_config->get_or<float>("attention_multiplier", 1.0f);
     infinilm::layers::attention::init_kv_cache_quant_params(
         register_fn,
         device,

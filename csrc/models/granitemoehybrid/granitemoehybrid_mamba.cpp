@@ -54,7 +54,7 @@ void GraniteMoeHybridCausalConv1d::process_weights_after_loading() {
     if (tp_size_ <= 1) {
         return;
     }
-    
+
     const size_t expected_full_conv_dim = full_x_dim_ + 2 * full_bc_dim_;
     const size_t bc_offset = (tp_rank_ / bc_replicas_) * local_bc_dim_;
     const size_t src_x_offset = tp_rank_ * local_x_dim_;
@@ -153,7 +153,8 @@ infinicore::Tensor GraniteMoeHybridRMSNormGated::forward(
     if (rank_info.tp_size > 1) {
         input = infinicore::op::distributed::allgather(input->contiguous(), rank_info.tp_size, rank_info.comm)
                     ->view({static_cast<size_t>(rank_info.tp_size), input->size(0), input->size(1), local_size})
-                    ->permute({1, 2, 0, 3})->contiguous()
+                    ->permute({1, 2, 0, 3})
+                    ->contiguous()
                     ->view({input->size(0), input->size(1), local_size * rank_info.tp_size});
     }
     auto output = infinicore::op::rms_norm(input, weight_, static_cast<float>(eps_));
