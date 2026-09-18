@@ -18,7 +18,10 @@ def _get_scale_emb(model_path: str) -> float:
         raise FileNotFoundError(f"config.json not found at {config_path}")
     with open(config_path, "r") as f:
         config = json.load(f)
-    if config.get("model_type") not in ("fm9g", "minicpm"):
+    model_type = config.get("model_type")
+    if model_type in ("granite", "granitemoehybrid"):
+        return config.get("embedding_multiplier", 1.0)
+    if model_type not in ("fm9g", "minicpm"):
         return 1.0
     return config.get("scale_emb", 1.0)
 
@@ -162,7 +165,7 @@ def get_model_state_dict(
             load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
         )
 
-    # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
+    # Apply model-specific embedding scaling (embed_tokens uses lookup, not GEMM).
     scale_emb = _get_scale_emb(model_path)
     embed_tokens_unscaled = None
     if "model.embed_tokens.weight" in model_param:
@@ -1052,6 +1055,128 @@ def _remap_qwen3_5_moe(state_dict, config):
     return remapped
 
 
+def _remap_granitemoehybrid(state_dict, config=None):
+    """Unpack GraniteMoeHybrid Mamba, shared and routed-expert weights."""
+    model_config = (config or {}).get("text_config", config or {})
+    expected_num_experts = model_config.get("num_local_experts")
+    expected_intermediate_size = model_config.get("intermediate_size")
+    expected_shared_intermediate_size = model_config.get("shared_intermediate_size")
+    expert_weight_suffixes = (
+        "input_linear.weight",
+        "output_linear.weight",
+    )
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if key.endswith((".mamba.in_proj.weight", ".mamba.in_proj.bias")):
+            intermediate_size = (
+                model_config.get("mamba_expand", 2) * model_config["hidden_size"]
+            )
+            bc_size = (
+                model_config.get("mamba_n_groups", 1) * model_config["mamba_d_state"]
+            )
+            sizes = (
+                intermediate_size,
+                intermediate_size,
+                bc_size,
+                bc_size,
+                model_config["mamba_n_heads"],
+            )
+            parameter_name = key.rsplit(".", 1)[1]
+            expected_ndim = 2 if parameter_name == "weight" else 1
+            if tensor.ndim != expected_ndim or tensor.shape[0] != sum(sizes):
+                raise ValueError(
+                    f"Expected GraniteMoeHybrid in_proj.{parameter_name} to "
+                    f"have {expected_ndim} dimensions and {sum(sizes)} rows, "
+                    f"got {tuple(tensor.shape)} for {key}"
+                )
+            prefix = key[: -len(parameter_name)]
+            for name, part in zip(
+                ("gate", "x", "B", "C", "dt"), tensor.split(sizes, dim=0)
+            ):
+                remapped[f"{prefix}{name}.{parameter_name}"] = part.contiguous()
+            continue
+
+        if key.endswith(".shared_mlp.input_linear.weight"):
+            if tensor.ndim != 2:
+                raise ValueError(
+                    "Expected GraniteMoeHybrid shared input_linear.weight "
+                    f"to be 2D, got {tensor.shape} for {key}"
+                )
+            if tensor.shape[0] % 2 != 0:
+                raise ValueError(
+                    "Expected GraniteMoeHybrid shared input_linear.weight "
+                    f"output size to be even, got {tensor.shape[0]} for {key}"
+                )
+            if (
+                expected_shared_intermediate_size is not None
+                and tensor.shape[0] != 2 * expected_shared_intermediate_size
+            ):
+                raise ValueError(
+                    "Expected GraniteMoeHybrid shared input_linear.weight "
+                    f"output size {2 * expected_shared_intermediate_size}, "
+                    f"got {tensor.shape[0]} for {key}"
+                )
+
+            gate, up = tensor.chunk(2, dim=0)
+            prefix = key[: -len("weight")]
+            remapped[f"{prefix}gate.weight"] = gate.contiguous()
+            remapped[f"{prefix}up.weight"] = up.contiguous()
+            continue
+
+        matched_suffix = next(
+            (
+                suffix
+                for suffix in expert_weight_suffixes
+                if key.endswith(f".block_sparse_moe.{suffix}")
+            ),
+            None,
+        )
+        if matched_suffix is None:
+            remapped[key] = tensor
+            continue
+
+        if tensor.ndim != 3:
+            raise ValueError(
+                f"Expected packed GraniteMoeHybrid {matched_suffix} to be 3D, "
+                f"got {tensor.shape} for {key}"
+            )
+        if expected_num_experts is not None and tensor.shape[0] != expected_num_experts:
+            raise ValueError(
+                f"Expected {expected_num_experts} GraniteMoeHybrid experts, "
+                f"got {tensor.shape[0]} for {key}"
+            )
+
+        prefix = key[: -len(matched_suffix)]
+        for expert_idx, expert_weight in enumerate(tensor.unbind(0)):
+            expert_prefix = f"{prefix}experts.{expert_idx}."
+            if matched_suffix == "input_linear.weight":
+                if expert_weight.shape[0] % 2 != 0:
+                    raise ValueError(
+                        "Expected GraniteMoeHybrid expert input_linear.weight "
+                        f"output size to be even, got {expert_weight.shape[0]} "
+                        f"for {key}"
+                    )
+                if (
+                    expected_intermediate_size is not None
+                    and expert_weight.shape[0] != 2 * expected_intermediate_size
+                ):
+                    raise ValueError(
+                        "Expected GraniteMoeHybrid expert input_linear.weight "
+                        f"output size {2 * expected_intermediate_size}, got "
+                        f"{expert_weight.shape[0]} for {key}"
+                    )
+                gate, up = expert_weight.chunk(2, dim=0)
+                remapped[f"{expert_prefix}input_linear.gate.weight"] = gate.contiguous()
+                remapped[f"{expert_prefix}input_linear.up.weight"] = up.contiguous()
+            else:
+                remapped[f"{expert_prefix}{matched_suffix}"] = (
+                    expert_weight.contiguous()
+                )
+
+    return remapped
+
+
 def _remap_kimi_k3(state_dict, config):
     """Adapt released Kimi-K3 KDA weights to the reference module layout."""
     text_config = config.get("text_config", config)
@@ -1082,5 +1207,6 @@ _WEIGHT_REMAPPER = {
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
+    "granitemoehybrid": _remap_granitemoehybrid,
     "kimi_k3": _remap_kimi_k3,
 }
