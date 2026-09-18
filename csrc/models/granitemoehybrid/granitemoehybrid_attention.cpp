@@ -137,14 +137,8 @@ infinicore::Tensor GraniteMoeHybridAttention::forward_static_(
                 "unexpected position_ids shape");
         }
 
-        auto rotated_query = infinicore::Tensor::empty(
-                                 {batch_size, num_attention_heads_, seq_len, head_dim_},
-                                 query->dtype(),
-                                 query->device())
-                                 ->permute({0, 2, 1, 3});
-        rotary_emb_->forward(rotated_query, query, rope_positions);
+        rotary_emb_->forward(query, rope_positions, true);
         rotary_emb_->forward(key, rope_positions, true);
-        query = rotated_query;
     }
 
     auto attention_output = attn_->forward(query, key, value);
