@@ -9,16 +9,29 @@ AttentionLayer::AttentionLayer(size_t num_heads,
                                size_t layer_idx,
                                infinicore::Tensor k_scale,
                                infinicore::Tensor v_scale,
-                               ::infinilm::backends::AttentionBackend attn_backend) : k_scale_(k_scale), v_scale_(v_scale), layer_idx_(layer_idx), attn_backend_(attn_backend) {
+                               ::infinilm::backends::AttentionBackend attn_backend,
+                               float softcap) : k_scale_(k_scale), v_scale_(v_scale), layer_idx_(layer_idx), attn_backend_(attn_backend) {
+    if (softcap < 0.0f) {
+        // A negative cap would silently fall through the `> 0` enable checks
+        // and disable the feature; it is never a meaningful configuration.
+        throw std::runtime_error("infinilm::layers::attention::AttentionLayer: softcap must be non-negative");
+    }
     switch (attn_backend) {
     case ::infinilm::backends::AttentionBackend::STATIC_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, softcap);
         break;
     case ::infinilm::backends::AttentionBackend::PAGED_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
-        break;
     case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
-        attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        if (softcap > 0.0f) {
+            // Soft-capping is only wired through the static backend; keep other
+            // backends from silently ignoring it.
+            throw std::runtime_error("infinilm::layers::attention::AttentionLayer: softcap requires the STATIC_ATTN backend");
+        }
+        if (attn_backend == ::infinilm::backends::AttentionBackend::PAGED_ATTN) {
+            attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        } else {
+            attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
+        }
         break;
     default:
         throw std::runtime_error("infinilm::layers::attention::AttentionLayer: unsupported attention backend");

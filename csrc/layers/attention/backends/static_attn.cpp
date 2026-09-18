@@ -2,6 +2,7 @@
 #include "../../../utils.hpp"
 #include "attention_layer.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/mul_scalar.hpp"
 #include "infinicore/ops/per_tensor_dequant_i8.hpp"
 #include "infinicore/ops/per_tensor_quant_i8.hpp"
 
@@ -11,13 +12,15 @@ StaticAttentionImpl::StaticAttentionImpl(size_t num_heads,
                                          size_t head_size,
                                          float scale,
                                          size_t num_kv_heads,
-                                         size_t layer_idx)
+                                         size_t layer_idx,
+                                         float softcap)
     : num_heads_(num_heads),
       head_size_(head_size),
       scale_(scale),
       num_kv_heads_(num_kv_heads),
       layer_idx_(layer_idx),
-      head_dim_(head_size) {
+      head_dim_(head_size),
+      softcap_(softcap) {
     kv_quant_scheme_ = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
 }
 
@@ -87,6 +90,13 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
         auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
         auto attn_weight = infinicore::op::matmul(Q, K_transposed, scale_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
+
+        if (softcap_ > 0.0f) {
+            // Attention logit soft-capping (e.g. Gemma-2): squash the scaled
+            // scores with tanh before the causal mask and softmax.
+            attn_weight = infinicore::op::tanh(infinicore::op::mul_scalar(attn_weight, 1.0f / softcap_));
+            attn_weight = infinicore::op::mul_scalar(attn_weight, softcap_);
+        }
 
         auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, seq_len, total_seq_len});
         infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
