@@ -11,6 +11,20 @@ import torch
 from safetensors import safe_open
 from tqdm import tqdm
 
+from infinilm.draft_spec import get_draft_weight_remapper
+
+
+def get_weight_remapper(model_type: str):
+    """Load-time weight mapper for a model type.
+
+    Draft model types derive their mapper from their structural description, so
+    a new draft family does not add an entry to this module's table.
+    """
+    remapper = _WEIGHT_REMAPPER.get(model_type)
+    if remapper is not None:
+        return remapper
+    return get_draft_weight_remapper(model_type)
+
 
 def _get_scale_emb(model_path: str) -> float:
     config_path = os.path.join(model_path, "config.json")
@@ -217,7 +231,7 @@ def load_model_state_dict_by_file(
     embed_tokens_torch_unscaled = None
     weights_processed = False
 
-    remapper = _WEIGHT_REMAPPER.get(model_type)
+    remapper = get_weight_remapper(model_type)
 
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
     if os.path.exists(index_file_path):
@@ -298,7 +312,7 @@ def load_model_state_dict_by_file(
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
         # Apply model-specific weight remapping
-        remapper = _WEIGHT_REMAPPER.get(model_type)
+        remapper = get_weight_remapper(model_type)
         if remapper is not None:
             model_params = remapper(model_params, config=model.hf_config)
 
@@ -801,51 +815,13 @@ def _remap_qwen3_5(state_dict, config):
 
 
 def _remap_qwen3_5_mtp(state_dict, config):
-    """Extract the embedded Qwen3.5 MTP draft weights for the draft model."""
-    text_config = config.get("text_config", config)
-    if text_config.get("mtp_use_dedicated_embeddings", False):
-        raise NotImplementedError(
-            "Qwen3.5 MTP checkpoints with dedicated draft embeddings are not supported"
-        )
+    """Extract the embedded Qwen3.5 MTP draft weights for the draft model.
 
-    norm_weight_suffixes = (
-        "input_layernorm.weight",
-        "post_attention_layernorm.weight",
-        "self_attn.q_norm.weight",
-        "self_attn.k_norm.weight",
-        "pre_fc_norm_embedding.weight",
-        "pre_fc_norm_hidden.weight",
-    )
-
-    remapped = {}
-    for key, tensor in state_dict.items():
-        if not key.startswith("mtp."):
-            continue
-        new_key = "model." + key[len("mtp.") :]
-        # Qwen3.5 stores zero-centered RMSNorm scales; InfiniCore RMSNorm
-        # multiplies directly, so shift the stored weight to the effective one.
-        if new_key == "model.norm.weight" or new_key.endswith(norm_weight_suffixes):
-            tensor = tensor + torch.ones_like(tensor)
-        remapped[new_key] = tensor
-
-    embed_tokens_key = "model.language_model.embed_tokens.weight"
-    embed_tokens_fallback_key = "model.embed_tokens.weight"
-    embed_tokens = state_dict.get(embed_tokens_key)
-    if embed_tokens is None:
-        embed_tokens = state_dict.get(embed_tokens_fallback_key)
-    if config.get("tie_word_embeddings", text_config.get("tie_word_embeddings", False)):
-        # Tied checkpoints store a single matrix for the embedding and the head.
-        lm_head = embed_tokens
-    else:
-        # Untied checkpoints carry the target's own output head alongside the
-        # embedding; the draft shares both with the target.
-        lm_head = state_dict.get("lm_head.weight")
-    if embed_tokens is not None:
-        remapped.setdefault("model.embed_tokens.weight", embed_tokens)
-    if lm_head is not None:
-        remapped.setdefault("lm_head.weight", lm_head)
-
-    return remapped
+    The Qwen3.5 MTP key layout is one instance of the structural draft
+    descriptions in `infinilm.draft_spec`; this entry keeps the historical name
+    of the model-type registration.
+    """
+    return get_draft_weight_remapper("qwen3_5_mtp")(state_dict, config)
 
 
 def _remap_ernie4_5_moe_vl(state_dict, config=None):

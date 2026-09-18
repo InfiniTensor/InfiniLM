@@ -1,11 +1,15 @@
-import json
 import logging
-import os
-import tempfile
 
 import infinicore
 from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
+from infinilm.draft_spec import (
+    UnsupportedDraftError,
+    draft_position_ids,
+    explain_missing_draft,
+    get_draft_model_spec,
+    resolve_draft,
+)
 from infinilm.infer_engine import InferEngine
 from infinilm.modeling_utils import load_model_state_dict_by_file
 
@@ -25,12 +29,30 @@ class SpeculativeRunner:
         self.verify_scratch_exhausted = 0
         self.accepted_count_histogram: dict[int, int] = {}
         self._mamba_cache = None
-        self._cache_block_size = target_model_engine.get_cache_config().block_size()
+        # Verification slots only exist on the paged cache, whose config is the
+        # one that carries a block size. With a static cache the scheduler
+        # hands out no speculative cache ops, so every request stays on the
+        # plain target path and the drafting state is never used.
+        target_block_size = getattr(
+            target_model_engine.get_cache_config(), "block_size", None
+        )
+        self._cache_block_size = (
+            target_block_size() if callable(target_block_size) else None
+        )
+        if self._cache_block_size is None:
+            logger.warning(
+                "Speculative decoding needs the paged KV cache: with a static "
+                "cache the requests run non-speculatively and --draft-model "
+                "has no effect."
+            )
 
+        draft_checkpoint = resolve_draft(config.draft_model_path)
+        draft_model_path = config.draft_model_path
+        if draft_checkpoint is not None:
+            draft_model_path = draft_checkpoint.engine_path
         draft_cache_config = StaticKVCacheConfig(
             max_batch_size=config.max_batch_size, max_cache_len=config.max_cache_len
         )
-        draft_model_path = self._resolve_draft_model_path(config.draft_model_path)
         self.draft_model_engine = InferEngine(
             model_path=draft_model_path,
             device=device,
@@ -42,12 +64,24 @@ class SpeculativeRunner:
             weight_load_mode=config.weight_load_mode,
         )
         self.draft_model_type = self.draft_model_engine.model_type
-        if self.draft_model_type not in ("minicpm_eagle", "qwen3_5_mtp"):
-            raise RuntimeError(
-                f"draft_model_path must point to a MiniCPM Eagle draft model or "
-                f"a Qwen3.5 checkpoint with embedded MTP weights, "
-                f"got model_type={self.draft_model_type}"
+        if draft_checkpoint is not None:
+            # The description that resolved the checkpoint is the one that
+            # describes the engine the fixture was built for.
+            self.draft_spec = draft_checkpoint.spec
+            if self.draft_model_type != self.draft_spec.draft_model_type:
+                raise UnsupportedDraftError(
+                    f"the draft fixture declares model type "
+                    f"{self.draft_spec.draft_model_type!r} but the engine built "
+                    f"{self.draft_model_type!r}"
+                )
+        else:
+            self.draft_spec = get_draft_model_spec(self.draft_model_type)
+        if self.draft_spec is None:
+            raise UnsupportedDraftError(
+                f"--draft-model {config.draft_model_path} is not a supported "
+                f"draft: {explain_missing_draft(config.draft_model_path, self.draft_model_type)}"
             )
+        self._check_draft_against_target()
         if not config.skip_load:
             load_model_state_dict_by_file(
                 self.draft_model_engine,
@@ -55,50 +89,34 @@ class SpeculativeRunner:
                 dtype=self.draft_model_engine.dtype,
             )
 
+    def _check_draft_against_target(self):
+        """Reject a draft whose vocabulary differs from the target's.
+
+        A draft proposes tokens that the target then verifies, so both must
+        index the same vocabulary; equal sizes are necessary but not sufficient
+        and are the strongest statement the configs support.
+        """
+        target_config = self.target_model_engine.hf_config
+        draft_config = self.draft_model_engine.hf_config
+        target_vocab = target_config.get("text_config", target_config).get("vocab_size")
+        draft_vocab = draft_config.get("text_config", draft_config).get("vocab_size")
+        if target_vocab is not None and draft_vocab is not None:
+            if target_vocab != draft_vocab:
+                raise UnsupportedDraftError(
+                    f"the draft model has vocab_size={draft_vocab} while the "
+                    f"target has vocab_size={target_vocab}; a draft must share "
+                    "the target's vocabulary (MODELS.md, criterion C5)"
+                )
+
     def _resolve_draft_model_path(self, draft_model_path):
         """Return the directory the draft engine should be built from.
 
-        A Qwen3.5 checkpoint embeds its draft weights under "mtp.*" keys, so the
-        draft engine needs a standalone single-layer config; such a checkpoint
-        is materialized into a fixture directory that reuses the checkpoint's
-        own weight shards.
+        A checkpoint that embeds its draft weights under a family key prefix
+        needs a standalone draft config, which `infinilm.draft_spec` derives
+        from the checkpoint's own metadata; other drafts are used as given.
         """
-        config_path = os.path.join(draft_model_path, "config.json")
-        if not os.path.exists(config_path):
-            return draft_model_path
-        with open(config_path, "r") as f:
-            hf_config = json.load(f)
-        text_config = hf_config.get("text_config", hf_config)
-        model_type = hf_config.get("model_type", "")
-        # Keep the fixture rewrite scoped to the Qwen3.5 family, whose config
-        # layout the qwen3_5_mtp model factory understands.
-        if (
-            model_type != "qwen3_5_mtp"
-            and model_type.startswith("qwen3_5")
-            and "mtp_num_hidden_layers" in text_config
-        ):
-            return self._build_mtp_draft_fixture(draft_model_path, hf_config)
-        return draft_model_path
-
-    def _build_mtp_draft_fixture(self, model_path, hf_config):
-        # The fixture only symlinks the checkpoint shards, so it must outlive
-        # the draft engine; the temp directory is intentionally not cleaned up.
-        fixture = tempfile.mkdtemp(prefix="infinilm_mtp_draft_")
-        text_config = dict(hf_config.get("text_config", hf_config))
-        hf_config = dict(hf_config)
-        hf_config["model_type"] = "qwen3_5_mtp"
-        num_draft_layers = int(text_config["mtp_num_hidden_layers"])
-        # Mirror the standalone draft shape the model factory derives from the
-        # embedded config, keeping the python-side cache view consistent.
-        text_config["num_hidden_layers"] = num_draft_layers
-        text_config["layer_types"] = ["full_attention"] * num_draft_layers
-        hf_config["text_config"] = text_config
-        with open(os.path.join(fixture, "config.json"), "w") as f:
-            json.dump(hf_config, f)
-        for name in os.listdir(model_path):
-            if name.endswith(".safetensors") or name == "model.safetensors.index.json":
-                os.symlink(os.path.join(model_path, name), os.path.join(fixture, name))
-        return fixture
+        checkpoint = resolve_draft(draft_model_path)
+        return draft_model_path if checkpoint is None else checkpoint.engine_path
 
     def forward(self, scheduler_output, model_input):
         cache_ops = getattr(scheduler_output, "speculative_cache_ops", None)
@@ -326,6 +344,11 @@ class SpeculativeRunner:
         """
         if not state_replays:
             return
+        if self._cache_block_size is None:
+            raise RuntimeError(
+                "state replay needs the paged cache block size, which the "
+                "configured cache does not expose"
+            )
         self.target_model_engine.forward_raw(
             **self._build_state_replay_batch_input(state_replays)
         )
@@ -480,14 +503,7 @@ class SpeculativeRunner:
         return draft_tokens_by_job
 
     def _build_draft_position_ids(self, positions: list[int]) -> infinicore.Tensor:
-        # Qwen3.5 drafts apply mrope: text-only steps repeat the same position
-        # on every axis, matching the [3, num_tokens] layout the target
-        # processor emits for this model family.
-        if self.draft_model_type == "qwen3_5_mtp":
-            return infinicore.from_list([list(positions)] * 3, dtype=infinicore.int64)
-        return infinicore.from_list(
-            [[pos] for pos in positions], dtype=infinicore.int64
-        )
+        return draft_position_ids(self.draft_spec, positions)
 
     def _build_paged_verify_batch_input(self, candidates: list[dict]) -> dict:
         tokens = []
