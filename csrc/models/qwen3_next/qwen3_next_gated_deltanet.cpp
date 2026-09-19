@@ -17,10 +17,6 @@
 
 namespace infinilm::models::qwen3_next {
 namespace {
-// Limit the per-token path to short speculation windows. The crossover with
-// the chunked kernel depends on the device and has not been tuned generally.
-constexpr size_t kMaxRecurrentVerifyTokens = 8;
-
 infinicore::Tensor cast_for_state(const infinicore::Tensor &input, infinicore::DataType dtype) {
     if (input->dtype() == dtype) {
         return input;
@@ -260,14 +256,10 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
         delta_out = delta_out->as_strided(
             {seq_len, local_num_value_heads_, value_head_dim_},
             {delta_out->stride(0), delta_out->stride(2), delta_out->stride(3)});
-    } else if ((single_request && seq_len <= kMaxRecurrentVerifyTokens) || mamba_metadata.token_state_indices.has_value()) {
-        // Short single-sequence speculation window (e.g. one draft token per
-        // step). The chunked kernel pads to a 128-token chunk, so a two-token
-        // verification pays a full chunk of work per layer. Reuse the existing
-        // T=1 indexed-pool operator once per token instead; this mirrors the
-        // recurrent path used for single-token decode and needs no kernel
-        // change. Optional token destinations retain intermediate states so
-        // callers can commit an accepted prefix without a target replay.
+    } else if (mamba_metadata.token_state_indices.has_value()) {
+        // Reuse the indexed Decode operator to save each speculative prefix.
+        // Request boundaries select independent initial states in packed batches.
+        // Ordinary multi-token Prefill keeps the existing chunked path.
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
         auto q_delta = q->as_strided(
             {1, seq_len, local_num_key_heads_, key_head_dim_},
@@ -291,20 +283,15 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {1, seq_len, local_num_value_heads_, value_head_dim_},
             ssm_state->dtype(), ssm_state->device());
         const auto &init_indices = mamba_metadata.init_state_indices.value();
-        const auto &final_indices = mamba_metadata.final_state_indices.value();
+        const auto &destinations = mamba_metadata.token_state_indices.value();
+        const auto &offsets = mamba_metadata.checkpoint_offsets;
+        size_t request = 0;
         for (size_t t = 0; t < seq_len; ++t) {
-            auto step_init = (t == 0) ? init_indices : final_indices;
-            auto step_final = final_indices;
-            if (mamba_metadata.token_state_indices.has_value()) {
-                const auto &destinations = mamba_metadata.token_state_indices.value();
-                step_final = destinations->narrow({{0, t, 1}});
-                const auto &offsets = mamba_metadata.checkpoint_offsets;
-                size_t request = 0;
-                while (t >= static_cast<size_t>(offsets[request + 1])) { ++request; }
-                step_init = t == static_cast<size_t>(offsets[request])
-                              ? init_indices->narrow({{0, request, 1}})
-                              : destinations->narrow({{0, t - 1, 1}});
-            }
+            while (t >= static_cast<size_t>(offsets[request + 1])) { ++request; }
+            auto step_init = t == static_cast<size_t>(offsets[request])
+                               ? init_indices->narrow({{0, request, 1}})
+                               : destinations->narrow({{0, t - 1, 1}});
+            auto step_final = destinations->narrow({{0, t, 1}});
             infinicore::op::recurrent_gated_delta_rule_(
                 recurrent_out->narrow({{1, t, 1}}),
                 ssm_state,

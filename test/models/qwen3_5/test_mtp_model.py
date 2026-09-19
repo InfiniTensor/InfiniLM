@@ -98,14 +98,14 @@ def checkpoint():
     return path
 
 
-def create_model(path):
+def create_model(path, enable_mtp=True):
     tp = int(os.environ.get("INFINILM_QWEN_MTP_TEST_TP", "1"))
     model = InferEngine(
         path,
         device=infinicore.device("cuda", 0),
         distributed_config=DistConfig(tp),
         cache_config=PagedKVCacheConfig(16, 64, 1),
-        enable_mtp=True,
+        enable_mtp=enable_mtp,
         attention_backend="paged-attn",
     )
     load_model_state_dict_by_file(model, path, dtype=model.dtype)
@@ -282,3 +282,38 @@ def test_vocab_logits_and_local_argmax(checkpoint, tmp_path, odd_vocab):
             == fast["output_ids"].to_numpy().tolist()
         )
         assert int(fast["output_ids"].to_numpy()[-1]) == min(candidates)
+
+
+def test_ordinary_qwen_head_matches_dense_projection_without_mtp(checkpoint):
+    weights = load_file(Path(checkpoint) / "model.safetensors")["lm_head.weight"]
+    reference = None
+    for enabled in (True, False):
+        model, _ = create_model(checkpoint, enable_mtp=enabled)
+        runner = MTPRunner(
+            SimpleNamespace(block_size=64, num_draft_tokens=1, tensor_parallel_size=1),
+            model,
+        )
+        req = SimpleNamespace(block_table=[0], mamba_cache_index=1)
+        inputs = runner._inputs(req, [3, 8, 15, 6], 0)
+        full = model.forward_raw(**inputs, sample_all_positions=True)
+        logits = torch.empty(full["logits"].shape, dtype=weights.dtype)
+        infinicore.from_torch(logits).copy_(full["logits"])
+        infinicore.sync_device()
+        if enabled:
+            hidden = torch.empty(full["hidden_states"].shape, dtype=weights.dtype)
+            infinicore.from_torch(hidden).copy_(full["hidden_states"])
+            infinicore.sync_device()
+            # Independent, unsharded FP32 projection checks global vocabulary order.
+            dense = torch.nn.functional.linear(hidden.float(), weights.float())
+            torch.testing.assert_close(logits.float(), dense, atol=0.02, rtol=0.02)
+            reference = logits
+        else:
+            torch.testing.assert_close(logits, reference, rtol=0, atol=0)
+        fast = model.forward_raw(
+            **inputs, return_logits=False, sample_all_positions=False
+        )
+        assert (
+            fast["output_ids"].to_numpy().tolist() == logits[0, -1:].argmax(-1).tolist()
+        )
+        del model
+        gc.collect()

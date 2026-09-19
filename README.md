@@ -26,6 +26,8 @@ For Qwen3.8-27B-FP8 with E4M3 weights and 128×128 weight blocks, set
 for NVIDIA inference. Weights are packed once during loading using the existing
 Marlin operator; a separately converted weight file is unnecessary. The default
 `"compatibility"` backend dequantizes on the device at execution time and is slower.
+On A6000, Marlin stores weights in FP8 and computes with BF16/FP16 activations;
+it does not require native FP8 matrix multiplication.
 
 Example on one A6000 with the Marlin configuration:
 
@@ -46,6 +48,15 @@ checkpoints. Its MTP default is `1 + max_batch_size * (num_draft_tokens + 2)`,
 independent of KV page count. A smaller pool can reduce concurrent admission or
 use ordinary Decode when checkpoint rows are unavailable. The page budget must
 also accommodate each prompt and its requested output limit.
+GDN state precision follows the model's `mamba_ssm_dtype` even with MTP disabled.
+FP32 states use twice the storage of BF16 states; `num_state_rows` controls their
+capacity without changing the precision. Short multi-token GDN recurrence is
+selected by speculative checkpoint metadata, not ordinary prompt length.
+
+Ordinary Qwen inference also uses vocabulary-parallel output projection and the
+corrected norm/weight-loading path. These shared changes require ordinary-model
+regression checks independently of MTP equivalence. Graph capture preserves the
+KV page and recurrent rows that its warmup touches, including on recapture.
 
 For exact full-prompt reuse, replace `--disable-prefix-caching` with
 `--mtp-prefix-cache-mib 512`. This TP1-only LRU cache owns device copies of both
@@ -79,6 +90,11 @@ For the TP2 execution and batching checks, expose two GPUs and set
 `INFINILM_QWEN_MTP_TEST_TP=2`; the prefix-cache check still uses TP1.
 The three test modules cover CPU scheduling/lifecycle, GPU execution, and
 checkpoint/model contracts. GPU checks skip when no test checkpoint is set.
+
+`AsyncLLMEngine.stop(timeout=5.0)` raises `TimeoutError` if a forward is still
+running at the deadline. The worker retains its resources and closes the engine
+after that forward returns. A caller may retry `stop()` to wait again; a stopping
+or closed engine cannot be restarted.
 
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`

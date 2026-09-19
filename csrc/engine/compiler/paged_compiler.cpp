@@ -141,7 +141,7 @@ void PagedCompiler::compile() {
         // Warmup and capture write into physical page zero. Preserve it so
         // recapturing also remains safe while a request owns that page.
         for (const auto &kv : forward_context.kv_cache_vec) {
-            if (capture_mtp && kv) {
+            if (kv) {
                 state_guard.save_region(kv->narrow({{1, 0, 1}}));
             }
         }

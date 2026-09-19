@@ -757,6 +757,8 @@ class AsyncLLMEngine:
         if self._running:
             logger.warning("AsyncLLMEngine is already running")
             return
+        if self._step_thread is not None or getattr(self.engine, "_closed", False):
+            raise RuntimeError("Cannot restart a stopping or closed `AsyncLLMEngine`.")
 
         self._loop = asyncio.get_running_loop()
         self._abort_queue = janus.Queue()
@@ -767,13 +769,21 @@ class AsyncLLMEngine:
         self._step_thread.start()
         logger.info("AsyncLLMEngine started")
 
-    def stop(self):
-        """Stop the background inference loop."""
+    def stop(self, timeout: float = 5.0):
+        """Wait for shutdown; a timeout leaves in-flight resources with the worker.
+
+        The worker closes the engine when its current step returns. Callers may
+        retry `stop()` to wait again, but must not restart this engine.
+        """
         self._running = False
+        self._healthy = False
         if self._step_thread:
-            # Do not free model/state buffers while a long Prefill is still
-            # executing on the background thread.
-            self._step_thread.join()
+            self._step_thread.join(timeout=timeout)
+            if self._step_thread.is_alive():
+                raise TimeoutError(
+                    "Inference is still stopping; in-flight resources are retained "
+                    "until the worker exits."
+                )
         self.engine.close()
         logger.info("AsyncLLMEngine stopped")
 
@@ -834,21 +844,23 @@ class AsyncLLMEngine:
 
     def _step_loop(self):
         """Background loop that runs inference steps."""
-        while self._running:
-            try:
-                self._drain_abort_queue()
-                did_work, pending = self.engine.step()
-                if not did_work:
-                    time.sleep(0.003)
-                elif pending:
-                    self._loop.call_soon_threadsafe(self._batch_put, pending)
-            except Exception as e:
-                logger.error(f"Error in step loop: {e}", exc_info=True)
-                self._healthy = False
-                self._running = False
-                if self.config.enable_mtp:
-                    self.engine.close()
-                break
+        try:
+            while self._running:
+                try:
+                    self._drain_abort_queue()
+                    did_work, pending = self.engine.step()
+                    if not did_work:
+                        time.sleep(0.003)
+                    elif pending:
+                        self._loop.call_soon_threadsafe(self._batch_put, pending)
+                except Exception as e:
+                    logger.error(f"Error in step loop: {e}", exc_info=True)
+                    self._healthy = False
+                    self._running = False
+        finally:
+            # Only the execution thread can release ownership after a timed-out
+            # stop. `LLMEngine.close()` is idempotent for a subsequent `stop()`.
+            self.engine.close()
 
     @staticmethod
     def _batch_put(pending):

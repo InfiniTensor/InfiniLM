@@ -3,12 +3,13 @@
 The deterministic engine below checks orchestration, not GPU numerical accuracy.
 """
 
+import threading
 from types import SimpleNamespace
 
 import infinicore
 import pytest
 from infinilm.config.engine_config import EngineConfig
-from infinilm.llm.llm import LLMEngine
+from infinilm.llm.llm import AsyncLLMEngine, LLMEngine
 from infinilm.llm.model_runner.model_runner import ModelRunner
 from infinilm.llm.model_runner.mtp_runner import MTPRunner
 from infinilm.llm.request import InferenceRequest, RequestStatus
@@ -301,6 +302,73 @@ def test_shutdown_reclaims_running_and_waiting_requests_once():
     engine.scheduler.cache_manager.free_blocks(blocks)
     with pytest.raises(RuntimeError, match="closed"):
         engine.add_request(request("after-close"))
+
+
+@pytest.mark.parametrize("mtp", [False, True])
+@pytest.mark.parametrize("failure", [False, True])
+def test_async_shutdown_keeps_inflight_resources_until_worker_exits(mtp, failure):
+    engine = service()
+    engine.config.enable_mtp = mtp
+    engine.model_runner._closed = False
+    entered, release = threading.Event(), threading.Event()
+
+    def blocked_step():
+        entered.set()
+        assert release.wait(5)
+        assert not getattr(engine, "_closed", False)
+        if failure:
+            raise RuntimeError("in-flight failure")
+        return False, []
+
+    engine.step = blocked_step
+    asynchronous = AsyncLLMEngine.__new__(AsyncLLMEngine)
+    asynchronous.engine = engine
+    asynchronous.config = engine.config
+    asynchronous._running = asynchronous._healthy = True
+    asynchronous._abort_queue = None
+    asynchronous._step_thread = threading.Thread(target=asynchronous._step_loop)
+    asynchronous._step_thread.start()
+    try:
+        assert entered.wait(5)
+        with pytest.raises(TimeoutError, match="resources are retained"):
+            asynchronous.stop(timeout=0)
+        assert not getattr(engine, "_closed", False)
+        assert not asynchronous.is_healthy()
+        with pytest.raises(RuntimeError, match="restart"):
+            asynchronous.start()
+    finally:
+        release.set()
+        asynchronous._step_thread.join(timeout=5)
+    assert not asynchronous._step_thread.is_alive()
+    assert engine._closed  # Worker cleanup runs even without a second stop().
+    asynchronous.stop(timeout=0)
+    asynchronous.stop(timeout=0)
+
+
+@pytest.mark.parametrize("completion", ["finished_sending", "finished_recving"])
+def test_ordinary_remote_pages_remain_owned_until_transfer_completion(completion):
+    scheduler = Scheduler(num_blocks=4, block_size=4, enable_prefix_caching=False)
+    scheduler.connector = SimpleNamespace(request_finished=lambda *args: (True, None))
+    req = request()
+    req.block_table, req.slot_mapping = scheduler.cache_manager.allocate_slots(4)
+    pages = list(req.block_table)
+    req.mark_canceled()
+    scheduler.complete_requests([req])
+    scheduler.complete_requests([req])
+    assert not req.block_table
+    assert scheduler.pending_free_blocks[req.request_id] == pages
+    assert scheduler.cache_manager.get_total_usable_blocks() == 3
+    output = SimpleNamespace(
+        kv_connector_output=SimpleNamespace(**{completion: [req.request_id]})
+    )
+    scheduler.update_from_output(output)
+    assert not scheduler.pending_free_blocks
+    assert scheduler.cache_manager.get_total_usable_blocks() == 4
+    reassigned, _ = scheduler.cache_manager.allocate_slots(16)
+    scheduler.update_from_output(output)
+    scheduler.complete_requests([req])
+    assert all(scheduler.cache_manager.blocks[b].ref_count == 1 for b in reassigned)
+    scheduler.cache_manager.free_blocks(reassigned)
 
 
 @pytest.mark.parametrize("failure", ["prefill", "verify", "draft"])
