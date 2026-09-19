@@ -11,19 +11,28 @@ import torch
 from safetensors import safe_open
 from tqdm import tqdm
 
-from infinilm.draft_spec import get_draft_weight_remapper
+from infinilm.draft_spec import (
+    get_draft_weight_remapper,
+    get_embedded_draft_target_remapper,
+)
 
 
 def get_weight_remapper(model_type: str):
     """Load-time weight mapper for a model type.
 
-    Draft model types derive their mapper from their structural description, so
-    a new draft family does not add an entry to this module's table.
+    A registered table entry always wins. When the table has none, the draft
+    registry answers: a draft model type derives its mapper from its structural
+    description, and a target model type whose checkpoint embeds a described
+    draft head derives the mapper that drops that head, so neither needs an
+    entry in this module's table.
     """
     remapper = _WEIGHT_REMAPPER.get(model_type)
     if remapper is not None:
         return remapper
-    return get_draft_weight_remapper(model_type)
+    remapper = get_draft_weight_remapper(model_type)
+    if remapper is not None:
+        return remapper
+    return get_embedded_draft_target_remapper(model_type)
 
 
 def _get_scale_emb(model_path: str) -> float:
@@ -824,6 +833,16 @@ def _remap_qwen3_5_mtp(state_dict, config):
     return get_draft_weight_remapper("qwen3_5_mtp")(state_dict, config)
 
 
+def _remap_mimo(state_dict, config=None):
+    """Drop the draft head a MiMo checkpoint embeds next to its target weights.
+
+    MiMo publishes its MTP tensors under ``model.mtp_layers.<depth>.``; the
+    target model loads the whole checkpoint, so those tensors are removed here.
+    The draft engine extracts them through the family description instead.
+    """
+    return drop_keys(state_dict, ["model.mtp_layers."])
+
+
 def _remap_ernie4_5_moe_vl(state_dict, config=None):
     """Apply ERNIE 4.5 VL load-time weight fixes.
 
@@ -1108,4 +1127,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "mimo": _remap_mimo,
 }

@@ -1,10 +1,12 @@
 import unittest
 
 import torch
+from infinilm.draft_spec import get_embedded_draft_target_remapper
 from infinilm.modeling_utils import (
     _WEIGHT_REMAPPER,
     _remap_qwen3_5,
     _remap_qwen3_5_mtp,
+    get_weight_remapper,
 )
 
 
@@ -169,6 +171,59 @@ class Qwen35TargetPathUnchangedTest(unittest.TestCase):
             modeling_utils._WEIGHT_REMAPPER["qwen3_5"],
             modeling_utils._WEIGHT_REMAPPER["qwen3_5_mtp"],
         )
+
+
+class Qwen35TargetSideDescriptionTest(unittest.TestCase):
+    """The family description also answers for the checkpoint's target side.
+
+    The registered entry keeps priority, so this pins what the family would get
+    without one: exactly the embedded draft tensors removed and every target
+    tensor handed over untouched. On the published layout of this fixture the
+    entry itself performs no other transformation — the norm offset, the fused
+    linear-attention split and the tied head all apply to layouts this fixture
+    does not carry — so the two mappings are comparable key for key.
+    """
+
+    TARGET_CONFIG = {
+        "text_config": {"linear_key_head_dim": 2, "linear_num_key_heads": 1}
+    }
+
+    def setUp(self):
+        self.entry = _WEIGHT_REMAPPER.pop("qwen3_5")
+        self.addCleanup(_WEIGHT_REMAPPER.__setitem__, "qwen3_5", self.entry)
+
+    def test_the_derived_target_mapping_matches_the_entry(self):
+        state_dict = build_fake_state_dict()
+
+        from_entry = self.entry(dict(state_dict), self.TARGET_CONFIG)
+        from_description = get_weight_remapper("qwen3_5")(
+            dict(state_dict), config=self.TARGET_CONFIG
+        )
+
+        self.assertIs(
+            get_weight_remapper("qwen3_5"),
+            get_embedded_draft_target_remapper("qwen3_5"),
+        )
+        self.assertEqual(set(from_entry), set(from_description))
+        for key, tensor in from_entry.items():
+            self.assertTrue(
+                torch.equal(from_description[key], tensor),
+                f"{key} differs between the entry and the description",
+            )
+
+    def test_the_derived_target_mapping_removes_only_the_draft_tensors(self):
+        state_dict = build_fake_state_dict()
+
+        remapped = get_weight_remapper("qwen3_5")(
+            dict(state_dict), config=self.TARGET_CONFIG
+        )
+
+        self.assertEqual(
+            set(state_dict) - set(remapped),
+            {key for key in state_dict if key.startswith("mtp.")},
+        )
+        for key in remapped:
+            self.assertIs(remapped[key], state_dict[key])
 
 
 if __name__ == "__main__":

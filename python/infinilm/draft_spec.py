@@ -15,6 +15,12 @@ cannot run yet are described here as well: they resolve to an actionable
 construction error naming what is missing, instead of failing silently or being
 reported as "not a draft checkpoint". The user-facing walkthrough of the
 criteria and of the fields lives in MODELS.md, "Adding a new MTP draft model".
+
+The same descriptions answer for the checkpoint's **target** side: a family
+whose head is embedded in the target checkpoint states how its own draft
+tensors are recognised, and loading that checkpoint as a target drops exactly
+those tensors, so the target side needs no entry of its own in the loader's
+remapper table.
 """
 
 import json
@@ -205,12 +211,14 @@ class DraftCheckpoint:
 
 DRAFT_MODEL_SPECS: dict[str, DraftModelSpec] = {}
 _DERIVED_REMAPPERS: dict[str, Callable] = {}
+_DERIVED_TARGET_REMAPPERS: dict[str, Callable] = {}
 
 
 def register_draft_model_spec(spec: DraftModelSpec) -> DraftModelSpec:
     """Register one family description under its family name."""
     DRAFT_MODEL_SPECS[spec.family] = spec
     _DERIVED_REMAPPERS.pop(spec.family, None)
+    _DERIVED_TARGET_REMAPPERS.pop(spec.family, None)
     return spec
 
 
@@ -408,10 +416,13 @@ def _check_description(spec: DraftModelSpec) -> None:
             "concatenates the embedding and hidden streams; read the family's "
             "modeling code and record it before integrating the family"
         )
-    if spec.concat_order != ConcatOrder.EMBEDDING_FIRST:
+    if spec.concat_order != ConcatOrder.EMBEDDING_FIRST and (
+        spec.layer_source != LayerSource.FAMILY_SPECIFIC
+    ):
         raise UnsupportedDraftError(
             f"{spec.family!r} concatenates {spec.concat_order.value!r}; the "
-            "draft blocks in this build concatenate the embedding first"
+            "shared draft block concatenates the embedding first, so only a "
+            "family with a draft block of its own can run this order"
         )
     if spec.embedding_sharing == EmbeddingSharing.PER_DEPTH:
         raise UnsupportedDraftError(
@@ -669,6 +680,112 @@ def get_draft_weight_remapper(model_type: str) -> Optional[Callable]:
     return _DERIVED_REMAPPERS[spec.family]
 
 
+def _embedded_family_for_target(model_type: str) -> Optional[DraftModelSpec]:
+    """Description that answers for a target embedding this family's head."""
+    for spec in DRAFT_MODEL_SPECS.values():
+        if (
+            spec.embedded
+            and spec.weight_map is not None
+            and model_type in spec.target_model_types
+        ):
+            return spec
+    return None
+
+
+def _draft_namespace_pattern(spec: DraftModelSpec) -> "re.Pattern[str]":
+    """Key pattern of the tensors that belong to this family's draft head."""
+    return re.compile(spec.weight_map.family_keys)
+
+
+def _draft_layer_prefixes(spec: DraftModelSpec, state_dict: dict) -> tuple[str, ...]:
+    """Layer prefixes this family's own keys locate in the published weights.
+
+    A family whose draft block reuses the target's decoder-layer layout
+    publishes its draft layers inside the ``model.layers.<N>.`` namespace every
+    checkpoint has, so the key feature alone does not name every tensor of the
+    block. Those layers are located through the family's own
+    ``layer_key_pattern`` instead: wherever it matches, the layer index it
+    exposes marks a prefix, and every tensor under that prefix belongs to the
+    same draft layer.
+
+    The prefix carries the separator that follows the layer index, so a prefix
+    for layer 6 never swallows a tensor of layer 61. A checkpoint that
+    publishes none of these keys locates nothing, which leaves the key feature
+    as the whole rule and keeps the removal from growing on other checkpoints.
+    A ``layer_key_pattern`` that does not name the index in a ``depth`` group —
+    a description that breaks the contract the field is documented with — is
+    reported by family name instead of surfacing as a group lookup error.
+    """
+    pattern_text = spec.weight_map.layer_key_pattern
+    if pattern_text is None:
+        return ()
+    pattern = re.compile(pattern_text)
+    if "depth" not in pattern.groupindex:
+        # A description contract rather than a checkpoint property: a pattern
+        # that cannot name the layer index cannot locate a draft layer, and
+        # saying so here keeps the target side from failing with a bare lookup
+        # error inside a weight load.
+        raise ValueError(
+            f"the {spec.family} description must expose its draft layer index in "
+            f"a group named 'depth' (layer_key_pattern={pattern_text!r})"
+        )
+    prefixes: list[str] = []
+    for key in state_dict:
+        match = pattern.match(key)
+        if match is None:
+            continue
+        prefix = key[: match.end("depth")] + "."
+        if prefix not in prefixes:
+            prefixes.append(prefix)
+    return tuple(prefixes)
+
+
+def _drop_draft_namespace(spec: DraftModelSpec, state_dict: dict) -> dict:
+    """Keep every tensor except the draft tensors this family publishes."""
+    pattern = _draft_namespace_pattern(spec)
+    prefixes = _draft_layer_prefixes(spec, state_dict)
+    return {
+        key: tensor
+        for key, tensor in state_dict.items()
+        if not pattern.match(key) and not key.startswith(prefixes)
+    }
+
+
+def get_embedded_draft_target_remapper(model_type: str) -> Optional[Callable]:
+    """Load-time weight mapper for the *target* of an embedded draft family.
+
+    A checkpoint that embeds its draft head is loaded as a whole by the target
+    engine, and the embedded tensors are unknown keys to the target module tree.
+    This mapper removes exactly the draft tensors the family publishes — the
+    keys its own key feature recognises, plus the draft layers that feature
+    locates in the checkpoint's weights — and hands every other tensor back
+    unchanged, so a described family needs no entry of its own in the loader's
+    remapper table.
+
+    Only a description of a family whose head is embedded in the target
+    checkpoint answers here, and the removal is driven by the family's
+    characteristic keys rather than by a layout every checkpoint shares, so a
+    tensor outside the family's draft tensors is never removed. The mapper is
+    derived from the family description, so re-registering that description
+    retires the mapper with it.
+    """
+    spec = _embedded_family_for_target(model_type)
+    if spec is None:
+        return None
+    if spec.family not in _DERIVED_TARGET_REMAPPERS:
+
+        def remap(state_dict: dict, config: dict = None) -> dict:
+            return _drop_draft_namespace(spec, state_dict)
+
+        remap.__name__ = f"_remap_{spec.family}_target"
+        remap.__doc__ = (
+            f"Drop the {spec.family} draft tensors an embedded target checkpoint "
+            "publishes."
+        )
+        _DERIVED_TARGET_REMAPPERS[spec.family] = remap
+    return _DERIVED_TARGET_REMAPPERS[spec.family]
+
+
 def _remap_draft_weights(spec: DraftModelSpec, state_dict: dict, config: dict) -> dict:
     weight_map = spec.weight_map
     # A description that cannot express what the checkpoint declares must fail
@@ -876,9 +993,9 @@ DEEPSEEK_V3_MTP = register_draft_model_spec(
     )
 )
 
-# MiMo-7B publishes its draft block inside the same checkpoint, one layer after
-# the target's last layer, and names its fusion tensors differently from the
-# qwen3_5_mtp layout.
+# MiMo-7B publishes its draft block inside the same checkpoint, under its own
+# `model.mtp_layers.<depth>.` namespace, and fuses the two input streams in the
+# reverse order of the qwen3_5_mtp layout.
 MIMO_MTP = register_draft_model_spec(
     DraftModelSpec(
         family="mimo_mtp",
@@ -887,11 +1004,10 @@ MIMO_MTP = register_draft_model_spec(
         embedded=True,
         depth_keys=("num_nextn_predict_layers",),
         layer_kinds=(DraftLayerKind.FULL_ATTENTION,),
-        # Provisional value: third-party code reads this family's fusion as
-        # cat([hidden, embedding]), the reverse of the draft blocks here, while
-        # the model's own metadata publishes no order. Re-check it against the
-        # family's modeling code before writing its draft block.
+        # Both released rollout implementations concatenate the normalized
+        # target hidden state before the normalized next-token embedding.
         concat_order=ConcatOrder.HIDDEN_FIRST,
+        embedding_at_position_zero=EmbeddingAtPositionZero.ZEROED,
         embedding_sharing=EmbeddingSharing.TARGET_EMBEDDING_AND_HEAD,
         layer_source=LayerSource.FAMILY_SPECIFIC,
         weight_map=DraftWeightMap(
@@ -906,11 +1022,6 @@ MIMO_MTP = register_draft_model_spec(
             ),
             embedding_keys=("model.embed_tokens.weight",),
             head_keys=("lm_head.weight",),
-        ),
-        unimplemented=(
-            "a draft block whose attention carries q/k/v biases",
-            "verification of the recorded hidden-first concatenation order "
-            "(taken from third-party code, not from the family's metadata)",
         ),
     )
 )

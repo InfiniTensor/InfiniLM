@@ -285,7 +285,7 @@ InfiniLM treats an MTP head as a **class of draft**: any checkpoint that publish
 "target hidden state → next-token logits" head can be used as `--draft-model`. The speculative
 runner, the scheduler and the recurrent-state bookkeeping are family-neutral — they decide what a
 checkpoint is from the checkpoint's own metadata and from the family description in
-`python/infinilm/draft_spec.py`. Adding a family therefore means:
+`python/infinilm/draft_spec.py`. The **draft side** of adding a family therefore means:
 
 1. **one description** (`DraftModelSpec`) registered in `python/infinilm/draft_spec.py`, covering
    the criteria below, and
@@ -293,9 +293,38 @@ checkpoint is from the checkpoint's own metadata and from the family description
 3. *only if* the family's draft decoder block is not one this build can already compose, **one draft
    model under `csrc/models/<family>/`** following §4 — the same contribution any new model needs.
 
-No change to `speculative_runner.py` and no entry in the weight-remapper table is required: the
-runner resolves the family through the registry, and the loader derives the family's weight mapping
-from the description.
+The draft side needs **no change to `speculative_runner.py`**: the runner resolves the family through
+the registry, and the loader derives the family's weight mapping from the description.
+
+A family whose head lives **inside the target checkpoint** also has a **target side**: the target
+model loads the whole checkpoint, so the embedded draft tensors have to leave the shard dictionaries
+before the target module tree sees them — they are unknown keys there and would fail the load. The
+same description answers that side: a description whose head is embedded and which carries a
+key mapping (`weight_map`) serves the target
+`model_type`s it lists in `target_model_types`, and the mapping it derives removes the draft tensors
+that input publishes — the keys its `family_keys` recognise, plus the draft layers those keys
+locate in the same tensors — while handing every other tensor back unchanged. A
+standalone family (one whose head is not embedded) is never answered for this way, and an entry in
+the weight-remapper table (`python/infinilm/modeling_utils.py`) always takes precedence when one
+exists, so the registered entries keep the behaviour they had. A family that publishes its block as
+an extra layer of the target's own layout (DeepSeek-V3 does, as the worked example in §6.3 shows)
+is covered too: its own keys locate that layer, and the whole layer leaves with it,
+including the decoder-block tensors the layer reuses, which the key feature alone does not name. The
+loader maps one shard at a time, so that location is per shard: a shard whose tensors belong to a
+draft layer but carry none of the family's keys does not locate it, and such a load is refused with
+those keys named instead of accepting them.
+
+Two worked examples, then:
+
+| | `qwen3_5_mtp` | `mimo_mtp` |
+| --- | --- | --- |
+| draft side | description + registration (+ the target's own layer class) | description + registration + `csrc/models/mimo_mtp/` |
+| target side | the table entry for `qwen3_5` already dropped `mtp.*` | one new table entry dropping `model.mtp_layers.*` |
+| runner | unchanged | unchanged |
+
+A **standalone** draft checkpoint (its own directory, its own `model_type`) has no target side at
+all: nothing adds its tensors to a target load, so criteria C1–C6 and the description are the whole
+integration.
 
 ### 6.1 Does my checkpoint qualify? (criteria)
 
@@ -372,7 +401,9 @@ this is:
 A second, structurally different example is the order of the two input streams: some families
 concatenate `[hidden; embedding]` instead of `[embedding; hidden]` (`concat_order=HIDDEN_FIRST`, as
 published by the Inkling checkpoint's `mtp_hidden_states_first`). Such a family needs a draft block
-that implements that order; the description says so instead of silently producing wrong drafts.
+that implements that order; the description says so instead of silently producing wrong drafts. The
+shared draft block concatenates the embedding first, so a family declaring another order also
+declares `layer_source=FAMILY_SPECIFIC` — it brings the block that runs it.
 
 ### 6.4 What the build runs today
 
@@ -389,8 +420,24 @@ never used as an identification:
 - `qwen3_5_mtp` — Qwen3.5 dense checkpoints that embed `mtp.*` weights. Verified end to end
   (0.8B on a single consumer GPU, component-level forward/rollout checks on 2B).
 - `minicpm_eagle` — standalone Eagle draft checkpoints, unchanged.
-- `qwen_moe_mtp`, `deepseek_v3_mtp`, `mimo_mtp` — described and registered, but their draft blocks
-  are not implemented in this build, so using one reports exactly which block is missing.
+- `mimo_mtp` — MiMo-7B checkpoints that embed `model.mtp_layers.<depth>.` weights. The block is
+  implemented here: one full-attention layer whose q/k/v projections carry biases, the hidden stream
+  concatenated first, position 0 masked before the fusion norms, and the final norm feeding both the
+  head and the next draft step. The target side of the same checkpoint is covered by the family's own
+  loader entry, which drops the embedded draft tensors; the description answers for the target as
+  well, so the same checkpoint loads with or without that entry. The depth a checkpoint
+  **publishes** decides how many draft
+  blocks it carries: `model.mtp_layers.<depth>.` groups win over the `num_nextn_predict_layers`
+  count, a disagreement between the two is reported as a warning and read as the published depth,
+  and a checkpoint publishing more than one depth is refused, because the draft block here composes
+  exactly one. Verified end to end on a MiMo-7B checkpoint: with one drafted token per step the
+  speculative output matches non-speculative greedy decoding token for token (6 of 6 prompts x 48
+  tokens). With several drafted tokens per step a single position can lose to the verification
+  kernels when the model's own top-2 logits are exactly tied in bfloat16, which makes those runs a
+  mechanism performance reference rather than a lossless setting — the same boundary the Qwen3.5
+  family carries for more than one drafted token.
+- `qwen_moe_mtp`, `deepseek_v3_mtp` — described and registered, but their draft blocks are not
+  implemented in this build, so using one reports exactly which block is missing.
 
 Two further notes for anyone integrating a family:
 
@@ -416,14 +463,17 @@ family from a described-but-not-runnable one, and the row says which piece is mi
 | `minicpm_eagle` | MiniCPM4 Eagle draft checkpoints | standalone checkpoint | full attention | block implemented here (unchanged path) | measured previously |
 | `qwen_moe_mtp` | Qwen3.5-35B-A3B (`qwen3_5_moe`); Qwen3-Next-80B-A3B (`qwen3_next`) | `mtp.*`, 785 / 1553 tensors; no MTP field in the Qwen3-Next config | full attention + MoE (256 / 512 experts) | block not implemented here: a draft block with a MoE MLP (512 experts plus a shared expert in the published checkpoints) | structurally extensible |
 | `deepseek_v3_mtp` | DeepSeek-V3 / V3.2 (`deepseek_v3`, `deepseek_v32`) | `model.layers.<N>.{enorm,hnorm,eh_proj,shared_head.*}` | MLA + MoE | block not implemented here: a DeepSeek MLA + MoE draft block (the target's own decoder layer, reused as the MTP block); also its shared-head norm convention and the relation of its per-depth `embed_tokens` copy to the target embedding | structurally extensible |
-| `mimo_mtp` | MiMo-7B (`mimo`) | 16 `model.mtp_layers.0.*` tensors | dense full attention with q/k/v biases | block not implemented here: a draft block whose attention carries q/k/v biases; the recorded hidden-first concatenation order is **provisional** (taken from third-party code) | structurally extensible |
+| `mimo_mtp` | MiMo-7B (`mimo`) | 16 `model.mtp_layers.0.*` tensors | dense full attention with q/k/v biases | block implemented here; the hidden-first fusion and the position-0 embedding mask follow the family's released rollout code. A MiMo *target* also needs its embedded draft tensors dropped at load time, which the family's own loader entry does and its description answers for as well | measured (K=1); K>1 mechanism reference |
 | — | Nemotron-3.5-Lightning-1.4B (`nemotron_h`) | `mtp.*` with DeepSeek-style names, **2 groups** against a count of 1 | full attention + MoE (`mtp_layers_block_type`) | not described yet: needs a MoE draft block | structurally extensible |
 | — | Inkling (`inkling_mm_model`) | `mtp_config.num_nextn_predict_layers` | hybrid block, hidden-first fusion | not described yet: needs a hybrid draft block and the hidden-first fusion | not supported yet |
 | — | Gemma 4 assistant (`gemma4_assistant`) | separate assistant checkpoint | consumes the target's KV states | not described yet (out of scope: this infrastructure has no target-KV channel) | not supported yet |
 | — | Kimi-K2 | none published | — | not described yet: nothing to draft with (C1) | not supported yet |
 
-"Structurally extensible" means the metadata was read from the published checkpoint and the shape of
-the missing piece is known; it does **not** mean the family has been run. "Not supported yet" always
+"Component-verified" means the family's block was checked against a reference forward and its weight
+mapping against the published keys, on synthetic weights rather than a released checkpoint and
+without an end-to-end measurement, so it ranks below "measured". "Structurally extensible" means the
+metadata was read from the published checkpoint and the shape of the missing piece is known; it does
+**not** mean the family has been run. "Not supported yet" always
 names a missing piece of this build, never a claim about the model.
 
 ---

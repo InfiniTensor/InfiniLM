@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """
-Latency benchmark for Qwen3.5 MTP speculative decoding.
+Latency benchmark for MiMo MTP speculative decoding.
 
 Greedy-decodes a fixed prompt set twice with the InfiniLM engine on the same
-GPU: once with speculation off (no --draft-model) and once with MTP
-speculation on. After one untimed warmup generation, each run is timed over
-multiple rounds and reported as per-prompt latency plus aggregate
-tokens/second; the speculative run also reports the draft acceptance
-counters.
+GPU: once with speculation off (no --draft-model) and once with MTP speculation
+on. After one untimed warmup generation, each run is timed over multiple rounds
+and reported as per-prompt latency plus aggregate tokens/second; the speculative
+run also reports the draft acceptance counters.
 
 The number of draft tokens verified per target step is configurable via
---num-draft-tokens. Losslessness is only verified for the default K=1
-(see test_speculative_lossless.py); K>1 numbers are mechanism performance
-references only.
+--num-draft-tokens; losslessness itself is checked token by token by
+test_speculative_lossless.py.
+
+Without --model the benchmark builds a tiny synthetic checkpoint that carries
+the target and the released draft key layout, so the measurement is reproducible
+without downloading weights; timings of the tiny target are a mechanism
+reference, not a model benchmark. Point --model at a released MiMo checkpoint
+for real numbers.
 """
 
 import argparse
@@ -20,6 +24,7 @@ import gc
 import os
 import statistics
 import sys
+import tempfile
 import time
 
 try:
@@ -36,10 +41,20 @@ except ImportError as e:
     print(f"  Error: {e}")
     sys.exit(1)
 
-DEFAULT_MODEL_DIR = os.path.expanduser("~/models/Qwen3.5-2B")
+_TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(_TEST_DIR, "..", "llama"))
+sys.path.insert(0, _TEST_DIR)
+
+from test_speculative_lossless import remove_tree, write_checkpoint  # noqa: E402
+
 DEFAULT_DEVICE = "cuda"
 DEFAULT_MAX_NEW_TOKENS = 48
 DEFAULT_ROUNDS = 3
+# The synthetic checkpoint is small, so the same paged configuration as the
+# losslessness check keeps the cache footprint tiny.
+SYNTHETIC_NUM_BLOCKS = 8
+SYNTHETIC_BLOCK_SIZE = 16
+SYNTHETIC_MAX_CACHE_LEN = 512
 
 PROMPTS = [
     "1 + 1 =",
@@ -51,10 +66,10 @@ PROMPTS = [
 ]
 
 
-def build_engine(model_dir, draft_model_dir, device, max_new_tokens, num_draft_tokens):
-    """Build the LLM engine; hybrid qwen3.5 needs paged attn, no prefix cache."""
-    # Small cache footprint so the target and draft engines fit alongside
-    # each other on a single consumer GPU.
+def build_engine(
+    model_dir, draft_model_dir, device, max_new_tokens, num_draft_tokens, synthetic
+):
+    """Build the LLM engine; MTP drafting needs the paged cache."""
     return LLM(
         model_path=model_dir,
         draft_model_path=draft_model_dir,
@@ -65,9 +80,9 @@ def build_engine(model_dir, draft_model_dir, device, max_new_tokens, num_draft_t
         attn_backend="paged-attn",
         enable_prefix_caching=False,
         max_batch_size=1,
-        num_blocks=32,
-        block_size=256,
-        max_cache_len=1024,
+        num_blocks=SYNTHETIC_NUM_BLOCKS if synthetic else 32,
+        block_size=SYNTHETIC_BLOCK_SIZE if synthetic else 256,
+        max_cache_len=SYNTHETIC_MAX_CACHE_LEN if synthetic else 1024,
         max_tokens=max_new_tokens,
         temperature=1.0,
         top_p=1.0,
@@ -149,13 +164,14 @@ def report_accept_stats(engine):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Qwen3.5 MTP speculative decoding latency benchmark (greedy)"
+        description="MiMo MTP speculative decoding latency benchmark (greedy)"
     )
     parser.add_argument(
         "--model",
         type=str,
-        default=DEFAULT_MODEL_DIR,
-        help=f"Path to the Qwen3.5 checkpoint (default: {DEFAULT_MODEL_DIR})",
+        default=None,
+        help="Path to a released MiMo checkpoint; without it a tiny synthetic "
+        "checkpoint carrying the target and its draft head is used",
     )
     parser.add_argument(
         "--device",
@@ -179,15 +195,14 @@ def main():
         "--num-draft-tokens",
         type=int,
         default=1,
-        help="Draft tokens verified per target step; losslessness is only "
-        "verified for the default K=1 (default: %(default)s)",
+        help="Draft tokens verified per target step (default: %(default)s)",
     )
     args = parser.parse_args()
 
     print("=" * 70)
-    print("Qwen3.5 MTP Speculative Decoding Latency Benchmark")
+    print("MiMo MTP Speculative Decoding Latency Benchmark")
     print("=" * 70)
-    print(f"Model: {args.model}")
+    print(f"Model: {args.model or 'synthetic checkpoint'}")
     print(f"Device: {args.device}")
     print(
         f"Prompts: {len(PROMPTS)} fixed inputs, {args.max_new_tokens} new tokens"
@@ -211,50 +226,68 @@ def main():
         print("✗ --num-draft-tokens must be >= 1")
         return 1
 
-    print("\n1. Baseline run (speculation off)...")
-    baseline = build_engine(
-        args.model, None, args.device, args.max_new_tokens, args.num_draft_tokens
-    )
-    try:
-        # One untimed generation lets kernels reach steady state before the
-        # timed rounds.
-        timed_rounds(baseline, PROMPTS[:1], args.max_new_tokens, 1)
-        baseline_rounds = timed_rounds(
-            baseline, PROMPTS, args.max_new_tokens, args.rounds
-        )
-    finally:
-        # Release the engine before the speculative run: the target and draft
-        # engines must not share the GPU with the previous run's weights.
-        close_engine(baseline)
-    baseline_seconds, baseline_tokens = report_run("Baseline", baseline_rounds)
+    root = None
+    if args.model is None:
+        root = tempfile.mkdtemp(prefix="infinilm_mimo_latency_")
+        write_checkpoint(root)
+        print(f"\n0. Wrote the synthetic checkpoint ({root})...")
+    model_dir = args.model or root
+    synthetic = root is not None
 
-    print("\n2. Speculative run (MTP draft on the same checkpoint)...")
-    speculative = build_engine(
-        args.model,
-        args.model,
-        args.device,
-        args.max_new_tokens,
-        args.num_draft_tokens,
-    )
     try:
-        timed_rounds(speculative, PROMPTS[:1], args.max_new_tokens, 1)
-        speculative_rounds = timed_rounds(
-            speculative, PROMPTS, args.max_new_tokens, args.rounds
+        print("\n1. Baseline run (speculation off)...")
+        baseline = build_engine(
+            model_dir,
+            None,
+            args.device,
+            args.max_new_tokens,
+            args.num_draft_tokens,
+            synthetic,
         )
-        print("   acceptance stats (cumulative over warmup + timed rounds):")
-        report_accept_stats(speculative)
-    finally:
-        close_engine(speculative)
-    spec_seconds, spec_tokens = report_run("Speculative", speculative_rounds)
+        try:
+            # One untimed generation lets kernels reach steady state before the
+            # timed rounds.
+            timed_rounds(baseline, PROMPTS[:1], args.max_new_tokens, 1)
+            baseline_rounds = timed_rounds(
+                baseline, PROMPTS, args.max_new_tokens, args.rounds
+            )
+        finally:
+            # Release the engine before the speculative run: the target and draft
+            # engines must not share the GPU with the previous run's weights.
+            close_engine(baseline)
+        baseline_seconds, baseline_tokens = report_run("Baseline", baseline_rounds)
 
-    print("\n" + "=" * 70)
-    speedup = baseline_seconds / spec_seconds if spec_seconds else 0.0
-    print(
-        f"Speedup (round-total median, baseline / speculative): {speedup:.3f}x"
-        f"  ({baseline_tokens} vs {spec_tokens} tokens)"
-    )
-    print("=" * 70)
-    return 0
+        print("\n2. Speculative run (MTP draft on the same checkpoint)...")
+        speculative = build_engine(
+            model_dir,
+            model_dir,
+            args.device,
+            args.max_new_tokens,
+            args.num_draft_tokens,
+            synthetic,
+        )
+        try:
+            timed_rounds(speculative, PROMPTS[:1], args.max_new_tokens, 1)
+            speculative_rounds = timed_rounds(
+                speculative, PROMPTS, args.max_new_tokens, args.rounds
+            )
+            print("   acceptance stats (cumulative over warmup + timed rounds):")
+            report_accept_stats(speculative)
+        finally:
+            close_engine(speculative)
+        spec_seconds, spec_tokens = report_run("Speculative", speculative_rounds)
+
+        print("\n" + "=" * 70)
+        speedup = baseline_seconds / spec_seconds if spec_seconds else 0.0
+        print(
+            f"Speedup (round-total median, baseline / speculative): {speedup:.3f}x"
+            f"  ({baseline_tokens} vs {spec_tokens} tokens)"
+        )
+        print("=" * 70)
+        return 0
+    finally:
+        if root is not None:
+            remove_tree(root)
 
 
 if __name__ == "__main__":

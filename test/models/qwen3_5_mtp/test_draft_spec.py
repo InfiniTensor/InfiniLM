@@ -40,6 +40,7 @@ from infinilm.draft_spec import (  # noqa: E402
     explain_missing_draft,
     get_draft_model_spec,
     get_draft_weight_remapper,
+    get_embedded_draft_target_remapper,
     list_draft_model_specs,
     register_draft_model_spec,
     resolve_draft,
@@ -153,48 +154,6 @@ def qwen_target_shards(tie=True, depth_groups=1, embed_seed=7):
     return {
         "model-00001-of-00002.safetensors": embedding,
         "model-00002-of-00002.safetensors": draft,
-    }
-
-
-def mimo_shards():
-    """The tensors MiMo-7B publishes for its draft block, scaled down."""
-    return {
-        "model.safetensors": {
-            "model.mtp_layers.0.token_layernorm.weight": rand((HIDDEN_SIZE,), 41),
-            "model.mtp_layers.0.hidden_layernorm.weight": rand((HIDDEN_SIZE,), 42),
-            "model.mtp_layers.0.input_proj.weight": rand(
-                (2 * HIDDEN_SIZE, HIDDEN_SIZE), 43
-            ),
-            "model.mtp_layers.0.final_layernorm.weight": rand((HIDDEN_SIZE,), 44),
-            "model.mtp_layers.0.input_layernorm.weight": rand((HIDDEN_SIZE,), 45),
-            "model.mtp_layers.0.post_attention_layernorm.weight": rand(
-                (HIDDEN_SIZE,), 46
-            ),
-            "model.mtp_layers.0.mlp.gate_proj.weight": rand(
-                (2 * HIDDEN_SIZE, HIDDEN_SIZE), 47
-            ),
-            "model.mtp_layers.0.mlp.up_proj.weight": rand(
-                (2 * HIDDEN_SIZE, HIDDEN_SIZE), 48
-            ),
-            "model.mtp_layers.0.mlp.down_proj.weight": rand(
-                (HIDDEN_SIZE, 2 * HIDDEN_SIZE), 49
-            ),
-            "model.mtp_layers.0.self_attn.q_proj.weight": rand(
-                (2 * HIDDEN_SIZE, HIDDEN_SIZE), 50
-            ),
-            "model.mtp_layers.0.self_attn.k_proj.weight": rand(
-                (HIDDEN_SIZE, HIDDEN_SIZE), 51
-            ),
-            "model.mtp_layers.0.self_attn.v_proj.weight": rand(
-                (HIDDEN_SIZE, HIDDEN_SIZE), 52
-            ),
-            "model.mtp_layers.0.self_attn.o_proj.weight": rand(
-                (HIDDEN_SIZE, 2 * HIDDEN_SIZE), 53
-            ),
-            "model.mtp_layers.0.self_attn.q_proj.bias": rand((2 * HIDDEN_SIZE,), 54),
-            "model.mtp_layers.0.self_attn.k_proj.bias": rand((HIDDEN_SIZE,), 55),
-            "model.mtp_layers.0.self_attn.v_proj.bias": rand((HIDDEN_SIZE,), 56),
-        }
     }
 
 
@@ -330,8 +289,8 @@ class RegistryDocumentationTest(unittest.TestCase):
         pending = [
             spec.family for spec in list_draft_model_specs() if not spec.is_available
         ]
-        self.assertEqual(available, ["qwen3_5_mtp", "minicpm_eagle"])
-        self.assertEqual(pending, ["qwen_moe_mtp", "deepseek_v3_mtp", "mimo_mtp"])
+        self.assertEqual(available, ["qwen3_5_mtp", "minicpm_eagle", "mimo_mtp"])
+        self.assertEqual(pending, ["qwen_moe_mtp", "deepseek_v3_mtp"])
 
 
 class DescriptorResolutionTest(DraftSpecTestCase):
@@ -540,22 +499,6 @@ class DescriptorResolutionTest(DraftSpecTestCase):
         self.assertIn("MLA + MoE draft block", message)
         self.assertNotIn("no draft description", message)
 
-    def test_mimo_description_names_what_this_build_is_missing(self):
-        root = self.make_root()
-        config = {
-            "model_type": "mimo",
-            "text_config": {
-                "num_nextn_predict_layers": 1,
-                "hidden_size": HIDDEN_SIZE,
-                "num_hidden_layers": 2,
-                "vocab_size": VOCAB_SIZE,
-            },
-        }
-        write_checkpoint(root, config, mimo_shards())
-
-        with self.assertRaisesRegex(UnsupportedDraftError, "q/k/v biases"):
-            resolve_draft(root)
-
     def test_recorded_semantics_are_rejected_for_standalone_descriptions_too(self):
         # The "recorded but not executed" fields must fail on every path that
         # uses the description, not only when a checkpoint embeds its head.
@@ -667,38 +610,9 @@ class DraftWeightMapTest(unittest.TestCase):
             torch.equal(remapped["model.enorm.weight"], torch.ones(HIDDEN_SIZE))
         )
 
-    def test_mimo_renames_the_fusion_tensors(self):
-        state_dict = {
-            "model.mtp_layers.0.token_layernorm.weight": torch.ones(HIDDEN_SIZE),
-            "model.mtp_layers.0.hidden_layernorm.weight": torch.ones(HIDDEN_SIZE),
-            "model.mtp_layers.0.input_proj.weight": torch.ones(
-                2 * HIDDEN_SIZE, HIDDEN_SIZE
-            ),
-            "model.mtp_layers.0.final_layernorm.weight": torch.ones(HIDDEN_SIZE),
-            "model.mtp_layers.0.self_attn.q_proj.bias": torch.ones(2 * HIDDEN_SIZE),
-            "model.embed_tokens.weight": rand((VOCAB_SIZE, HIDDEN_SIZE), 2),
-            "lm_head.weight": rand((VOCAB_SIZE, HIDDEN_SIZE), 3),
-        }
-
-        remapped = get_draft_weight_remapper("mimo_mtp")(
-            state_dict, {"tie_word_embeddings": False}
-        )
-
-        self.assertIn("model.pre_fc_norm_embedding.weight", remapped)
-        self.assertIn("model.pre_fc_norm_hidden.weight", remapped)
-        self.assertIn("model.fc.weight", remapped)
-        self.assertIn("model.norm.weight", remapped)
-        self.assertIn("model.self_attn.q_proj.bias", remapped)
-        self.assertIn("lm_head.weight", remapped)
-
-    def test_loader_derives_a_remapper_without_a_table_entry(self):
+    def test_loader_prefers_a_registered_table_entry(self):
         from infinilm import modeling_utils
 
-        self.assertIsNotNone(get_draft_weight_remapper("mimo_mtp"))
-        self.assertNotIn("mimo_mtp", modeling_utils._WEIGHT_REMAPPER)
-        self.assertIs(
-            get_weight_remapper("mimo_mtp"), get_draft_weight_remapper("mimo_mtp")
-        )
         # Registered table entries keep priority, so the historical
         # qwen3_5_mtp mapper is still the one the loader calls.
         self.assertIs(
@@ -713,6 +627,343 @@ class DraftWeightMapTest(unittest.TestCase):
             get_draft_weight_remapper("qwen3_5_mtp")(
                 build_tiny_mtp_weights(seed=1), config
             )
+
+
+def deepseek_layout(block_layers=(2,), plain_layers=(0, 1)):
+    """The released DeepSeek-V3 layout, scaled down.
+
+    This family publishes its draft block as one extra decoder layer per
+    published depth, after the target's own layers. Besides the tensors its key
+    feature names, each of those layers carries a whole transformer block and a
+    per-depth copy of the embedding, while the target keeps its own embedding
+    and head at the top level.
+    """
+
+    def tensor(value, shape=(4,)):
+        return torch.full(shape, float(value))
+
+    state_dict = {
+        "model.embed_tokens.weight": tensor(1.0, (8, 4)),
+        "lm_head.weight": tensor(2.0, (8, 4)),
+        "model.norm.weight": tensor(3.0),
+    }
+    for layer in plain_layers:
+        prefix = f"model.layers.{layer}."
+        state_dict[prefix + "input_layernorm.weight"] = tensor(10 + layer)
+        state_dict[prefix + "self_attn.q_a_proj.weight"] = tensor(20 + layer, (4, 4))
+        state_dict[prefix + "mlp.gate_proj.weight"] = tensor(30 + layer, (4, 4))
+    for depth, layer in enumerate(block_layers):
+        prefix = f"model.layers.{layer}."
+        for offset, (suffix, shape) in enumerate(
+            (
+                ("enorm.weight", (4,)),
+                ("hnorm.weight", (4,)),
+                ("eh_proj.weight", (4, 8)),
+                ("shared_head.norm.weight", (4,)),
+                ("shared_head.head.weight", (8, 4)),
+                ("embed_tokens.weight", (8, 4)),
+                ("input_layernorm.weight", (4,)),
+                ("post_attention_layernorm.weight", (4,)),
+                ("self_attn.q_a_proj.weight", (4, 4)),
+                ("mlp.gate_proj.weight", (4, 4)),
+            )
+        ):
+            state_dict[prefix + suffix] = tensor(40 + 10 * depth + offset, shape)
+    return state_dict
+
+
+class TargetSideDerivationTest(unittest.TestCase):
+    """A target whose checkpoint embeds a described draft head is answered too.
+
+    The target engine loads the checkpoint as a whole, so the embedded draft
+    tensors have to leave before the target module tree sees them. The loader's
+    table keeps priority; the cases below pin the answer an embedded family gets
+    from its description alone, and the properties that keep that answer to the
+    family's own tensors: only an embedded family gives one, a table entry
+    always wins, the removal covers everything the family publishes (its key
+    feature plus the draft layers that feature locates in the weights), and it
+    reaches nothing else.
+    """
+
+    def register(
+        self,
+        family,
+        embedded,
+        targets=(),
+        weight_map=True,
+        layer_key_pattern=None,
+        **overrides,
+    ):
+        spec = register_draft_model_spec(
+            DraftModelSpec(
+                family=family,
+                embedded=embedded,
+                target_model_types=targets,
+                weight_map=(
+                    DraftWeightMap(
+                        family_keys=r"^draft_head\.",
+                        key_pattern=r"^draft_head\.(?P<rest>.+)$",
+                        layer_key_pattern=layer_key_pattern,
+                    )
+                    if weight_map
+                    else None
+                ),
+                **overrides,
+            )
+        )
+        self.addCleanup(DRAFT_MODEL_SPECS.pop, family, None)
+        return spec
+
+    def test_a_described_family_answers_for_its_target_type(self):
+        self.register(
+            "synthetic_target_family", True, targets=("synthetic_target_model",)
+        )
+        draft_key = "draft_head.fc.weight"
+        target_key = "model.layers.0.self_attn.q_proj.weight"
+        state_dict = {
+            target_key: torch.full((4, 4), 1.0),
+            draft_key: torch.full((4, 8), 2.0),
+        }
+
+        remapper = get_weight_remapper("synthetic_target_model")
+
+        self.assertIs(
+            remapper, get_embedded_draft_target_remapper("synthetic_target_model")
+        )
+        remapped = remapper(state_dict, config={})
+        self.assertEqual(set(remapped), {target_key})
+        # The kept tensors are handed over untouched: this mapping removes, it
+        # does not rename, rescale or add.
+        self.assertIs(remapped[target_key], state_dict[target_key])
+
+    def test_the_target_answer_does_not_wait_for_the_draft_block(self):
+        # A family can be described before this build can run its block; loading
+        # its checkpoint as a target is independent of that gap.
+        self.register(
+            "synthetic_pending_family",
+            True,
+            targets=("synthetic_pending_target",),
+            unimplemented=("a draft block this build cannot compose",),
+        )
+
+        self.assertIsNotNone(get_weight_remapper("synthetic_pending_target"))
+
+    def test_every_target_type_of_a_family_gets_the_same_mapper(self):
+        self.assertIs(
+            get_weight_remapper("deepseek_v3"), get_weight_remapper("deepseek_v32")
+        )
+
+    def test_only_an_embedded_family_answers_for_its_target(self):
+        # The two descriptions differ in `embedded` alone, so the pair separates
+        # the embedded gate from the weight-map gate.
+        self.register(
+            "synthetic_embedded_gate",
+            True,
+            targets=("synthetic_embedded_gate_target",),
+        )
+        self.register(
+            "synthetic_standalone_gate",
+            False,
+            targets=("synthetic_standalone_gate_target",),
+        )
+
+        self.assertIsNotNone(get_weight_remapper("synthetic_embedded_gate_target"))
+        self.assertIsNone(get_weight_remapper("synthetic_standalone_gate_target"))
+
+    def test_a_family_without_a_weight_map_answers_for_nothing(self):
+        self.register(
+            "synthetic_mapless_gate",
+            True,
+            targets=("synthetic_mapless_gate_target",),
+            weight_map=False,
+        )
+
+        self.assertIsNone(get_weight_remapper("synthetic_mapless_gate_target"))
+
+    def test_the_standalone_family_keeps_both_sides_unchanged(self):
+        # The one registered family that is not embedded: no target-side answer,
+        # and its draft side stays exactly as it was.
+        self.assertIsNone(get_weight_remapper("minicpm_eagle"))
+        self.assertIsNone(get_draft_weight_remapper("minicpm_eagle"))
+
+    def test_a_registered_table_entry_still_wins(self):
+        from infinilm import modeling_utils
+
+        self.assertIs(get_weight_remapper("mimo"), modeling_utils._remap_mimo)
+        entry = modeling_utils._WEIGHT_REMAPPER.pop("mimo")
+        self.addCleanup(modeling_utils._WEIGHT_REMAPPER.__setitem__, "mimo", entry)
+
+        self.assertIsNot(get_weight_remapper("mimo"), entry)
+        self.assertIs(
+            get_weight_remapper("mimo"), get_embedded_draft_target_remapper("mimo")
+        )
+
+    def test_a_draft_block_that_reuses_the_layer_layout_is_dropped_whole(self):
+        # The sharpest layout: this family publishes its draft block as one extra
+        # decoder layer, so most of its tensors sit in the namespace every
+        # checkpoint has. The layer the family's own keys locate is the draft
+        # layer, and everything under it goes with it.
+        state_dict = deepseek_layout(block_layers=(2,), plain_layers=(0, 1))
+        block_keys = {key for key in state_dict if key.startswith("model.layers.2.")}
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(set(state_dict) - set(remapped), block_keys)
+        # Every target tensor survives and is handed over untouched.
+        self.assertEqual(
+            set(remapped),
+            {key for key in state_dict if key not in block_keys},
+        )
+        for key, tensor in remapped.items():
+            self.assertIs(tensor, state_dict[key])
+
+    def test_every_published_draft_layer_is_dropped_not_only_the_first(self):
+        # A family may publish more than one depth; each one is a whole reused
+        # layer of its own. Dropping only the first located layer would leave the
+        # remaining depths behind and fail the load.
+        state_dict = deepseek_layout(block_layers=(2, 3), plain_layers=(0, 1))
+        block_keys = {
+            key
+            for key in state_dict
+            if key.startswith("model.layers.2.") or key.startswith("model.layers.3.")
+        }
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(set(state_dict) - set(remapped), block_keys)
+        self.assertEqual(
+            set(remapped), {key for key in state_dict if key not in block_keys}
+        )
+        for key, tensor in remapped.items():
+            self.assertIs(tensor, state_dict[key])
+
+    def test_a_description_that_cannot_name_its_layer_index_is_reported(self):
+        # Locating a draft layer needs the layer index, which the description
+        # field is documented to expose in a `depth` group. A description that
+        # does not must name that requirement, whatever the shard holds, rather
+        # than failing inside a weight load with a bare group lookup.
+        self.register(
+            "synthetic_groupless_family",
+            True,
+            targets=("synthetic_groupless_target",),
+            layer_key_pattern=r"^draft_head\.layers\.\d+\.",
+        )
+        state_dict = {"model.layers.0.self_attn.q_proj.weight": torch.full((4, 4), 1.0)}
+
+        with self.assertRaisesRegex(
+            ValueError, "synthetic_groupless_family.*group named 'depth'"
+        ):
+            get_weight_remapper("synthetic_groupless_target")(state_dict, config={})
+
+    def test_a_located_layer_does_not_swallow_a_longer_layer_index(self):
+        # Layer 6 carries the family's keys while layer 61 is an ordinary target
+        # layer: a layer prefix that stopped before the separator would remove
+        # both.
+        state_dict = {
+            "model.layers.6.enorm.weight": torch.full((4,), 1.0),
+            "model.layers.6.input_layernorm.weight": torch.full((4,), 2.0),
+            "model.layers.61.self_attn.q_a_proj.weight": torch.full((4, 4), 3.0),
+            "model.layers.61.mlp.gate_proj.weight": torch.full((8, 4), 4.0),
+        }
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(
+            set(remapped),
+            {
+                "model.layers.61.self_attn.q_a_proj.weight",
+                "model.layers.61.mlp.gate_proj.weight",
+            },
+        )
+
+    def test_target_tensors_outside_the_located_layer_survive(self):
+        # Names that merely resemble the family's, target tensors of other
+        # layers, and the shared embedding and head all reach the target; only
+        # the layer the family's own keys locate goes.
+        state_dict = {
+            "model.embed_tokens.weight": torch.full((4,), 1.0),
+            "lm_head.weight": torch.full((4,), 2.0),
+            "model.layers.3.enorm_extra.weight": torch.full((4,), 3.0),
+            "model.layers.3.mtp_layers.weight": torch.full((4,), 4.0),
+            "model.layers.3.self_attn.q_a_proj.weight": torch.full((4, 4), 5.0),
+            "model.layers.2.enorm.weight": torch.full((4,), 6.0),
+        }
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(
+            set(remapped),
+            {key for key in state_dict if key != "model.layers.2.enorm.weight"},
+        )
+
+    def test_a_located_layer_removes_nothing_from_another_family(self):
+        # The three families happen to use the same layer index in their own
+        # namespaces; the layer this family locates must not reach into another
+        # family's namespace or into the other layers of its own.
+        state_dict = {
+            "mtp.layers.2.fc.weight": torch.full((4, 8), 1.0),
+            "mtp.fc.weight": torch.full((4, 8), 2.0),
+            "model.mtp_layers.2.input_proj.weight": torch.full((4, 8), 3.0),
+            "model.layers.2.enorm.weight": torch.full((4,), 4.0),
+            "model.layers.20.self_attn.q_a_proj.weight": torch.full((4, 4), 5.0),
+        }
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(
+            set(remapped),
+            {
+                "mtp.layers.2.fc.weight",
+                "mtp.fc.weight",
+                "model.mtp_layers.2.input_proj.weight",
+                "model.layers.20.self_attn.q_a_proj.weight",
+            },
+        )
+
+    def test_a_generic_checkpoint_loses_nothing(self):
+        state_dict = {
+            "model.embed_tokens.weight": torch.full((4,), 1.0),
+            "model.layers.0.self_attn.q_proj.weight": torch.full((4, 4), 1.0),
+            "model.layers.1.mlp.up_proj.weight": torch.full((8, 4), 1.0),
+            "model.norm.weight": torch.full((4,), 1.0),
+        }
+
+        remapped = get_weight_remapper("deepseek_v3")(state_dict, config={})
+
+        self.assertEqual(set(remapped), set(state_dict))
+
+    def test_one_family_does_not_remove_another_family_s_tensors(self):
+        from infinilm import modeling_utils
+
+        state_dict = {
+            "mtp.fc.weight": torch.full((4, 8), 1.0),
+            "model.mtp_layers.0.input_proj.weight": torch.full((4, 8), 2.0),
+            "model.layers.2.enorm.weight": torch.full((4,), 3.0),
+        }
+
+        deepseek = get_weight_remapper("deepseek_v3")(state_dict, config={})
+        self.assertEqual(
+            set(deepseek),
+            {"mtp.fc.weight", "model.mtp_layers.0.input_proj.weight"},
+        )
+
+        entry = modeling_utils._WEIGHT_REMAPPER.pop("mimo")
+        self.addCleanup(modeling_utils._WEIGHT_REMAPPER.__setitem__, "mimo", entry)
+        mimo = get_weight_remapper("mimo")(state_dict, config={})
+        self.assertEqual(set(mimo), {"mtp.fc.weight", "model.layers.2.enorm.weight"})
+
+    def test_the_target_answer_is_not_the_draft_selection(self):
+        # The two answers are different mappings: the draft selection keeps only
+        # the draft tensors, the target answer keeps everything else.
+        self.assertIsNot(
+            get_weight_remapper("deepseek_v3"),
+            get_draft_weight_remapper("deepseek_v3_mtp"),
+        )
+
+    def test_model_types_outside_both_namespaces_answer_for_nothing(self):
+        for model_type in ("llama", "minicpm", "qwen3_moe"):
+            with self.subTest(model_type=model_type):
+                self.assertIsNone(get_weight_remapper(model_type))
 
 
 class _StubTargetEngine:
