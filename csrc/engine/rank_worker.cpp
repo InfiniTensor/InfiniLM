@@ -476,7 +476,12 @@ void RankWorker::thread_loop() {
                             const auto &batch_size{logits_shape[0]};
 
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                            auto cpu_input_offsets = local_args.input_offsets.value();
+                            if (cpu_input_offsets->device().getType() != infinicore::Device::Type::CPU) {
+                                cpu_input_offsets = cpu_input_offsets->to(infinicore::Device::cpu());
+                                infinicore::context::syncStream();
+                            }
+                            const int32_t *input_offsets = reinterpret_cast<const int32_t *>(cpu_input_offsets->data());
 
                             const bool sample_all_positions = local_args.sample_all_positions;
                             const size_t logits_positions = batch_size * total_len;
