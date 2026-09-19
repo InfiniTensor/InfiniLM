@@ -13,6 +13,7 @@ from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
 )
+from infinilm.llm.model_runner.mtp_runner import MTPRunner
 from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
@@ -64,6 +65,7 @@ class ModelRunner:
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
                 max_batch_size=config.max_batch_size,
+                num_state_rows=config.num_state_rows,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:
@@ -91,6 +93,7 @@ class ModelRunner:
             weight_load_mode=config.weight_load_mode,
             use_legacy_moe=config.use_legacy_moe,
             pre_transpose=config.pre_transpose,
+            enable_mtp=config.enable_mtp,
         )
 
         if self.model_engine.model_type == "minicpm_eagle":
@@ -107,7 +110,9 @@ class ModelRunner:
             )
 
         self.speculative_runner = None
-        if config.draft_model_path is not None:
+        if config.enable_mtp:
+            self.speculative_runner = MTPRunner(config, self.model_engine)
+        elif config.draft_model_path is not None:
             self.speculative_runner = SpeculativeRunner(
                 config, self.model_engine, self.device
             )
@@ -278,4 +283,8 @@ class ModelRunner:
             self.pipeline_control.close()
         if self.kv_connector is not None:
             self.kv_connector.shutdown()
+        if self.speculative_runner is not None:
+            cache = getattr(self.speculative_runner, "prefix_cache", None)
+            if cache is not None:
+                cache.clear()
         self._closed = True

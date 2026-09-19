@@ -42,7 +42,19 @@ class LLMEngine:
         self.config = config
         hf_config = read_hf_config(config.model_path)
         has_mamba_cache = model_uses_mamba_cache(hf_config)
-        if has_mamba_cache and config.enable_prefix_caching:
+        if config.num_state_rows and hf_config["model_type"] not in (
+            "qwen3_5",
+            "qwen3_5_moe",
+            "qwen3_next",
+        ):
+            raise ValueError(
+                "Explicit num_state_rows is currently supported for Qwen hybrid models only."
+            )
+        if (
+            has_mamba_cache
+            and config.enable_prefix_caching
+            and not (config.enable_mtp and config.mtp_prefix_cache_bytes)
+        ):
             model_type = hf_config["model_type"]
             raise RuntimeError(
                 "Prefix caching is not supported for Mamba-cache model "
@@ -94,7 +106,9 @@ class LLMEngine:
             max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
-            num_mamba_cache_blocks = max(2, config.num_blocks // 4)
+            num_mamba_cache_blocks = config.num_state_rows or max(
+                2, config.num_blocks // 4
+            )
 
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
@@ -135,9 +149,45 @@ class LLMEngine:
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
+        if getattr(self, "_closed", False):
+            raise RuntimeError("LLM engine is closed")
+        if self.config.enable_mtp:
+            self.model_runner.speculative_runner.validate_request(request)
+            if (
+                request.get_prompt_length() + request.sampling_params.max_tokens
+                > self.config.num_blocks * self.config.block_size
+            ):
+                raise ValueError(
+                    "MTP prompt and output limit exceed the paged cache capacity."
+                )
         self.scheduler.add_request(request)
 
+    @staticmethod
+    def _publish_terminal(request):
+        if request._output_queue is not None:
+            try:
+                request.output_queue.sync_q.put_nowait(
+                    TokenOutput(
+                        request_id=request.request_id,
+                        token_id=-1,
+                        token_text="",
+                        finished=True,
+                        finish_reason=request.finish_reason,
+                        generated_text=request.generated_text,
+                    )
+                )
+            except Exception:
+                # A disconnected client may already have closed its queue.
+                # Publishing a terminal event must not interrupt cache cleanup.
+                logger.debug("Terminal output queue closed for %s", request.request_id)
+
     def close(self):
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        if self.config.enable_mtp:
+            for req in self.scheduler.cancel_all():
+                self._publish_terminal(req)
         self.model_runner.close()
 
     def step(self) -> tuple[bool, list[tuple]]:
@@ -154,7 +204,17 @@ class LLMEngine:
         if scheduler_output is None:
             return False, []
 
-        runner_output = self.model_runner.execute_model(scheduler_output)
+        try:
+            runner_output = self.model_runner.execute_model(scheduler_output)
+        except Exception:
+            if self.config.enable_mtp:
+                for req in scheduler_output.scheduled_requests:
+                    if not req.is_finished():
+                        req.mark_failed()
+                self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+                for req in scheduler_output.scheduled_requests:
+                    self._publish_terminal(req)
+            raise
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
         pending = self._update_requests(
@@ -366,6 +426,9 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        enable_mtp: bool = False,
+        num_state_rows: int = 0,
+        mtp_prefix_cache_bytes: int = 0,
     ):
         """Initialize LLM.
 
@@ -384,6 +447,14 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            enable_mtp: Use built-in Qwen MTP (text, greedy, 1-4 candidates,
+                paged cache). Batched verification runs eager. With one request
+                and one candidate, enable_graph captures Decode and MTP drafts;
+                target verification remains eager.
+            num_state_rows: Hybrid state pool capacity including zero row.
+                Zero selects a concurrency/candidate-based capacity for MTP.
+            mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).
+                Nonzero requires enable_prefix_caching; zero disables snapshots.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -418,6 +489,9 @@ class LLM:
             skip_load=skip_load,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            enable_mtp=enable_mtp,
+            num_state_rows=num_state_rows,
+            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -594,6 +668,9 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        enable_mtp: bool = False,
+        num_state_rows: int = 0,
+        mtp_prefix_cache_bytes: int = 0,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -612,6 +689,14 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            enable_mtp: Use built-in Qwen MTP (text, greedy, 1-4 candidates,
+                paged cache). Batched verification runs eager. With one request
+                and one candidate, enable_graph captures Decode and MTP drafts;
+                target verification remains eager.
+            num_state_rows: Hybrid state pool capacity including zero row.
+                Zero selects a concurrency/candidate-based capacity for MTP.
+            mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).
+                Nonzero requires enable_prefix_caching; zero disables snapshots.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
@@ -651,6 +736,9 @@ class AsyncLLMEngine:
             weight_load_mode=weight_load_mode,
             use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
+            enable_mtp=enable_mtp,
+            num_state_rows=num_state_rows,
+            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -681,13 +769,11 @@ class AsyncLLMEngine:
 
     def stop(self):
         """Stop the background inference loop."""
-        if not self._running:
-            logger.warning("AsyncLLMEngine is not running")
-            return
-
         self._running = False
         if self._step_thread:
-            self._step_thread.join(timeout=5)
+            # Do not free model/state buffers while a long Prefill is still
+            # executing on the background thread.
+            self._step_thread.join()
         self.engine.close()
         logger.info("AsyncLLMEngine stopped")
 
@@ -760,6 +846,8 @@ class AsyncLLMEngine:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
                 self._running = False
+                if self.config.enable_mtp:
+                    self.engine.close()
                 break
 
     @staticmethod

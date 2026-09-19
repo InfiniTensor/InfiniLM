@@ -35,6 +35,14 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
 
+    void process_weights_after_loading() override {
+        in_proj_qkv_->process_weights_after_loading();
+    }
+
+    void reset_runtime_state() const override {
+        in_proj_qkv_->reset_runtime_state();
+    }
+
 private:
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_z_;

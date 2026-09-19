@@ -46,6 +46,10 @@ public:
         return language_model_->forward(input);
     }
 
+    infinicore::Tensor embed_input_ids(const infinicore::Tensor &input_ids) const {
+        return language_model_->embed_tokens(input_ids);
+    }
+
 protected:
     INFINICORE_NN_MODULE(LanguageModel, language_model);
 };

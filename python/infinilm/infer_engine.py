@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 
 import infinicore
+from infinicore.lib import _infinicore
 
 from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -165,8 +166,21 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_size=1,
         use_legacy_moe=False,
         pre_transpose=False,
+        enable_mtp=None,
     ):
+        self.cache_generation = 0
         self.hf_config = read_hf_config(model_path)
+        if enable_mtp is not None:
+            self.hf_config["enable_mtp"] = bool(enable_mtp)
+        if self.hf_config.get("enable_mtp", False):
+            text_config = self.hf_config.get("text_config", self.hf_config)
+            if (
+                self.hf_config.get("model_type") != "qwen3_5"
+                or text_config.get("mtp_num_hidden_layers", 1) != 1
+            ):
+                raise ValueError(
+                    "Built-in MTP requires a single-layer dense Qwen model."
+                )
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
@@ -179,6 +193,9 @@ class InferEngine(_infinilm.InferEngine):
             device = infinicore.device()
         if distributed_config is None:
             distributed_config = DistConfig(1)
+        self.supports_device_mtp = (
+            device._underlying.type == _infinicore.Device.Type.NVIDIA
+        )
         self.distributed_config = distributed_config
         if (
             moe_ep_backend != "disabled"
@@ -267,6 +284,7 @@ class InferEngine(_infinilm.InferEngine):
         slot_mapping=None,
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
+        token_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -275,6 +293,9 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=False,
+        return_logits=True,
+        return_device_tokens=False,
+        verify_draft=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -294,6 +315,7 @@ class InferEngine(_infinilm.InferEngine):
         slot_mapping = unwrap_tensor(slot_mapping)
         mamba_init_state_indices = unwrap_tensor(mamba_init_state_indices)
         mamba_final_state_indices = unwrap_tensor(mamba_final_state_indices)
+        token_state_indices = unwrap_tensor(token_state_indices)
         target_hidden_states = unwrap_tensor(target_hidden_states)
 
         def convert_tensor_list(tensor_list_):
@@ -325,6 +347,7 @@ class InferEngine(_infinilm.InferEngine):
             slot_mapping=slot_mapping,
             mamba_init_state_indices=mamba_init_state_indices,
             mamba_final_state_indices=mamba_final_state_indices,
+            token_state_indices=token_state_indices,
             pixel_values=pixel_values,
             image_bound=image_bound,
             tgt_sizes=tgt_sizes,
@@ -333,6 +356,9 @@ class InferEngine(_infinilm.InferEngine):
             visual_token_ranges=visual_token_ranges,
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
+            return_logits=return_logits,
+            return_device_tokens=return_device_tokens,
+            verify_draft=verify_draft,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
@@ -351,6 +377,7 @@ class InferEngine(_infinilm.InferEngine):
         slot_mapping=None,
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
+        token_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -423,6 +450,7 @@ class InferEngine(_infinilm.InferEngine):
                         slot_mapping=slot_mapping,
                         mamba_init_state_indices=mamba_init_state_indices,
                         mamba_final_state_indices=mamba_final_state_indices,
+                        token_state_indices=token_state_indices,
                         pixel_values=pixel_values,
                         image_bound=image_bound,
                         tgt_sizes=tgt_sizes,
@@ -430,6 +458,7 @@ class InferEngine(_infinilm.InferEngine):
                         image_req_ids=image_req_ids,
                         visual_token_ranges=visual_token_ranges,
                         target_hidden_states=target_hidden_states,
+                        return_logits=False,
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
@@ -452,6 +481,9 @@ class InferEngine(_infinilm.InferEngine):
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
+        mamba_init_state_indices=None,
+        mamba_final_state_indices=None,
+        token_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -459,6 +491,9 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=True,
+        return_logits=True,
+        return_device_tokens=False,
+        verify_draft=False,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -474,6 +509,9 @@ class InferEngine(_infinilm.InferEngine):
                     cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
+                    mamba_init_state_indices=mamba_init_state_indices,
+                    mamba_final_state_indices=mamba_final_state_indices,
+                    token_state_indices=token_state_indices,
                     pixel_values=pixel_values,
                     image_bound=image_bound,
                     tgt_sizes=tgt_sizes,
@@ -481,6 +519,9 @@ class InferEngine(_infinilm.InferEngine):
                     visual_token_ranges=visual_token_ranges,
                     target_hidden_states=target_hidden_states,
                     sample_all_positions=sample_all_positions,
+                    return_logits=return_logits,
+                    return_device_tokens=return_device_tokens,
+                    verify_draft=verify_draft,
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
@@ -488,7 +529,8 @@ class InferEngine(_infinilm.InferEngine):
             )
             return {
                 "output_ids": infinicore.Tensor(output.output_ids),
-                "logits": infinicore.Tensor(output.logits),
+                "accepted_draft_tokens": output.accepted_draft_tokens,
+                "logits": infinicore.Tensor(output.logits) if return_logits else None,
                 "hidden_states": infinicore.Tensor(output.hidden_states),
             }
         except BaseException as e:
@@ -547,7 +589,10 @@ class InferEngine(_infinilm.InferEngine):
                     "Low-level generate for mamba-cache models currently requires paged attention"
                 )
         elif self.has_mamba_cache:
-            mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
+            cache_config = self.get_cache_config()
+            mamba_pool_size = max(2, cache_config.num_blocks() // 4)
+            if self.model_type in ("qwen3_next", "qwen3_5", "qwen3_5_moe"):
+                mamba_pool_size = cache_config.num_state_rows() or mamba_pool_size
             if batch_size > mamba_pool_size - 1:
                 raise RuntimeError(
                     f"Batch size {batch_size} exceeds available mamba cache rows "
@@ -730,6 +775,7 @@ class InferEngine(_infinilm.InferEngine):
         return output_ids
 
     def reset_cache(self, cache_config):
+        self.cache_generation += 1
         infinicore.sync_device()
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         super().reset_cache(cache_config)
@@ -738,6 +784,7 @@ class InferEngine(_infinilm.InferEngine):
         return list(super().state_dict_keyname())
 
     def load_state_dict(self, state_dict, strict=None):
+        self.cache_generation += 1
         # MoE/quantized paths may register internal packed tensors that are not
         # present in the HF checkpoint, so callers can request non-strict loads.
         super().load_params(

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -22,6 +23,43 @@ bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_conte
 
     return has_state(forward_context.conv_state_vec) || has_state(forward_context.ssm_state_vec);
 }
+
+class CacheStateGuard {
+public:
+    void save(const infinicore::Tensor &state, size_t rows) {
+        if (!state) {
+            return;
+        }
+        save_region(state->narrow({{0, 1, rows}}));
+    }
+
+    void save_region(const infinicore::Tensor &region) {
+        auto backup = infinicore::Tensor::empty(region->shape(), region->dtype(), region->device());
+        backup->copy_from(region);
+        saved_.emplace_back(region, backup);
+    }
+
+    void restore() {
+        for (auto &[region, backup] : saved_) {
+            region->copy_from(backup);
+        }
+        if (!saved_.empty()) {
+            infinicore::context::syncStream();
+            saved_.clear();
+        }
+    }
+
+    ~CacheStateGuard() {
+        try {
+            restore();
+        } catch (const std::exception &error) {
+            spdlog::error("Failed to restore request states after graph capture: {}", error.what());
+        }
+    }
+
+private:
+    std::vector<std::pair<infinicore::Tensor, infinicore::Tensor>> saved_;
+};
 
 } // namespace
 
@@ -70,8 +108,43 @@ void PagedCompiler::compile() {
             throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
         }
 
-        size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        infinicore::context::syncStream();
         compiled_map_decode_.clear();
+        compiled_map_draft_.clear();
+        const bool capture_mtp = model_->supports_token_state_checkpoints()
+                              && infinicore::context::getDevice().getType() == infinicore::Device::Type::NVIDIA;
+        if (decode_batch_sizes_.empty()) {
+            return;
+        }
+        size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        if (has_mamba_state) {
+            for (const auto *states : {&forward_context.conv_state_vec, &forward_context.ssm_state_vec}) {
+                for (const auto &state : *states) {
+                    if (state) {
+                        const size_t capacity = state->size(0) == 0 ? 0 : state->size(0) - 1;
+                        max_batch_size = std::min(max_batch_size, capacity);
+                    }
+                }
+            }
+        }
+        if (max_batch_size == 0) {
+            return;
+        }
+        CacheStateGuard state_guard;
+        if (has_mamba_state) {
+            for (const auto *states : {&forward_context.conv_state_vec, &forward_context.ssm_state_vec}) {
+                for (const auto &state : *states) {
+                    state_guard.save(state, max_batch_size);
+                }
+            }
+        }
+        // Warmup and capture write into physical page zero. Preserve it so
+        // recapturing also remains safe while a request owns that page.
+        for (const auto &kv : forward_context.kv_cache_vec) {
+            if (capture_mtp && kv) {
+                state_guard.save_region(kv->narrow({{1, 0, 1}}));
+            }
+        }
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
@@ -109,7 +182,8 @@ void PagedCompiler::compile() {
                 input.mamba_final_state_indices = infinicore::Tensor::empty(
                     {b}, infinicore::DataType::I32, infinicore::context::getDevice());
                 std::vector<int32_t> init_state_indices_vec(b, 0);
-                std::vector<int32_t> final_state_indices_vec(b, 1);
+                std::vector<int32_t> final_state_indices_vec(b);
+                std::iota(final_state_indices_vec.begin(), final_state_indices_vec.end(), 1);
                 infinicore::context::memcpyH2D(
                     input.mamba_init_state_indices.value()->data(),
                     init_state_indices_vec.data(),
@@ -154,46 +228,110 @@ void PagedCompiler::compile() {
             infinicore::context::syncStream();
         }
 
-        for (size_t b : decode_batch_sizes_) {
-            auto input = make_decode_input(b);
-
+        auto capture = [&](InfinilmModel::Input input) {
+            const auto lengths = forward_context.attn_metadata.verification_sequence_lengths;
+            const auto tables = forward_context.attn_metadata.verification_block_tables;
             barrier_->wait();
             (void)model_->forward(input);
             infinicore::context::syncStream();
-            // Capture must not start with stale Marlin locks from previous
-            // warmup/capture attempts. This reset is intentionally outside
-            // graph capture; the current implementation still pays a memset
-            // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
             barrier_->wait();
-
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
-
-            compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
+            auto shared_output = std::make_shared<InfinilmModel::Output>();
+            shared_output->logits = infinicore::graph::GraphTensor(output.logits);
+            if (output.hidden_states) {
+                shared_output->hidden_states = infinicore::graph::GraphTensor(output.hidden_states);
+            }
+            return CompiledResult{std::move(input), {graph, shared_output}, lengths, tables};
+        };
+        for (size_t b : decode_batch_sizes_) {
+            if (b <= max_batch_size) {
+                compiled_map_decode_[b] = capture(make_decode_input(b));
+            }
         }
+        if (capture_mtp) {
+            auto make_draft_input = [&](size_t tokens) {
+                auto input = make_decode_input(1);
+                const auto device = infinicore::context::getDevice();
+                auto i32 = [&](const std::vector<int32_t> &values) {
+                    auto result = infinicore::Tensor::empty({values.size()}, infinicore::DataType::I32, device);
+                    infinicore::context::memcpyH2D(result->data(), values.data(), values.size() * sizeof(int32_t), false);
+                    return result;
+                };
+                input.input_ids = infinicore::Tensor::zeros({1, tokens}, infinicore::DataType::I64, device);
+                input.position_ids = infinicore::Tensor::zeros(
+                    position_id_axes > 1 ? std::vector<size_t>{position_id_axes, tokens} : std::vector<size_t>{tokens},
+                    infinicore::DataType::I64, device);
+                input.total_sequence_lengths = i32({static_cast<int32_t>(tokens)});
+                input.input_offsets = i32({0, static_cast<int32_t>(tokens)});
+                input.cu_seqlens = i32({0, static_cast<int32_t>(tokens)});
+                input.slot_mapping = infinicore::Tensor::empty({tokens}, infinicore::DataType::I64, device);
+                std::vector<int64_t> slots(tokens);
+                std::iota(slots.begin(), slots.end(), 0);
+                infinicore::context::memcpyH2D(input.slot_mapping.value()->data(), slots.data(), tokens * sizeof(int64_t), false);
+                input.target_hidden_states = infinicore::Tensor::zeros(
+                    {1, tokens, model_config->get<size_t>("hidden_size")}, model_config->get_dtype(), device);
+                forward_context.attn_metadata = global_state::AttentionMetadata(input);
+                forward_context.mamba_metadata = {input.input_offsets, input.mamba_init_state_indices,
+                                                  input.mamba_final_state_indices, input.token_state_indices};
+                if (tokens > 1) {
+                    forward_context.attn_metadata.verification_sequence_lengths = i32({1, 2});
+                    forward_context.attn_metadata.verification_block_tables = infinicore::Tensor::zeros(
+                        {tokens, nblocks}, infinicore::DataType::I32, device);
+                }
+                return input;
+            };
+            for (size_t tokens : {1, 2}) {
+                compiled_map_draft_[tokens] = capture(make_draft_input(tokens));
+            }
+        }
+        state_guard.restore();
     }
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    // Q=2 target graphs are intentionally excluded: measured slower than
+    // short eager verification. They also require their own checkpoint mode.
+    if (input.token_state_indices) {
+        return {nullptr, nullptr};
+    }
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);
-
-        // only support decode only batch
-        if (batch_size != input.input_ids.value()->size(1)) {
+        const size_t tokens = input.input_ids.value()->size(1);
+        const bool draft = input.target_hidden_states.has_value();
+        if ((draft && batch_size != 1)
+            || (!draft && (batch_size != tokens || input.sample_all_positions))) {
             return {nullptr, nullptr};
-        } else {
-            auto result = compiled_map_decode_.find(batch_size);
-            if (result == compiled_map_decode_.end()) {
+        }
+        {
+            auto &compiled = draft ? compiled_map_draft_ : compiled_map_decode_;
+            auto result = compiled.find(draft ? tokens : batch_size);
+            if (result == compiled.end()) {
                 return {nullptr, nullptr};
             }
             auto &graph_input = result->second.input;
 
+            const auto &runtime_seq_lens = input.total_sequence_lengths.value();
+            if (runtime_seq_lens->device().getType()
+                    != infinicore::Device::Type::CPU
+                || runtime_seq_lens->dtype() != infinicore::DataType::I32
+                || runtime_seq_lens->shape().size() != 1
+                || runtime_seq_lens->shape()[0] != batch_size) {
+                throw std::runtime_error(
+                    "PagedCompiler expected CPU int32 "
+                    "total_sequence_lengths for graph replay");
+            }
+            if (draft) {
+                if (input.target_hidden_states.value()->shape() != graph_input.target_hidden_states.value()->shape()
+                    || input.target_hidden_states.value()->dtype() != graph_input.target_hidden_states.value()->dtype()) {
+                    return {nullptr, nullptr};
+                }
+                graph_input.target_hidden_states.value()->copy_from(input.target_hidden_states.value());
+            }
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());
             graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
@@ -213,6 +351,17 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             set_minus_one_device_async(graph_block_tables);
             graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+            std::vector<int32_t> verification_lengths;
+            if (result->second.verification_lengths) {
+                const auto total = reinterpret_cast<const int32_t *>(input.total_sequence_lengths.value()->data())[0];
+                verification_lengths.resize(tokens);
+                for (size_t t = 0; t < tokens; ++t) {
+                    verification_lengths[t] = total - static_cast<int32_t>(tokens) + static_cast<int32_t>(t) + 1;
+                    result->second.verification_tables.value()->narrow({{0, t, 1}})->copy_from(graph_block_tables);
+                }
+                infinicore::context::memcpyH2D(result->second.verification_lengths.value()->data(),
+                                               verification_lengths.data(), tokens * sizeof(int32_t), false);
+            }
 
             const bool graph_has_mamba_indices = graph_input.mamba_init_state_indices.has_value() && graph_input.mamba_final_state_indices.has_value();
             const bool input_has_mamba_indices = input.mamba_init_state_indices.has_value() && input.mamba_final_state_indices.has_value();
@@ -234,15 +383,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             auto graph = std::get<0>(result->second.compiled);
             if (graph != nullptr) {
-                const auto &runtime_seq_lens = input.total_sequence_lengths.value();
-                if (runtime_seq_lens->device().getType()
-                        != infinicore::Device::Type::CPU
-                    || runtime_seq_lens->dtype() != infinicore::DataType::I32
-                    || runtime_seq_lens->shape().size() != 1
-                    || runtime_seq_lens->shape()[0] != batch_size) {
-                    throw std::runtime_error(
-                        "PagedCompiler expected CPU int32 "
-                        "total_sequence_lengths for graph replay");
+                if (result->second.verification_lengths) {
+                    graph->bind_host_int_array(result->second.verification_lengths.value(), verification_lengths.data(), tokens);
                 }
                 graph->bind_host_int_array(
                     graph_input.total_sequence_lengths.value(),
@@ -250,7 +392,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                         runtime_seq_lens->data()),
                     batch_size);
             }
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            auto saved_output = std::get<1>(result->second.compiled);
+            auto shared_output = std::make_shared<InfinilmModel::Output>();
+            shared_output->logits = saved_output->logits->resume_from_blob_();
+            if (saved_output->hidden_states) {
+                shared_output->hidden_states = saved_output->hidden_states->resume_from_blob_();
+            }
 
             return std::make_tuple(graph, shared_output);
         }

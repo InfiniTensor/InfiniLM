@@ -2,6 +2,7 @@
 
 #include "../../global_state/global_state.hpp"
 
+#include <infinicore/ops/cast.hpp>
 #include <infinicore/ops/causal_conv1d.hpp>
 #include <infinicore/ops/chunk_gated_delta_rule.hpp>
 #include <infinicore/ops/fused_gated_delta_net_gating.hpp>
@@ -15,6 +16,20 @@
 #include <vector>
 
 namespace infinilm::models::qwen3_next {
+namespace {
+// Limit the per-token path to short speculation windows. The crossover with
+// the chunked kernel depends on the device and has not been tuned generally.
+constexpr size_t kMaxRecurrentVerifyTokens = 8;
+
+infinicore::Tensor cast_for_state(const infinicore::Tensor &input, infinicore::DataType dtype) {
+    if (input->dtype() == dtype) {
+        return input;
+    }
+    auto output = infinicore::Tensor::empty(input->shape(), dtype, input->device());
+    infinicore::op::cast_(output, input);
+    return output;
+}
+} // namespace
 
 Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                              size_t layer_idx,
@@ -85,14 +100,33 @@ infinicore::Tensor Qwen3NextCausalConv1D::forward(const infinicore::Tensor &qkv)
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
 
-    auto conv_out = infinicore::op::causal_conv1d(
-        qkv,
-        forward_context.conv_state_vec[layer_idx_],
-        weight_->narrow({{0, 0, local_conv_dim_}}), // narrow in case load is skipped
-        std::nullopt,
-        mamba_metadata.input_offsets.value(),
-        mamba_metadata.init_state_indices.value(),
-        mamba_metadata.final_state_indices.value());
+    auto weight = weight_->narrow({{0, 0, local_conv_dim_}}); // Handle skipped weight loading.
+    infinicore::Tensor conv_out;
+    if (mamba_metadata.token_state_indices.has_value()) {
+        // Preserve convolution history at the same token boundaries as the
+        // delta-rule state; restoring only one of the two is incorrect.
+        conv_out = infinicore::Tensor::empty(qkv->shape(), qkv->dtype(), qkv->device());
+        const auto &destinations = mamba_metadata.token_state_indices.value();
+        size_t request = 0;
+        const auto &offsets = mamba_metadata.checkpoint_offsets;
+        for (size_t t = 0; t < qkv->size(1); ++t) {
+            while (t >= static_cast<size_t>(offsets[request + 1])) { ++request; }
+            auto initial = t == static_cast<size_t>(offsets[request])
+                             ? mamba_metadata.init_state_indices.value()->narrow({{0, request, 1}})
+                             : destinations->narrow({{0, t - 1, 1}});
+            infinicore::op::causal_conv1d_(
+                conv_out->narrow({{1, t, 1}}),
+                forward_context.conv_state_vec[layer_idx_], std::nullopt,
+                qkv->narrow({{1, t, 1}}), weight, std::nullopt, std::nullopt,
+                initial, destinations->narrow({{0, t, 1}}));
+        }
+    } else {
+        conv_out = infinicore::op::causal_conv1d(
+            qkv, forward_context.conv_state_vec[layer_idx_], weight,
+            std::nullopt, mamba_metadata.input_offsets.value(),
+            mamba_metadata.init_state_indices.value(),
+            mamba_metadata.final_state_indices.value());
+    }
     auto conv_qkv = infinicore::op::silu(conv_out);
     return conv_qkv;
 }
@@ -130,7 +164,10 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
         false, false, false,
         "in_proj_q", "in_proj_k", "in_proj_v", register_fn,
         quantization_method, dtype, device, rank_info);
-    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, false, dtype, device, tp_rank, tp_size);
+    auto z_quantization = model_config->get_quant_scheme() == quantization::QuantScheme::FP8_BLOCK_W8A16
+                            ? quantization_method
+                            : std::make_shared<quantization::NoneQuantization>();
+    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, z_quantization, false, dtype, device, tp_rank, tp_size);
     in_proj_a_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_a", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
     in_proj_b_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_b", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
 
@@ -152,17 +189,42 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
 
     auto qkv = in_proj_qkv_->forward(hidden_states_mutable);
     auto z = in_proj_z_->forward(hidden_states_mutable);
-    auto a = in_proj_a_->forward(hidden_states_mutable);
-    auto b = in_proj_b_->forward(hidden_states_mutable);
+    // Keep the tiny gate projections on the same GEMM shape as decode.
+    // In BF16, Q=1 and Q=2 can round differently and change candidate ranking
+    // after recurrent-state updates. Large quantized projections stay batched.
+    auto project_gate = [&](const auto &projection) {
+        const auto &metadata = infinilm::global_state::get_forward_context().mamba_metadata;
+        if (!metadata.token_state_indices.has_value() || seq_len == 1) {
+            return projection->forward(hidden_states_mutable);
+        }
+        auto output = infinicore::Tensor::empty({batch_size, seq_len, local_num_value_heads_},
+                                                hidden_states->dtype(), hidden_states->device());
+        for (size_t t = 0; t < seq_len; ++t) {
+            auto token = hidden_states->narrow({{1, t, 1}});
+            output->narrow({{1, t, 1}})->copy_from(projection->forward(token));
+        }
+        return output;
+    };
+    auto a = project_gate(in_proj_a_);
+    auto b = project_gate(in_proj_b_);
 
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
 
+    const bool single_request = batch_size == 1
+                             && mamba_metadata.input_offsets.value()->numel() == 2;
+    if (mamba_metadata.token_state_indices.has_value()
+        && (batch_size != 1 || seq_len == 0 || mamba_metadata.checkpoint_offsets.size() < 2)) {
+        throw std::runtime_error("GDN token checkpoints require one request with 1 to 8 tokens.");
+    }
     auto conv_qkv = this->conv1d_->forward(qkv);
 
-    auto q = conv_qkv->narrow({{2, 0, local_key_dim_}});
-    auto k = conv_qkv->narrow({{2, local_key_dim_, local_key_dim_}});
-    auto v = conv_qkv->narrow({{2, local_key_dim_ * 2, local_value_dim_}});
+    // Existing delta-rule operators require activations and persistent state to
+    // share a dtype. Honor checkpoints requesting FP32 state with device casts.
+    auto state_qkv = cast_for_state(conv_qkv, forward_context.ssm_state_vec[layer_idx_]->dtype());
+    auto q = state_qkv->narrow({{2, 0, local_key_dim_}});
+    auto k = state_qkv->narrow({{2, local_key_dim_, local_key_dim_}});
+    auto v = state_qkv->narrow({{2, local_key_dim_ * 2, local_value_dim_}});
     bool is_decode = mamba_metadata.input_offsets.value()->shape()[0] - 1 == seq_len;
     infinicore::Tensor delta_out;
     if (is_decode) {
@@ -198,6 +260,67 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
         delta_out = delta_out->as_strided(
             {seq_len, local_num_value_heads_, value_head_dim_},
             {delta_out->stride(0), delta_out->stride(2), delta_out->stride(3)});
+    } else if ((single_request && seq_len <= kMaxRecurrentVerifyTokens) || mamba_metadata.token_state_indices.has_value()) {
+        // Short single-sequence speculation window (e.g. one draft token per
+        // step). The chunked kernel pads to a 128-token chunk, so a two-token
+        // verification pays a full chunk of work per layer. Reuse the existing
+        // T=1 indexed-pool operator once per token instead; this mirrors the
+        // recurrent path used for single-token decode and needs no kernel
+        // change. Optional token destinations retain intermediate states so
+        // callers can commit an accepted prefix without a target replay.
+        auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
+        auto q_delta = q->as_strided(
+            {1, seq_len, local_num_key_heads_, key_head_dim_},
+            {q->stride(0), q->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto k_delta = k->as_strided(
+            {1, seq_len, local_num_key_heads_, key_head_dim_},
+            {k->stride(0), k->stride(1), static_cast<infinicore::Stride>(key_head_dim_), 1});
+        auto v_delta = v->as_strided(
+            {1, seq_len, local_num_value_heads_, value_head_dim_},
+            {v->stride(0), v->stride(1), static_cast<infinicore::Stride>(value_head_dim_), 1});
+
+        auto a_heads = a->as_strided(
+            {1, seq_len, local_num_value_heads_},
+            {a->stride(0), a->stride(1), 1});
+        auto b_heads = b->as_strided(
+            {1, seq_len, local_num_value_heads_},
+            {b->stride(0), b->stride(1), 1});
+        auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
+
+        auto recurrent_out = infinicore::Tensor::empty(
+            {1, seq_len, local_num_value_heads_, value_head_dim_},
+            ssm_state->dtype(), ssm_state->device());
+        const auto &init_indices = mamba_metadata.init_state_indices.value();
+        const auto &final_indices = mamba_metadata.final_state_indices.value();
+        for (size_t t = 0; t < seq_len; ++t) {
+            auto step_init = (t == 0) ? init_indices : final_indices;
+            auto step_final = final_indices;
+            if (mamba_metadata.token_state_indices.has_value()) {
+                const auto &destinations = mamba_metadata.token_state_indices.value();
+                step_final = destinations->narrow({{0, t, 1}});
+                const auto &offsets = mamba_metadata.checkpoint_offsets;
+                size_t request = 0;
+                while (t >= static_cast<size_t>(offsets[request + 1])) { ++request; }
+                step_init = t == static_cast<size_t>(offsets[request])
+                              ? init_indices->narrow({{0, request, 1}})
+                              : destinations->narrow({{0, t - 1, 1}});
+            }
+            infinicore::op::recurrent_gated_delta_rule_(
+                recurrent_out->narrow({{1, t, 1}}),
+                ssm_state,
+                std::nullopt,
+                q_delta->narrow({{1, t, 1}}),
+                k_delta->narrow({{1, t, 1}}),
+                v_delta->narrow({{1, t, 1}}),
+                g->narrow({{1, t, 1}}),
+                beta->narrow({{1, t, 1}}),
+                step_init,
+                step_final,
+                true);
+        }
+        delta_out = recurrent_out->as_strided(
+            {seq_len, local_num_value_heads_, value_head_dim_},
+            {recurrent_out->stride(1), recurrent_out->stride(2), recurrent_out->stride(3)});
     } else {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
         auto q_delta = q->as_strided(
@@ -234,6 +357,7 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {delta_out->stride(1), delta_out->stride(2), delta_out->stride(3)});
     }
 
+    delta_out = cast_for_state(delta_out, hidden_states->dtype());
     auto delta_out_2d = delta_out->as_strided(
         {batch_size * seq_len * local_num_value_heads_, value_head_dim_},
         {static_cast<infinicore::Stride>(value_head_dim_), 1});

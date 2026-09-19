@@ -35,6 +35,11 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
+    if (attn_metadata.verification_sequence_lengths.has_value()) {
+        total_sequence_lengths = attn_metadata.verification_sequence_lengths;
+        block_tables = attn_metadata.verification_block_tables;
+        is_prefill = false;
+    }
 
     // 2. Compute attention
     const size_t value_head_dim = value->size(value->ndim() - 1);

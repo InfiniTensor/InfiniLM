@@ -1,5 +1,6 @@
 #include "infer_engine.hpp"
 #include "../config/config_factory.hpp"
+#include "infinicore/ops/distributed/broadcast.hpp"
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <cstdint>
@@ -186,7 +187,7 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 // forward
 //------------------------------------------------------
 infinilm::InfinilmModel::Input
-InferEngine::Input::to_model_input(infinicore::Device device) const {
+InferEngine::Input::to_model_input(infinicore::Device device, bool for_graph) const {
 
     auto to_device = [&](const std::optional<infinicore::Tensor> &t)
         -> std::optional<infinicore::Tensor> {
@@ -212,8 +213,88 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     const size_t max_query_length = is_prefill ? max_length_from_offsets(input_offsets, "input_offsets") : 0;
     const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : 0;
 
+    if (token_state_indices.has_value()) {
+        auto host_indices = [](const std::optional<infinicore::Tensor> &value, size_t count) {
+            if (!value || value.value()->device().getType() != infinicore::Device::Type::CPU
+                || value.value()->dtype() != infinicore::DataType::I32
+                || value.value()->shape() != std::vector<size_t>{count}
+                || !value.value()->is_contiguous()) {
+                throw std::runtime_error("Token state checkpoints require contiguous CPU int32 indices.");
+            }
+            return reinterpret_cast<const int32_t *>(value.value()->data());
+        };
+        if (!input_ids || input_ids.value()->ndim() != 2 || input_ids.value()->size(0) != 1
+            || !input_offsets || input_offsets.value()->numel() < 2 || target_hidden_states) {
+            throw std::runtime_error("Token checkpoints require packed target-model requests.");
+        }
+        const size_t tokens = input_ids.value()->size(1);
+        const size_t requests = input_offsets.value()->numel() - 1;
+        const auto *destinations = host_indices(token_state_indices, tokens);
+        const auto *initial = host_indices(mamba_init_state_indices, requests);
+        const auto *final = host_indices(mamba_final_state_indices, requests);
+        const auto *offsets = host_indices(input_offsets, requests + 1);
+        if (offsets[0] != 0 || offsets[requests] != static_cast<int32_t>(tokens)) {
+            throw std::runtime_error("Token checkpoint offsets must cover all packed tokens.");
+        }
+        std::unordered_set<int32_t> used;
+        for (size_t r = 0; r < requests; ++r) {
+            if (offsets[r] < 0 || offsets[r + 1] <= offsets[r]
+                || static_cast<size_t>(offsets[r + 1]) > tokens) {
+                throw std::runtime_error("Token checkpoint offsets must be increasing and within the packed input.");
+            }
+            const auto length = offsets[r + 1] - offsets[r];
+            if (length > 8 || destinations[offsets[r + 1] - 1] != final[r]) {
+                throw std::runtime_error("Each checkpoint request needs 1..8 tokens and a matching final row.");
+            }
+            if (initial[r] != 0 && !used.insert(initial[r]).second) {
+                throw std::runtime_error("Checkpoint requests must own distinct initial state rows.");
+            }
+            used.insert(initial[r]);
+        }
+        for (size_t t = 0; t < tokens; ++t) {
+            if (destinations[t] <= 0 || !used.insert(destinations[t]).second) {
+                throw std::runtime_error("Token checkpoints must use distinct nonzero destination rows.");
+            }
+        }
+        const auto &context = global_state::get_forward_context();
+        for (const auto *states : {&context.conv_state_vec, &context.ssm_state_vec}) {
+            for (const auto &state : *states) {
+                if (state) {
+                    for (auto index : used) {
+                        if (index < 0 || static_cast<size_t>(index) >= state->size(0)) {
+                            throw std::runtime_error("Token checkpoint exceeds the allocated state pool.");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    const auto transfer_device = for_graph ? global_state::get_tensor_model_parallel_rank_info().device : device;
+    auto distribute = [&](const std::optional<infinicore::Tensor> &value, int source_rank) {
+        if (!value || source_rank < 0 || transfer_device.getType() == infinicore::Device::Type::CPU) {
+            return value;
+        }
+        const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
+        if (rank_info.tp_size == 1) {
+            // Same-device inputs also need compact storage for model kernels.
+            return std::optional<infinicore::Tensor>{value.value()->contiguous()};
+        }
+        const auto &source = value.value();
+        auto local = rank_info.tp_rank == source_rank
+                       ? source->contiguous()
+                       : infinicore::Tensor::empty(source->shape(), source->dtype(), transfer_device);
+        // `Tensor::to` does not transfer between distinct GPUs. Use the existing
+        // TP communicator for both hidden states and device-resident candidates.
+        infinicore::op::distributed::broadcast_(local, local, source_rank, rank_info.comm);
+        return std::optional<infinicore::Tensor>{local};
+    };
+    auto local_target_hidden = distribute(target_hidden_states, target_hidden_source_rank);
+    auto local_ids = distribute(input_ids, input_source_rank);
+
     // MACA maps a registered user pointer to only one node. Serialize H2D
     // copies so TP ranks never access the same host registration concurrently.
+    // Collectives above must stay outside this lock so all ranks can enter.
     static std::mutex maca_host_copy_mutex;
     const bool serialize_host_copy
         = device.getType() == infinicore::Device::Type::METAX;
@@ -223,7 +304,7 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     }
 
     infinilm::InfinilmModel::Input input = {
-        to_device(input_ids), // @todo: on device in the future
+        for_graph ? local_ids : to_device(local_ids),
         to_device(position_ids),
         to_device(past_sequence_lengths), // @todo: on device in the future
         to_device(total_sequence_lengths),
@@ -239,8 +320,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states),
-        sample_all_positions};
+        for_graph ? local_target_hidden : to_device(local_target_hidden),
+        sample_all_positions,
+        to_device(token_state_indices),
+        top_k == 1 && !return_logits};
 
     if (serialize_host_copy) {
         infinicore::context::syncStream();
@@ -256,10 +339,42 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         max_query_length,
         max_sequence_length};
 
+    // The single-request fast path expands only the attention query rows.
+    // Each checkpoint request has at most eight tokens. GDN/Conv keep
+    // their original request offsets and recurrent state indices.
+    const bool short_draft = target_hidden_states && input_offsets
+                          && input_offsets.value()->numel() == 2 && max_query_length <= 8;
+    if ((token_state_indices || short_draft) && input_offsets.value()->numel() == 2 && is_prefill && input.block_tables
+        && device.getType() == infinicore::Device::Type::NVIDIA
+        && max_sequence_length > max_query_length) {
+        std::vector<int32_t> lengths(max_query_length);
+        for (size_t i = 0; i < lengths.size(); ++i) {
+            lengths[i] = static_cast<int32_t>(max_sequence_length - max_query_length + i + 1);
+        }
+        auto &metadata = global_state::get_forward_context().attn_metadata;
+        metadata.verification_sequence_lengths = infinicore::Tensor::empty(
+            {lengths.size()}, infinicore::DataType::I32, device);
+        infinicore::context::memcpyH2D(metadata.verification_sequence_lengths.value()->data(),
+                                       lengths.data(), lengths.size() * sizeof(int32_t), false);
+        // Each query references the same physical KV pages. Its own length
+        // hides the speculative future. NVIDIA Decode kernels assume packed
+        // page-table rows, so materialize only these small indices, never KV.
+        metadata.verification_block_tables = input.block_tables.value()->as_strided(
+                                                                           {max_query_length, input.block_tables.value()->size(1)},
+                                                                           {0, input.block_tables.value()->stride(1)})
+                                                 ->contiguous();
+    }
+
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
         input.mamba_init_state_indices,
-        input.mamba_final_state_indices};
+        input.mamba_final_state_indices,
+        input.token_state_indices};
+    if (token_state_indices) {
+        const auto *offsets = reinterpret_cast<const int32_t *>(input_offsets.value()->data());
+        global_state::get_forward_context().mamba_metadata.checkpoint_offsets.assign(
+            offsets, offsets + input_offsets.value()->numel());
+    }
 
     global_state::get_forward_context().mm_metadata = {
         image_req_ids,
@@ -269,9 +384,37 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    auto local_input = input;
+    auto source_rank = [&](const std::optional<infinicore::Tensor> &value) {
+        if (!value || value.value()->device().getType() == infinicore::Device::Type::CPU) {
+            return -1;
+        }
+        for (int rank = 0; rank < communication_group_.get_world_size(); ++rank) {
+            if (communication_group_.get_rank_info(rank).device == value.value()->device()) {
+                return rank;
+            }
+        }
+        throw std::invalid_argument("Device inputs must belong to the target TP group.");
+    };
+    local_input.target_hidden_source_rank = source_rank(input.target_hidden_states);
+    local_input.input_source_rank = get_dist_config().pp_size == 1 ? source_rank(input.input_ids) : -1;
+    if (input.verify_draft) {
+        const bool valid_shape = input.input_ids && input.input_ids.value()->ndim() == 2
+                              && input.input_ids.value()->size(0) == 1
+                              && input.input_ids.value()->size(1) >= 2
+                              && input.input_ids.value()->size(1) <= 5
+                              && input.input_offsets && input.input_offsets.value()->numel() == 2;
+        if (input.top_k != 1 || !input.sample_all_positions || !input.token_state_indices
+            || !valid_shape || get_dist_config().pp_size != 1 || input.return_device_tokens) {
+            throw std::invalid_argument("Device MTP acceptance requires one greedy Q=2..5 request, checkpoints, PP1 and host results.");
+        }
+    }
+    if (input.return_device_tokens && get_dist_config().pp_size != 1) {
+        throw std::invalid_argument("Device token output currently requires PP1.");
+    }
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
-        worker->run(input);
+        worker->run(local_input);
     }
     // Wait for all workers
     for (auto &worker : workers_) {
@@ -320,6 +463,15 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     }
     cache_config_ = new_config->unique_copy();
     this->compile();
+}
+
+std::vector<std::vector<std::vector<infinicore::Tensor>>> InferEngine::get_hybrid_states() {
+    std::vector<std::vector<std::vector<infinicore::Tensor>>> result;
+    for (auto &worker : workers_) {
+        worker->wait();
+        result.push_back(worker->get_hybrid_states());
+    }
+    return result;
 }
 
 std::vector<std::vector<infinicore::Tensor>> InferEngine::get_kv_cache() {

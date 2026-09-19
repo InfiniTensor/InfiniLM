@@ -33,6 +33,9 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     const size_t linear_value_head_dim = text_config->get<size_t>("linear_value_head_dim");
 
     const auto &dtype{text_config->get_dtype()};
+    const auto ssm_dtype = text_config->get_or<std::string>("mamba_ssm_dtype", "") == "float32"
+                             ? infinicore::DataType::F32
+                             : dtype;
     const auto &kv_cache_dtype{text_config->get_kv_cache_dtype()};
     const std::vector<std::string> layer_types = text_config->get<std::vector<std::string>>("layer_types");
 
@@ -57,7 +60,7 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             linear_value_head_dim,
             linear_num_key_heads,
             linear_num_value_heads,
-            dtype,
+            ssm_dtype,
             pool_size);
 
         kv_cache_vec.emplace_back();
@@ -121,7 +124,12 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
         if (nullptr == paged_kv_cache_config) {
             throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");
         }
-        const size_t mamba_pool_size = std::max<size_t>(2, paged_kv_cache_config->num_blocks() / 4);
+        const size_t mamba_pool_size = paged_kv_cache_config->num_state_rows()
+                                         ? paged_kv_cache_config->num_state_rows()
+                                         : std::max<size_t>(2, paged_kv_cache_config->num_blocks() / 4);
+        if (mamba_pool_size < 2) {
+            throw std::invalid_argument("State pool needs a zero row and a writable row.");
+        }
 
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
             const std::string &layer_type = layer_types[layer_idx];

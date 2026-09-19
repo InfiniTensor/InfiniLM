@@ -105,6 +105,7 @@ def load_state_dict(
     device="cpu",
     dtype=torch.bfloat16,
     preserve_fp32_suffixes: Tuple[str, ...] = (".e_score_correction_bias",),
+    preserve_fp8: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
@@ -128,8 +129,13 @@ def load_state_dict(
 
         for k in f.keys():
             tensor = f.get_tensor(k)
-            preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            if preserve_fp8 and k.endswith(".weight_scale_inv"):
+                state_dict[k] = tensor.to(device=device, dtype=torch.float32)
+                continue
+            preserve_dtype = k.endswith(preserve_fp32_suffixes) or (
+                preserve_fp8 and tensor.dtype == torch.float8_e4m3fn
+            )
+            if tensor.is_floating_point() and not preserve_dtype:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
@@ -201,6 +207,9 @@ def load_model_state_dict_by_file(
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
+    preserve_fp8 = (model.hf_config.get("quantization_config") or {}).get(
+        "quant_method"
+    ) == "fp8"
     preserve_fp32_suffixes = (".e_score_correction_bias",)
     if model_type == "kimi_k3":
         preserve_fp32_suffixes += (".A_log", ".dt_bias")
@@ -215,7 +224,6 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
-    weights_processed = False
 
     remapper = _WEIGHT_REMAPPER.get(model_type)
 
@@ -246,6 +254,7 @@ def load_model_state_dict_by_file(
                 device=torch_device,
                 dtype=torch_dtype,
                 preserve_fp32_suffixes=preserve_fp32_suffixes,
+                preserve_fp8=preserve_fp8,
             )
 
             # Apply model-specific weight remapping
@@ -289,9 +298,6 @@ def load_model_state_dict_by_file(
         ):
             embed_tokens_torch_unscaled = None
             gc.collect()
-
-        model.process_weights_after_loading()
-        weights_processed = True
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
@@ -352,8 +358,8 @@ def load_model_state_dict_by_file(
 
     check_parameters(model_keys, already_loaded_keys)
 
-    if not weights_processed:
-        model.process_weights_after_loading()
+    # All weights, including a tied output head, must exist before packing/capture.
+    model.process_weights_after_loading()
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
@@ -757,7 +763,8 @@ def _remap_videonsa(state_dict, config=None):
 # Model type → remap function mapping
 def _remap_qwen3_5(state_dict, config):
     """Apply Qwen3.5-specific load-time weight fixes."""
-    state_dict = drop_keys(state_dict, ["mtp."])
+    if not config.get("enable_mtp", False):
+        state_dict = drop_keys(state_dict, ["mtp."])
     llm_config = config["text_config"]
     key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
 
@@ -771,19 +778,32 @@ def _remap_qwen3_5(state_dict, config):
     to_drop = []
     to_add = {}
     for key, tensor in state_dict.items():
-        if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
+        if key in (
+            "model.norm.weight",
+            "model.language_model.norm.weight",
+            "mtp.norm.weight",
+            "mtp.pre_fc_norm_embedding.weight",
+            "mtp.pre_fc_norm_hidden.weight",
+        ) or key.endswith(norm_weight_suffixes):
             state_dict[key] = tensor + torch.ones_like(tensor)
-        elif key.endswith("linear_attn.in_proj_qkv.weight"):
-            prefix = key[: -len("in_proj_qkv.weight")]
-            to_add[prefix + "in_proj_q.weight"] = state_dict[key][
-                :key_dim, :
-            ].contiguous()
-            to_add[prefix + "in_proj_k.weight"] = state_dict[key][
-                key_dim : key_dim * 2, :
-            ].contiguous()
-            to_add[prefix + "in_proj_v.weight"] = state_dict[key][
-                key_dim * 2 :, :
-            ].contiguous()
+        elif key.endswith(
+            (
+                "linear_attn.in_proj_qkv.weight",
+                "linear_attn.in_proj_qkv.weight_scale_inv",
+            )
+        ):
+            suffix = key.rsplit(".", 1)[1]
+            prefix = key[: -len("in_proj_qkv." + suffix)]
+            split_dim = key_dim if suffix == "weight" else key_dim // 128
+            for name, part in zip(
+                ("q", "k", "v"),
+                (
+                    tensor[:split_dim],
+                    tensor[split_dim : 2 * split_dim],
+                    tensor[2 * split_dim :],
+                ),
+            ):
+                to_add[prefix + "in_proj_" + name + "." + suffix] = part.contiguous()
             to_drop.append(key)
 
     state_dict = drop_keys(state_dict, to_drop)

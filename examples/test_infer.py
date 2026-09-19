@@ -41,6 +41,9 @@ def test(
     use_legacy_moe=False,
     enable_prefix_caching=True,
     pre_transpose=False,
+    enable_mtp=False,
+    num_state_rows=0,
+    mtp_prefix_cache_bytes=0,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -77,6 +80,9 @@ def test(
         use_legacy_moe=use_legacy_moe,
         enable_prefix_caching=enable_prefix_caching,
         pre_transpose=pre_transpose,
+        enable_mtp=enable_mtp,
+        num_state_rows=num_state_rows,
+        mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
     )
 
     conversations = [
@@ -185,4 +191,7 @@ if __name__ == "__main__":
         use_legacy_moe=cfg.use_legacy_moe,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        enable_mtp=cfg.enable_mtp,
+        num_state_rows=cfg.num_state_rows,
+        mtp_prefix_cache_bytes=int(cfg.mtp_prefix_cache_mib * 1024**2),
     )

@@ -57,6 +57,10 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Optional state-pool destination after each packed token.
+        std::optional<infinicore::Tensor> token_state_indices;
+        /// A greedy caller permits a model to return token IDs without full logits.
+        bool greedy_output{false};
     };
 
     struct Output {
@@ -64,10 +68,13 @@ public:
         infinicore::Tensor logits;
         /// Optional final hidden states, used by MTP/Eagle draft models.
         infinicore::Tensor hidden_states;
+        /// Optional device token IDs, in sampling order, instead of logits.
+        infinicore::Tensor output_ids;
     };
 
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
+    virtual bool supports_token_state_checkpoints() const { return false; }
     virtual void reset_cache(const cache::CacheConfig *cache_config);
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();

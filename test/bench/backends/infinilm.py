@@ -17,8 +17,16 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_paged_attn=False,
         enable_graph=False,
         attn_backend="default",
+        *,
+        enable_mtp=False,
+        num_draft_tokens=4,
+        num_state_rows=0,
+        mtp_prefix_cache_bytes=0,
+        num_blocks=128,
+        block_size=256,
     ):
         from infinilm import LLM
+        from infinilm.infer_engine import model_uses_mamba_cache
 
         super().__init__(benchmark)
 
@@ -56,8 +64,14 @@ class InfiniLMBenchmark(BaseBenchmark):
             tensor_parallel_size=tensor_parallel_size,
             cache_type="paged" if enable_paged_attn else "static",
             max_batch_size=1,
-            num_blocks=128,
-            block_size=256,
+            num_blocks=num_blocks,
+            block_size=block_size,
+            enable_mtp=enable_mtp,
+            num_draft_tokens=num_draft_tokens,
+            num_state_rows=num_state_rows,
+            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
+            enable_prefix_caching=bool(mtp_prefix_cache_bytes)
+            or not model_uses_mamba_cache(self.config_dict),
             enable_graph=enable_graph,
             attn_backend=attn_backend,
         )
@@ -92,5 +106,6 @@ class InfiniLMBenchmark(BaseBenchmark):
         )
 
     def destroy_model_instance(self):
+        self.model.close()
         del self.model
         print("InfiniLM model destroyed")

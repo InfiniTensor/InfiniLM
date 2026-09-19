@@ -2,6 +2,10 @@
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <infinicore/ops/add.hpp>
+#include <infinicore/ops/cast.hpp>
+#include <infinicore/ops/equal.hpp>
+#include <infinicore/ops/mul.hpp>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -249,6 +253,15 @@ std::vector<infinicore::Tensor> RankWorker::get_kv_cache() {
 //------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
+std::vector<std::vector<infinicore::Tensor>> RankWorker::get_hybrid_states() {
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+    if (should_exit_ || has_job_) {
+        throw std::runtime_error("State access requires an idle worker.");
+    }
+    return {forward_context_.conv_state_vec, forward_context_.ssm_state_vec};
+}
+
 void RankWorker::close() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -418,21 +431,34 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
-                        // All-position speculative/MTP runs need eager mode because
-                        // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
+                        infinicore::Tensor sampled_ids;
+                        infinicore::Tensor model_input_ids;
+                        if (local_args.token_state_indices.has_value()
+                            && !model_->supports_token_state_checkpoints()) {
+                            throw std::runtime_error("This model does not support per-token state checkpoints.");
+                        }
+                        const bool graph_candidate = !local_args.token_state_indices
+                                                  && local_args.input_ids && local_args.input_offsets
+                                                  && (local_args.input_ids.value()->numel() == local_args.input_offsets.value()->numel() - 1
+                                                      || (local_args.target_hidden_states && local_args.input_ids.value()->numel() <= 2));
+                        if (graph_candidate && compiler_ != nullptr && rank_info_.pp_size == 1) {
+                            auto graph_input = local_args.to_model_input(infinicore::Device::cpu(), true);
+                            auto [graph, output] = compiler_->get_compiled(graph_input);
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                hidden_states = output->hidden_states;
+                                model_input_ids = graph_input.input_ids.value();
                             }
                         }
                         // Fall back to eager mode
                         if (!logits) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
+                            model_input_ids = model_args.input_ids.value();
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
+                            sampled_ids = model_output.output_ids;
                         }
 
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
@@ -466,34 +492,37 @@ void RankWorker::thread_loop() {
 
                         // Random sampling (rank 0 only)
                         if (rank_info_.tp_rank == 0) {
-                            auto temperature{local_args.temperature};
-                            auto top_p{local_args.top_p};
-                            auto top_k{local_args.top_k};
+                            auto output_ids = sampled_ids;
+                            if (!output_ids) {
+                                auto temperature{local_args.temperature};
+                                auto top_p{local_args.top_p};
+                                auto top_k{local_args.top_k};
 
-                            const auto &logits_shape{logits->shape()};
-                            const auto &vocab_size{logits_shape[2]};
-                            const auto &total_len{logits_shape[1]};
-                            const auto &batch_size{logits_shape[0]};
+                                const auto &logits_shape{logits->shape()};
+                                const auto &vocab_size{logits_shape[2]};
+                                const auto &total_len{logits_shape[1]};
+                                const auto &batch_size{logits_shape[0]};
 
-                            auto n_req = local_args.input_offsets.value()->size(0) - 1;
-                            int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
+                                auto n_req = local_args.input_offsets.value()->size(0) - 1;
+                                int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            const bool sample_all_positions = local_args.sample_all_positions;
-                            const size_t logits_positions = batch_size * total_len;
-                            const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
-                            const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
+                                const bool sample_all_positions = local_args.sample_all_positions;
+                                const size_t logits_positions = batch_size * total_len;
+                                const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
+                                const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
+                                output_ids = infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device);
 
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions && !logits_are_last_token_only) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    size_t score_idx = i;
+                                    if (!sample_all_positions && !logits_are_last_token_only) {
+                                        score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    }
+                                    auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
                                 }
-                                auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
                             }
 
                             if (rank_info_.pp_size > 1) {
@@ -503,11 +532,41 @@ void RankWorker::thread_loop() {
                                     rank_info_.world_comm);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
+                            int accepted_draft_tokens = -1;
+                            if (local_args.verify_draft) {
+                                const size_t count = model_input_ids->size(1) - 1;
+                                auto candidates = model_input_ids->narrow({{1, 1, count}})->view({count})->to(rank_info_.device);
+                                auto accepted = infinicore::op::equal(output_ids->narrow({{0, 0, count}}), candidates);
+                                auto packed = infinicore::Tensor::empty({count + 2}, infinicore::DataType::I64, rank_info_.device);
+                                packed->narrow({{0, 0, count + 1}})->copy_from(output_ids);
+                                auto length = packed->narrow({{0, count + 1, 1}});
+                                if (count == 1) {
+                                    infinicore::op::cast_(length, accepted);
+                                } else {
+                                    // Sum consecutive prefix matches, stopping at the
+                                    // first rejection. F32 represents these 0..4 counts exactly.
+                                    auto matches = infinicore::Tensor::empty({count}, infinicore::DataType::F32, rank_info_.device);
+                                    infinicore::op::cast_(matches, accepted);
+                                    auto prefix = matches->narrow({{0, 0, 1}});
+                                    auto total = prefix;
+                                    for (size_t i = 1; i < count; ++i) {
+                                        prefix = infinicore::op::mul(prefix, matches->narrow({{0, i, 1}}));
+                                        total = infinicore::op::add(total, prefix);
+                                    }
+                                    infinicore::op::cast_(length, total);
+                                }
+                                // One bounded host transfer contains the tokens and
+                                // acceptance length. Scheduler ownership stays on CPU.
+                                infinicore::context::syncStream();
+                                auto host = packed->to(infinicore::Device::cpu());
+                                accepted_draft_tokens = static_cast<int>(reinterpret_cast<int64_t *>(host->data())[count + 1]);
+                                output_ids = host->narrow({{0, 0, static_cast<size_t>(1 + accepted_draft_tokens)}});
+                            } else if (!local_args.return_device_tokens) {
+                                infinicore::context::syncStream();
+                                output_ids = output_ids->to(infinicore::Device::cpu());
+                            }
 
-                            infinicore::context::syncStream();
-
-                            auto out{Output{output_ids, logits, hidden_states}};
+                            auto out{Output{output_ids, logits, hidden_states, accepted_draft_tokens}};
 
                             output_ = std::move(out);
                         }
@@ -548,7 +607,9 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::COMPILE) {
                 try {
                     if (compiler_ != nullptr) {
+                        spdlog::info("Graph capture begin: tp_rank={}", rank_info_.tp_rank);
                         compiler_->compile();
+                        spdlog::info("Graph capture end: tp_rank={}", rank_info_.tp_rank);
                     }
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

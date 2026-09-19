@@ -10,8 +10,12 @@ class EngineConfig:
 
     Attributes:
         model_path: Path to the model directory.
-        draft_model_path: Optional Eagle/MTP draft model directory.
-        num_draft_tokens: Number of Eagle draft tokens to verify per step.
+        draft_model_path: Optional external Eagle draft model directory.
+        num_draft_tokens: Number of draft tokens to verify per step.
+        enable_mtp: Use the Qwen checkpoint's built-in MTP head.
+        num_state_rows: Hybrid state rows, including the reserved zero row.
+            Zero selects an automatic capacity.
+        mtp_prefix_cache_bytes: Device storage budget for exact-prompt MTP snapshots.
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
@@ -69,8 +73,63 @@ class EngineConfig:
     use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    enable_mtp: bool = False
+    num_state_rows: int = 0
+    mtp_prefix_cache_bytes: int = 0
 
     def __post_init__(self) -> None:
+        if self.max_batch_size < 1:
+            raise ValueError("`max_batch_size` must be >= 1.")
+        if self.num_state_rows != 0 and self.num_state_rows < 2:
+            raise ValueError("`num_state_rows` must be zero (automatic) or >= 2.")
+        if self.mtp_prefix_cache_bytes < 0:
+            raise ValueError("`mtp_prefix_cache_bytes` must be non-negative.")
+        if self.mtp_prefix_cache_bytes and not self.enable_mtp:
+            raise ValueError("`mtp_prefix_cache_bytes` requires `enable_mtp`.")
+        if self.mtp_prefix_cache_bytes and (
+            not self.enable_prefix_caching or self.tensor_parallel_size != 1
+        ):
+            raise ValueError(
+                "MTP prefix snapshots require prefix caching and `tensor_parallel_size=1`."
+            )
+        if self.enable_mtp:
+            if self.draft_model_path is not None:
+                raise ValueError(
+                    "Built-in MTP cannot be combined with `draft_model_path`."
+                )
+            if not 1 <= self.num_draft_tokens <= 4:
+                raise ValueError("Qwen MTP requires `1 <= num_draft_tokens <= 4`.")
+            if self.enable_graph and (
+                self.num_draft_tokens != 1 or self.max_batch_size != 1
+            ):
+                raise ValueError(
+                    "Batched or multi-candidate Qwen MTP currently requires eager mode."
+                )
+            if self.cache_type != "paged" or self.pipeline_parallel_size != 1:
+                raise ValueError(
+                    "Qwen MTP requires paged caching and `pipeline_parallel_size=1`."
+                )
+            if self.enable_prefix_caching and not self.mtp_prefix_cache_bytes:
+                raise ValueError(
+                    "Disable prefix caching or set `mtp_prefix_cache_bytes` "
+                    "for exact-prompt MTP snapshots."
+                )
+            if (
+                self.kv_transfer_config is not None
+                and self.kv_transfer_config.kv_connector
+            ):
+                raise ValueError("Qwen MTP does not support remote KV/state transfer.")
+            if self.top_k != 1:
+                raise ValueError(
+                    "Qwen MTP currently supports greedy sampling (`top_k=1`)."
+                )
+            if self.attn_backend not in ("default", "paged-attn"):
+                raise ValueError("Qwen MTP requires the `paged-attn` backend.")
+            self.attn_backend = "paged-attn"
+            if not self.num_state_rows:
+                self.num_state_rows = 1 + self.max_batch_size * (
+                    self.num_draft_tokens + 2
+                )
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
         if self.pipeline_parallel_size < 1:

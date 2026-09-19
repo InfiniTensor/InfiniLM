@@ -72,6 +72,15 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+        /// Per-token state-pool destinations for speculative verification.
+        std::optional<infinicore::Tensor> token_state_indices;
+        // Resolved by `InferEngine` for device-resident draft hidden states.
+        // CPU inputs use ordinary per-rank H2D copies instead.
+        int target_hidden_source_rank{-1};
+        bool return_logits{true};
+        bool return_device_tokens{false};
+        bool verify_draft{false};
+        int input_source_rank{-1};
 
         float temperature{1};
 
@@ -79,13 +88,15 @@ public:
 
         float top_p{1};
 
-        infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
+        infinilm::InfinilmModel::Input to_model_input(infinicore::Device device, bool for_graph = false) const;
     };
 
     struct Output {
         infinicore::Tensor output_ids;
         infinicore::Tensor logits;
         infinicore::Tensor hidden_states;
+        // -1 for ordinary calls; greedy verification returns the accepted prefix length.
+        int accepted_draft_tokens{-1};
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -119,6 +130,7 @@ public:
     void reset_cache(const cache::CacheConfig *new_config);
 
     std::vector<infinicore::Tensor> get_kv_cache();
+    std::vector<std::vector<infinicore::Tensor>> get_hybrid_states();
 
     // Compile the model graph if enabled.
     void compile();

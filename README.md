@@ -6,6 +6,80 @@
 
 当前版本依赖[`InfiniCore v0.2.9`](https://github.com/InfiniTensor/InfiniCore/releases/tag/v0.2.9)版本。
 
+### Qwen built-in MTP (experimental)
+
+The text-only greedy path supports one built-in MTP layer, 1–4 draft tokens,
+paged KV caching and PP1. Target verification selects matching Conv/GDN
+checkpoints without replay. The scheduler batches target verification while
+keeping acceptance and state independent for each request. TP1 also batches
+draft continuation; TP2 retains separate draft calls because its end-to-end
+batching benefit has not been established.
+It handles cancellation, EOS/output limits and ordinary Decode when speculative
+cache capacity is unavailable. This requires the matching FP8/MTP InfiniCore build;
+the release dependency listed above does not contain these additions. Track the
+runtime patch in [InfiniCore #1565](https://github.com/InfiniTensor/InfiniCore/issues/1565).
+Graph execution additionally requires the graph lifetime/recording fixes in
+[InfiniCore #1560](https://github.com/InfiniTensor/InfiniCore/pull/1560).
+
+For Qwen3.8-27B-FP8 with E4M3 weights and 128×128 weight blocks, set
+`quantization_config.fp8_backend` to `"marlin"` in the checkpoint configuration
+for NVIDIA inference. Weights are packed once during loading using the existing
+Marlin operator; a separately converted weight file is unnecessary. The default
+`"compatibility"` backend dequantizes on the device at execution time and is slower.
+
+Example on one A6000 with the Marlin configuration:
+
+```bash
+python -m infinilm.server.inference_server \
+  --model /models/Qwen3.8-27B-FP8-marlin --device nvidia --dtype bfloat16 \
+  --enable-paged-attn --enable-mtp --num-draft-tokens 2 \
+  --max-batch-size 2 --num-state-rows 9 --num-blocks 40 --block-size 64 \
+  --disable-prefix-caching --top-k 1 --max-new-tokens 64
+```
+
+The same MTP and cache options are accepted by `examples/test_infer.py`,
+`examples/bench.py` and `test/bench/test_benchmark.py`. The offline benchmark
+reuses the scheduler-backed `LLM` path for MTP; it does not time model loading.
+
+`num_state_rows` counts the zero row, committed request states and speculative
+checkpoints. Its MTP default is `1 + max_batch_size * (num_draft_tokens + 2)`,
+independent of KV page count. A smaller pool can reduce concurrent admission or
+use ordinary Decode when checkpoint rows are unavailable. The page budget must
+also accommodate each prompt and its requested output limit.
+
+For exact full-prompt reuse, replace `--disable-prefix-caching` with
+`--mtp-prefix-cache-mib 512`. This TP1-only LRU cache owns device copies of both
+target/draft KV, recurrent state and the initial MTP outputs. Hits restore into
+request-owned pages and state rows. The budget limits live snapshot tensor
+storage, not model memory, allocator reservations or total process memory.
+Partial-prefix matching and the Attention-only cache's SLRU policy are not
+supported by this hybrid snapshot cache. Cache reset or weight loading
+invalidates snapshots.
+
+`--enable-graph` currently requires `--num-draft-tokens 1 --max-batch-size 1`.
+It captures ordinary Decode and supported short draft shapes; Prefill and target
+verification remain eager. Multi-candidate and batched execution use eager.
+Random sampling, multimodal requests, multi-layer MTP service execution and remote
+state transfer are rejected. NVIDIA A6000 validation covers TP1 and TP2 greedy
+execution, batched requests, cancellation and cache reclamation. The 27B FP8 TP2
+checks use K=2; K=1/2/4 and graph recapture are additionally checked with a tiny
+checkpoint. Exact full-prompt caching remains TP1-only. Other accelerators have
+not been validated for this service path.
+
+Control-flow and GPU integration checks:
+
+```bash
+python -m pytest test/models/qwen3_5 -q
+INFINILM_QWEN_MTP_TEST_MODEL=/models/tiny-qwen-mtp \
+INFINILM_QWEN_MTP_TEST_TP=1 python -m pytest \
+  test/models/qwen3_5 -q
+```
+
+For the TP2 execution and batching checks, expose two GPUs and set
+`INFINILM_QWEN_MTP_TEST_TP=2`; the prefix-cache check still uses TP1.
+The three test modules cover CPU scheduling/lifecycle, GPU execution, and
+checkpoint/model contracts. GPU checks skip when no test checkpoint is set.
+
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :

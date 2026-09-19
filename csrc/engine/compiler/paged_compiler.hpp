@@ -21,11 +21,14 @@ private:
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
+        std::optional<infinicore::Tensor> verification_lengths;
+        std::optional<infinicore::Tensor> verification_tables;
     };
 
     std::unordered_map<
         size_t, // num_requests
         CompiledResult>
         compiled_map_decode_;
+    std::unordered_map<size_t, CompiledResult> compiled_map_draft_;
 };
 } // namespace infinilm::engine

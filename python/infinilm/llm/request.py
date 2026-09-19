@@ -141,6 +141,16 @@ class TokenOutput:
     generated_text: str = ""
 
 
+@dataclass
+class MTPRequestState:
+    """Request-owned verification rows and the next built-in MTP proposal."""
+
+    scratch_indices: List[int]
+    draft_token: object = None  # Device tensor when supported, otherwise an integer.
+    draft_hidden: object = None
+    cached_tokens: int = 0
+
+
 class InferenceRequest:
     """Internal inference request object for managing generation state and resources."""
 
@@ -208,6 +218,7 @@ class InferenceRequest:
 
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
+        self.mtp_state: Optional[MTPRequestState] = None
 
         # Qwen-style MRoPE decode offset. It is zero for pure text requests.
         self.mrope_position_delta: int = 0
