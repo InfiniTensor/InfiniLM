@@ -1071,6 +1071,71 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+
+
+def _remap_minimax(state_dict, config):
+    """Adapt HF transformers `minimax` (MiniMax-Text-01) keys to InfiniLM keys."""
+    # Lightning layers use `self_attn.{qkv_proj,output_gate,out_proj,norm}` in HF
+    # and `linear_attn.*` in InfiniLM; full-attention `self_attn.q/k/v/o_proj` keep
+    # their names.
+    state_dict = rename_keys(
+        state_dict,
+        {
+            "self_attn.qkv_proj": "linear_attn.qkv_proj",
+            "self_attn.output_gate": "linear_attn.output_gate",
+            "self_attn.out_proj": "linear_attn.out_proj",
+            "self_attn.norm": "linear_attn.norm",
+        },
+    )
+
+    num_experts = config.get("num_local_experts", config.get("num_experts", 8))
+    projection_names = {
+        "w1": "gate_proj",
+        "w2": "down_proj",
+        "w3": "up_proj",
+    }
+    expert_pattern = re.compile(
+        r"^(.*\.)block_sparse_moe\.experts\.(\d+)\.(w1|w2|w3)\.weight$"
+    )
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        match = expert_pattern.match(key)
+        if match:
+            prefix, expert_idx, projection = match.groups()
+            target = projection_names[projection]
+            if num_experts == 1:
+                remapped[f"{prefix}mlp.{target}.weight"] = tensor
+            else:
+                remapped[f"{prefix}moe.experts.{expert_idx}.{target}.weight"] = tensor
+            continue
+
+        if key.endswith(".block_sparse_moe.gate.weight"):
+            if num_experts > 1:
+                prefix = key[: -len("block_sparse_moe.gate.weight")]
+                remapped[prefix + "moe.gate.weight"] = tensor
+            continue
+
+        # Compatibility with older HF MiniMax checkpoints that store packed expert weights.
+        if key.endswith("mlp.experts.gate_up_proj"):
+            base = key[: -len("mlp.experts.gate_up_proj")]
+            if num_experts == 1:
+                gate_up = tensor.squeeze(0)
+                gate, up = gate_up.chunk(2, dim=0)
+                remapped[base + "mlp.gate_proj.weight"] = gate
+                remapped[base + "mlp.up_proj.weight"] = up
+            else:
+                remapped[base + "moe.experts.w13_weight"] = tensor
+            continue
+        if key.endswith("mlp.experts.down_proj"):
+            base = key[: -len("mlp.experts.down_proj")]
+            target = "mlp.down_proj.weight" if num_experts == 1 else "moe.experts.w2_weight"
+            remapped[base + target] = tensor.squeeze(0) if num_experts == 1 else tensor
+            continue
+
+        remapped[key] = tensor
+    return remapped
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1082,5 +1147,8 @@ _WEIGHT_REMAPPER = {
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
+    "minimax": _remap_minimax,
     "kimi_k3": _remap_kimi_k3,
 }
+
+

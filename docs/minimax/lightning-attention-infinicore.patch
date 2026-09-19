@@ -1,0 +1,1135 @@
+diff --git a/include/infinicore/ops.hpp b/include/infinicore/ops.hpp
+index 5e93e145..da0215b7 100644
+--- a/include/infinicore/ops.hpp
++++ b/include/infinicore/ops.hpp
+@@ -45,6 +45,7 @@
+ #include "ops/hardswish.hpp"
+ #include "ops/hardtanh.hpp"
+ #include "ops/kimi_delta_attention.hpp"
++#include "ops/lightning_attention.hpp"
+ #include "ops/kv_caching.hpp"
+ #include "ops/layer_norm.hpp"
+ #include "ops/linear.hpp"
+@@ -114,3 +115,4 @@
+ #include "ops/w4a8_group_gemm.hpp"
+ #include "ops/w8a8_group_gemm.hpp"
+ #endif
++
+diff --git a/include/infinicore/ops/lightning_attention.hpp b/include/infinicore/ops/lightning_attention.hpp
+new file mode 100644
+index 00000000..268d32d1
+--- /dev/null
++++ b/include/infinicore/ops/lightning_attention.hpp
+@@ -0,0 +1,41 @@
++#pragma once
++
++#include "infinicore.h"
++
++#include "../device.hpp"
++#include "../graph/graph.hpp"
++#include "common/op.hpp"
++
++namespace infinicore::op {
++
++INFINICORE_GRAPH_OP_CLASS(LightningAttention,
++                          Tensor,
++                          Tensor,
++                          const Tensor &,
++                          const Tensor &,
++                          const Tensor &,
++                          const Tensor &,
++                          const Tensor &,
++                          const Tensor &);
++
++// Indexed-pool lightning attention (MiniMax-01 style).
++// Returns out [B, T, H, D] and updates `initial_state` in place at
++// `final_state_indices` rows.
++__export Tensor lightning_attention(const Tensor &q,
++                                    const Tensor &k,
++                                    const Tensor &v,
++                                    const Tensor &slope,
++                                    Tensor initial_state,
++                                    const Tensor &initial_state_indices,
++                                    const Tensor &final_state_indices);
++
++__export void lightning_attention_(Tensor out,
++                                   Tensor initial_state,
++                                   const Tensor &q,
++                                   const Tensor &k,
++                                   const Tensor &v,
++                                   const Tensor &slope,
++                                   const Tensor &initial_state_indices,
++                                   const Tensor &final_state_indices);
++
++} // namespace infinicore::op
+diff --git a/include/infiniop.h b/include/infiniop.h
+index 9f632e27..95b2d6e7 100644
+--- a/include/infiniop.h
++++ b/include/infiniop.h
+@@ -85,6 +85,7 @@
+ #include "infiniop/ops/layer_norm.h"
+ #include "infiniop/ops/ldexp.h"
+ #include "infiniop/ops/lerp.h"
++#include "infiniop/ops/lightning_attention.h"
+ #include "infiniop/ops/linear_mxfp4.h"
+ #include "infiniop/ops/log10.h"
+ #include "infiniop/ops/log1p.h"
+@@ -169,3 +170,5 @@
+ #include "infiniop/ops/zeros.h"
+ #include "infiniop/tensor_descriptor.h"
+ #endif // __INFINIOP_API_H__
++
++
+diff --git a/include/infiniop/ops/lightning_attention.h b/include/infiniop/ops/lightning_attention.h
+new file mode 100644
+index 00000000..cd9156e3
+--- /dev/null
++++ b/include/infiniop/ops/lightning_attention.h
+@@ -0,0 +1,60 @@
++#ifndef __INFINIOP_LIGHTNING_ATTENTION_API_H__
++#define __INFINIOP_LIGHTNING_ATTENTION_API_H__
++
++#include "../operator_descriptor.h"
++
++typedef struct InfiniopDescriptor *infiniopLightningAttentionDescriptor_t;
++
++// Lightning attention (MiniMax-01 style, ALiBi-style per-head decay) with an
++// indexed recurrent-state pool.
++//
++// Recurrence (per head h, per token t):
++//   S  = ratio[h] * S + k_t^T v_t          (ratio[h] = exp(-slope[h]))
++//   o_t = q_t @ S
++// i.e. the state is updated *before* the output is read, so each output token
++// attends to itself with weight 1 (no decay within the same position).
++//
++// Tensor layouts:
++//   out                  [B, T, H, D]      (last dim contiguous)
++//   initial_state (pool) [pool_size, H, D, D]
++//   q/k/v                [B, T, H, D]      (last dim contiguous)
++//   slope                [H]               (fp32)
++//   initial/final_state_indices [B]        (int32 or int64)
++//
++// Indexed-pool mode only: for each request b the op reads the state row
++// `initial_state[initial_state_indices[b]]` and writes the final state in place
++// to `initial_state[final_state_indices[b]]`.
++__INFINI_C __export infiniStatus_t infiniopCreateLightningAttentionDescriptor(
++    infiniopHandle_t handle,
++    infiniopLightningAttentionDescriptor_t *desc_ptr,
++    infiniopTensorDescriptor_t out_desc,
++    infiniopTensorDescriptor_t initial_state_desc,
++    infiniopTensorDescriptor_t q_desc,
++    infiniopTensorDescriptor_t k_desc,
++    infiniopTensorDescriptor_t v_desc,
++    infiniopTensorDescriptor_t slope_desc,
++    infiniopTensorDescriptor_t initial_state_indices_desc,
++    infiniopTensorDescriptor_t final_state_indices_desc);
++
++__INFINI_C __export infiniStatus_t infiniopGetLightningAttentionWorkspaceSize(
++    infiniopLightningAttentionDescriptor_t desc,
++    size_t *size);
++
++__INFINI_C __export infiniStatus_t infiniopLightningAttention(
++    infiniopLightningAttentionDescriptor_t desc,
++    void *workspace,
++    size_t workspace_size,
++    void *out,
++    void *initial_state,
++    const void *q,
++    const void *k,
++    const void *v,
++    const void *slope,
++    const void *initial_state_indices,
++    const void *final_state_indices,
++    void *stream);
++
++__INFINI_C __export infiniStatus_t infiniopDestroyLightningAttentionDescriptor(
++    infiniopLightningAttentionDescriptor_t desc);
++
++#endif
+diff --git a/python/infinicore/__init__.py b/python/infinicore/__init__.py
+index 612db614..ef8a5b72 100644
+--- a/python/infinicore/__init__.py
++++ b/python/infinicore/__init__.py
+@@ -121,6 +121,7 @@ from infinicore.ops.kthvalue import kthvalue
+ from infinicore.ops.kv_caching import kv_caching
+ from infinicore.ops.ldexp import ldexp
+ from infinicore.ops.lerp import lerp
++from infinicore.ops.lightning_attention import lightning_attention
+ from infinicore.ops.logaddexp import logaddexp
+ from infinicore.ops.logaddexp2 import logaddexp2
+ from infinicore.ops.logcumsumexp import logcumsumexp
+@@ -388,3 +389,5 @@ __all__ += [
+     "w4a8_group_gemm_",
+     "w8a8_group_gemm_",
+ ]
++
++
+diff --git a/python/infinicore/ops/lightning_attention.py b/python/infinicore/ops/lightning_attention.py
+new file mode 100644
+index 00000000..ab7a86d7
+--- /dev/null
++++ b/python/infinicore/ops/lightning_attention.py
+@@ -0,0 +1,21 @@
++from infinicore.lib import _infinicore
++from infinicore.tensor import Tensor
++
++
++def lightning_attention(q, k, v, slope, initial_state, initial_state_indices, final_state_indices):
++    """Indexed-pool lightning attention (MiniMax-01 style).
++
++    Returns out [B, T, H, D]; `initial_state` is updated in place at the
++    `final_state_indices` rows.
++    """
++    return Tensor(
++        _infinicore.lightning_attention(
++            q._underlying,
++            k._underlying,
++            v._underlying,
++            slope._underlying,
++            initial_state._underlying,
++            initial_state_indices._underlying,
++            final_state_indices._underlying,
++        )
++    )
+diff --git a/src/infinicore/ops/lightning_attention/lightning_attention.cc b/src/infinicore/ops/lightning_attention/lightning_attention.cc
+new file mode 100644
+index 00000000..aacb6fb7
+--- /dev/null
++++ b/src/infinicore/ops/lightning_attention/lightning_attention.cc
+@@ -0,0 +1,90 @@
++#include "infinicore/ops/lightning_attention.hpp"
++#include "../../utils.hpp"
++
++#include <stdexcept>
++
++namespace infinicore::op {
++
++INFINICORE_GRAPH_OP_DISPATCHERS_IMPL(LightningAttention);
++
++LightningAttention::LightningAttention(Tensor out,
++                                       Tensor initial_state,
++                                       const Tensor &q,
++                                       const Tensor &k,
++                                       const Tensor &v,
++                                       const Tensor &slope,
++                                       const Tensor &initial_state_indices,
++                                       const Tensor &final_state_indices) {
++    INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, initial_state, q, k, v, slope);
++    INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, initial_state_indices);
++    INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, final_state_indices);
++    INFINICORE_GRAPH_OP_DISPATCH(out->device().getType(),
++                                 out,
++                                 initial_state,
++                                 q,
++                                 k,
++                                 v,
++                                 slope,
++                                 initial_state_indices,
++                                 final_state_indices);
++}
++
++void LightningAttention::execute(Tensor out,
++                                 Tensor initial_state,
++                                 const Tensor &q,
++                                 const Tensor &k,
++                                 const Tensor &v,
++                                 const Tensor &slope,
++                                 const Tensor &initial_state_indices,
++                                 const Tensor &final_state_indices) {
++    INFINICORE_GRAPH_OP_RECORD_OR_RUN(LightningAttention,
++                                      out,
++                                      initial_state,
++                                      q,
++                                      k,
++                                      v,
++                                      slope,
++                                      initial_state_indices,
++                                      final_state_indices);
++}
++
++static Tensor ensure_4d_sequence_tensor(const Tensor &x, const char *name) {
++    if (x->shape().size() == 4) {
++        return x;
++    }
++    if (x->shape().size() == 3) {
++        return x->unsqueeze(1);
++    }
++    throw std::runtime_error(std::string("lightning_attention expects ") + name + " with shape [B, T, H, D] or [B, H, D]");
++}
++
++Tensor lightning_attention(const Tensor &q,
++                           const Tensor &k,
++                           const Tensor &v,
++                           const Tensor &slope,
++                           Tensor initial_state,
++                           const Tensor &initial_state_indices,
++                           const Tensor &final_state_indices) {
++    Tensor q4 = ensure_4d_sequence_tensor(q, "q");
++    Tensor k4 = ensure_4d_sequence_tensor(k, "k");
++    Tensor v4 = ensure_4d_sequence_tensor(v, "v");
++    auto out = Tensor::empty(v4->shape(), v4->dtype(), v4->device());
++    lightning_attention_(out, initial_state, q4, k4, v4, slope, initial_state_indices, final_state_indices);
++    return out;
++}
++
++void lightning_attention_(Tensor out,
++                          Tensor initial_state,
++                          const Tensor &q,
++                          const Tensor &k,
++                          const Tensor &v,
++                          const Tensor &slope,
++                          const Tensor &initial_state_indices,
++                          const Tensor &final_state_indices) {
++    Tensor q4 = ensure_4d_sequence_tensor(q, "q");
++    Tensor k4 = ensure_4d_sequence_tensor(k, "k");
++    Tensor v4 = ensure_4d_sequence_tensor(v, "v");
++    LightningAttention::execute(out, initial_state, q4, k4, v4, slope, initial_state_indices, final_state_indices);
++}
++
++} // namespace infinicore::op
+diff --git a/src/infinicore/ops/lightning_attention/lightning_attention_infiniop.cc b/src/infinicore/ops/lightning_attention/lightning_attention_infiniop.cc
+new file mode 100644
+index 00000000..c8ec9e3d
+--- /dev/null
++++ b/src/infinicore/ops/lightning_attention/lightning_attention_infiniop.cc
+@@ -0,0 +1,85 @@
++#include "infinicore/ops/lightning_attention.hpp"
++
++#include "../infiniop_impl.hpp"
++
++namespace infinicore::op::lightning_attention_impl::infiniop {
++
++INFINIOP_CACHABLE_DESCRIPTOR(Descriptor, LightningAttention, 100);
++
++struct PlannedMeta {
++    std::shared_ptr<Descriptor> descriptor;
++    graph::GraphTensor workspace, out, initial_state, q, k, v, slope;
++    graph::GraphTensor initial_state_indices;
++    graph::GraphTensor final_state_indices;
++};
++
++void *plan(Tensor out,
++           Tensor initial_state,
++           const Tensor &q,
++           const Tensor &k,
++           const Tensor &v,
++           const Tensor &slope,
++           const Tensor &initial_state_indices,
++           const Tensor &final_state_indices) {
++    size_t seed = hash_combine(out,
++                               initial_state,
++                               q,
++                               k,
++                               v,
++                               slope,
++                               initial_state_indices,
++                               final_state_indices);
++
++    INFINIOP_CACHABLE_DESCRIPTOR_GET_OR_CREATE(
++        Descriptor, descriptor, LightningAttention,
++        seed,
++        out->desc(),
++        initial_state->desc(),
++        q->desc(),
++        k->desc(),
++        v->desc(),
++        slope->desc(),
++        initial_state_indices->desc(),
++        final_state_indices->desc());
++
++    INFINIOP_WORKSPACE_TENSOR(workspace, LightningAttention, descriptor);
++
++    return new PlannedMeta{
++        descriptor,
++        graph::GraphTensor(workspace),
++        graph::GraphTensor(out),
++        graph::GraphTensor(initial_state),
++        graph::GraphTensor(q),
++        graph::GraphTensor(k),
++        graph::GraphTensor(v),
++        graph::GraphTensor(slope),
++        graph::GraphTensor(initial_state_indices),
++        graph::GraphTensor(final_state_indices)};
++}
++
++void run(void *planned_meta) {
++    auto planned = reinterpret_cast<PlannedMeta *>(planned_meta);
++
++    INFINICORE_CHECK_ERROR(infiniopLightningAttention(
++        planned->descriptor->desc,
++        planned->workspace->data(),
++        planned->workspace->numel(),
++        planned->out->data(),
++        planned->initial_state->data(),
++        planned->q->data(),
++        planned->k->data(),
++        planned->v->data(),
++        planned->slope->data(),
++        planned->initial_state_indices->data(),
++        planned->final_state_indices->data(),
++        context::getStream()));
++}
++
++void cleanup(void **planned_meta_ptr) {
++    delete *reinterpret_cast<PlannedMeta **>(planned_meta_ptr);
++    *planned_meta_ptr = nullptr;
++}
++
++INFINICORE_GRAPH_OP_REGISTER_ALLDEVICE(LightningAttention, &plan, &run, &cleanup);
++
++} // namespace infinicore::op::lightning_attention_impl::infiniop
+diff --git a/src/infinicore/pybind11/ops.hpp b/src/infinicore/pybind11/ops.hpp
+index e78adf27..9b5d9dfa 100644
+--- a/src/infinicore/pybind11/ops.hpp
++++ b/src/infinicore/pybind11/ops.hpp
+@@ -77,6 +77,7 @@
+ #include "ops/ldexp.hpp"
+ #include "ops/lerp.hpp"
+ #include "ops/linear.hpp"
++#include "ops/lightning_attention.hpp"
+ #include "ops/linear_mxfp4.hpp"
+ #include "ops/linear_w8a8i8.hpp"
+ #include "ops/log_softmax.hpp"
+@@ -229,6 +230,7 @@ inline void bind(py::module &m) {
+     bind_hinge_embedding_loss(m);
+     bind_kv_caching(m);
+     bind_kimi_delta_attention(m);
++    bind_lightning_attention(m);
+     bind_fmod(m);
+     bind_fp8_indexer_logits(m);
+     bind_fp8_indexer_quant(m);
+@@ -345,3 +347,5 @@ inline void bind(py::module &m) {
+ }
+ 
+ } // namespace infinicore::ops
++
++
+diff --git a/src/infinicore/pybind11/ops/lightning_attention.hpp b/src/infinicore/pybind11/ops/lightning_attention.hpp
+new file mode 100644
+index 00000000..af819cc0
+--- /dev/null
++++ b/src/infinicore/pybind11/ops/lightning_attention.hpp
+@@ -0,0 +1,25 @@
++#pragma once
++
++#include <pybind11/pybind11.h>
++
++#include "infinicore/ops/lightning_attention.hpp"
++
++namespace py = pybind11;
++
++namespace infinicore::ops {
++
++inline void bind_lightning_attention(py::module &m) {
++    m.def("lightning_attention",
++          &op::lightning_attention,
++          py::arg("q"),
++          py::arg("k"),
++          py::arg("v"),
++          py::arg("slope"),
++          py::arg("initial_state"),
++          py::arg("initial_state_indices"),
++          py::arg("final_state_indices"),
++          R"doc(Indexed-pool lightning attention (MiniMax-01 style).
++Returns out [B, T, H, D]; updates `initial_state` in place at final_state_indices rows.)doc");
++}
++
++} // namespace infinicore::ops
+diff --git a/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.cc b/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.cc
+new file mode 100644
+index 00000000..61329492
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.cc
+@@ -0,0 +1,155 @@
++#include "lightning_attention_cpu.h"
++#include "../../../../infiniop/handle.h"
++#include "../../../../utils.h"
++#include "../../../../utils/custom_types.h"
++#include <cmath>
++#include <cstdint>
++#include <vector>
++
++namespace op::lightning_attention::cpu {
++
++Descriptor::~Descriptor() {}
++
++template <typename T>
++static infiniStatus_t lightning_attention_cpu_impl(const LightningAttentionInfo &info,
++                                                   T *out, T *initial_state,
++                                                   const T *q, const T *k, const T *v,
++                                                   const float *slope,
++                                                   const void *init_idx_ptr,
++                                                   const void *final_idx_ptr) {
++    const size_t B = info.B;
++    const size_t Tlen = info.T;
++    const size_t H = info.H;
++    const size_t D = info.D;
++
++    const auto &out_s = info.out_strides;
++    const auto &state_s = info.initial_state_strides;
++    const auto &q_s = info.q_strides;
++    const auto &k_s = info.k_strides;
++    const auto &v_s = info.v_strides;
++    const auto &slope_s = info.slope_strides;
++
++    const auto read_index = [&](const void *ptr, size_t i) -> size_t {
++        if (info.index_dtype == INFINI_DTYPE_I32) {
++            return static_cast<size_t>(reinterpret_cast<const int32_t *>(ptr)[i]);
++        }
++        return static_cast<size_t>(reinterpret_cast<const int64_t *>(ptr)[i]);
++    };
++
++    // Per-request recurrent state [H, D, D], accumulated in fp32.
++    std::vector<float> S(H * D * D, 0.0f);
++
++    for (size_t b = 0; b < B; ++b) {
++        const size_t state_row = read_index(init_idx_ptr, b);
++        const size_t final_row = read_index(final_idx_ptr, b);
++
++        // Load initial state.
++        for (size_t h = 0; h < H; ++h) {
++            for (size_t i = 0; i < D; ++i) {
++                for (size_t j = 0; j < D; ++j) {
++                    S[(h * D + i) * D + j] = utils::cast<float>(
++                        initial_state[state_row * state_s[0] + h * state_s[1] + i * state_s[2] + j * state_s[3]]);
++                }
++            }
++        }
++
++        for (size_t t = 0; t < Tlen; ++t) {
++            const size_t q_base = b * q_s[0] + t * q_s[1];
++            const size_t k_base = b * k_s[0] + t * k_s[1];
++            const size_t v_base = b * v_s[0] + t * v_s[1];
++            const size_t out_base = b * out_s[0] + t * out_s[1];
++
++            for (size_t h = 0; h < H; ++h) {
++                const float ratio = std::exp(-slope[h * slope_s[0]]);
++                const size_t head_base = (h * D) * D;
++                const size_t q_h = q_base + h * q_s[2];
++                const size_t k_h = k_base + h * k_s[2];
++                const size_t v_h = v_base + h * v_s[2];
++                const size_t out_h = out_base + h * out_s[2];
++
++                // S' = ratio * S + k^T v
++                for (size_t i = 0; i < D; ++i) {
++                    const float k_i = utils::cast<float>(k[k_h + i * k_s[3]]);
++                    float *S_i = S.data() + head_base + i * D;
++                    for (size_t j = 0; j < D; ++j) {
++                        const float v_j = utils::cast<float>(v[v_h + j * v_s[3]]);
++                        S_i[j] = ratio * S_i[j] + k_i * v_j;
++                    }
++                }
++                // o[j] = sum_i q[i] * S[i, j]
++                for (size_t j = 0; j < D; ++j) {
++                    float acc = 0.0f;
++                    for (size_t i = 0; i < D; ++i) {
++                        const float q_i = utils::cast<float>(q[q_h + i * q_s[3]]);
++                        acc += q_i * S[head_base + i * D + j];
++                    }
++                    out[out_h + j * out_s[3]] = utils::cast<T>(acc);
++                }
++            }
++        }
++
++        // Write the final state back into the pool.
++        for (size_t h = 0; h < H; ++h) {
++            for (size_t i = 0; i < D; ++i) {
++                for (size_t j = 0; j < D; ++j) {
++                    initial_state[final_row * state_s[0] + h * state_s[1] + i * state_s[2] + j * state_s[3]] =
++                        utils::cast<T>(S[(h * D + i) * D + j]);
++                }
++            }
++        }
++    }
++    return INFINI_STATUS_SUCCESS;
++}
++
++infiniStatus_t Descriptor::create(
++    infiniopHandle_t handle,
++    Descriptor **desc_ptr,
++    infiniopTensorDescriptor_t out_desc,
++    infiniopTensorDescriptor_t initial_state_desc,
++    infiniopTensorDescriptor_t q_desc,
++    infiniopTensorDescriptor_t k_desc,
++    infiniopTensorDescriptor_t v_desc,
++    infiniopTensorDescriptor_t slope_desc,
++    infiniopTensorDescriptor_t initial_state_indices_desc,
++    infiniopTensorDescriptor_t final_state_indices_desc) {
++    auto result = LightningAttentionInfo::create(out_desc, initial_state_desc,
++                                                 q_desc, k_desc, v_desc, slope_desc,
++                                                 initial_state_indices_desc,
++                                                 final_state_indices_desc);
++    CHECK_RESULT(result);
++    *desc_ptr = new Descriptor(nullptr, result.take(), 0, handle->device, handle->device_id);
++    return INFINI_STATUS_SUCCESS;
++}
++
++infiniStatus_t Descriptor::calculate(
++    void *workspace, size_t workspace_size,
++    void *out, void *initial_state,
++    const void *q, const void *k, const void *v,
++    const void *slope,
++    const void *initial_state_indices,
++    const void *final_state_indices,
++    void *stream) const {
++    if (_info.data_dtype == INFINI_DTYPE_F32) {
++        return lightning_attention_cpu_impl<float>(
++            _info, (float *)out, (float *)initial_state,
++            (const float *)q, (const float *)k, (const float *)v,
++            (const float *)slope, initial_state_indices, final_state_indices);
++    }
++    if (_info.data_dtype == INFINI_DTYPE_F16) {
++        return lightning_attention_cpu_impl<fp16_t>(
++            _info, (fp16_t *)out, (fp16_t *)initial_state,
++            (const fp16_t *)q, (const fp16_t *)k, (const fp16_t *)v,
++            (const float *)slope, initial_state_indices, final_state_indices);
++    }
++    if (_info.data_dtype == INFINI_DTYPE_BF16) {
++        return lightning_attention_cpu_impl<bf16_t>(
++            _info, (bf16_t *)out, (bf16_t *)initial_state,
++            (const bf16_t *)q, (const bf16_t *)k, (const bf16_t *)v,
++            (const float *)slope, initial_state_indices, final_state_indices);
++    }
++    return INFINI_STATUS_BAD_TENSOR_DTYPE;
++}
++
++} // namespace op::lightning_attention::cpu
++
++
+diff --git a/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.h b/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.h
+new file mode 100644
+index 00000000..50c320a0
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/cpu/lightning_attention_cpu.h
+@@ -0,0 +1,7 @@
++#ifndef __LIGHTNING_ATTENTION_CPU_H__
++#define __LIGHTNING_ATTENTION_CPU_H__
++#include "../lightning_attention.h"
++
++DESCRIPTOR(cpu)
++
++#endif
+diff --git a/src/infiniop/ops/lightning_attention/info.h b/src/infiniop/ops/lightning_attention/info.h
+new file mode 100644
+index 00000000..0d28f7a7
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/info.h
+@@ -0,0 +1,134 @@
++// infiniop/ops/lightning_attention/info.h
++
++#ifndef __LIGHTNING_ATTENTION_INFO_H__
++#define __LIGHTNING_ATTENTION_INFO_H__
++
++#include "../../../utils.h"
++#include "../../tensor.h"
++#include <vector>
++
++namespace op {
++namespace lightning_attention {
++
++class LightningAttentionInfo {
++    LightningAttentionInfo() = default;
++
++public:
++    infiniDtype_t data_dtype;
++    infiniDtype_t index_dtype;
++    size_t B, T, H, D, pool_size;
++
++    std::vector<ptrdiff_t> out_strides;
++    std::vector<ptrdiff_t> initial_state_strides;
++    std::vector<ptrdiff_t> q_strides;
++    std::vector<ptrdiff_t> k_strides;
++    std::vector<ptrdiff_t> v_strides;
++    std::vector<ptrdiff_t> slope_strides;
++    std::vector<ptrdiff_t> initial_state_indices_strides;
++    std::vector<ptrdiff_t> final_state_indices_strides;
++
++    static utils::Result<LightningAttentionInfo>
++    create(infiniopTensorDescriptor_t out_desc,
++           infiniopTensorDescriptor_t initial_state_desc,
++           infiniopTensorDescriptor_t q_desc,
++           infiniopTensorDescriptor_t k_desc,
++           infiniopTensorDescriptor_t v_desc,
++           infiniopTensorDescriptor_t slope_desc,
++           infiniopTensorDescriptor_t initial_state_indices_desc,
++           infiniopTensorDescriptor_t final_state_indices_desc) {
++        if (out_desc == nullptr || initial_state_desc == nullptr || q_desc == nullptr ||
++            k_desc == nullptr || v_desc == nullptr || slope_desc == nullptr ||
++            initial_state_indices_desc == nullptr || final_state_indices_desc == nullptr) {
++            return INFINI_STATUS_NULL_POINTER;
++        }
++
++        auto data_dtype = q_desc->dtype();
++        CHECK_DTYPE(data_dtype, INFINI_DTYPE_F16, INFINI_DTYPE_BF16, INFINI_DTYPE_F32);
++        if (k_desc->dtype() != data_dtype || v_desc->dtype() != data_dtype ||
++            out_desc->dtype() != data_dtype || initial_state_desc->dtype() != data_dtype) {
++            return INFINI_STATUS_BAD_TENSOR_DTYPE;
++        }
++        if (slope_desc->dtype() != INFINI_DTYPE_F32) {
++            return INFINI_STATUS_BAD_TENSOR_DTYPE;
++        }
++
++        auto index_dtype = initial_state_indices_desc->dtype();
++        CHECK_DTYPE(index_dtype, INFINI_DTYPE_I32, INFINI_DTYPE_I64);
++        if (final_state_indices_desc->dtype() != index_dtype) {
++            return INFINI_STATUS_BAD_TENSOR_DTYPE;
++        }
++
++        const auto &q_shape = q_desc->shape();
++        const auto &k_shape = k_desc->shape();
++        const auto &v_shape = v_desc->shape();
++        const auto &out_shape = out_desc->shape();
++        const auto &state_shape = initial_state_desc->shape();
++        const auto &slope_shape = slope_desc->shape();
++        if (q_shape.size() != 4 || k_shape.size() != 4 || v_shape.size() != 4 || out_shape.size() != 4) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        if (k_shape != q_shape || v_shape != q_shape || out_shape != q_shape) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        const size_t B = q_shape[0];
++        const size_t T = q_shape[1];
++        const size_t H = q_shape[2];
++        const size_t D = q_shape[3];
++        if (B == 0 || T == 0 || H == 0 || D == 0) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        if (state_shape.size() != 4 || state_shape[1] != H || state_shape[2] != D || state_shape[3] != D) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        const size_t pool_size = state_shape[0];
++        if (pool_size == 0) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        if (slope_shape.size() != 1 || slope_shape[0] != H) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++        if (initial_state_indices_desc->shape().size() != 1 ||
++            initial_state_indices_desc->shape()[0] != B ||
++            final_state_indices_desc->shape().size() != 1 ||
++            final_state_indices_desc->shape()[0] != B) {
++            return INFINI_STATUS_BAD_TENSOR_SHAPE;
++        }
++
++        // last dim must be contiguous for the sequence tensors (as in gated delta rule)
++        if (q_desc->stride(3) != 1 || k_desc->stride(3) != 1 ||
++            v_desc->stride(3) != 1 || out_desc->stride(3) != 1) {
++            return INFINI_STATUS_BAD_TENSOR_STRIDES;
++        }
++
++        // Both implementations read the state indices with unit stride.
++        if (initial_state_indices_desc->stride(0) != 1 ||
++            final_state_indices_desc->stride(0) != 1) {
++            return INFINI_STATUS_BAD_TENSOR_STRIDES;
++        }
++
++        LightningAttentionInfo info;
++        info.data_dtype = data_dtype;
++        info.index_dtype = index_dtype;
++        info.B = B;
++        info.T = T;
++        info.H = H;
++        info.D = D;
++        info.pool_size = pool_size;
++        info.out_strides = out_desc->strides();
++        info.initial_state_strides = initial_state_desc->strides();
++        info.q_strides = q_desc->strides();
++        info.k_strides = k_desc->strides();
++        info.v_strides = v_desc->strides();
++        info.slope_strides = slope_desc->strides();
++        info.initial_state_indices_strides = initial_state_indices_desc->strides();
++        info.final_state_indices_strides = final_state_indices_desc->strides();
++        return utils::Result<LightningAttentionInfo>(info);
++    }
++};
++
++} // namespace lightning_attention
++} // namespace op
++
++#endif // __LIGHTNING_ATTENTION_INFO_H__
++
++
+diff --git a/src/infiniop/ops/lightning_attention/lightning_attention.h b/src/infiniop/ops/lightning_attention/lightning_attention.h
+new file mode 100644
+index 00000000..b7f4f087
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/lightning_attention.h
+@@ -0,0 +1,57 @@
++// infiniop/ops/lightning_attention.h
++
++#ifndef __INFINIOP_LIGHTNING_ATTENTION_H__
++#define __INFINIOP_LIGHTNING_ATTENTION_H__
++
++#include "../../operator.h"
++#include "info.h"
++
++#define DESCRIPTOR(NAMESPACE)                                        \
++                                                                     \
++    namespace op::lightning_attention::NAMESPACE {                   \
++    class Descriptor final : public InfiniopDescriptor {             \
++        struct Opaque;                                               \
++        Opaque *_opaque;                                             \
++        LightningAttentionInfo _info;                                \
++        size_t _workspace_size;                                      \
++                                                                     \
++        Descriptor(                                                  \
++            Opaque *opaque,                                          \
++            LightningAttentionInfo info,                             \
++            size_t workspace_size,                                   \
++            infiniDevice_t device_type,                              \
++            int device_id)                                           \
++            : InfiniopDescriptor{device_type, device_id},            \
++              _opaque(opaque),                                       \
++              _info(info),                                           \
++              _workspace_size(workspace_size) {}                     \
++                                                                     \
++    public:                                                          \
++        ~Descriptor();                                               \
++                                                                     \
++        size_t workspaceSize() const { return _workspace_size; }     \
++                                                                     \
++        static infiniStatus_t create(                                \
++            infiniopHandle_t handle,                                 \
++            Descriptor **desc_ptr,                                   \
++            infiniopTensorDescriptor_t out_desc,                     \
++            infiniopTensorDescriptor_t initial_state_desc,           \
++            infiniopTensorDescriptor_t q_desc,                       \
++            infiniopTensorDescriptor_t k_desc,                       \
++            infiniopTensorDescriptor_t v_desc,                       \
++            infiniopTensorDescriptor_t slope_desc,                   \
++            infiniopTensorDescriptor_t initial_state_indices_desc,   \
++            infiniopTensorDescriptor_t final_state_indices_desc);    \
++                                                                     \
++        infiniStatus_t calculate(                                    \
++            void *workspace, size_t workspace_size,                  \
++            void *out, void *initial_state,                          \
++            const void *q, const void *k, const void *v,             \
++            const void *slope,                                       \
++            const void *initial_state_indices,                       \
++            const void *final_state_indices,                         \
++            void *stream) const;                                     \
++    };                                                               \
++    }
++
++#endif // __INFINIOP_LIGHTNING_ATTENTION_H__
+diff --git a/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cu b/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cu
+new file mode 100644
+index 00000000..c6164a03
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cu
+@@ -0,0 +1,160 @@
++#include "../../../devices/nvidia/nvidia_common.cuh"
++#include "lightning_attention_nvidia.cuh"
++
++#include "../../../devices/nvidia/nvidia_kernel_common.cuh"
++
++#include <cstddef>
++#include <cstdint>
++#include <cuda_runtime.h>
++
++namespace op::lightning_attention::nvidia {
++
++struct Descriptor::Opaque {
++    std::shared_ptr<device::nvidia::Handle::Internal> internal;
++};
++
++Descriptor::~Descriptor() {
++    delete _opaque;
++}
++
++// One block per (batch, head); one thread per state/output column. The block is
++// launched with exactly `D` threads (`D <= maxThreadsPerBlock()`, validated in
++// `Descriptor::calculate`), so every thread reaches each `__syncthreads()`.
++//
++// The recurrence is staged into the destination row of the state pool: the
++// initial row is copied to the final row first and the accumulation happens in
++// place on the final row. This keeps the initial row untouched, matching the
++// CPU implementation when `initial_state_indices != final_state_indices`.
++//
++// NOTE: fp32 only for now; fp16/bf16 kernels are a follow-up.
++INFINIOP_CUDA_KERNEL lightningAttentionKernel(
++    const float *__restrict__ q, const float *__restrict__ k, const float *__restrict__ v,
++    float *__restrict__ out, float *__restrict__ state_pool,
++    const float *__restrict__ slope,
++    const int32_t *__restrict__ init_idx, const int32_t *__restrict__ final_idx,
++    size_t T, size_t D,
++    ptrdiff_t q_sb, ptrdiff_t q_st, ptrdiff_t q_sh, ptrdiff_t q_sd,
++    ptrdiff_t k_sb, ptrdiff_t k_st, ptrdiff_t k_sh, ptrdiff_t k_sd,
++    ptrdiff_t v_sb, ptrdiff_t v_st, ptrdiff_t v_sh, ptrdiff_t v_sd,
++    ptrdiff_t o_sb, ptrdiff_t o_st, ptrdiff_t o_sh, ptrdiff_t o_sd,
++    ptrdiff_t s_s0, ptrdiff_t s_s1, ptrdiff_t s_s2, ptrdiff_t s_s3,
++    size_t slope_stride) {
++    const size_t b = blockIdx.y;
++    const size_t h = blockIdx.x;
++    const size_t tid = threadIdx.x;
++
++    extern __shared__ float smem[];
++    float *s_k = smem;
++    float *s_q = smem + D;
++
++    const size_t init_row = static_cast<size_t>(init_idx[b]);
++    const size_t final_row = static_cast<size_t>(final_idx[b]);
++    const float ratio = __expf(-slope[h * slope_stride]);
++
++    float *S = state_pool + final_row * s_s0 + h * s_s1;
++    const float *S_init = state_pool + init_row * s_s0 + h * s_s1;
++    if (init_row != final_row) {
++        for (size_t idx = tid; idx < D * D; idx += D) {
++            const size_t i = idx / D;
++            const size_t j = idx % D;
++            S[i * s_s2 + j * s_s3] = S_init[i * s_s2 + j * s_s3];
++        }
++    }
++    __syncthreads();
++
++    for (size_t t = 0; t < T; ++t) {
++        s_k[tid] = k[b * k_sb + t * k_st + h * k_sh + tid * k_sd];
++        s_q[tid] = q[b * q_sb + t * q_st + h * q_sh + tid * q_sd];
++        __syncthreads();
++
++        // S[i][j] = ratio * S[i][j] + k[i] * v[j]   (thread j owns column j)
++        const float v_j = v[b * v_sb + t * v_st + h * v_sh + tid * v_sd];
++        for (size_t i = 0; i < D; ++i) {
++            float *s_ij = S + i * s_s2 + tid * s_s3;
++            *s_ij = ratio * (*s_ij) + s_k[i] * v_j;
++        }
++
++        // o[j] = sum_i q[i] * S[i][j]
++        float acc = 0.0f;
++        for (size_t i = 0; i < D; ++i) {
++            acc += s_q[i] * S[i * s_s2 + tid * s_s3];
++        }
++        out[b * o_sb + t * o_st + h * o_sh + tid * o_sd] = acc;
++
++        __syncthreads(); // All threads must finish reading s_k/s_q before reloading.
++    }
++}
++
++infiniStatus_t Descriptor::create(
++    infiniopHandle_t handle,
++    Descriptor **desc_ptr,
++    infiniopTensorDescriptor_t out_desc,
++    infiniopTensorDescriptor_t initial_state_desc,
++    infiniopTensorDescriptor_t q_desc,
++    infiniopTensorDescriptor_t k_desc,
++    infiniopTensorDescriptor_t v_desc,
++    infiniopTensorDescriptor_t slope_desc,
++    infiniopTensorDescriptor_t initial_state_indices_desc,
++    infiniopTensorDescriptor_t final_state_indices_desc) {
++    auto info = LightningAttentionInfo::create(out_desc, initial_state_desc,
++                                               q_desc, k_desc, v_desc, slope_desc,
++                                               initial_state_indices_desc,
++                                               final_state_indices_desc);
++    CHECK_RESULT(info);
++    *desc_ptr = new Descriptor(
++        new Opaque{reinterpret_cast<device::nvidia::Handle *>(handle)->internal()},
++        info.take(), 0, handle->device, handle->device_id);
++    return INFINI_STATUS_SUCCESS;
++}
++
++infiniStatus_t Descriptor::calculate(
++    void *workspace, size_t workspace_size,
++    void *out, void *initial_state,
++    const void *q, const void *k, const void *v,
++    const void *slope,
++    const void *initial_state_indices,
++    const void *final_state_indices,
++    void *stream_) const {
++    (void)workspace;
++    (void)workspace_size;
++
++    if (_info.data_dtype != INFINI_DTYPE_F32) {
++        return INFINI_STATUS_BAD_TENSOR_DTYPE;
++    }
++    if (_info.index_dtype != INFINI_DTYPE_I32) {
++        return INFINI_STATUS_BAD_TENSOR_DTYPE;
++    }
++    if (_info.D > static_cast<size_t>(_opaque->internal->maxThreadsPerBlock())) {
++        return INFINI_STATUS_BAD_TENSOR_SHAPE;
++    }
++    if (_info.B > static_cast<size_t>(65535)) {
++        return INFINI_STATUS_BAD_TENSOR_SHAPE;
++    }
++
++    cudaStream_t stream = reinterpret_cast<cudaStream_t>(stream_);
++    const auto &info = _info;
++    dim3 grid(static_cast<unsigned int>(info.H), static_cast<unsigned int>(info.B));
++    const size_t smem_bytes = 2 * info.D * sizeof(float);
++    lightningAttentionKernel<<<grid, static_cast<unsigned int>(info.D), smem_bytes, stream>>>(
++        static_cast<const float *>(q), static_cast<const float *>(k), static_cast<const float *>(v),
++        static_cast<float *>(out), static_cast<float *>(initial_state),
++        static_cast<const float *>(slope),
++        static_cast<const int32_t *>(initial_state_indices),
++        static_cast<const int32_t *>(final_state_indices),
++        info.T, info.D,
++        info.q_strides[0], info.q_strides[1], info.q_strides[2], info.q_strides[3],
++        info.k_strides[0], info.k_strides[1], info.k_strides[2], info.k_strides[3],
++        info.v_strides[0], info.v_strides[1], info.v_strides[2], info.v_strides[3],
++        info.out_strides[0], info.out_strides[1], info.out_strides[2], info.out_strides[3],
++        info.initial_state_strides[0], info.initial_state_strides[1],
++        info.initial_state_strides[2], info.initial_state_strides[3],
++        static_cast<size_t>(info.slope_strides[0]));
++
++    if (cudaGetLastError() != cudaSuccess) {
++        return INFINI_STATUS_INTERNAL_ERROR;
++    }
++    return INFINI_STATUS_SUCCESS;
++}
++
++} // namespace op::lightning_attention::nvidia
++
+diff --git a/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cuh b/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cuh
+new file mode 100644
+index 00000000..401ca434
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/nvidia/lightning_attention_nvidia.cuh
+@@ -0,0 +1,8 @@
++#ifndef __LIGHTNING_ATTENTION_NVIDIA_CUH__
++#define __LIGHTNING_ATTENTION_NVIDIA_CUH__
++
++#include "../lightning_attention.h"
++
++DESCRIPTOR(nvidia)
++
++#endif // __LIGHTNING_ATTENTION_NVIDIA_CUH__
+diff --git a/src/infiniop/ops/lightning_attention/operator.cc b/src/infiniop/ops/lightning_attention/operator.cc
+new file mode 100644
+index 00000000..8813b111
+--- /dev/null
++++ b/src/infiniop/ops/lightning_attention/operator.cc
+@@ -0,0 +1,135 @@
++// infiniop/ops/lightning_attention/operator.cc
++
++#include "../../operator.h"
++#include "../../handle.h"
++#include "infiniop/ops/lightning_attention.h"
++
++#ifdef ENABLE_NVIDIA_API
++#include "nvidia/lightning_attention_nvidia.cuh"
++#endif
++#ifdef ENABLE_CPU_API
++#include "cpu/lightning_attention_cpu.h"
++#endif
++
++__INFINI_C infiniStatus_t infiniopCreateLightningAttentionDescriptor(
++    infiniopHandle_t handle,
++    infiniopLightningAttentionDescriptor_t *desc_ptr,
++    infiniopTensorDescriptor_t out_desc,
++    infiniopTensorDescriptor_t initial_state_desc,
++    infiniopTensorDescriptor_t q_desc,
++    infiniopTensorDescriptor_t k_desc,
++    infiniopTensorDescriptor_t v_desc,
++    infiniopTensorDescriptor_t slope_desc,
++    infiniopTensorDescriptor_t initial_state_indices_desc,
++    infiniopTensorDescriptor_t final_state_indices_desc) {
++#define CREATE(CASE, NAMESPACE)                                                    \
++    case CASE:                                                                     \
++        return op::lightning_attention::NAMESPACE::Descriptor::create(             \
++            handle,                                                                \
++            reinterpret_cast<op::lightning_attention::NAMESPACE::Descriptor **>(   \
++                desc_ptr),                                                         \
++            out_desc, initial_state_desc, q_desc, k_desc, v_desc, slope_desc,      \
++            initial_state_indices_desc, final_state_indices_desc);
++
++    switch (handle->device) {
++#ifdef ENABLE_CPU_API
++        CREATE(INFINI_DEVICE_CPU, cpu)
++#endif
++#ifdef ENABLE_NVIDIA_API
++        CREATE(INFINI_DEVICE_NVIDIA, nvidia)
++#endif
++#ifdef ENABLE_HYGON_API
++        CREATE(INFINI_DEVICE_HYGON, nvidia)
++#endif
++
++    default:
++        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
++    }
++#undef CREATE
++}
++
++__INFINI_C infiniStatus_t infiniopGetLightningAttentionWorkspaceSize(
++    infiniopLightningAttentionDescriptor_t desc, size_t *size) {
++#define GET(CASE, NAMESPACE)                                              \
++    case CASE:                                                            \
++        *size = reinterpret_cast<                                         \
++                    op::lightning_attention::NAMESPACE::Descriptor *>(    \
++                    desc)                                                 \
++                    ->workspaceSize();                                    \
++        return INFINI_STATUS_SUCCESS;
++
++    switch (desc->device_type) {
++#ifdef ENABLE_CPU_API
++        GET(INFINI_DEVICE_CPU, cpu)
++#endif
++#ifdef ENABLE_NVIDIA_API
++        GET(INFINI_DEVICE_NVIDIA, nvidia)
++#endif
++#ifdef ENABLE_HYGON_API
++        GET(INFINI_DEVICE_HYGON, nvidia)
++#endif
++
++    default:
++        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
++    }
++#undef GET
++}
++
++__INFINI_C infiniStatus_t infiniopLightningAttention(
++    infiniopLightningAttentionDescriptor_t desc,
++    void *workspace, size_t workspace_size,
++    void *out, void *initial_state,
++    const void *q, const void *k, const void *v,
++    const void *slope,
++    const void *initial_state_indices,
++    const void *final_state_indices,
++    void *stream) {
++#define CALCULATE(CASE, NAMESPACE)                                                \
++    case CASE:                                                                    \
++        return reinterpret_cast<                                                  \
++                   op::lightning_attention::NAMESPACE::Descriptor *>(desc)        \
++            ->calculate(workspace, workspace_size, out, initial_state,            \
++                        q, k, v, slope, initial_state_indices,                    \
++                        final_state_indices, stream);
++
++    switch (desc->device_type) {
++#ifdef ENABLE_CPU_API
++        CALCULATE(INFINI_DEVICE_CPU, cpu)
++#endif
++#ifdef ENABLE_NVIDIA_API
++        CALCULATE(INFINI_DEVICE_NVIDIA, nvidia)
++#endif
++#ifdef ENABLE_HYGON_API
++        CALCULATE(INFINI_DEVICE_HYGON, nvidia)
++#endif
++
++    default:
++        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
++    }
++#undef CALCULATE
++}
++
++__INFINI_C infiniStatus_t infiniopDestroyLightningAttentionDescriptor(
++    infiniopLightningAttentionDescriptor_t desc) {
++#define DESTROY(CASE, NAMESPACE)                                            \
++    case CASE:                                                              \
++        delete reinterpret_cast<                                            \
++            op::lightning_attention::NAMESPACE::Descriptor *>(desc);        \
++        return INFINI_STATUS_SUCCESS;
++
++    switch (desc->device_type) {
++#ifdef ENABLE_CPU_API
++        DESTROY(INFINI_DEVICE_CPU, cpu)
++#endif
++#ifdef ENABLE_NVIDIA_API
++        DESTROY(INFINI_DEVICE_NVIDIA, nvidia)
++#endif
++#ifdef ENABLE_HYGON_API
++        DESTROY(INFINI_DEVICE_HYGON, nvidia)
++#endif
++
++    default:
++        return INFINI_STATUS_DEVICE_TYPE_NOT_SUPPORTED;
++    }
++#undef DESTROY
++}
