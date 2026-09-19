@@ -8,6 +8,7 @@ numpy reference of the MiniMax-01 recurrence:
     o_t = q_t @ S
 """
 import ctypes
+import os
 import sys
 
 import numpy as np
@@ -22,13 +23,17 @@ CTYPE = {np.float32: ctypes.c_float, np.int32: ctypes.c_int32}
 def t2raw(t: torch.Tensor, dev):
     # Python Tensor wrapper (the package-level op wrapper expects wrappers).
     t = t.contiguous()
-    return infinicore.from_blob(t.data_ptr(), list(t.shape),
-                                dtype={torch.float32: infinicore.float32,
-                                       torch.int32: infinicore.int32}[t.dtype],
-                                device=dev)
+    cpu = infinicore.device("cpu", 0)
+    tensor = infinicore.from_blob(t.data_ptr(), list(t.shape),
+                                  dtype={torch.float32: infinicore.float32,
+                                         torch.int32: infinicore.int32}[t.dtype],
+                                  device=cpu)
+    return tensor.to(dev) if dev != cpu else tensor
 
 
 def read(t, dtype=np.float32):
+    if hasattr(t, "_underlying"):
+        t = t.to(infinicore.device("cpu", 0))._underlying
     ctype = CTYPE[dtype]
     buf = (ctype * int(t.numel())).from_address(t.data_ptr())
     shape = [int(t.size(i)) for i in range(int(t.ndim))]
@@ -64,7 +69,7 @@ def run_case(B, T, H, D, pool_size, seed):
     init_idx = np.array([b % pool_size for b in range(B)], dtype=np.int32)
     final_idx = np.array([(b + 1) % pool_size for b in range(B)], dtype=np.int32)
 
-    dev = infinicore.device("cpu")
+    dev = infinicore.device(os.environ.get("MINIMAX_DEVICE", "cpu"), 0)
     q_t = t2raw(torch.from_numpy(q), dev)
     k_t = t2raw(torch.from_numpy(k), dev)
     v_t = t2raw(torch.from_numpy(v), dev)
@@ -75,8 +80,8 @@ def run_case(B, T, H, D, pool_size, seed):
 
     out_w = infinicore.lightning_attention(q_t, k_t, v_t, s_t, p_t, i_t, f_t)
 
-    out = read(out_w._underlying)
-    pool_after = read(p_t._underlying)
+    out = read(out_w)
+    pool_after = read(p_t)
     ref_out, ref_pool = reference(q, k, v, slope, pool, init_idx, final_idx)
 
     out_err = float(np.abs(out - ref_out).max())

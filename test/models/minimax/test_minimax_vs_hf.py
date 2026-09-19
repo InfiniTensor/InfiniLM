@@ -12,6 +12,7 @@ Checks:
 2. Decode-after-context logits match (HF MiniMaxCache recurrent path vs ours).
 """
 import json
+import os
 import sys
 
 import torch
@@ -38,8 +39,8 @@ def make_hf_config():
         hidden_act="silu",
         max_position_embeddings=64,
         rms_norm_eps=1e-5,
-        num_experts_per_tok=1,
-        num_local_experts=1,
+        num_experts_per_tok=int(os.environ.get("MINIMAX_NUM_EXPERTS_PER_TOK", "1")),
+        num_local_experts=int(os.environ.get("MINIMAX_NUM_LOCAL_EXPERTS", "1")),
         attention_dropout=0.0,
         block_size=16,
         layer_types=["linear_attention", "full_attention", "linear_attention", "full_attention"],

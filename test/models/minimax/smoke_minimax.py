@@ -11,6 +11,7 @@ Checks:
 """
 import ctypes
 import json
+import os
 import sys
 
 import numpy as np
@@ -30,9 +31,13 @@ INFINI_DTYPE = {
 def t2i(t: torch.Tensor, dev):
     # Return the raw _infinicore.Tensor (the engine bindings expect the pybind object).
     t = t.contiguous()
-    return infinicore.from_blob(
-        t.data_ptr(), list(t.shape), dtype=INFINI_DTYPE[t.dtype], device=dev
-    )._underlying
+    cpu = infinicore.device("cpu", 0)
+    tensor = infinicore.from_blob(
+        t.data_ptr(), list(t.shape), dtype=INFINI_DTYPE[t.dtype], device=cpu
+    )
+    if dev != cpu:
+        tensor = tensor.to(dev)
+    return tensor._underlying
 
 
 def _np_dtype(infini_dtype):
@@ -48,6 +53,7 @@ def _np_dtype(infini_dtype):
 def i2t(t) -> torch.Tensor:
     if not hasattr(t, "_underlying"):
         t = infinicore.Tensor(t)
+    t = t.to(infinicore.device("cpu", 0))
     t = t.contiguous()
     shape = list(t.shape)
     np_dtype = _np_dtype(t.dtype)
@@ -67,8 +73,8 @@ def make_config():
         "head_dim": 8,
         "num_hidden_layers": 4,
         "intermediate_size": 64,
-        "num_experts": 1,
-        "num_experts_per_tok": 1,
+        "num_experts": int(os.environ.get("MINIMAX_NUM_LOCAL_EXPERTS", "1")),
+        "num_experts_per_tok": int(os.environ.get("MINIMAX_NUM_EXPERTS_PER_TOK", "1")),
         "shared_intermediate_size": 0,
         "rms_norm_eps": 1e-5,
         "max_position_embeddings": 64,
@@ -79,11 +85,18 @@ def make_config():
 
 
 def create_engine(cfg):
-    dev = infinicore.device("cpu")
+    device_name = os.environ.get("MINIMAX_DEVICE", "cpu").lower()
+    if device_name == "nvidia":
+        device_name = "cuda"
+    device_type = {
+        "cpu": _infinicore.Device.Type.CPU,
+        "cuda": _infinicore.Device.Type.NVIDIA,
+    }[device_name]
+    dev = infinicore.device(device_name, 0)
     engine = _infinilm.InferEngine(
         json.dumps(cfg),
         _infinilm.DistConfig(1),
-        _infinicore.Device.Type.CPU,
+        device_type,
         _infinilm.StaticKVCacheConfig(max_batch_size=1, max_cache_len=64),
         False,
         "static-attn",
