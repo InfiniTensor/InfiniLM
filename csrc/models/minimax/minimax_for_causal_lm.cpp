@@ -90,7 +90,7 @@ void MiniMaxForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
             resolved_head_dim,
             total_num_heads,
             total_num_heads,
-            infinicore::DataType::F32,
+            dtype,
             pool_size);
         forward_context.kv_cache_vec.emplace_back();
         forward_context.ssm_state_vec.push_back(std::move(state));
