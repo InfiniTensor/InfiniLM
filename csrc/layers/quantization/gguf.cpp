@@ -147,7 +147,6 @@ GGUFBlockQuantization::GGUFBlockQuantization(const nlohmann::json &quant_config)
             vperm_.push_back(std::move(r));
         }
     }
-
 }
 
 GGUFBlockQuantization::~GGUFBlockQuantization() = default;
