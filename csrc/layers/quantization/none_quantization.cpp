@@ -82,12 +82,14 @@ std::vector<SplitParam> NoneQuantization::split_params(
     std::vector<SplitParam> result;
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
+    const int weight_narrow_dim =
+        weight_prepacked_ && narrow_dim >= 0 ? 1 - narrow_dim : narrow_dim;
 
     for (const auto &s : splits) {
         result.push_back({s.prefix + ".weight",
                           infinicore::nn::Parameter(
-                              weight_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
-                              narrow_dim, tp_rank, tp_size, s.num_shards)});
+                              weight_it->second->narrow({{static_cast<size_t>(weight_narrow_dim), s.start, s.size}}),
+                              weight_narrow_dim, tp_rank, tp_size, s.num_shards)});
         if (bias_it != params.end()) {
             result.push_back({s.prefix + ".bias",
                               infinicore::nn::Parameter(
@@ -103,7 +105,10 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
     const infinicore::Device &device,
     int /*split_dim*/) const {
 
-    // Controlled by --pre-transpose CLI flag, default off.
+    // Pre-packing is opt-in.  In particular, do not materialize every model
+    // weight on the accelerator merely because the target is Ascend: doing so
+    // turns model loading into a sequence of very large device-side transpose
+    // kernels and can stall before inference starts.
     if (!global_state::get_infinilm_config().pre_transpose) {
         return nullptr;
     }

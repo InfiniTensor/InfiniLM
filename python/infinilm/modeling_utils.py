@@ -741,6 +741,31 @@ def _remap_mamba(state_dict, config=None):
     return remapped
 
 
+def _remap_lfm2(state_dict, config=None):
+    """Map released LFM2 parameter names to the InfiniLM module layout.
+
+    LFM2's convolution projections already use the same names as the C++
+    implementation. Only the final norm, attention norm/output names and the
+    three feed-forward projections need aliases.
+    """
+    remapped = {}
+    replacements = (
+        ("model.embedding_norm.", "model.norm."),
+        (".self_attn.q_layernorm.", ".self_attn.q_norm."),
+        (".self_attn.k_layernorm.", ".self_attn.k_norm."),
+        (".self_attn.out_proj.", ".self_attn.o_proj."),
+        (".feed_forward.w1.", ".feed_forward.gate_proj."),
+        (".feed_forward.w3.", ".feed_forward.up_proj."),
+        (".feed_forward.w2.", ".feed_forward.down_proj."),
+    )
+    for key, tensor in state_dict.items():
+        new_key = key
+        for source, target in replacements:
+            new_key = new_key.replace(source, target)
+        remapped[new_key] = tensor
+    return remapped
+
+
 def _remap_videonsa(state_dict, config=None):
     """Adapt VideoNSA/Qwen2.5-VL weights to the InfiniLM C++ module layout."""
     key = "visual.patch_embed.proj.weight"
@@ -1077,6 +1102,7 @@ _WEIGHT_REMAPPER = {
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
     "mamba": _remap_mamba,
+    "lfm2": _remap_lfm2,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
