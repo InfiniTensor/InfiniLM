@@ -66,8 +66,9 @@ def run_case(B, T, H, D, pool_size, seed):
     v = rng.standard_normal((B, T, H, D)).astype(np.float32)
     slope = rng.uniform(0.0, 1.0, (H,)).astype(np.float32)
     pool = rng.standard_normal((pool_size, H, D, D)).astype(np.float32)
-    init_idx = np.array([b % pool_size for b in range(B)], dtype=np.int32)
-    final_idx = np.array([(b + 1) % pool_size for b in range(B)], dtype=np.int32)
+    assert pool_size >= 2 * B
+    init_idx = np.arange(B, dtype=np.int32)
+    final_idx = np.arange(pool_size - 1, pool_size - 1 - B, -1, dtype=np.int32)
 
     dev = infinicore.device(os.environ.get("MINIMAX_DEVICE", "cpu"), 0)
     q_t = t2raw(torch.from_numpy(q), dev)
@@ -94,7 +95,7 @@ def run_case(B, T, H, D, pool_size, seed):
 
 def main():
     print("[1/2] decode case (T=1, batched requests, in-place state write)")
-    run_case(B=3, T=1, H=4, D=8, pool_size=4, seed=1)
+    run_case(B=3, T=1, H=4, D=8, pool_size=6, seed=1)
     print("[2/2] prefill case (T=6, per-request state evolution)")
     run_case(B=2, T=6, H=4, D=8, pool_size=4, seed=2)
     print("PASS: lightning_attention op matches reference")
