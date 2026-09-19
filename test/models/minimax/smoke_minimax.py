@@ -23,6 +23,7 @@ from infinilm.lib import _infinilm
 
 INFINI_DTYPE = {
     torch.float32: infinicore.float32,
+    torch.float16: infinicore.float16,
     torch.int32: infinicore.int32,
     torch.int64: infinicore.int64,
 }
@@ -43,6 +44,8 @@ def t2i(t: torch.Tensor, dev):
 def _np_dtype(infini_dtype):
     if infini_dtype == infinicore.float32:
         return np.float32
+    if infini_dtype == infinicore.float16:
+        return np.float16
     if infini_dtype == infinicore.int32:
         return np.int32
     if infini_dtype == infinicore.int64:
@@ -57,7 +60,8 @@ def i2t(t) -> torch.Tensor:
     t = t.contiguous()
     shape = list(t.shape)
     np_dtype = _np_dtype(t.dtype)
-    ctype = {np.float32: ctypes.c_float, np.int32: ctypes.c_int32, np.int64: ctypes.c_int64}[np_dtype]
+    ctype = {np.float32: ctypes.c_float, np.float16: ctypes.c_uint16,
+             np.int32: ctypes.c_int32, np.int64: ctypes.c_int64}[np_dtype]
     buf = (ctype * int(t.numel())).from_address(t.data_ptr())
     arr = np.frombuffer(buf, dtype=np_dtype).reshape(shape).copy()
     return torch.from_numpy(arr)
@@ -81,7 +85,7 @@ def make_config():
         "attn_type_list": [0, 0, 1, 0],  # 3 lightning + 1 softmax
         "block": 8,
         "rope_theta": 10000.0,
-        "torch_dtype": "float32",}
+        "torch_dtype": os.environ.get("MINIMAX_TORCH_DTYPE", "float32"),}
 
 
 def create_engine(cfg):

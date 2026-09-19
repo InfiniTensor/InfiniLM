@@ -26,6 +26,13 @@ from smoke_minimax import create_engine, i2t, t2i
 
 from infinilm.modeling_utils import _remap_minimax
 
+def torch_dtype():
+    dtype_name = os.environ.get("MINIMAX_TORCH_DTYPE", "float32")
+    return {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }[dtype_name]
 
 def make_hf_config():
     return MiniMaxConfig(
@@ -45,13 +52,14 @@ def make_hf_config():
         block_size=16,
         layer_types=["linear_attention", "full_attention", "linear_attention", "full_attention"],
         rope_parameters={"rope_type": "default", "rope_theta": 1000000.0},
+        torch_dtype=torch_dtype(),
     )
 
 
 def hf_config_to_infinilm_dict(hf_config) -> dict:
     d = hf_config.to_dict()
     d["model_type"] = "minimax"
-    d["torch_dtype"] = "float32"
+    d["torch_dtype"] = os.environ.get("MINIMAX_TORCH_DTYPE", "float32")
     d["block"] = d.pop("block_size", 16)
     # Drop null fields (e.g. `torch_dtype: None`) that break ModelConfig::get_dtype.
     d = {k: v for k, v in d.items() if v is not None}
@@ -67,7 +75,7 @@ def load_hf_weights_into_engine(engine, dev, hf_model, hf_config):
     matched = 0
     for key, tensor in remapped.items():
         if key in expected:
-            t = tensor.detach().float().contiguous()
+            t = tensor.detach().contiguous()
             keep.append(t)
             params[key] = t2i(t, dev)
             matched += 1
@@ -122,7 +130,7 @@ def run_il_decode(engine, dev, tokens, next_token):
 def main():
     hf_config = make_hf_config()
     torch.manual_seed(7)
-    hf_model = MiniMaxForCausalLM(hf_config)
+    hf_model = MiniMaxForCausalLM(hf_config).to(torch_dtype())
     hf_model.eval()
 
     cfg_dict = hf_config_to_infinilm_dict(hf_config)
