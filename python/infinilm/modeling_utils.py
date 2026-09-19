@@ -1089,36 +1089,52 @@ def _remap_minimax(state_dict, config):
     )
 
     num_experts = config.get("num_local_experts", config.get("num_experts", 8))
-    if num_experts == 1:
-        # A single-expert MoE is mathematically a dense SwiGLU MLP (softmax over a
-        # single router logit is 1.0): fold experts.{gate_up,down}_proj into the
-        # dense `mlp.{gate_proj,up_proj,down_proj}` module, squeezing the expert dim.
-        # NB: HF `minimax` stores expert params without a ".weight" suffix.
-        remapped = {}
-        for key, tensor in state_dict.items():
-            if key.endswith("mlp.experts.gate_up_proj"):
-                gate_up = tensor.squeeze(0)  # [2 * I, H]
-                gate, up = gate_up.chunk(2, dim=0)
-                base = key[: -len("mlp.experts.gate_up_proj")]
-                remapped[base + "mlp.gate_proj.weight"] = gate
-                remapped[base + "mlp.up_proj.weight"] = up
-            elif key.endswith("mlp.experts.down_proj"):
-                base = key[: -len("mlp.experts.down_proj")]
-                remapped[base + "mlp.down_proj.weight"] = tensor.squeeze(0)
-            else:
-                remapped[key] = tensor
-        return remapped
-
-    # Multi-expert MoE: HF packs experts as 3D gate_up_proj/down_proj tensors;
-    # InfiniLM FusedMoeExperts stores them as w13_weight/w2_weight.
-    return rename_keys(
-        state_dict,
-        {
-            "mlp.experts.gate_up_proj": "mlp.experts.w13_weight",
-            "mlp.experts.down_proj": "mlp.experts.w2_weight",
-        },
+    projection_names = {
+        "w1": "gate_proj",
+        "w2": "down_proj",
+        "w3": "up_proj",
+    }
+    expert_pattern = re.compile(
+        r"^(.*\.)block_sparse_moe\.experts\.(\d+)\.(w1|w2|w3)\.weight$"
     )
 
+    remapped = {}
+    for key, tensor in state_dict.items():
+        match = expert_pattern.match(key)
+        if match:
+            prefix, expert_idx, projection = match.groups()
+            target = projection_names[projection]
+            if num_experts == 1:
+                remapped[f"{prefix}mlp.{target}.weight"] = tensor
+            else:
+                remapped[f"{prefix}moe.experts.{expert_idx}.{target}.weight"] = tensor
+            continue
+
+        if key.endswith(".block_sparse_moe.gate.weight"):
+            if num_experts > 1:
+                prefix = key[: -len("block_sparse_moe.gate.weight")]
+                remapped[prefix + "moe.gate.weight"] = tensor
+            continue
+
+        # Compatibility with older HF MiniMax checkpoints that store packed expert weights.
+        if key.endswith("mlp.experts.gate_up_proj"):
+            base = key[: -len("mlp.experts.gate_up_proj")]
+            if num_experts == 1:
+                gate_up = tensor.squeeze(0)
+                gate, up = gate_up.chunk(2, dim=0)
+                remapped[base + "mlp.gate_proj.weight"] = gate
+                remapped[base + "mlp.up_proj.weight"] = up
+            else:
+                remapped[base + "moe.experts.w13_weight"] = tensor
+            continue
+        if key.endswith("mlp.experts.down_proj"):
+            base = key[: -len("mlp.experts.down_proj")]
+            target = "mlp.down_proj.weight" if num_experts == 1 else "moe.experts.w2_weight"
+            remapped[base + target] = tensor.squeeze(0) if num_experts == 1 else tensor
+            continue
+
+        remapped[key] = tensor
+    return remapped
 
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
