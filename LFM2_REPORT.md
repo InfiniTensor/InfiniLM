@@ -112,6 +112,7 @@ python test/models/lfm2/run_infinilm_lfm2_real.py \
   --model /path/to/LFM2-1.2B \
   --device cuda \
   --cache-type static \
+  --max-cache-len 256 \
   --max-new-tokens 16 \
   --repeat 2 \
   --reference artifacts/lfm2_transformers_cuda.json \
@@ -120,11 +121,21 @@ python test/models/lfm2/run_infinilm_lfm2_real.py \
   --output artifacts/lfm2_static_gate.json
 ```
 
-Paged Cache 使用相同命令，将 `--cache-type` 改为 `paged`。
+Paged Cache 使用相同命令，将 `--cache-type` 改为 `paged`，并将 `--max-cache-len` 改为 `1024`。
 
 ## 4. 复现结果
 
 ### 4.1 NVIDIA RTX 4090
+
+#### 2026-09-19 clean-build regression
+
+为排除旧构建缓存或预置扩展对结果的影响，在一台新创建的 RTX 4090 24 GB 实例上进行了从源码开始的复验。该实例使用 CUDA 12.8、Python 3.12.3、PyTorch `2.6.0a0+ecf3bae40a.nv25.01`。构建前仅将随源码传输带入的旧 `.xmake` 缓存和旧 `_infinilm` 扩展改名保留；随后完整重编译了 `_infinilm` 的全部 C++ 单元并安装。编译耗时 195.193 秒，新扩展 SHA-256 为 `9c7a361464aaaa82826a46cbf12cb89d5f57779317a4301068429c0ea3202945`。
+
+- tiny F32 Full/Prefill+Decode：设置 `NVIDIA_TF32_OVERRIDE=0` 后，最大 logits 绝对误差为 `5.960464477539063e-08`，小于 `1e-5`；最终 argmax 一致。
+- Static KV Cache：`max_cache_len=256`，三种 Prompt 均与 Transformers 的 16 个 greedy token 精确一致；A/B/C/A/B/C 两轮结果一致。
+- Paged KV Cache：`max_cache_len=1024`，三种 Prompt 均与 Transformers 的 16 个 greedy token 精确一致；A/B/C/A/B/C 两轮结果一致。
+
+本次结果 JSON 已归档到 `work/artifacts/final_4090_20260919/`：`lfm2_native_tiny_cuda_strict_new4090.json`、`lfm2_final_static_256_new4090.json` 和 `lfm2_final_paged_1024_new4090.json`。
 
 | 验收项 | Static | Paged |
 |---|---:|---:|
