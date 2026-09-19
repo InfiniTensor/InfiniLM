@@ -88,6 +88,12 @@ public:
         return quant_config.get_quantization_method();
     }
 
+    std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method(
+        std::string_view module_name,
+        std::string_view module_type) const {
+        return quant_config.get_quantization_method(module_name, module_type);
+    }
+
     infinicore::DataType get_dtype() const;
     infinilm::quantization::QuantScheme get_quant_scheme() const;
 

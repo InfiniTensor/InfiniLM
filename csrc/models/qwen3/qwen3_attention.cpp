@@ -3,6 +3,9 @@
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
 
+#include <stdexcept>
+#include <string>
+
 namespace infinilm::models::qwen3 {
 
 Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -28,14 +31,29 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
                              ? 1
                              : total_num_kv_heads / tp_size;
 
-    auto quantization_method = model_config->get_quantization_method();
+    const std::string module_prefix = "model.layers." + std::to_string(layer_idx) + ".self_attn.";
+    auto q_quantization = model_config->get_quantization_method(
+        module_prefix + "q_proj", "Linear");
+    auto k_quantization = model_config->get_quantization_method(
+        module_prefix + "k_proj", "Linear");
+    auto v_quantization = model_config->get_quantization_method(
+        module_prefix + "v_proj", "Linear");
+    if (q_quantization->get_quant_scheme() != k_quantization->get_quant_scheme()
+        || q_quantization->get_quant_scheme()
+               != v_quantization->get_quant_scheme()) {
+        throw std::invalid_argument(
+            "fused QKV projections require the same quantization scheme in `"
+            + module_prefix + "{q_proj,k_proj,v_proj}`");
+    }
+    auto o_quantization = model_config->get_quantization_method(
+        module_prefix + "o_proj", "Linear");
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
     qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
         hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
         "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
+        q_quantization, use_bias, dtype, device, rank_info);
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
-        "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
+        "o_proj", total_num_heads * head_dim_, hidden_size_, o_quantization,
         use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
 
     rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(model_config, device);
