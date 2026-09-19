@@ -16,6 +16,17 @@ from infinilm.modeling_utils import load_model_state_dict_by_file
 logger = logging.getLogger(__name__)
 
 
+def resolve_draft_engine_path(draft_model_path):
+    """Directory the draft engine should be built from.
+
+    A checkpoint that embeds its draft weights under a family key prefix needs
+    a standalone draft config, which `infinilm.draft_spec` derives from the
+    checkpoint's own metadata; other drafts are used as given.
+    """
+    checkpoint = resolve_draft(draft_model_path)
+    return draft_model_path if checkpoint is None else checkpoint.engine_path
+
+
 class SpeculativeRunner:
     def __init__(self, config, target_model_engine, device):
         self.config = config
@@ -47,9 +58,7 @@ class SpeculativeRunner:
             )
 
         draft_checkpoint = resolve_draft(config.draft_model_path)
-        draft_model_path = config.draft_model_path
-        if draft_checkpoint is not None:
-            draft_model_path = draft_checkpoint.engine_path
+        draft_model_path = resolve_draft_engine_path(config.draft_model_path)
         draft_cache_config = StaticKVCacheConfig(
             max_batch_size=config.max_batch_size, max_cache_len=config.max_cache_len
         )
@@ -107,16 +116,6 @@ class SpeculativeRunner:
                     f"target has vocab_size={target_vocab}; a draft must share "
                     "the target's vocabulary (MODELS.md, criterion C5)"
                 )
-
-    def _resolve_draft_model_path(self, draft_model_path):
-        """Return the directory the draft engine should be built from.
-
-        A checkpoint that embeds its draft weights under a family key prefix
-        needs a standalone draft config, which `infinilm.draft_spec` derives
-        from the checkpoint's own metadata; other drafts are used as given.
-        """
-        checkpoint = resolve_draft(draft_model_path)
-        return draft_model_path if checkpoint is None else checkpoint.engine_path
 
     def forward(self, scheduler_output, model_input):
         cache_ops = getattr(scheduler_output, "speculative_cache_ops", None)
@@ -193,6 +192,10 @@ class SpeculativeRunner:
         if mamba_cache is not None:
             free_rows = mamba_cache.get_num_free_blocks()
             needs_row = [job for job in draft_jobs if job["num_tokens"] > 1]
+            # free_rows is both the number of rows available and the index of the
+            # first request that cannot have one: rows are borrowed only after
+            # this loop, so the count cannot go stale between the two uses. A
+            # reservation moved after a borrow would make the slice wrong.
             for job in needs_row[free_rows:]:
                 self.verify_scratch_exhausted += 1
                 logger.warning(
@@ -362,6 +365,13 @@ class SpeculativeRunner:
 
         Each request packs the tokens the verification already accepted as one
         multi-token request, so the decode path advances its committed row.
+
+        Two position-id layouts reach the target: a packed batch like this one
+        passes one flat position per token (`[N]`), which is what the paged
+        kernels read, while the draft's serial step passes one position per
+        batch row (`[B, 1]`) through `draft_position_ids`. The layout is per
+        call, not per model, so a new batch builder has to say which one it
+        produces rather than assume.
         """
         block_size = self._cache_block_size
         tokens = []

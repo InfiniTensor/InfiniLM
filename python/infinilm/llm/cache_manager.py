@@ -78,6 +78,11 @@ class MambaCacheManager:
         ``new_block_id`` must already be taken by :meth:`borrow_slot`; ownership
         moves without touching the state rows, so a request keeps its state under
         a new index at O(1) cost.
+
+        The released row keeps whatever state it held: rows are recycled, not
+        cleared, so a borrower has to write a row before reading it. The
+        speculative runner's verifications write the temporary row from the
+        committed one before any read, which is what makes the reuse safe.
         """
         if (
             new_block_id == self.ZERO_STATE_INDEX

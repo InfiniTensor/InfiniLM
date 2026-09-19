@@ -42,6 +42,13 @@ class UnsupportedDraftError(RuntimeError):
     """A checkpoint is not a draft that this build can construct."""
 
 
+# The guide section that defines the acceptance criteria a description has to
+# satisfy. Error messages point at the section by name rather than at a
+# criterion number: the numbers are easy to renumber and the mistakes that
+# mattered were references to numbers the guide never defined.
+CRITERIA_SECTION = 'the acceptance criteria in "Adding a new MTP draft model"'
+
+
 class DraftLayerKind(str, Enum):
     """Attention/MLP combination a draft block needs."""
 
@@ -398,7 +405,8 @@ def _check_description(spec: DraftModelSpec) -> None:
     if not spec.chain_causal:
         raise UnsupportedDraftError(
             f"{spec.family!r} predicts several tokens with parallel heads; the "
-            "draft path here is a serial chain (MODELS.md, criterion C6b)"
+            "draft path here is a serial chain, one draft layer per drafted"
+            f" token (MODELS.md, {CRITERIA_SECTION})"
         )
     if spec.hidden_streams != 1:
         raise UnsupportedDraftError(
@@ -433,15 +441,15 @@ def _check_description(spec: DraftModelSpec) -> None:
         raise UnsupportedDraftError(
             f"{spec.family!r} rolls out fewer depths than it publishes "
             f"(runtime depth {spec.runtime_depth!r} via "
-            f"{list(spec.runtime_depth_keys)}); this build rolls out the "
-            "published depth (MODELS.md, criterion list item 9)"
+            f"{list(spec.runtime_depth_keys)}); this build rolls out the"
+            f" published depth (MODELS.md, {CRITERIA_SECTION})"
         )
     if spec.shared_layer_depths:
         raise UnsupportedDraftError(
             f"{spec.family!r} lets depths {list(spec.shared_layer_depths)} "
-            "reuse the target's layer instead of their own; this build gives "
-            "every draft depth its own layer (MODELS.md, criterion list "
-            "item 10)"
+            "reuse the target's layer instead of their own; this build gives"
+            " every draft depth its own layer"
+            f" (MODELS.md, {CRITERIA_SECTION})"
         )
 
 
@@ -796,6 +804,17 @@ def _remap_draft_weights(spec: DraftModelSpec, state_dict: dict, config: dict) -
     if weight_map.depth_index_key:
         depth_index = text_config.get(weight_map.depth_index_key)
     pattern = re.compile(weight_map.key_pattern)
+    if depth_index is not None and "depth" not in pattern.groupindex:
+        # A description contract rather than a checkpoint property, checked the
+        # same way the layer-locating pattern is: a description that anchors a
+        # block on a published layer index it never captured would otherwise
+        # fail the weight load with a bare group lookup error.
+        raise ValueError(
+            f"the {spec.family} description anchors its draft block on"
+            f" {weight_map.depth_index_key!r} but does not expose the published"
+            f" layer index in a group named 'depth' (key_pattern="
+            f"{weight_map.key_pattern!r})"
+        )
     remapped: dict = {}
     for key, tensor in state_dict.items():
         match = pattern.match(key)
