@@ -24,7 +24,7 @@ namespace infinilm::layers::causal_lm_templates {
  *
  * @tparam DecoderLayer The decoder layer type (e.g., Qwen3DecoderLayer)
  */
-template <typename DecoderLayer>
+template <typename DecoderLayer, typename Norm = infinicore::nn::RMSNorm>
 class TextModel : public infinicore::nn::Module {
 public:
     TextModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -56,7 +56,7 @@ public:
         }
 
         if (is_last_pp_stage()) {
-            norm_ = this->register_module<infinicore::nn::RMSNorm>("norm", hidden_size_, rms_norm_eps, dtype, device);
+            norm_ = this->register_module<Norm>("norm", hidden_size_, rms_norm_eps, dtype, device);
         }
     }
 
@@ -133,7 +133,7 @@ public:
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
     INFINICORE_NN_MODULE_VEC(DecoderLayer, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    INFINICORE_NN_MODULE(Norm, norm);
 
 private:
     bool is_first_pp_stage() const { return pp_stage_ == 0; }

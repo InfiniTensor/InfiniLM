@@ -58,7 +58,7 @@ infinicore::Tensor create_layer_kv_cache(
     size_t cache_len = (config.max_cache_len() == std::numeric_limits<infinicore::Size>::max() || config.max_cache_len() == 0 ? max_positional_embedding : config.max_cache_len());
 
     // Allocate KV cache
-    infinicore::Tensor kv_cache = infinicore::Tensor::empty(
+    infinicore::Tensor kv_cache = infinicore::Tensor::zeros(
         {2,
          rank_batch_size,
          num_rank_k_heads,
@@ -66,9 +66,6 @@ infinicore::Tensor create_layer_kv_cache(
          kv_dim},
         dtype,
         rank_info.device);
-    set_zeros(kv_cache);
-
-    infinicore::context::syncStream();
 
     return kv_cache;
 }
