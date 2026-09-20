@@ -42,6 +42,7 @@ protected:
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
+    bool use_fused_norm_rope_;
     size_t layer_idx_;
     size_t num_attention_heads_;
     size_t num_key_value_heads_;

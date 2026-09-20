@@ -46,7 +46,7 @@ platforms:
           shm_size: 64g
           timeout: 3600
         env:
-          TEST_PARAM: ['default', '--enable-paged-attn', '--enable-paged-attn --enable-graph', '--enable-paged-attn --enable-graph --attn=flash-attn']
+          TEST_PARAM: ['default', '--enable-paged-attn', '--enable-paged-attn --enable-graph', '--enable-paged-attn --enable-graph --attn=flash-attn', '--enable-paged-attn --enable-graph --attn=hybrid']
         stages:
           - name: test
             run: python InfiniLM/examples/bench.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8 <TEST_PARAM>
