@@ -72,7 +72,7 @@ infinicore::Tensor GPTQMarlin::forward(
         qzeros,
         g_idx,
         perm,
-        marlin::UINT4B8_ID,
+        b_q_type_id_,
         is_k_full_,
         false,
         true,

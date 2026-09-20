@@ -30,6 +30,8 @@ def parse_dtype(dtype_str: str):
         return infinicore.float16
     elif dtype_str == "bfloat16":
         return infinicore.bfloat16
+    elif dtype_str in ("fp8", "float8"):
+        return infinicore.float8
     elif dtype_str == "int8":
         return infinicore.int8
     elif dtype_str == "int32":
@@ -105,9 +107,15 @@ def load_state_dict(
     device="cpu",
     dtype=torch.bfloat16,
     preserve_fp32_suffixes: Tuple[str, ...] = (".e_score_correction_bias",),
+    preserve_dtype_suffixes: Tuple[str, ...] = (),
+    preserve_dtypes: Tuple[torch.dtype, ...] = (),
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
+
+    Tensors keep their checkpoint dtype when their key ends with one of
+    `preserve_dtype_suffixes` or their dtype is listed in `preserve_dtypes`
+    (e.g. float8 storage formats that must not be silently dequantized).
     """
 
     if not checkpoint_file.endswith(".safetensors"):
@@ -129,7 +137,10 @@ def load_state_dict(
         for k in f.keys():
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            preserve_dtype = k.endswith(preserve_dtype_suffixes) or (
+                tensor.dtype in preserve_dtypes
+            )
+            if tensor.is_floating_point() and not (preserve_fp32 or preserve_dtype):
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
@@ -189,6 +200,57 @@ def get_model_state_dict(
     return model_param_infini
 
 
+def _resolve_preserve_config(
+    hf_config: dict,
+) -> Tuple[Tuple[str, ...], Tuple[str, ...], Tuple[torch.dtype, ...]]:
+    """Compute (preserve_fp32_suffixes, preserve_dtype_suffixes, preserve_dtypes)
+    for a model from its HF config.
+
+    Tensors matching these keep their checkpoint dtype (or fp32) instead of
+    being cast to the model compute dtype during loading.
+    """
+    model_type = hf_config.get("model_type", "")
+    preserve_fp32_suffixes = (".e_score_correction_bias",)
+    preserve_dtype_suffixes = ()
+    preserve_dtypes = ()
+    if model_type == "kimi_k3":
+        preserve_fp32_suffixes += (".A_log", ".dt_bias")
+
+    # FP8 block-quantized checkpoints (Qwen3-FP8 / DeepSeek-V3 style): weights
+    # are stored as F8_E4M3 and block scales as F32 ``*weight_scale_inv``.
+    # Neither may go through the default float cast -- it would silently
+    # dequantize the weights and truncate scale precision before the
+    # quantization scheme gets to consume them.
+    quant_config = hf_config.get("quantization_config") or {}
+    if quant_config.get("quant_method") == "fp8":
+        preserve_dtypes += (torch.float8_e4m3fn, torch.float8_e5m2)
+        preserve_dtype_suffixes += (".weight_scale_inv", ".weight_scale")
+
+    return preserve_fp32_suffixes, preserve_dtype_suffixes, preserve_dtypes
+
+
+def _cast_fp8_scales_to_fp32(
+    model_param: Dict[str, torch.Tensor], hf_config: dict
+) -> Dict[str, torch.Tensor]:
+    """Widen fp8 block-quantization scales to float32.
+
+    FP8 checkpoints (``quant_method == "fp8"``) may store
+    ``*.weight_scale_inv`` / ``*.weight_scale`` in reduced precision
+    (Qwen3-8B-FP8 stores them as BF16), while the C++
+    ``fp8_blockwise_dequantize`` operator only accepts F32 scales.
+    Widening is lossless. No-op for non-fp8 configs.
+    """
+    quant_config = hf_config.get("quantization_config") or {}
+    if quant_config.get("quant_method") != "fp8":
+        return model_param
+    for key, tensor in model_param.items():
+        if key.endswith((".weight_scale_inv", ".weight_scale")) and (
+            tensor.dtype != torch.float32
+        ):
+            model_param[key] = tensor.to(torch.float32)
+    return model_param
+
+
 def load_model_state_dict_by_file(
     model: infinicore.nn.Module,
     model_path: str,
@@ -201,9 +263,9 @@ def load_model_state_dict_by_file(
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
-    preserve_fp32_suffixes = (".e_score_correction_bias",)
-    if model_type == "kimi_k3":
-        preserve_fp32_suffixes += (".A_log", ".dt_bias")
+    preserve_fp32_suffixes, preserve_dtype_suffixes, preserve_dtypes = (
+        _resolve_preserve_config(model.hf_config)
+    )
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -246,11 +308,14 @@ def load_model_state_dict_by_file(
                 device=torch_device,
                 dtype=torch_dtype,
                 preserve_fp32_suffixes=preserve_fp32_suffixes,
+                preserve_dtype_suffixes=preserve_dtype_suffixes,
+                preserve_dtypes=preserve_dtypes,
             )
 
             # Apply model-specific weight remapping
             if remapper is not None:
                 model_param = remapper(model_param, config=model.hf_config)
+            model_param = _cast_fp8_scales_to_fp32(model_param, model.hf_config)
 
             # --------------------------------------------------------- #
             #         Scale embed_tokens on torch side before converting
@@ -301,6 +366,7 @@ def load_model_state_dict_by_file(
         remapper = _WEIGHT_REMAPPER.get(model_type)
         if remapper is not None:
             model_params = remapper(model_params, config=model.hf_config)
+        model_params = _cast_fp8_scales_to_fp32(model_params, model.hf_config)
 
         # Scale embed_tokens on torch side before converting
         if "model.embed_tokens.weight" in model_params:

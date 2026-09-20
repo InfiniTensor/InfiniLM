@@ -7,13 +7,34 @@ name = "InfiniLM"
 version = "0.1.0"
 description = "InfiniLM model implementations"
 readme = "README.md"
-dependencies = []
+dependencies = [
+    "torch",
+    "transformers",
+    "numpy",
+    "safetensors",
+    "tokenizers",
+    "tqdm",
+    "janus",
+    "xxhash",
+]
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+[project.optional-dependencies]
+server = [
+    "fastapi",
+    "uvicorn",
+    "httpx",
+    "pydantic",
+    "msgspec",
+    "pyzmq",
+    "psutil",
+]
+multimodal = ["pillow"]
 
 [project.urls]
 Homepage = "https://github.com/InfiniTensor/InfiniLM"

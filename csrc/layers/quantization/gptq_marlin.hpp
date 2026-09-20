@@ -1,17 +1,20 @@
 #pragma once
 
 #include "base_quantization.hpp"
+#include "marlin_utils.hpp"
 
 namespace infinilm::quantization {
 
 class GPTQMarlin : public BaseQuantization {
 public:
     GPTQMarlin(const nlohmann::json &quant_config, size_t input_size_per_partition,
-               size_t output_size_per_partition, bool is_k_full)
+               size_t output_size_per_partition, bool is_k_full,
+               int64_t b_q_type_id = marlin::UINT4B8_ID)
         : BaseQuantization(quant_config),
           input_size_per_partition_(input_size_per_partition),
           output_size_per_partition_(output_size_per_partition),
-          is_k_full_(is_k_full) {}
+          is_k_full_(is_k_full),
+          b_q_type_id_(b_q_type_id) {}
 
     QuantScheme get_quant_scheme() const override { return QuantScheme::GPTQ_MARLIN_W4A16; }
 
@@ -46,6 +49,7 @@ private:
     size_t input_size_per_partition_;
     size_t output_size_per_partition_;
     bool is_k_full_;
+    int64_t b_q_type_id_;
     // Per-layer Marlin workspace. It must be all-zero before each launch
     // because the current InfiniCore Marlin kernels use it as lock state.
     // TODO: replace per-layer memset with a shared global zero workspace, or

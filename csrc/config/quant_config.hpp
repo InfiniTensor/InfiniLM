@@ -32,6 +32,10 @@ public:
                 this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
                 break;
             }
+            case infinicore::DataType::F8: {
+                this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::FP8;
+                break;
+            }
             default: {
                 spdlog::warn("Unsupported kv_cache_dtype: '{}', fallback to NONE", infinicore::toString(kv_cache_dtype));
                 this->kv_quant_scheme = infinilm::quantization::KVQuantAlgo::NONE;

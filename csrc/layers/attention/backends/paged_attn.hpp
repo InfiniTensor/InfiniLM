@@ -2,6 +2,7 @@
 
 #include "../../../global_state/global_state.hpp"
 #include "infinicore/tensor.hpp"
+#include <optional>
 #include <tuple>
 
 namespace infinilm::layers::attention {
@@ -40,7 +41,9 @@ public:
                                                                           const infinicore::Tensor key,
                                                                           const infinicore::Tensor value,
                                                                           infinicore::Tensor &kv_cache,
-                                                                          const infinicore::Tensor slot_mapping) const;
+                                                                          const infinicore::Tensor slot_mapping,
+                                                                          const std::optional<infinicore::Tensor> &k_scale,
+                                                                          const std::optional<infinicore::Tensor> &v_scale) const;
 
 private:
     size_t num_heads_;

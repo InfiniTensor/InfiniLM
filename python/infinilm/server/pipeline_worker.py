@@ -34,6 +34,7 @@ def run_worker(cfg: BaseConfig) -> None:
         top_k=cfg.top_k,
         enable_graph=cfg.enable_graph,
         attn_backend=cfg.attn,
+        kv_cache_dtype=cfg.kv_cache_dtype,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,
         skip_load=cfg.skip_load,

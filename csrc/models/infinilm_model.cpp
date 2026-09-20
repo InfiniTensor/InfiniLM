@@ -10,6 +10,7 @@ void InfinilmModel::reset_cache(const cache::CacheConfig *cache_config) {
     if (cache_config == nullptr) {
         cache_config_.reset();
         global_state::get_forward_context().kv_cache_vec.clear();
+        global_state::get_forward_context().kv_scale_vec.clear();
         return;
     }
     cache_config_ = cache_config->unique_copy();
@@ -33,6 +34,9 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     size_t num_key_value_heads = text_config->get<size_t>("num_key_value_heads");
     size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
     const auto &dtype = model_config_->get_kv_cache_dtype();
+    if (dtype == infinicore::DataType::F8 && attention_backend != backends::AttentionBackend::PAGED_ATTN) {
+        throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: FP8 KV cache is only supported on the PAGED_ATTN backend");
+    }
     const size_t num_hidden_layers = text_config->get<size_t>("num_hidden_layers");
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const size_t pp_size = static_cast<size_t>(rank_info.pp_size);
@@ -73,6 +77,16 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
         }
         kv_cache_vec.resize(num_hidden_layers);
 
+        // FP8(E4M3) KV cache: allocate per-layer k_scale/v_scale alongside the cache.
+        // They live in ForwardContext::kv_scale_vec, parallel to kv_cache_vec, and are
+        // consumed by PagedAttentionImpl. Cleared here so a non-FP8 reset drops stale scales.
+        const bool kv_fp8 = (dtype == infinicore::DataType::F8);
+        auto &kv_scale_vec = global_state::get_forward_context().kv_scale_vec;
+        kv_scale_vec.clear();
+        if (kv_fp8) {
+            kv_scale_vec.resize(num_hidden_layers);
+        }
+
         for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
             auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
                 head_dim,
@@ -82,6 +96,11 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
                 dtype,
                 *paged_kv_cache_config);
             kv_cache_vec[layer_idx] = kv_cache;
+            if (kv_fp8) {
+                kv_scale_vec[layer_idx] = cache::PagedKVCache::create_layer_kv_scales(
+                    num_key_value_heads,
+                    *paged_kv_cache_config);
+            }
         }
         infinicore::context::syncStream();
         break;

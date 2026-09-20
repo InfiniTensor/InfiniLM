@@ -30,8 +30,28 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     ASSERT(block_tables.has_value());
     ASSERT(slot_mapping.has_value());
 
+    // FP8(E4M3) KV cache: fetch this layer's per-token-per-kv-head scales (allocated with
+    // the cache in ForwardContext::kv_scale_vec). Non-FP8 caches pass nullopt, keeping the
+    // operator behavior bitwise unchanged.
+    std::optional<infinicore::Tensor> k_scale = std::nullopt;
+    std::optional<infinicore::Tensor> v_scale = std::nullopt;
+    if (kv_cache->dtype() == infinicore::DataType::F8) {
+        const auto &kv_scale_vec = infinilm::global_state::get_forward_context().kv_scale_vec;
+        if (layer_idx_ >= kv_scale_vec.size()
+            || kv_scale_vec[layer_idx_].first.empty()
+            || kv_scale_vec[layer_idx_].second.empty()) {
+            throw std::runtime_error(
+                "infinilm::layers::attention::backends::PagedAttentionImpl: FP8 KV cache requires per-layer "
+                "k_scale/v_scale, but none were allocated for layer "
+                + std::to_string(layer_idx_)
+                + ". FP8 KV cache is currently supported only by the default paged KV cache allocation path.");
+        }
+        k_scale = kv_scale_vec[layer_idx_].first;
+        v_scale = kv_scale_vec[layer_idx_].second;
+    }
+
     // 1. update paged kv cache
-    auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());
+    auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value(), k_scale, v_scale);
 
     size_t seq_len = query->shape()[0];
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
@@ -49,7 +69,9 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
             total_sequence_lengths.value(),
             input_offsets.value(),
             std::nullopt,
-            scale_);
+            scale_,
+            k_scale,
+            v_scale);
     } else {
         infinicore::op::paged_attention_(
             attn_output,
@@ -59,7 +81,9 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
             block_tables.value(),
             total_sequence_lengths.value(),
             std::nullopt,
-            scale_);
+            scale_,
+            k_scale,
+            v_scale);
     }
     attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
     return attn_output;
@@ -69,7 +93,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cac
                                                                                           const infinicore::Tensor key,
                                                                                           const infinicore::Tensor value,
                                                                                           infinicore::Tensor &kv_cache,
-                                                                                          const infinicore::Tensor slot_mapping) const {
+                                                                                          const infinicore::Tensor slot_mapping,
+                                                                                          const std::optional<infinicore::Tensor> &k_scale,
+                                                                                          const std::optional<infinicore::Tensor> &v_scale) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
     v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});
@@ -78,7 +104,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cac
         v_cache_layer,
         key,
         value,
-        slot_mapping);
+        slot_mapping,
+        k_scale,
+        v_scale);
 
     return {k_cache_layer, v_cache_layer};
 }

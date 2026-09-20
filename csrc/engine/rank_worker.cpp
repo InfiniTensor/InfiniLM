@@ -575,14 +575,24 @@ void RankWorker::thread_loop() {
         compiler_.reset();
     } catch (const std::exception &e) {
         // Top-level exception: ensure any waiters are woken and the thread exits cleanly.
+        bool was_exiting;
         {
             std::lock_guard<std::mutex> lk(mutex_);
+            was_exiting = should_exit_;
             init_done_ = true;
             should_exit_ = true;
             job_done_ = true;
         }
         cv_.notify_all();
-        spdlog::error("[{}] fatal exception in thread_loop: {} \n", info(), e.what());
+        if (was_exiting) {
+            // Already asked to stop (e.g. teardown raced an in-flight job or a
+            // CUDA call failed while the destructor was joining the thread):
+            // an expected death, not a fatal fault. Keep it visible but do not
+            // mislabel it as fatal.
+            spdlog::warn("[{}] exception in thread_loop during shutdown: {} \n", info(), e.what());
+        } else {
+            spdlog::error("[{}] fatal exception in thread_loop: {} \n", info(), e.what());
+        }
     }
 }
 

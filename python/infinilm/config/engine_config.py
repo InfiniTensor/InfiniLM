@@ -27,6 +27,8 @@ class EngineConfig:
         num_blocks: Number of KV cache blocks (only for paged cache).
         block_size: Size of each KV cache block (only for paged cache).
         max_cache_len: Maximum sequence length (only for static cache).
+        kv_cache_dtype: KV cache data type ('int8', 'fp8'); None keeps the model dtype.
+            'fp8' requires the paged attention backend (attn_backend='paged-attn').
         enable_prefix_caching: Whether to reuse KV cache across requests.
         temperature: Default sampling temperature.
         top_p: Default top-p sampling parameter.
@@ -57,6 +59,7 @@ class EngineConfig:
     num_blocks: int = 512
     block_size: int = 256
     max_cache_len: int = 4096
+    kv_cache_dtype: Optional[str] = None
     temperature: float = 1.0
     top_p: float = 0.8
     top_k: int = 1

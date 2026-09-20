@@ -22,6 +22,8 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
     } else if (quant_method == "quark") {
         return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
+    } else if (quant_method == "fp8") {
+        return std::make_shared<infinilm::quantization::FP8Blockwise>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }
