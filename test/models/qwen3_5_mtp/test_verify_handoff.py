@@ -83,6 +83,20 @@ PAGED_BATCH_KEYS = (
 )
 
 
+class CheckFailed(Exception):
+    """A failed check.
+
+    Raised instead of an `assert` statement so the failure survives `python -O`,
+    which strips assertions at compile time; this script's checks are the only
+    gate on the K=2..4 state hand-off.
+    """
+
+
+def check(condition, message):
+    if not condition:
+        raise CheckFailed(message)
+
+
 def check_paged_batch(batch):
     """Every paged batch writes its key/value entries, so these keys are needed.
 
@@ -90,7 +104,7 @@ def check_paged_batch(batch):
     batch missing it stops the worker instead of failing here.
     """
     missing = [key for key in PAGED_BATCH_KEYS if key not in batch]
-    assert not missing, f"batch is missing required keys: {missing}"
+    check(not missing, f"batch is missing required keys: {missing}")
 
 
 class TargetHarness:
@@ -288,9 +302,10 @@ def check_verification(harness, prompt_ids, count):
     verify_ids = argmax_ids(
         harness.verify(payload, first_position, COMMITTED, TEMPORARY)
     )
-    assert verify_ids == prediction[1 : count + 1], (
+    check(
+        verify_ids == prediction[1 : count + 1],
         f"K={count} verification disagrees with plain decoding:"
-        f" {verify_ids} vs {prediction[1 : count + 1]}"
+        f" {verify_ids} vs {prediction[1 : count + 1]}",
     )
 
     # Partially accepted batch: the committed row still holds the state the
@@ -298,9 +313,10 @@ def check_verification(harness, prompt_ids, count):
     # must predict what that prefix predicts.
     kept = count - 1
     replayed = argmax_ids(harness.replay(payload[:kept], first_position - 1, COMMITTED))
-    assert replayed[-1] == prediction[kept], (
+    check(
+        replayed[-1] == prediction[kept],
         f"K={count} committed row after replaying {kept} kept token(s) predicts"
-        f" {replayed[-1]}, plain decoding predicts {prediction[kept]}"
+        f" {replayed[-1]}, plain decoding predicts {prediction[kept]}",
     )
     continued = argmax_ids(
         harness.step(
@@ -310,9 +326,10 @@ def check_verification(harness, prompt_ids, count):
             TEMPORARY,
         )
     )
-    assert continued[0] == prediction[count + 1], (
+    check(
+        continued[0] == prediction[count + 1],
         f"K={count} temporary row after the full verification predicts"
-        f" {continued[0]}, plain decoding predicts {prediction[count + 1]}"
+        f" {continued[0]}, plain decoding predicts {prediction[count + 1]}",
     )
     print(
         f"   [PASS] K={count}: {count} batch predictions, {kept}-token replay and"
@@ -349,23 +366,27 @@ def check_shape_declaration(harness, prompt_ids):
         return harness.runner._build_paged_verify_batch_input(candidates)
 
     single = build([1])
-    assert "mamba_multi_token_batch" in single, (
+    check(
+        "mamba_multi_token_batch" in single,
         "batch builder left the shape unstated; the model would infer it from"
-        " the packed layout"
+        " the packed layout",
     )
-    assert single["mamba_multi_token_batch"] is False, (
+    check(
+        single["mamba_multi_token_batch"] is False,
         "a single-token verification batch declared the multi-token shape, which"
-        " routes it to the batched kernel instead of the decode kernel"
+        " routes it to the batched kernel instead of the decode kernel",
     )
 
     multi = build([2])
-    assert multi["mamba_multi_token_batch"] is True, (
-        "a two-token verification batch did not declare the multi-token shape"
+    check(
+        multi["mamba_multi_token_batch"] is True,
+        "a two-token verification batch did not declare the multi-token shape",
     )
 
     mixed = build([1, 2])
-    assert mixed["mamba_multi_token_batch"] is True, (
-        "a batch holding a two-token request did not declare the multi-token shape"
+    check(
+        mixed["mamba_multi_token_batch"] is True,
+        "a batch holding a two-token request did not declare the multi-token shape",
     )
     print(
         "   [PASS] batch shape stated: single-token batch -> decode shape,"
@@ -378,8 +399,9 @@ def check_shape_declaration(harness, prompt_ids):
     verified = argmax_ids(harness.verify(tokens, base_len, COMMITTED, COMMITTED))
     harness.prefill(prompt_ids, COMMITTED)
     decoded = argmax_ids(harness.step(tokens[0], base_len, base_len - 1, COMMITTED))
-    assert verified == decoded, (
-        f"single-token verification {verified} differs from the decode step {decoded}"
+    check(
+        verified == decoded,
+        f"single-token verification {verified} differs from the decode step {decoded}",
     )
     print(
         "   [PASS] single-token verification produces the decode step's token:"
@@ -494,7 +516,9 @@ def main():
 
         print("\n4. Cost of stating the batch shape...")
         check_marker_cost(harness, prompt_ids, args.repetitions)
-    except AssertionError as failure:
+    except (CheckFailed, AssertionError) as failure:
+        # AssertionError too: a lower layer that asserts should read as a failed
+        # check here rather than escaping as a traceback.
         ok = False
         print(f"   [FAIL] {failure}")
     finally:

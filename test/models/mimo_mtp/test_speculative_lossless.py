@@ -21,8 +21,9 @@ Two parts of the comparison are specific to this family:
     engines (section 5).
 
 The paged KV cache the speculative path needs has no CPU implementation in
-InfiniCore (``paged_caching`` reports "Device Type Not Supported"), so this
-check needs a GPU, like the other speculative checks in this repository.
+InfiniCore (``paged_caching`` is unavailable on the CPU backend, whatever
+message the planner reports for a given shape), so this check needs a GPU, like
+the other speculative checks in this repository.
 """
 
 import argparse

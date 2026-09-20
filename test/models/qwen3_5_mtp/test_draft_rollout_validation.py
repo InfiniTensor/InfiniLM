@@ -31,7 +31,9 @@ try:
     import infinicore
     from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
     from infinilm.infer_engine import InferEngine
-    from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
+    from infinilm.llm.model_runner.speculative_runner import (
+        resolve_draft_engine_path,
+    )
     from infinilm.modeling_utils import load_model_state_dict_by_file
 except ImportError as e:
     print("Error: InfiniLM package not found. Please install it:")
@@ -164,9 +166,8 @@ def main():
         f" target hidden: {tuple(target_hidden.shape)}"
     )
 
-    print("\n2. Resolving the draft fixture via the runner's own resolver...")
-    resolver = SpeculativeRunner.__new__(SpeculativeRunner)
-    fixture = resolver._resolve_draft_model_path(args.model)
+    print("\n2. Resolving the draft fixture through the runner's own resolver...")
+    fixture = resolve_draft_engine_path(args.model)
     print(f"   fixture: {fixture}")
 
     print("\n3. Building the static draft engine (runner's construction)...")
@@ -287,7 +288,19 @@ def main():
         )
         hits += int(predicted == seq[idx + 1])
         total += 1
-    print(f"   d0 == target next token: {hits}/{total} ({100.0 * hits / total:.1f}%)")
+    rate = hits / total
+    print(f"   d0 == target next token: {hits}/{total} ({100.0 * rate:.1f}%)")
+    # A loose floor, not an accuracy target: a draft path that silently degraded
+    # into returning something other than the head's argmax would land at or
+    # near zero even on a checkpoint whose draft is real.
+    if hits == 0:
+        print(
+            "   ✗ the draft head never predicted the target's next token, which"
+            " means the draft path is not producing the head's argmax"
+        )
+        ok = False
+    else:
+        print(f"   ✓ the draft head hit the target's next token {hits} time(s)")
 
     print("\n" + "=" * 70)
     if ok:

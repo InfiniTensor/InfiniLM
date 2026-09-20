@@ -53,6 +53,42 @@ def build_fake_state_dict():
     return state_dict
 
 
+# Every published mtp.* tensor and the draft parameter it has to reach. Listed in
+# full rather than sampled: a renamed key that the mapping gets wrong would
+# otherwise keep the key count at 15 and slip through.
+EXPECTED_MAPPING = {
+    "mtp.fc.weight": "model.fc.weight",
+    "mtp.pre_fc_norm_embedding.weight": "model.pre_fc_norm_embedding.weight",
+    "mtp.pre_fc_norm_hidden.weight": "model.pre_fc_norm_hidden.weight",
+    "mtp.norm.weight": "model.norm.weight",
+    "mtp.layers.0.input_layernorm.weight": "model.layers.0.input_layernorm.weight",
+    "mtp.layers.0.post_attention_layernorm.weight": (
+        "model.layers.0.post_attention_layernorm.weight"
+    ),
+    "mtp.layers.0.self_attn.q_proj.weight": "model.layers.0.self_attn.q_proj.weight",
+    "mtp.layers.0.self_attn.k_proj.weight": "model.layers.0.self_attn.k_proj.weight",
+    "mtp.layers.0.self_attn.v_proj.weight": "model.layers.0.self_attn.v_proj.weight",
+    "mtp.layers.0.self_attn.o_proj.weight": "model.layers.0.self_attn.o_proj.weight",
+    "mtp.layers.0.self_attn.q_norm.weight": "model.layers.0.self_attn.q_norm.weight",
+    "mtp.layers.0.self_attn.k_norm.weight": "model.layers.0.self_attn.k_norm.weight",
+    "mtp.layers.0.mlp.gate_proj.weight": "model.layers.0.mlp.gate_proj.weight",
+    "mtp.layers.0.mlp.up_proj.weight": "model.layers.0.mlp.up_proj.weight",
+    "mtp.layers.0.mlp.down_proj.weight": "model.layers.0.mlp.down_proj.weight",
+}
+
+# The renamed keys whose stored value the mapping adjusts by the zero-centered
+# norm offset (everything else is carried over verbatim).
+ZERO_CENTERED_DRAFT_KEYS = {
+    "model.norm.weight",
+    "model.pre_fc_norm_embedding.weight",
+    "model.pre_fc_norm_hidden.weight",
+    "model.layers.0.input_layernorm.weight",
+    "model.layers.0.post_attention_layernorm.weight",
+    "model.layers.0.self_attn.q_norm.weight",
+    "model.layers.0.self_attn.k_norm.weight",
+}
+
+
 class Qwen35MtpWeightRemapTest(unittest.TestCase):
     def setUp(self):
         self.config = build_fake_config()
@@ -61,29 +97,26 @@ class Qwen35MtpWeightRemapTest(unittest.TestCase):
         self.assertIs(_WEIGHT_REMAPPER["qwen3_5_mtp"], _remap_qwen3_5_mtp)
 
     def test_renames_all_mtp_keys_to_draft_names(self):
-        remapped = _remap_qwen3_5_mtp(build_fake_state_dict(), self.config)
+        state_dict = build_fake_state_dict()
+        remapped = _remap_qwen3_5_mtp(state_dict, self.config)
 
-        expected = {
-            "mtp.fc.weight": "model.fc.weight",
-            "mtp.pre_fc_norm_embedding.weight": "model.pre_fc_norm_embedding.weight",
-            "mtp.pre_fc_norm_hidden.weight": "model.pre_fc_norm_hidden.weight",
-            "mtp.norm.weight": "model.norm.weight",
-            "mtp.layers.0.input_layernorm.weight": "model.layers.0.input_layernorm.weight",
-            "mtp.layers.0.self_attn.q_proj.weight": "model.layers.0.self_attn.q_proj.weight",
-            "mtp.layers.0.mlp.down_proj.weight": "model.layers.0.mlp.down_proj.weight",
-        }
-        for old, new in expected.items():
-            self.assertIn(new, remapped)
-            self.assertNotIn(old, remapped)
-        # 15 mtp.* keys in, 15 renamed model.* keys + the tied embed/lm_head.
-        mtp_in = [k for k in build_fake_state_dict() if k.startswith("mtp.")]
-        renamed = [
-            k
-            for k in remapped
-            if k not in ("model.embed_tokens.weight", "lm_head.weight")
-        ]
-        self.assertEqual(len(mtp_in), 15)
-        self.assertEqual(len(renamed), 15)
+        # The whole mapping, not a sample: a key renamed to the wrong draft
+        # parameter keeps the count at 15, so only the names can catch it.
+        for published, canonical in EXPECTED_MAPPING.items():
+            self.assertIn(canonical, remapped)
+            self.assertNotIn(published, remapped)
+        expected_draft_keys = set(EXPECTED_MAPPING.values())
+        renamed = set(remapped) - {"model.embed_tokens.weight", "lm_head.weight"}
+        self.assertEqual(renamed, expected_draft_keys)
+        # Values are carried over unchanged; the only value edit the mapping
+        # makes is the zero-centered norm offset, checked on its own below.
+        for published, canonical in EXPECTED_MAPPING.items():
+            if canonical in ZERO_CENTERED_DRAFT_KEYS:
+                continue
+            self.assertTrue(
+                torch.equal(remapped[canonical], state_dict[published]),
+                f"{published} did not reach {canonical} unchanged",
+            )
 
     def test_applies_zero_centered_norm_offset(self):
         remapped = _remap_qwen3_5_mtp(build_fake_state_dict(), self.config)

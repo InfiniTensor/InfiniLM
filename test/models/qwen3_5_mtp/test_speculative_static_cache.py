@@ -18,6 +18,12 @@ This script pins the behavior on a real checkpoint:
      failure, since a static cache is a limited configuration for the models
      that carry recurrent state independently of any draft model.
 
+Exit status: 0 when both runs generated the same tokens, 1 when a check failed,
+and 2 when neither run generated at all. The 2 separates "the checkpoint cannot
+be served on a static cache here" (an unmet precondition for step 3) from a pass:
+reporting that case as success would let the construction regression be the only
+thing this script ever verified.
+
 Usage:
   python test/models/qwen3_5_mtp/test_speculative_static_cache.py \
       --model ~/models/Qwen3.5-0.8B --device cuda
@@ -181,15 +187,28 @@ def main():
             if not match:
                 print(f"       baseline:    {expected}")
                 print(f"       draft-model: {got}")
-    else:
-        print("\n4. Comparing the two runs' outcomes...")
-        same_outcome = speculative_error == baseline_error
-        print(f"   {'✓' if same_outcome else '✗'} draft-model run failed exactly")
-        print("     like the run without a draft model:")
+    elif baseline_error is not None:
+        # Both runs failed the same way. That says the static cache cannot serve
+        # this checkpoint at all, so the generation half of the claim (same
+        # tokens with and without --draft-model) was never exercised: it is an
+        # unmet precondition, not a pass.
+        print("\n4. Precondition not met: neither run generated...")
+        print("   ✓ both runs failed identically:")
         print(f"     {speculative_error}")
         print("     (a static cache cannot serve this model's recurrent state,")
-        print("      with or without --draft-model; that limitation is not the")
-        print("      construction regression this test covers)")
+        print("      with or without --draft-model; the construction half of this")
+        print("      regression is still covered by the successful build above)")
+        print("\n" + "=" * 70)
+        print("⚠ Static-cache regression: construction held, but the generation")
+        print("  comparison was not exercised on this checkpoint")
+        print("=" * 70)
+        return 2
+    else:
+        # The run with a draft model failed while the baseline generated: this
+        # is a real regression, not a missing precondition.
+        print("\n4. The draft-model run failed while the baseline generated...")
+        print(f"   ✗ draft-model run: {speculative_error}")
+        same_outcome = False
 
     ok = same_outcome and warned and drafted == 0 and block_size is None
     print("\n" + "=" * 70)

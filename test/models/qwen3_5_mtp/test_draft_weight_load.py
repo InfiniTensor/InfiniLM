@@ -127,12 +127,14 @@ def build_tiny_mtp_weights(seed):
     }
 
 
-def build_tiny_checkpoint(root, tie_word_embeddings):
+def build_tiny_checkpoint(root, tie_word_embeddings, with_head=True):
     """Write a two-shard draft checkpoint; returns the source tensors.
 
     The embedding/head shard is split from the ``mtp.*`` shards exactly like the
     released multi-shard checkpoints, whose first shard carries the target
     embedding and head while the MTP tensors live in later shards.
+    ``with_head=False`` writes the embedding without the head, which is what an
+    untied checkpoint missing its head looks like.
     """
     with open(os.path.join(root, "config.json"), "w") as f:
         json.dump(build_tiny_config(tie_word_embeddings), f)
@@ -145,7 +147,7 @@ def build_tiny_checkpoint(root, tie_word_embeddings):
 
     embedding_shard = "model-00001-of-00002.safetensors"
     embedding_weights = {EMBED_KEY: embed}
-    if not tie_word_embeddings:
+    if not tie_word_embeddings and with_head:
         embedding_weights[LM_HEAD_KEY] = lm_head
     save_file(embedding_weights, os.path.join(root, embedding_shard))
 
@@ -162,6 +164,26 @@ def build_tiny_checkpoint(root, tie_word_embeddings):
     return {"embed": embed, "lm_head": lm_head}
 
 
+def remove_tree(path):
+    """Delete a directory tree (the fixtures hold nothing but files)."""
+    for root, _, files in os.walk(path, topdown=False):
+        for name in files:
+            os.remove(os.path.join(root, name))
+        os.rmdir(root)
+
+
+def load_draft_engine(checkpoint_dir):
+    """Build the standalone draft engine the runner builds, and load it."""
+    engine = InferEngine(
+        model_path=checkpoint_dir,
+        device=infinicore.device("cpu", 0),
+        cache_config=StaticKVCacheConfig(max_batch_size=1, max_cache_len=16),
+        attention_backend="default",
+    )
+    load_model_state_dict_by_file(engine, checkpoint_dir, dtype=engine.dtype)
+    return engine
+
+
 class Qwen35MtpDraftWeightLoadTest(unittest.TestCase):
     """End-to-end draft loading for both embedding layouts."""
 
@@ -171,26 +193,16 @@ class Qwen35MtpDraftWeightLoadTest(unittest.TestCase):
 
     def _cleanup(self):
         for path in self.fixtures:
-            for root, _, files in os.walk(path, topdown=False):
-                for name in files:
-                    os.remove(os.path.join(root, name))
-                os.rmdir(root)
+            remove_tree(path)
 
-    def make_checkpoint(self, tie_word_embeddings):
+    def make_checkpoint(self, tie_word_embeddings, with_head=True):
         root = tempfile.mkdtemp(prefix="infinilm_mtp_weight_load_")
         self.fixtures.append(root)
-        sources = build_tiny_checkpoint(root, tie_word_embeddings)
+        sources = build_tiny_checkpoint(root, tie_word_embeddings, with_head=with_head)
         return root, sources
 
     def load_draft_engine(self, checkpoint_dir):
-        engine = InferEngine(
-            model_path=checkpoint_dir,
-            device=infinicore.device("cpu", 0),
-            cache_config=StaticKVCacheConfig(max_batch_size=1, max_cache_len=16),
-            attention_backend="default",
-        )
-        load_model_state_dict_by_file(engine, checkpoint_dir, dtype=engine.dtype)
-        return engine
+        return load_draft_engine(checkpoint_dir)
 
     def read_parameter(self, engine, name):
         state_dict = engine.state_dict()[0]
@@ -264,13 +276,40 @@ class Qwen35MtpDraftWeightRemapTest(unittest.TestCase):
         self.assertEqual(set(draft_shard), {"model.fc.weight"})
         self.assertEqual(set(head_shard), {"lm_head.weight"})
 
-    def test_untied_shard_without_head_does_not_fall_back_to_tied(self):
-        # An untied checkpoint with no head must fail loudly in the loader
-        # rather than silently reuse the embedding.
+    def test_untied_shard_without_head_does_not_map_a_tied_head(self):
+        # The remap half: an untied checkpoint whose shard carries no head must
+        # not be handed a copy of the embedding.
         embed = torch.zeros(VOCAB_SIZE, HIDDEN_SIZE)
         remapped = _remap_qwen3_5_mtp({EMBED_KEY: embed}, self.config)
 
         self.assertEqual(set(remapped), {"model.embed_tokens.weight"})
+
+    def test_untied_checkpoint_without_head_falls_back_to_the_embedding(self):
+        # Pre-existing loader behaviour, not introduced here: an untied
+        # checkpoint that carries no head tensor still gets the embedding bound
+        # to `lm_head.weight`, exactly like a tied one. The fallback is not
+        # restricted to tied configs, which is why the remap half above (no head
+        # is invented at map time) and this half disagree. This test pins what
+        # the loader does so a change to it cannot pass unnoticed; it is not a
+        # statement that the fallback is desirable.
+        root = tempfile.mkdtemp(prefix="infinilm_mtp_weight_load_")
+        self.addCleanup(remove_tree, root)
+        build_tiny_checkpoint(root, tie_word_embeddings=False, with_head=False)
+        index = json.load(open(os.path.join(root, "model.safetensors.index.json")))[
+            "weight_map"
+        ]
+        self.assertEqual(set(index), {EMBED_KEY, *(build_tiny_mtp_weights(11))})
+
+        engine = load_draft_engine(root)
+
+        state_dict = engine.state_dict()[0]
+        embed = infinicore_to_torch_tensor(
+            state_dict["model.embed_tokens.weight"], torch.empty(0)
+        ).float()
+        head = infinicore_to_torch_tensor(
+            state_dict["lm_head.weight"], torch.empty(0)
+        ).float()
+        self.assertTrue(torch.equal(head, embed))
 
     def test_tie_flag_read_from_nested_text_config(self):
         embed = torch.zeros(VOCAB_SIZE, HIDDEN_SIZE)

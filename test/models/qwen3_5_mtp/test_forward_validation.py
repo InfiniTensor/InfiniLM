@@ -58,8 +58,15 @@ DEFAULT_PROMPT = (
     "The capital of France is Paris. The largest planet in the solar system is"
 )
 DEFAULT_MAX_NEW_TOKENS = 24
-# bf16 both sides: tolerance covers kernel-order accumulation differences on
-# logits whose values reach ~30 (see printed stats for the measured margins).
+# bf16 both sides. What this check measures on Qwen3.5-2B: the logits differ by
+# max_abs_diff=0.34375 against an absmax of 28, and the hidden states by 0.5
+# against 66.5. Against atol=1.0 that is a margin of about 2x and 3x, on a
+# tensor whose bf16 quantum at absmax is 0.25 -- so a tighter bound would sit at
+# the quantum and start rejecting the correct draft (measured: atol=0.05 fails
+# the correct run). The bound is therefore left where it was; what makes it
+# trustworthy is not its width but the negative control in step 5, which shows a
+# wrong draft (the fused streams in the other order) missing it by 28 and 47,
+# and a probe showing a 4% error in the fusion projection crosses it.
 RTOL = 1e-2
 ATOL = 1.0
 
@@ -161,13 +168,19 @@ class TorchMtpReference(torch.nn.Module):
         if loaded != 15:
             raise RuntimeError(f"expected 15 mtp.* weights, loaded {loaded}")
 
-    def forward(self, input_ids, target_hidden, position_ids):
+    def forward(
+        self, input_ids, target_hidden, position_ids, concat_order="embedding_first"
+    ):
         embeds = torch.nn.functional.embedding(input_ids, self.embed_weight)
         normed_embed = self.pre_fc_norm_embedding(embeds)
         normed_hidden = self.pre_fc_norm_hidden(target_hidden)
         # Concat order is the one used by the shipped checkpoints (verified:
-        # the swapped order collapses next-token accuracy to chance).
-        fused = torch.cat([normed_embed, normed_hidden], dim=-1)
+        # the swapped order collapses next-token accuracy to chance). The other
+        # order is the negative control the comparison has to reject.
+        if concat_order == "hidden_first":
+            fused = torch.cat([normed_hidden, normed_embed], dim=-1)
+        else:
+            fused = torch.cat([normed_embed, normed_hidden], dim=-1)
         hidden_states = self.fc(fused)
 
         seq_len = hidden_states.shape[1]
@@ -334,8 +347,20 @@ def main():
         ref_logits, ref_hidden = reference(
             draft_ids, target_hidden[:, :-1, :], positions
         )
+        # Negative control: the same reference with the two fused streams in the
+        # order the shipped checkpoints do not use. The comparison below has to
+        # reject it, otherwise the tolerance is wide enough to hide a wrong
+        # draft and the "matches" above says nothing.
+        wrong_logits, wrong_hidden = reference(
+            draft_ids,
+            target_hidden[:, :-1, :],
+            positions,
+            concat_order="hidden_first",
+        )
     ref_logits = ref_logits.float().cpu()
     ref_hidden = ref_hidden.float().cpu()
+    wrong_logits = wrong_logits.float().cpu()
+    wrong_hidden = wrong_hidden.float().cpu()
     print(
         f"   ref logits: {tuple(ref_logits.shape)} absmax={ref_logits.abs().max().item():.4f}"
     )
@@ -359,6 +384,34 @@ def main():
         "logits", ref_logits[:, :-1, :], cpp_logits[:, :-1, :], args.rtol, args.atol
     )
     ok &= compare("hidden_states", ref_hidden, cpp_hidden, args.rtol, args.atol)
+
+    print("\n5. Negative control (the other concat order must not match)...")
+    # The control is compared against the C++ draft output: a wrong reference
+    # that still agrees with the draft would mean the comparison cannot tell the
+    # two orders apart.
+    control_ok = True
+    control_ok &= compare(
+        "wrong-order logits",
+        wrong_logits[:, :-1, :],
+        cpp_logits[:, :-1, :],
+        args.rtol,
+        args.atol,
+    )
+    control_ok &= compare(
+        "wrong-order hidden_states",
+        wrong_hidden,
+        cpp_hidden,
+        args.rtol,
+        args.atol,
+    )
+    if control_ok:
+        print(
+            "   ✗ the swapped concat order still matched the draft: the"
+            " tolerance cannot tell a wrong draft from a rounding difference"
+        )
+        ok = False
+    else:
+        print("   ✓ the swapped concat order fails, so the tolerance has teeth")
 
     print("\n" + "=" * 70)
     if ok:

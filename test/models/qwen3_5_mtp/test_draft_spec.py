@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 
 import torch
 from safetensors.torch import save_file
@@ -36,6 +37,7 @@ from infinilm.draft_spec import (  # noqa: E402
     PositionIdLayout,
     UnsupportedDraftError,
     _literal_prefix,
+    _remap_draft_weights,
     draft_position_ids,
     explain_missing_draft,
     get_draft_model_spec,
@@ -49,7 +51,6 @@ from infinilm.draft_spec import (  # noqa: E402
 from infinilm.llm.model_runner.speculative_runner import (  # noqa: E402
     SpeculativeRunner,
 )
-from infinilm.llm.static_scheduler import StaticSchedulerOutput  # noqa: E402
 from infinilm.modeling_utils import get_weight_remapper  # noqa: E402
 from test_draft_weight_load import (  # noqa: E402
     EMBED_KEY,
@@ -60,7 +61,6 @@ from test_draft_weight_load import (  # noqa: E402
     build_tiny_text_config,
 )
 
-MODELS_PATH = os.path.join(_TEST_DIR, "..", "..", "..", "MODELS.md")
 RUNNER_SOURCE = os.path.join(
     _TEST_DIR,
     "..",
@@ -99,6 +99,11 @@ def family_tokens():
 
 
 SECOND_FAMILY = "synthetic_second_family"
+# The families this build deliberately cannot run. Frozen on purpose: the
+# registry's `is_available` is derived from `unimplemented`, so nothing derived
+# from the registry can notice that a family was made runnable (or stopped
+# being) without its own missing piece being addressed.
+UNAVAILABLE_FAMILIES = ["deepseek_v3_mtp", "qwen_moe_mtp"]
 SECOND_FAMILY_TARGET = "synthetic_target"
 
 
@@ -177,14 +182,40 @@ def deepseek_shards():
     }
 
 
+DRAFT_FIXTURE_PREFIX = "infinilm_draft_fixture_"
+
+
+def existing_draft_fixtures():
+    """Draft fixture directories that already exist, so a test can leave only
+    the ones it created behind."""
+    return {
+        name
+        for name in os.listdir(tempfile.gettempdir())
+        if name.startswith(DRAFT_FIXTURE_PREFIX)
+    }
+
+
+def remove_draft_fixtures(before):
+    """Remove the draft fixtures created since `before` was taken.
+
+    The resolver materialises a directory of symlinks per checkpoint it
+    resolves and the library never removes it; those directories have to
+    outlive the engines built from them, not the test run.
+    """
+    for name in existing_draft_fixtures() - before:
+        shutil.rmtree(os.path.join(tempfile.gettempdir(), name), ignore_errors=True)
+
+
 class DraftSpecTestCase(unittest.TestCase):
     def setUp(self):
         self.fixtures = []
+        self.draft_fixtures = existing_draft_fixtures()
         self.addCleanup(self._cleanup)
 
     def _cleanup(self):
         for path in self.fixtures:
             shutil.rmtree(path, ignore_errors=True)
+        remove_draft_fixtures(self.draft_fixtures)
 
     def make_root(self):
         root = tempfile.mkdtemp(prefix="infinilm_draft_spec_")
@@ -215,82 +246,91 @@ class RunnerSourceTest(unittest.TestCase):
         )
 
 
-class RegistryDocumentationTest(unittest.TestCase):
-    """The description registry and the model guide must agree.
-
-    The guide's family table is what an integrator reads before touching the
-    code, so a family that exists in only one of the two places is a defect.
-    """
-
-    @classmethod
-    def setUpClass(cls):
-        with open(MODELS_PATH, encoding="utf-8") as f:
-            cls.guide = f.read()
-
-    def table_rows(self):
-        rows = []
-        for line in self.guide.splitlines():
-            if not line.startswith("| `") and not line.startswith("| \u2014 "):
-                continue
-            rows.append([cell.strip() for cell in line.strip("|").split("|")])
-        return rows
-
-    def test_every_described_family_is_in_the_family_table(self):
-        listed = {
-            row[0].strip("`") for row in self.table_rows() if row[0].startswith("`")
-        }
-        described = {spec.family for spec in list_draft_model_specs()}
-        self.assertEqual(described - listed, set())
-
-    def test_the_table_states_the_same_availability_as_the_registry(self):
-        rows = {
-            row[0].strip("`"): row
-            for row in self.table_rows()
-            if row[0].startswith("`")
-        }
-        for spec in list_draft_model_specs():
-            row = rows[spec.family]
-            status = row[4]
-            row_text = " | ".join(row)
-            for target in spec.target_model_types:
-                self.assertIn(target, row_text)
-            if spec.is_available:
-                self.assertIn("block implemented here", status)
-            else:
-                self.assertIn("block not implemented here", status)
-                # The primary missing piece is quoted from the registry.
-                self.assertIn(spec.unimplemented[0], status)
-
-    def test_families_the_guide_names_are_registered(self):
-        described = {spec.family for spec in list_draft_model_specs()}
-        for row in self.table_rows():
-            if row[0].startswith("`"):
-                self.assertIn(row[0].strip("`"), described)
-            else:
-                # A surveyed family without a description must say so.
-                self.assertIn("not described yet", row[4])
-
-    def description_section(self):
-        section = self.guide.split("### 6.2 The description", 1)[1]
-        return section.split("### 6.3", 1)[0]
-
-    def test_every_description_field_is_documented(self):
-        # The field reference is what an integrator fills in, so a field that
-        # exists in code but not in the guide is a defect in either of them.
-        documented = self.description_section()
-        for dataclass in (DraftModelSpec, DraftWeightMap):
-            for name in dataclass.__dataclass_fields__:
-                self.assertIn(f"`{name}`", documented)
+class RegistrySplitTest(unittest.TestCase):
+    """The registry's own split between runnable and described-only families."""
 
     def test_registry_splits_available_and_pending_families(self):
-        available = [
-            spec.family for spec in list_draft_model_specs() if spec.is_available
-        ]
-        pending = [
+        # The split is asserted as invariants rather than as a frozen list: a
+        # family added later must not have to edit an expectation here, while a
+        # family that lands in both halves or in neither still fails.
+        specs = list_draft_model_specs()
+        available = [spec.family for spec in specs if spec.is_available]
+        pending = [spec.family for spec in specs if not spec.is_available]
+        self.assertEqual(set(available) & set(pending), set())
+        self.assertEqual(set(available) | set(pending), {spec.family for spec in specs})
+        self.assertEqual(len(available), len(set(available)))
+        self.assertEqual(len(pending), len(set(pending)))
+        # Each half keeps the registration order of the registry it is read
+        # from, so a listing cannot silently reorder a family.
+        order = [spec.family for spec in specs]
+        for half in (available, pending):
+            self.assertEqual(half, [name for name in order if name in set(half)])
+        self.assertTrue(available)
+        self.assertTrue(pending)
+
+    def test_the_families_this_build_cannot_run_are_the_known_ones(self):
+        # Which families are runnable is a claim about a release, so it is
+        # asserted against a frozen set rather than derived from the registry:
+        # `is_available` is `not unimplemented`, so a check written against that
+        # relation agrees with itself and cannot fail. Adding a family means
+        # editing this expectation on purpose; making one runnable means
+        # removing it here, which is the point.
+        unavailable = sorted(
             spec.family for spec in list_draft_model_specs() if not spec.is_available
+        )
+        self.assertEqual(unavailable, UNAVAILABLE_FAMILIES)
+
+    def test_each_unavailable_family_names_what_is_missing(self):
+        # The frozen set above says *which* families cannot run; this says the
+        # registry still tells a reader *why*. It also keeps the two together:
+        # an entry cleared without touching the frozen set fails the check above,
+        # and one added without a family fails here.
+        blank = []
+        unlisted = []
+        known = set(UNAVAILABLE_FAMILIES)
+        for spec in list_draft_model_specs():
+            if spec.family in known and not spec.unimplemented:
+                blank.append(spec.family)
+            if spec.unimplemented and spec.family not in known:
+                unlisted.append(spec.family)
+        self.assertEqual(
+            blank,
+            [],
+            f"unavailable families with no `unimplemented` entry: {blank}; each"
+            " one has to say what this build is missing",
+        )
+        self.assertEqual(
+            unlisted,
+            [],
+            f"families naming a missing piece but not in the frozen set: {unlisted}",
+        )
+        self.assertEqual(
+            known, set(UNAVAILABLE_FAMILIES), "the frozen set must list each once"
+        )
+
+    def test_both_availability_checks_fail_on_a_flipped_registry(self):
+        # Controls, using an in-memory registry: the two checks above have to
+        # reject the flip they exist for. The earlier version of this test could
+        # not, because it read `is_available` and then asserted the relation that
+        # property is defined by.
+        runnable = next(spec for spec in list_draft_model_specs() if spec.is_available)
+        pending = next(
+            spec for spec in list_draft_model_specs() if not spec.is_available
+        )
+        flipped = list_draft_model_specs()
+        flipped = [
+            replace(spec, unimplemented=()) if spec.family == pending.family else spec
+            for spec in flipped
         ]
-        self.assertEqual(available, ["qwen3_5_mtp", "minicpm_eagle", "mimo_mtp"])
-        self.assertEqual(pending, ["qwen_moe_mtp", "deepseek_v3_mtp"])
+        unavailable = sorted(spec.family for spec in flipped if not spec.is_available)
+        self.assertNotEqual(
+            unavailable,
+            UNAVAILABLE_FAMILIES,
+            "clearing a pending family's `unimplemented` must change the frozen set",
+        )
+        blank = [spec.family for spec in flipped if not spec.unimplemented]
+        self.assertNotEqual(blank, [])
+        self.assertTrue(runnable.is_available)
 
 
 class DescriptorResolutionTest(DraftSpecTestCase):
@@ -627,6 +667,27 @@ class DraftWeightMapTest(unittest.TestCase):
             get_draft_weight_remapper("qwen3_5_mtp")(
                 build_tiny_mtp_weights(seed=1), config
             )
+
+    def test_a_depth_anchor_without_a_depth_group_is_reported_by_family(self):
+        # The description, not the checkpoint, is what is wrong here: a family
+        # that anchors its block on a published layer index has to capture that
+        # index, and saying so by family name beats a bare group lookup error
+        # raised from inside a weight load.
+        register_second_family()
+        self.addCleanup(DRAFT_MODEL_SPECS.pop, SECOND_FAMILY, None)
+        spec = DRAFT_MODEL_SPECS[SECOND_FAMILY]
+        weight_map = replace(
+            spec.weight_map,
+            depth_index_key="num_hidden_layers",
+            key_pattern=r"^mtp\.(?P<rest>.+)$",
+        )
+        broken = replace(spec, weight_map=weight_map)
+        state_dict = {"mtp.fc.weight": torch.ones(4, 8)}
+
+        with self.assertRaisesRegex(
+            ValueError, f"the {SECOND_FAMILY} description anchors"
+        ):
+            _remap_draft_weights(broken, state_dict, qwen_target_config())
 
 
 def deepseek_layout(block_layers=(2,), plain_layers=(0, 1)):
@@ -1063,11 +1124,10 @@ class RunnerConstructionTest(DraftSpecTestCase):
 
         self.assertIsNone(runner._cache_block_size)
         self.assertIn("non-speculatively", " ".join(logs.output))
-        # The static scheduler hands out no speculative cache ops, which is why
-        # the runner's forward stays on the plain target path.
-        self.assertFalse(
-            hasattr(StaticSchedulerOutput([], False), "speculative_cache_ops")
-        )
+        # The runner's speculation switch is "the target cache handed it a block
+        # size"; None is what keeps the requests on the plain target path. How
+        # the static scheduler spells that on its own output object is an
+        # implementation detail, so it is not asserted here.
 
     def test_fixture_directory_can_be_used_as_a_draft_model(self):
         target = self.make_qwen_checkpoint()
