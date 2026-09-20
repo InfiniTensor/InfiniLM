@@ -80,6 +80,7 @@ class Scheduler:
         self.failed_receiving_kv_req_ids: set[str] = set()
         self.pending_free_blocks: dict[str, list[int]] = {}
         self.pending_kv_decode_blocks: int = 0
+        self.num_reserved_decode_blocks: int = 0
         self.remote_kv_requests: dict[str, InferenceRequest] = {}
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
@@ -275,9 +276,7 @@ class Scheduler:
             if load_kv_async:
                 req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
                 self.remote_kv_requests[req.request_id] = req
-                self.pending_kv_decode_blocks += (
-                    req.sampling_params.max_tokens + self.block_size - 1
-                ) // self.block_size
+                self.pending_kv_decode_blocks += self._get_decode_extra_blocks(req)
                 continue
 
             current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
@@ -311,6 +310,7 @@ class Scheduler:
                 req = self.running_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
+            self.num_reserved_decode_blocks -= self._get_decode_extra_blocks(req)
             # Skip requests that were already finished (e.g., timed out/canceled while running)
             if req.is_finished():
                 self.complete_requests([req])
@@ -378,9 +378,7 @@ class Scheduler:
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)
-        self.pending_kv_decode_blocks -= (
-            request.sampling_params.max_tokens + self.block_size - 1
-        ) // self.block_size
+        self.pending_kv_decode_blocks -= self._get_decode_extra_blocks(request)
         if request.request_id in self.failed_receiving_kv_req_ids:
             if request.num_computed_tokens:
                 self.commit_computed_tokens(request, request.num_computed_tokens)
@@ -417,9 +415,7 @@ class Scheduler:
                     )
 
                 if req.request_id in self.remote_kv_requests:
-                    self.pending_kv_decode_blocks -= (
-                        req.sampling_params.max_tokens + self.block_size - 1
-                    ) // self.block_size
+                    self.pending_kv_decode_blocks -= self._get_decode_extra_blocks(req)
                     self.remote_kv_requests.pop(req.request_id, None)
                     if req.request_id in self.finished_receiving_kv_req_ids:
                         self.finished_receiving_kv_req_ids.discard(req.request_id)
@@ -448,6 +444,7 @@ class Scheduler:
                     )
             else:
                 # Still running, put back in running queue
+                self.num_reserved_decode_blocks += self._get_decode_extra_blocks(req)
                 self.running_queue.sync_q.put(req)
 
     def can_accept_request(
@@ -465,18 +462,7 @@ class Scheduler:
 
         total_required_blocks = 0
 
-        # Calculate blocks needed for running requests
-        running_queue_size = self.running_queue.sync_q.qsize()
-        for _ in range(running_queue_size):
-            req = self.running_queue.sync_q.get()
-            remaining_tokens = (
-                req.sampling_params.max_tokens - req.get_num_generated_tokens()
-            )
-            num_blocks_needed = (
-                remaining_tokens + self.block_size - 1
-            ) // self.block_size
-            total_required_blocks += num_blocks_needed
-            self.running_queue.sync_q.put(req)
+        total_required_blocks += self.num_reserved_decode_blocks
 
         # Calculate blocks needed for the new request
         total_length = request.get_prompt_length() - num_local_computed_tokens
@@ -497,6 +483,11 @@ class Scheduler:
     def _get_prefill_extra_blocks(self, request: InferenceRequest) -> int:
         total_length = request.get_prompt_length()
         total_length += request.sampling_params.max_tokens
+        total_required_blocks = (total_length + self.block_size - 1) // self.block_size
+        return max(total_required_blocks - len(request.block_table), 0)
+
+    def _get_decode_extra_blocks(self, request: InferenceRequest) -> int:
+        total_length = request.get_prompt_length() + request.sampling_params.max_tokens
         total_required_blocks = (total_length + self.block_size - 1) // self.block_size
         return max(total_required_blocks - len(request.block_table), 0)
 
@@ -584,6 +575,7 @@ class Scheduler:
             "num_free_blocks": self.cache_manager.get_num_free_blocks(),
             "usable_blocks": self.cache_manager.get_total_usable_blocks(),
             "num_used_blocks": len(self.cache_manager.used_block_ids),
+            "num_reserved_decode_blocks": self.num_reserved_decode_blocks,
         }
         if self.mamba_cache_manager is not None:
             stats.update(
