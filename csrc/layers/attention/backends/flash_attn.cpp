@@ -101,7 +101,9 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
         v_cache_layer->permute({0, 2, 1, 3}),
         key,
         value,
-        slot_mapping);
+        slot_mapping,
+        std::nullopt, // no FP8 scales: FP8 KV cache is not supported on the FLASH_ATTN backend
+        std::nullopt);
 
     return {k_cache_layer, v_cache_layer};
 }

@@ -287,7 +287,7 @@ class BaseConfig:
             "--kv-cache-dtype",
             type=str,
             default=None,
-            choices=["int8"],
+            choices=["int8", "fp8", "float8"],
             help="KV cache data type",
         )
         self.parser.add_argument(

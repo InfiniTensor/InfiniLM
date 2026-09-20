@@ -5,6 +5,7 @@
 
 #include <limits>
 #include <memory>
+#include <utility>
 
 namespace infinilm::cache {
 class StaticKVCacheConfig final : public CacheConfig {
@@ -60,6 +61,16 @@ infinicore::Tensor create_layer_kv_cache(
     infinicore::Size num_k_heads,
     infinicore::Size num_v_heads,
     infinicore::DataType dtype,
+    const PagedKVCacheConfig &config);
+
+// FP8(E4M3) KV cache scales for one layer: returns `{k_scale, v_scale}`, each F32 with
+// shape `[num_blocks, num_rank_kv_heads, block_size]` (one scale per token per kv head;
+// the head_dim dimension is reduced by the paged_caching kernel on write). The scale
+// layout is logical (block, kv_head, token-in-block) and does not follow the cache
+// tensor's element order, so it is identical for the paged (BHSD) and FLASH_ATTN (BSHD)
+// cache layouts.
+std::pair<infinicore::Tensor, infinicore::Tensor> create_layer_kv_scales(
+    infinicore::Size num_kv_heads,
     const PagedKVCacheConfig &config);
 
 } // namespace PagedKVCache

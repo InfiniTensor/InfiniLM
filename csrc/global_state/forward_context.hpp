@@ -2,6 +2,8 @@
 
 #include "../models/infinilm_model.hpp"
 
+#include <utility>
+
 namespace infinilm::global_state {
 
 struct AttentionMetadata {
@@ -68,6 +70,11 @@ struct ForwardContext {
     MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;
     std::vector<infinicore::Tensor> kv_cache_vec;
+    // Per-layer FP8(E4M3) KV cache scales `{k_scale, v_scale}`, parallel to `kv_cache_vec`.
+    // Each is F32 with shape `[num_blocks, num_kv_heads, block_size]` (per-token-per-kv-head
+    // dynamic scale, filled by the paged_caching kernel on write). Empty when the KV cache
+    // dtype is not F8.
+    std::vector<std::pair<infinicore::Tensor, infinicore::Tensor>> kv_scale_vec;
     std::vector<infinicore::Tensor> conv_state_vec;
     std::vector<infinicore::Tensor> ssm_state_vec;
 };

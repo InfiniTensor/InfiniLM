@@ -193,7 +193,7 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
 
     auto k_cache_layer = kv_cache->narrow({{3, 0, mla_head_dim_}});
     auto v_cache_layer = kv_cache->narrow({{3, mla_head_dim_, kv_lora_rank_}});
-    infinicore::op::paged_caching_(k_cache_layer, v_cache_layer, key_states, value_states, slot_mapping.value());
+    infinicore::op::paged_caching_(k_cache_layer, v_cache_layer, key_states, value_states, slot_mapping.value(), std::nullopt, std::nullopt);
 
     auto attn_output = infinicore::Tensor::empty({seq_len, num_attention_heads_, kv_lora_rank_}, query_states->dtype(), query_states->device());
     const bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
@@ -230,7 +230,9 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
                 total_sequence_lengths.value(),
                 input_offsets.value(),
                 std::nullopt,
-                softmax_scale_);
+                softmax_scale_,
+                std::nullopt,
+                std::nullopt);
         }
     } else {
         infinicore::op::paged_attention_(
@@ -241,7 +243,9 @@ infinicore::Tensor DeepseekV2MLAAttention::forward_paged_(const infinicore::Tens
             block_tables.value(),
             total_sequence_lengths.value(),
             std::nullopt,
-            softmax_scale_);
+            softmax_scale_,
+            std::nullopt,
+            std::nullopt);
     }
     return project_latent_to_value_(attn_output, batch_size, seq_len);
 }

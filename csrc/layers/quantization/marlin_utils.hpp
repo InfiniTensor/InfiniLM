@@ -9,6 +9,9 @@ namespace infinilm::quantization::marlin {
 
 constexpr int64_t UINT4_ID = 1125899906843648LL;
 constexpr int64_t UINT4B8_ID = 1125899907892224LL;
+// host::kFE4M3fn.id() from InfiniCore's sgl_kernel/scalar_type.hpp
+// (FP8 E4M3 weight type for the Marlin GEMM kernel).
+constexpr int64_t FE4M3FN_ID = 2814749767172868LL;
 
 bool supports_shape(size_t input_size_per_partition, size_t output_size_per_partition, int group_size);
 

@@ -81,8 +81,14 @@ InferEngine::InferEngine(
         distributed_config.moe_ep_size,
         pre_transpose);
 
-    // Only support offline int8 kv cache quantization in this version
+    // KV cache quantization: INT8 is the offline static per-tensor path; FP8(E4M3) uses
+    // per-token-per-kv-head dynamic scales and currently requires the paged attention
+    // backend (STATIC_ATTN and FLASH_ATTN paths do not implement it).
     if (kv_cache_dtype.has_value()) {
+        if (kv_cache_dtype.value() == infinicore::DataType::F8
+            && attention_backend != backends::AttentionBackend::PAGED_ATTN) {
+            throw std::invalid_argument("InferEngine: FP8 KV cache (kv_cache_dtype=fp8) requires the paged attention backend");
+        }
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
     }
     // Create one RankWorker per rank

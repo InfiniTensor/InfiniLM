@@ -360,6 +360,7 @@ class LLM:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        kv_cache_dtype: Optional[str] = None,
         use_mla: bool = False,
         pre_transpose: bool = False,
         weight_load_mode: str = "async",
@@ -385,6 +386,8 @@ class LLM:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_cache_dtype: KV cache data type ('int8', 'fp8'); None keeps the model
+                dtype. 'fp8' requires attn_backend='paged-attn'.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
@@ -412,6 +415,7 @@ class LLM:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            kv_cache_dtype=kv_cache_dtype,
             use_mla=use_mla,
             pre_transpose=pre_transpose,
             weight_load_mode=weight_load_mode,
@@ -587,6 +591,7 @@ class AsyncLLMEngine:
         top_k: int = 1,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        kv_cache_dtype: Optional[str] = None,
         kv_transfer_config: Optional[KVTransferConfig] = None,
         use_mla: bool = False,
         pre_transpose: bool = False,
@@ -613,6 +618,8 @@ class AsyncLLMEngine:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_cache_dtype: KV cache data type ('int8', 'fp8'); None keeps the model
+                dtype. 'fp8' requires attn_backend='paged-attn'.
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
@@ -644,6 +651,7 @@ class AsyncLLMEngine:
             top_k=top_k,
             enable_graph=enable_graph,
             attn_backend=attn_backend,
+            kv_cache_dtype=kv_cache_dtype,
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,
             pre_transpose=pre_transpose,

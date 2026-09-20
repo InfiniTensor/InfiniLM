@@ -150,6 +150,10 @@ void init_kv_cache_quant_params(std::function<void(const std::string &, infinico
         kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
         register_fn("kv_cache_v_scale", kv_cache_v_scale);
         break;
+    case infinilm::quantization::KVQuantAlgo::FP8:
+        // FP8 KV cache uses per-token-per-kv-head dynamic scales allocated together with
+        // the paged cache (ForwardContext::kv_scale_vec), not per-tensor module parameters.
+        break;
     default:
         throw std::runtime_error("unsupported kv_quant_scheme");
     }

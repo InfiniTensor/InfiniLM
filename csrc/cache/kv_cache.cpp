@@ -146,6 +146,23 @@ infinicore::Tensor create_layer_kv_cache(
 
     return kv_cache;
 }
+
+std::pair<infinicore::Tensor, infinicore::Tensor> create_layer_kv_scales(
+    const infinicore::Size num_kv_heads,
+    const PagedKVCacheConfig &config) {
+    const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+
+    // Mirror the KV-head sharding of create_layer_kv_cache (num_k_heads == num_v_heads there).
+    bool is_kv_replica = (num_kv_heads < rank_info.tp_size && rank_info.tp_size % num_kv_heads == 0);
+    size_t num_rank_kv_heads = is_kv_replica ? 1 : (num_kv_heads / rank_info.tp_size);
+
+    // [num_blocks, num_rank_kv_heads, block_size], one F32 scale per token per kv head.
+    const infinicore::Shape scale_shape = {config.num_blocks(), num_rank_kv_heads, config.block_size()};
+    infinicore::Tensor k_scale = infinicore::Tensor::zeros(scale_shape, infinicore::DataType::F32, rank_info.device);
+    infinicore::Tensor v_scale = infinicore::Tensor::zeros(scale_shape, infinicore::DataType::F32, rank_info.device);
+
+    return {std::move(k_scale), std::move(v_scale)};
+}
 }; // namespace PagedKVCache
 
 } // namespace infinilm::cache

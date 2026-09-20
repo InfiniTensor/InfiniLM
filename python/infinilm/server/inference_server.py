@@ -118,6 +118,7 @@ class InferenceServer:
         port: int = 8000,
         enable_graph: bool = False,
         attn_backend: str = "default",
+        kv_cache_dtype: Optional[str] = None,
         use_mla: bool = False,
         skip_load: bool = False,
         weight_load_mode: str = "async",
@@ -149,6 +150,8 @@ class InferenceServer:
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
             attn_backend: Attention backend to use ('default', 'flash-attn').
+            kv_cache_dtype: KV cache data type ('int8', 'fp8'); None keeps the model
+                dtype. 'fp8' requires attn_backend='paged-attn'.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             skip_load: Whether to skip loading model weights.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -181,6 +184,7 @@ class InferenceServer:
         self.port = port
         self.enable_graph = enable_graph
         self.attn_backend = attn_backend
+        self.kv_cache_dtype = kv_cache_dtype
         self.use_mla = use_mla
         self.skip_load = skip_load
         self.weight_load_mode = weight_load_mode
@@ -226,6 +230,7 @@ class InferenceServer:
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
                 attn_backend=self.attn_backend,
+                kv_cache_dtype=self.kv_cache_dtype,
                 use_mla=self.use_mla,
                 skip_load=self.skip_load,
                 weight_load_mode=self.weight_load_mode,
@@ -660,6 +665,7 @@ def main():
         port=cfg.port,
         enable_graph=cfg.enable_graph,
         attn_backend=cfg.attn,
+        kv_cache_dtype=cfg.kv_cache_dtype,
         use_mla=cfg.use_mla,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
