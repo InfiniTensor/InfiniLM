@@ -30,7 +30,7 @@ output-head kernels.
 The InfiniLM changes require the corresponding InfiniCore `linear_gguf`
 operator and its supported GGML block decoders:
 
-- InfiniCore pull request: https://github.com/InfiniTensor/InfiniCore/pull/1545
+- InfiniCore pull request: https://github.com/InfiniTensor/InfiniCore/pull/1570
 
 Build and install that InfiniCore revision before building InfiniLM.
 
