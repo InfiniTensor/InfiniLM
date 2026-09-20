@@ -23,4 +23,13 @@ GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Inp
     return result;
 }
 
+std::pair<std::shared_ptr<infinicore::graph::Graph>, infinicore::Tensor>
+GeneralCompiler::get_sampling_compiled(size_t batch_size) {
+    auto result = paged_compiler_->get_sampling_compiled(batch_size);
+    if (result.first != nullptr) {
+        return result;
+    }
+    return static_batching_compiler_->get_sampling_compiled(batch_size);
+}
+
 } // namespace infinilm::engine

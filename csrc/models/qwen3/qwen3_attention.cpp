@@ -2,8 +2,30 @@
 #include "../../global_state/global_state.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
+#include "infinicore/ops/rms_norm_rope.hpp"
 
 namespace infinilm::models::qwen3 {
+
+namespace {
+
+// Mirrors the rms_norm_rope device dispatch in InfiniCore
+// (src/infiniop/ops/rms_norm_rope/operator.cc); devices without a backend
+// (Cambricon, Ascend, Metax, Moore, Kunlun) use the unfused chain instead.
+bool rms_norm_rope_supported(infinicore::Device::Type type) {
+    switch (type) {
+    case infinicore::Device::Type::CPU:
+    case infinicore::Device::Type::NVIDIA:
+    case infinicore::Device::Type::ILUVATAR:
+    case infinicore::Device::Type::ALI:
+    case infinicore::Device::Type::QY:
+    case infinicore::Device::Type::HYGON:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
 
 Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                size_t layer_idx,
@@ -20,6 +42,9 @@ Qwen3Attention::Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> mo
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
     attention_backend_ = infinilm::global_state::get_infinilm_config().attention_backend;
+    // The fused op is full-rotary only (head_dim == 2 * table_dim).
+    use_fused_norm_rope_ = model_config->get_rotary_dim() == head_dim_
+                           && rms_norm_rope_supported(device.getType());
     const engine::distributed::RankInfo &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     int tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
     int tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
@@ -121,8 +146,6 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-    q_reshaped = q_norm_->forward(q_reshaped);
-    k_reshaped = k_norm_->forward(k_reshaped);
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
@@ -136,9 +159,21 @@ infinicore::Tensor Qwen3Attention::forward_paged_(const infinicore::Tensor &posi
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
-    rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    // 4. Per-head RMSNorm + RoPE on q/k (full rotary): fused in-place op when
+    //    the device has an rms_norm_rope backend, unfused chain otherwise.
+    if (use_fused_norm_rope_) {
+        infinicore::op::rms_norm_rope_(q_reshaped, q_norm_->weight(), pos_ids_for_rope,
+                                       rotary_emb_->sin_cache(), rotary_emb_->cos_cache(),
+                                       static_cast<float>(q_norm_->eps()), rotary_emb_->algo());
+        infinicore::op::rms_norm_rope_(k_reshaped, k_norm_->weight(), pos_ids_for_rope,
+                                       rotary_emb_->sin_cache(), rotary_emb_->cos_cache(),
+                                       static_cast<float>(k_norm_->eps()), rotary_emb_->algo());
+    } else {
+        q_reshaped = q_norm_->forward(q_reshaped);
+        k_reshaped = k_norm_->forward(k_reshaped);
+        rotary_emb_->forward(q_reshaped, pos_ids_for_rope, true);
+        rotary_emb_->forward(k_reshaped, pos_ids_for_rope, true);
+    }
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);

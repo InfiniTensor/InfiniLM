@@ -9,6 +9,9 @@ python/infinilm/lib/*.so
 # Vscode
 .vscode/
 
+# JetBrains
+.idea/
+
 *.sh
 model_weight/
 
@@ -34,3 +37,4 @@ __pycache__/
 *.http
 
 *.nsys-rep
+dev_perf/results/

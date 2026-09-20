@@ -25,12 +25,14 @@ from infinilm.llm.request import (
     FinishReason,
     InferenceRequest,
     RequestOutput,
+    RequestStatus,
     TokenOutput,
 )
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
+from infinilm.processors.basic_llm_processor import BasicLLMProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,10 @@ class LLMEngine:
             )
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
+            enable_chunked_prefill = self._chunked_prefill_supported(
+                config, has_mamba_cache
+            )
+
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
@@ -110,8 +116,14 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                enable_chunked_prefill=enable_chunked_prefill,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
+            if enable_chunked_prefill:
+                logger.info(
+                    "Chunked prefill enabled with max_num_batched_tokens=%s",
+                    max_num_batched_tokens,
+                )
             if has_mamba_cache:
                 logger.info(
                     "Using Mamba cache with num_blocks=%s, zero_state_index=0",
@@ -137,6 +149,36 @@ class LLMEngine:
         """Add a request to the scheduler."""
         self.scheduler.add_request(request)
 
+    def _chunked_prefill_supported(
+        self, config: EngineConfig, has_mamba_cache: bool
+    ) -> bool:
+        """是否启用 chunked prefill + prefill/decode 混排。
+
+        由 env INFINILM_ENABLE_CHUNKED_PREFILL 打开（默认关闭，关闭时调度
+        行为与旧逻辑一致）。以下路径保持整段 prefill 旧行为：
+        mamba/线性注意力模型，以及按 batch 级 is_prefill 构建输入的处理
+        器（多模态模型，混排会破坏其输入构建）。
+
+        投机采样（eagle / prompt_lookup）不再互斥：SpeculativeRunner 按
+        SchedulerOutput.num_scheduled_tokens 逐请求判定阶段，混排批次里
+        的中段 chunk 请求不参与 draft/verify、也不产出 token。
+        """
+        if os.getenv("INFINILM_ENABLE_CHUNKED_PREFILL", "").lower() not in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            return False
+        if has_mamba_cache:
+            return False
+        processor_cls = type(self.processor)
+        return (
+            processor_cls.build_model_inputs is BasicLLMProcessor.build_model_inputs
+            and processor_cls._build_model_input_from_batch_scheduler_output
+            is BasicLLMProcessor._build_model_input_from_batch_scheduler_output
+        )
+
     def close(self):
         self.model_runner.close()
 
@@ -160,6 +202,7 @@ class LLMEngine:
         pending = self._update_requests(
             scheduler_output.scheduled_requests,
             sampled_token_ids,
+            getattr(scheduler_output, "num_scheduled_tokens", None),
         )
 
         # Return False (no immediate work) only when no requests were scheduled
@@ -179,6 +222,7 @@ class LLMEngine:
         self,
         requests: List[InferenceRequest],
         sampled_token_ids: list[int | list[int]],
+        num_scheduled_tokens: Optional[List[int]] = None,
     ) -> List[tuple]:
         """Apply sampled tokens and publish their target-model KV boundary."""
         if len(requests) != len(sampled_token_ids):
@@ -186,8 +230,37 @@ class LLMEngine:
                 "model output count does not match the scheduled request count: "
                 f"requests={len(requests)}, outputs={len(sampled_token_ids)}"
             )
+        if num_scheduled_tokens is not None and len(num_scheduled_tokens) != len(
+            requests
+        ):
+            raise RuntimeError(
+                "num_scheduled_tokens count does not match the scheduled request "
+                f"count: requests={len(requests)}, "
+                f"num_scheduled_tokens={len(num_scheduled_tokens)}"
+            )
         pending = []
-        for req, token_ids in zip(requests, sampled_token_ids):
+        for req_idx, (req, token_ids) in enumerate(zip(requests, sampled_token_ids)):
+            # chunked prefill 的中段 chunk：prompt 尚未算完，本步采样到的是废
+            # token，直接丢弃；只推进 num_computed_tokens 并逐 chunk 发布已
+            # 完整的块，跳过 token append / tokenizer.decode / finish 判定
+            if num_scheduled_tokens is not None:
+                chunk_end = req.num_local_cached_tokens + num_scheduled_tokens[req_idx]
+                if chunk_end < req.get_prompt_length():
+                    req.num_computed_tokens = chunk_end
+                    self.scheduler.commit_computed_tokens(req, chunk_end)
+                    if req.is_aborted():
+                        logger.info(
+                            f"Request {req.request_id} aborted by client, skipping update"
+                        )
+                        # close() may have set _aborted=True without setting a terminal status
+                        # (status still RUNNING).
+                        if not req.is_finished():
+                            req.mark_canceled()
+                    else:
+                        # prompt 未算完，标记为 WAITING，由 complete_requests
+                        # 放回 waiting 队列等待下一个 chunk
+                        req.status = RequestStatus.WAITING
+                    continue
             # The model successfully consumed the request's current logical tokens.
             # Commit this boundary before observing a concurrent client abort.
             pre_output_computed_tokens = req.get_total_length()
@@ -339,6 +412,7 @@ class LLM:
         self,
         model_path: str,
         draft_model_path: Optional[str] = None,
+        speculative_method: Optional[str] = None,
         num_draft_tokens: int = 4,
         device: str = "cuda",
         dtype: str = "float16",
@@ -371,6 +445,10 @@ class LLM:
 
         Args:
             model_path: Path to the model directory.
+            draft_model_path: Optional Eagle/MTP draft model directory.
+            speculative_method: Speculative decoding method ('eagle' or
+                'prompt_lookup'). 'prompt_lookup' needs no draft model.
+                Defaults to 'eagle' when draft_model_path is set.
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
@@ -384,13 +462,14 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
-            attn_backend: Attention backend to use ('default', 'flash-attn').
+            attn_backend: Attention backend to use ('default', 'static-attn', 'paged-attn', 'flash-attn', 'flashinfer', 'hybrid'). 'hybrid' = FA2 for prefill, paged kernel for decode.
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
         """
         config = EngineConfig(
             model_path=model_path,
             draft_model_path=draft_model_path,
+            speculative_method=speculative_method,
             num_draft_tokens=num_draft_tokens,
             device=device,
             dtype=dtype,
@@ -566,6 +645,7 @@ class AsyncLLMEngine:
         self,
         model_path: str,
         draft_model_path: Optional[str] = None,
+        speculative_method: Optional[str] = None,
         num_draft_tokens: int = 4,
         device: str = "cuda",
         dtype: str = "float16",
@@ -599,6 +679,10 @@ class AsyncLLMEngine:
 
         Args:
             model_path: Path to the model directory.
+            draft_model_path: Optional Eagle/MTP draft model directory.
+            speculative_method: Speculative decoding method ('eagle' or
+                'prompt_lookup'). 'prompt_lookup' needs no draft model.
+                Defaults to 'eagle' when draft_model_path is set.
             device: Device type ('cpu', 'cuda', 'mlu', 'moore').
             dtype: Data type ('float16', 'bfloat16', 'float32').
             tensor_parallel_size: Number of devices for tensor parallelism.
@@ -612,7 +696,7 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
-            attn_backend: Attention backend to use ('default', 'flash-attn').
+            attn_backend: Attention backend to use ('default', 'static-attn', 'paged-attn', 'flash-attn', 'flashinfer', 'hybrid'). 'hybrid' = FA2 for prefill, paged kernel for decode.
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
             kv_connector_extra_config: Extra config dict for KV connector.
@@ -623,6 +707,7 @@ class AsyncLLMEngine:
         config = EngineConfig(
             model_path=model_path,
             draft_model_path=draft_model_path,
+            speculative_method=speculative_method,
             num_draft_tokens=num_draft_tokens,
             device=device,
             dtype=dtype,

@@ -180,6 +180,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             - input_offsets: Offsets for each request
             - block_tables: Padded block_table for each request
             - slot_mapping: Single slot per request
+
+        Chunked prefill（num_scheduled_tokens 非 None）时按逐请求切片：
+        prompt 未算完的请求是本步调度长度的 prefill chunk，其余为 decode；
+        total_kv_lengths/cu_seqlens 写本 chunk 结束后的可见 KV 长度，
+        两种请求可混入同一批次。
         """
         import infinicore
 
@@ -202,22 +207,37 @@ class BasicLLMProcessor(InfinilmProcessor):
         )
         current_offset = 0
 
-        for req in scheduler_output.scheduled_requests:
+        for req_idx, req in enumerate(scheduler_output.scheduled_requests):
             num_cached = req.num_local_cached_tokens
-            if scheduler_output.is_prefill:
-                # Prefill phase
+            if scheduler_output.num_scheduled_tokens is not None:
+                # chunked prefill：逐请求按本步调度的 token 数切片
+                num_new_tokens = scheduler_output.num_scheduled_tokens[req_idx]
+                is_prefill_req = num_cached < req.get_prompt_length()
+            else:
+                num_new_tokens = None
+                is_prefill_req = scheduler_output.is_prefill
+
+            if is_prefill_req:
+                # Prefill phase（可能是一个 chunk）
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                if num_new_tokens is None:
+                    tokens_to_compute = req_tokens[num_cached:]
+                else:
+                    tokens_to_compute = req_tokens[
+                        num_cached : num_cached + num_new_tokens
+                    ]
                 tokens.extend(tokens_to_compute)
 
                 compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
+                # 本 chunk 结束后的可见 KV 长度；绝不能写整段 prompt 长，
+                # 否则注意力会读到尚未写入的 KV
+                seq_len = num_cached + compute_len
                 seq_lens.append(seq_len)
 
                 current_offset += compute_len
                 seq_offsets.append(current_offset)
 
-                slot_mapping.extend(req.slot_mapping)
+                slot_mapping.extend(req.slot_mapping[:compute_len])
                 cached_lens.append(num_cached)
                 position_ids.extend(range(num_cached, num_cached + compute_len))
 

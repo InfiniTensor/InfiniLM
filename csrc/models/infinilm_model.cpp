@@ -65,6 +65,12 @@ std::vector<infinicore::Tensor> InfinilmModel::default_allocate_kv_cache_tensors
     case backends::AttentionBackend::FLASH_ATTN: {
         ;
     }
+    case backends::AttentionBackend::HYBRID: {
+        // HYBRID 的 KV cache 与 PAGED_ATTN 同构（分块 paged 分配），
+        // 只是块内布局为 BSHD（见 PagedKVCache::create_layer_kv_cache），
+        // 因此直接落入下面的 paged 分配分支。
+        ;
+    }
     case backends::AttentionBackend::PAGED_ATTN: {
         auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (nullptr == paged_kv_cache_config) {

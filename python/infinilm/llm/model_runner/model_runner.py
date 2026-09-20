@@ -107,7 +107,7 @@ class ModelRunner:
             )
 
         self.speculative_runner = None
-        if config.draft_model_path is not None:
+        if config.speculative_method is not None:
             self.speculative_runner = SpeculativeRunner(
                 config, self.model_engine, self.device
             )
@@ -243,6 +243,12 @@ class ModelRunner:
 
     def _model_forward_with_speculative(self, scheduler_output, model_input):
         return self.speculative_runner.forward(scheduler_output, model_input)
+
+    def get_speculative_stats(self):
+        """投机采样统计快照；未启用投机时返回 None。"""
+        if self.speculative_runner is None:
+            return None
+        return self.speculative_runner.get_acceptance_stats()
 
     @contextmanager
     def maybe_get_kv_connector_output(

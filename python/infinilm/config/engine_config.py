@@ -11,7 +11,11 @@ class EngineConfig:
     Attributes:
         model_path: Path to the model directory.
         draft_model_path: Optional Eagle/MTP draft model directory.
-        num_draft_tokens: Number of Eagle draft tokens to verify per step.
+        speculative_method: Speculative decoding method. None disables speculation
+            unless draft_model_path is set (which implies "eagle"). "prompt_lookup"
+            needs no draft model: draft tokens come from n-gram suffix matching
+            against the request's own prompt+output.
+        num_draft_tokens: Number of draft tokens to verify per step.
         device: Device type string ('cpu', 'cuda', 'mlu', etc.).
         dtype: Data type string ('float16', 'bfloat16', 'float32').
         tensor_parallel_size: Number of devices for tensor parallelism.
@@ -32,7 +36,7 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
-        attn_backend: Attention backend to use ('default', 'flash-attn').
+        attn_backend: Attention backend to use ('default', 'paged-attn', 'flash-attn', 'hybrid').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
@@ -41,6 +45,7 @@ class EngineConfig:
 
     model_path: str
     draft_model_path: Optional[str] = None
+    speculative_method: Optional[str] = None  # None / "eagle" / "prompt_lookup"
     num_draft_tokens: int = 4
     device: str = "cuda"
     dtype: str = "float16"
@@ -73,6 +78,25 @@ class EngineConfig:
     def __post_init__(self) -> None:
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
+        # 归一化投机方法：给了 draft_model_path 而未指定方法时默认 eagle，
+        # 保持旧调用方行为不变。
+        if self.speculative_method is None and self.draft_model_path is not None:
+            self.speculative_method = "eagle"
+        if self.speculative_method is not None:
+            if self.speculative_method not in ("eagle", "prompt_lookup"):
+                raise ValueError(
+                    "speculative_method must be one of: eagle, prompt_lookup"
+                )
+            if self.speculative_method == "eagle" and self.draft_model_path is None:
+                raise ValueError("speculative_method='eagle' requires draft_model_path")
+            if (
+                self.speculative_method == "prompt_lookup"
+                and self.draft_model_path is not None
+            ):
+                raise ValueError(
+                    "speculative_method='prompt_lookup' takes no draft model; "
+                    "leave draft_model_path unset"
+                )
         if self.pipeline_parallel_size < 1:
             raise ValueError("pipeline_parallel_size must be >= 1")
         if not 0 <= self.pipeline_parallel_stage < self.pipeline_parallel_size:

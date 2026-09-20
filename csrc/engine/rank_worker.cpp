@@ -3,6 +3,7 @@
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
 #include <spdlog/spdlog.h>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace infinilm::engine {
@@ -418,6 +419,10 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        // Batch size of the decode graph that produced logits
+                        // (0 = eager fallback). Used to match the captured
+                        // greedy-sampling graph below.
+                        size_t graph_batch_size = 0;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
@@ -425,6 +430,7 @@ void RankWorker::thread_loop() {
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                graph_batch_size = local_args.input_offsets.value()->size(0) - 1;
                             }
                         }
                         // Fall back to eager mode
@@ -482,28 +488,51 @@ void RankWorker::thread_loop() {
                             const size_t logits_positions = batch_size * total_len;
                             const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                            auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
 
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions && !logits_are_last_token_only) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                            infinicore::Tensor output_ids_dev;
+                            // Greedy decode batches that ran through a compiled
+                            // graph can replay the captured per-request argmax
+                            // kernels instead of launching ~3 kernels per
+                            // request here. top_k == 1 or temperature == 0 both
+                            // map to the op's argmax branch (no RNG consumed).
+                            std::shared_ptr<infinicore::graph::Graph> sampling_graph;
+                            infinicore::Tensor sampling_out;
+                            if (graph_batch_size == n_req && logits_are_last_token_only
+                                && (top_k == 1 || temperature == 0.0f)) {
+                                std::tie(sampling_graph, sampling_out) = compiler_->get_sampling_compiled(n_req);
+                            }
+                            if (sampling_graph != nullptr && sampling_out && sampling_out->size(0) == n_out) {
+                                static bool sampling_graph_logged = false;
+                                if (!sampling_graph_logged && std::getenv("INFINILM_DEBUG_SAMPLING") != nullptr) {
+                                    sampling_graph_logged = true;
+                                    spdlog::info("sampling graph replay engaged (batch={})", n_req);
                                 }
-                                auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                                sampling_graph->run();
+                                output_ids_dev = sampling_out;
+                            } else {
+                                output_ids_dev = infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device);
+
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    size_t score_idx = i;
+                                    if (!sample_all_positions && !logits_are_last_token_only) {
+                                        score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    }
+                                    auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                    auto out{output_ids_dev->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
+                                }
                             }
 
                             if (rank_info_.pp_size > 1) {
                                 infinicore::op::distributed::send(
-                                    output_ids,
+                                    output_ids_dev,
                                     0,
                                     rank_info_.world_comm);
                             }
 
-                            output_ids = output_ids->to(infinicore::Device::cpu());
+                            auto output_ids{output_ids_dev->to(infinicore::Device::cpu())};
 
                             infinicore::context::syncStream();
 

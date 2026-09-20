@@ -44,6 +44,28 @@ size_t max_length_from_offsets(
     return max_length;
 }
 
+// Max entry of a per-request length tensor. Lenient by design: anything that
+// is not already a one-dimensional CPU int32 tensor yields 0 (the decode
+// path must never pay a device sync just to fill a routing hint).
+size_t max_length_from_lengths(
+    const std::optional<infinicore::Tensor> &lengths) {
+    if (!lengths.has_value()) {
+        return 0;
+    }
+    const auto &t = lengths.value();
+    if (t->device().getType() != infinicore::Device::Type::CPU
+        || t->dtype() != infinicore::DataType::I32
+        || t->shape().size() != 1) {
+        return 0;
+    }
+    const auto *values = reinterpret_cast<const int32_t *>(t->data());
+    size_t max_length = 0;
+    for (size_t i = 0; i < t->shape()[0]; ++i) {
+        max_length = std::max(max_length, static_cast<size_t>(values[i]));
+    }
+    return max_length;
+}
+
 } // namespace
 
 //------------------------------------------------------
@@ -210,7 +232,10 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
                          && input_ids.value()->numel()
                                 != total_sequence_lengths.value()->numel();
     const size_t max_query_length = is_prefill ? max_length_from_offsets(input_offsets, "input_offsets") : 0;
-    const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : 0;
+    // Decode steps fill max_sequence_length too: the hybrid attention layer
+    // uses it to route long-context decode to FA's kvcache kernel. It is a
+    // host-side max over an already-CPU tensor, so this costs nothing.
+    const size_t max_sequence_length = is_prefill ? max_length_from_offsets(cu_seqlens, "cu_seqlens") : max_length_from_lengths(total_sequence_lengths);
 
     // MACA maps a registered user pointer to only one node. Serialize H2D
     // copies so TP ranks never access the same host registration concurrently.

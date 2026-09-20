@@ -12,6 +12,9 @@ public:
 
     Compiled get_compiled(const InfinilmModel::Input &input) override;
 
+    std::pair<std::shared_ptr<infinicore::graph::Graph>, infinicore::Tensor>
+    get_sampling_compiled(size_t batch_size) override;
+
 private:
     std::unique_ptr<StaticBatchingCompiler> static_batching_compiler_;
     std::unique_ptr<PagedCompiler> paged_compiler_;
