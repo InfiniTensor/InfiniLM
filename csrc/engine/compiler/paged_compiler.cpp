@@ -24,13 +24,16 @@ bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_conte
     return has_state(forward_context.conv_state_vec) || has_state(forward_context.ssm_state_vec);
 }
 
-class MambaStateGuard {
+class CacheStateGuard {
 public:
     void save(const infinicore::Tensor &state, size_t rows) {
         if (!state) {
             return;
         }
-        auto region = state->narrow({{0, 1, rows}});
+        save_region(state->narrow({{0, 1, rows}}));
+    }
+
+    void save_region(const infinicore::Tensor &region) {
         auto backup = infinicore::Tensor::empty(region->shape(), region->dtype(), region->device());
         backup->copy_from(region);
         saved_.emplace_back(region, backup);
@@ -46,7 +49,7 @@ public:
         }
     }
 
-    ~MambaStateGuard() {
+    ~CacheStateGuard() {
         try {
             restore();
         } catch (const std::exception &error) {
@@ -105,6 +108,7 @@ void PagedCompiler::compile() {
             throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
         }
 
+        infinicore::context::syncStream();
         compiled_map_decode_.clear();
         if (decode_batch_sizes_.empty()) {
             return;
@@ -123,12 +127,19 @@ void PagedCompiler::compile() {
         if (max_batch_size == 0) {
             return;
         }
-        MambaStateGuard state_guard;
+        CacheStateGuard state_guard;
         if (has_mamba_state) {
             for (const auto *states : {&forward_context.conv_state_vec, &forward_context.ssm_state_vec}) {
                 for (const auto &state : *states) {
                     state_guard.save(state, max_batch_size);
                 }
+            }
+        }
+        // Warmup and capture write into physical page zero. Preserve it so
+        // recapturing also remains safe while a request owns that page.
+        for (const auto &kv : forward_context.kv_cache_vec) {
+            if (kv) {
+                state_guard.save_region(kv->narrow({{1, 0, 1}}));
             }
         }
         block_tables_holder_ = infinicore::Tensor::empty(

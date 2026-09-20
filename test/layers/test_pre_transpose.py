@@ -32,7 +32,7 @@ def test_pre_transpose_and_reprocessing_preserve_logits(tmp_path):
         "tie_word_embeddings": True,
     }
     (tmp_path / "config.json").write_text(json.dumps(config))
-    results = []
+    results, decode_results = [], []
     for packed in (False, True):
         engine = InferEngine(
             str(tmp_path),
@@ -55,7 +55,7 @@ def test_pre_transpose_and_reprocessing_preserve_logits(tmp_path):
             weights[name] = values
         save_file(weights, tmp_path / "model.safetensors")
         load_model_state_dict_by_file(engine, str(tmp_path), dtype=engine.dtype)
-        for _ in range(2):
+        for recapture in (False, True):
             engine.process_weights_after_loading()
             output = engine.forward_raw(
                 infinicore.from_list([[17, 83, 51]], dtype=infinicore.int64),
@@ -73,6 +73,25 @@ def test_pre_transpose_and_reprocessing_preserve_logits(tmp_path):
             infinicore.sync_device()
             assert torch.isfinite(copied).all()
             results.append(copied)
+            if recapture:
+                # Recapture must preserve page zero of an ordinary model.
+                engine.process_weights_after_loading()
+            decoded = engine.forward_raw(
+                infinicore.from_list([[23]], dtype=infinicore.int64),
+                position_ids=infinicore.from_list([3], dtype=infinicore.int64),
+                past_kv_lengths=infinicore.from_list([3], dtype=infinicore.int32),
+                total_kv_lengths=infinicore.from_list([4], dtype=infinicore.int32),
+                input_offsets=infinicore.from_list([0, 1], dtype=infinicore.int32),
+                cu_seqlens=infinicore.from_list([0, 4], dtype=infinicore.int32),
+                block_tables=infinicore.from_list([[0]], dtype=infinicore.int32),
+                slot_mapping=infinicore.from_list([3], dtype=infinicore.int64),
+            )["logits"]
+            copied_decode = torch.empty(decoded.shape, dtype=torch.float16)
+            infinicore.from_torch(copied_decode).copy_(decoded)
+            infinicore.sync_device()
+            decode_results.append(copied_decode)
         del engine
     for actual in results[1:]:
         torch.testing.assert_close(actual, results[0], atol=1e-3, rtol=1e-3)
+    for actual in decode_results[1:]:
+        torch.testing.assert_close(actual, decode_results[0], atol=1e-3, rtol=1e-3)
