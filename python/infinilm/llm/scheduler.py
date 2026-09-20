@@ -44,11 +44,16 @@ class SchedulerOutput:
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
         speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
+        num_scheduled_tokens: Optional[List[int]] = None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
         self.speculative_cache_ops = speculative_cache_ops
+        # 与 scheduled_requests 逐请求对齐的本步调度 token 数：
+        # decode 请求为 1，prefill chunk 为本块长度。None 表示旧语义
+        # （由 is_prefill 区分整段 prefill 与单 token decode）。
+        self.num_scheduled_tokens = num_scheduled_tokens
         self.kv_connector_metadata = None
 
 
@@ -71,6 +76,7 @@ class Scheduler:
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
+        enable_chunked_prefill: bool = False,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -94,6 +100,7 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
+        self.enable_chunked_prefill = enable_chunked_prefill
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -128,6 +135,8 @@ class Scheduler:
 
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
+        if self.enable_chunked_prefill:
+            return self._schedule_chunked()
         deferred_requests = []
         scheduled_requests = []
         is_prefill = False
@@ -376,6 +385,287 @@ class Scheduler:
 
         return None
 
+    def _schedule_chunked(self) -> Optional[SchedulerOutput]:
+        """vLLM 式统一 token-budget 调度（chunked prefill + prefill/decode 混排）。
+
+        每个 step 先给 running 队列的每个请求排 1 个 decode token，再把剩余的
+        max_num_batched_tokens 预算切给 waiting 队列请求的 prefill chunk
+        （chunk = min(剩余 prompt, 剩余预算)），二者可混入同一批次。
+        多模态请求与远端 KV 加载请求不切分，保持整段 prefill 的旧行为。
+
+        批次级 is_prefill 退化为派生语义（本批次是否包含 prefill chunk），
+        逐请求的阶段与调度长度由 SchedulerOutput.num_scheduled_tokens 表达。
+
+        注意：prefill 首次调度时仍按整段 prompt 分配并预留全部 KV 块
+        （与旧行为一致的准入/预留粒度），仅 slot_mapping 按 chunk 切片；
+        这样中段 chunk 请求放回 waiting 队列期间，其后续块需求依旧被
+        can_accept_request 的预留记账覆盖，续跑时不会出现块不足。
+        """
+        deferred_requests = []
+        scheduled_requests = []
+        num_scheduled_tokens = []
+        is_prefill = False
+        current_num_batched_tokens = 0
+        current_prefill_extra_blocks = 0
+
+        # Process Running queue (decode phase): 每请求 1 个 token，优先占用预算
+        while (
+            len(scheduled_requests) < self.max_batch_size
+            and current_num_batched_tokens < self.max_num_batched_tokens
+        ):
+            try:
+                req = self.running_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+            # Skip requests that were already finished (e.g., timed out/canceled while running)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+
+            # Decode phase: allocate slot for newly generated token
+            req.block_table, new_slot = self.cache_manager.append_slot(
+                req.block_table, req.get_total_length()
+            )
+            req.slot_mapping = [new_slot]
+            req.num_blocks = len(req.block_table)
+            req.num_local_cached_tokens = req.get_total_length() - 1
+            scheduled_requests.append(req)
+            num_scheduled_tokens.append(1)
+            current_num_batched_tokens += 1
+
+        # Promote completed remote KV transfers (lower priority than running queue).
+        # Cleanup (is_finished, failed re-queue) runs unconditionally; batch append only if slots remain.
+        if self.connector is not None and self.remote_kv_requests:
+            for req_id in list(self.remote_kv_requests.keys()):
+                req = self.remote_kv_requests[req_id]
+                if req.is_finished():
+                    self.complete_requests([req])
+                    continue
+                if req_id in self.failed_receiving_kv_req_ids:
+                    logger.warning(
+                        f"Request {req_id[:8]}... failed receiving KV, re-queuing for prefill."
+                    )
+                    self.update_waiting_for_remote_kv(req)
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                elif req_id in self.finished_receiving_kv_req_ids:
+                    if len(scheduled_requests) < self.max_batch_size:
+                        logger.info(
+                            f"Request {req_id[:8]}... finished receiving KV, scheduling for decode."
+                        )
+                        self.update_waiting_for_remote_kv(req)
+                        req.status = RequestStatus.RUNNING
+                        scheduled_requests.append(req)
+                        num_scheduled_tokens.append(1)
+                        current_num_batched_tokens += 1
+                    else:
+                        break  # Defer promotion to next schedule() if batch is full
+
+        # Process Waiting queue (prefill phase): 剩余预算按 chunk 切分
+        while (
+            len(scheduled_requests) < self.max_batch_size
+            and current_num_batched_tokens < self.max_num_batched_tokens
+        ):
+            try:
+                req = self.waiting_queue.sync_q.get_nowait()
+            except queue.Empty:
+                break
+            # Skip requests that were already finished (e.g., timed out/canceled while waiting)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+
+            if req.num_computed_tokens == 0:
+                if self.has_mamba_cache:
+                    cached_block_table = []
+                    num_local_computed_tokens = 0
+                    load_kv_async = False
+                    num_external_computed_tokens = 0
+                else:
+                    if self.enable_prefix_caching:
+                        (
+                            cached_block_table,
+                            num_local_computed_tokens,
+                        ) = self.cache_manager.get_computed_blocks(
+                            req.block_hashes, req.get_prompt_length() - 1
+                        )
+                    else:
+                        cached_block_table = []
+                        num_local_computed_tokens = 0
+                    if self.connector is not None:
+                        ext_tokens, load_kv_async = (
+                            self.connector.get_num_new_matched_tokens(
+                                req, num_local_computed_tokens
+                            )
+                        )
+                        num_external_computed_tokens = ext_tokens
+                    else:
+                        load_kv_async = False
+                        num_external_computed_tokens = 0
+
+                available_cached_tokens = (
+                    num_local_computed_tokens + num_external_computed_tokens
+                )
+                num_computed_tokens = min(
+                    available_cached_tokens,
+                    max(req.get_prompt_length() - 1, 0),
+                )
+                # 整段分配（与旧行为一致的准入与块预留），仅计算量按 chunk 调度
+                num_new_tokens = req.get_prompt_length() - num_computed_tokens
+
+                # 多模态请求与远端 KV 加载请求不切分，保持整段 prefill
+                if load_kv_async or req.has_multimodal_inputs:
+                    num_tokens_this_step = num_new_tokens
+                else:
+                    num_tokens_this_step = min(
+                        num_new_tokens,
+                        self.max_num_batched_tokens - current_num_batched_tokens,
+                    )
+
+                # chunk 粒度的预算检查；单请求保底放行语义不变
+                if not load_kv_async and self._exceeds_token_budget(
+                    current_num_batched_tokens,
+                    num_tokens_this_step,
+                    len(scheduled_requests),
+                ):
+                    if num_local_computed_tokens > 0:
+                        self.cache_manager.free_blocks(cached_block_table)
+                    deferred_requests.append(req)
+                    break
+
+                if not self.can_accept_request(
+                    req,
+                    num_local_computed_tokens,
+                    current_prefill_extra_blocks,
+                ):
+                    logger.warning(
+                        "Insufficient KV cache blocks for request %s, deferring.",
+                        req.request_id,
+                    )
+
+                    if num_local_computed_tokens > 0:
+                        self.cache_manager.free_blocks(cached_block_table)
+                    deferred_requests.append(req)
+                    break
+
+                allocation = self.cache_manager.allocate_slots(
+                    num_new_tokens,
+                    num_computed_tokens=num_computed_tokens,
+                    cached_block_table=cached_block_table,
+                )
+
+                if allocation is None:
+                    logger.warning(
+                        "Failed to allocate KV cache blocks for request: %s",
+                        req.request_id,
+                    )
+                    if num_local_computed_tokens > 0:
+                        self.cache_manager.free_blocks(cached_block_table)
+                    deferred_requests.append(req)
+                    break
+                req_blocks, slot_mapping = allocation
+
+                if self.has_mamba_cache and req.mamba_cache_index is None:
+                    req.mamba_cache_index = self.mamba_cache_manager.allocate()
+                    if req.mamba_cache_index is None:
+                        self.cache_manager.free_blocks(req_blocks)
+                        logger.warning(
+                            "Insufficient mamba cache rows for request %s, deferring.",
+                            req.request_id,
+                        )
+                        deferred_requests.append(req)
+                        break
+
+                req.block_table = req_blocks
+                req.num_blocks = len(req_blocks)
+                if load_kv_async:
+                    req.slot_mapping = slot_mapping
+                else:
+                    # 只写入本 chunk 覆盖的槽位
+                    req.slot_mapping = slot_mapping[:num_tokens_this_step]
+                req.num_local_cached_tokens = (
+                    num_local_computed_tokens if load_kv_async else num_computed_tokens
+                )
+                req.num_cache_indexed_blocks = len(cached_block_table)
+                req.num_computed_tokens = num_computed_tokens
+
+                if self.connector is not None:
+                    self.connector.update_state_after_alloc(
+                        req,
+                        req.block_table,
+                        num_external_computed_tokens,
+                        self.block_size,
+                    )
+            else:
+                # 继续未算完的 prefill：块已在首次调度时整段分配，
+                # 直接切出本 chunk 覆盖的槽位
+                load_kv_async = False
+                num_tokens_this_step = req.get_prompt_length() - req.num_computed_tokens
+                if not req.has_multimodal_inputs:
+                    num_tokens_this_step = min(
+                        num_tokens_this_step,
+                        self.max_num_batched_tokens - current_num_batched_tokens,
+                    )
+                if self._exceeds_token_budget(
+                    current_num_batched_tokens,
+                    num_tokens_this_step,
+                    len(scheduled_requests),
+                ):
+                    deferred_requests.append(req)
+                    break
+                self.commit_computed_tokens(req, req.num_computed_tokens)
+                chunk_end = req.num_computed_tokens + num_tokens_this_step
+                req.slot_mapping = self.cache_manager.update_blocks_slot(
+                    req.block_table,
+                    req.num_computed_tokens,
+                    chunk_end,
+                )
+                req.num_local_cached_tokens = req.num_computed_tokens
+
+            if load_kv_async:
+                req.status = RequestStatus.WAITING_FOR_REMOTE_KVS
+                self.remote_kv_requests[req.request_id] = req
+                self.pending_kv_decode_blocks += (
+                    req.sampling_params.max_tokens + self.block_size - 1
+                ) // self.block_size
+                continue
+
+            current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
+            scheduled_requests.append(req)
+            num_scheduled_tokens.append(num_tokens_this_step)
+            current_num_batched_tokens += num_tokens_this_step
+            is_prefill = True
+
+            req.status = RequestStatus.RUNNING
+
+        if deferred_requests:
+            for req in deferred_requests:
+                self.waiting_queue.sync_q.put(req)
+
+        # Return mixed batch if any requests were scheduled
+        if scheduled_requests:
+            scheduler_output = SchedulerOutput(
+                scheduled_requests=scheduled_requests,
+                is_prefill=is_prefill,
+                speculative_cache_ops=self.speculative_cache_ops,
+                num_scheduled_tokens=num_scheduled_tokens,
+            )
+            if self.connector is not None:
+                meta = self.connector.build_connector_meta()
+                scheduler_output.kv_connector_metadata = meta
+            return scheduler_output
+
+        if self.connector is not None:
+            scheduler_output = SchedulerOutput(
+                scheduled_requests=[],
+                speculative_cache_ops=self.speculative_cache_ops,
+            )
+            meta = self.connector.build_connector_meta()
+            scheduler_output.kv_connector_metadata = meta
+            return scheduler_output
+
+        return None
+
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)
         self.pending_kv_decode_blocks -= (
@@ -446,6 +736,10 @@ class Scheduler:
                     logger.error(
                         f"Request {req.request_id[:8]}... timed out: {req.finish_reason}"
                     )
+            elif req.status == RequestStatus.WAITING:
+                # chunked prefill 的中段 chunk 请求：prompt 未算完，
+                # 放回 waiting 队列等待下一次 chunk 调度
+                self.waiting_queue.sync_q.put(req)
             else:
                 # Still running, put back in running queue
                 self.running_queue.sync_q.put(req)
