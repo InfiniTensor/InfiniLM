@@ -5,7 +5,8 @@
 namespace infinilm::layers::mlp {
 
 MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-         const infinicore::Device &device) {
+         const infinicore::Device &device,
+         const std::string &prefix) {
 
     const auto &dtype{model_config->get_dtype()};
     hidden_size_ = model_config->get<size_t>("hidden_size");
@@ -20,10 +21,11 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
     gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(
         hidden_size_, intermediate_size_, "gate_proj", "up_proj", register_fn,
-        quantization_method, use_bias_, dtype, device, rank_info);
+        quantization_method, use_bias_, dtype, device, rank_info, prefix);
     down_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "down_proj", intermediate_size_, hidden_size_, quantization_method,
-        use_bias_, dtype, device, tp_rank, tp_size, rank_info.comm);
+        use_bias_, dtype, device, tp_rank, tp_size, rank_info.comm,
+        prefix.empty() ? std::string() : prefix + ".down_proj.");
 }
 
 infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {

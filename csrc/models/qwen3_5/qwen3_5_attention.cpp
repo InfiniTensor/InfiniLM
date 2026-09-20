@@ -9,6 +9,7 @@
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
@@ -44,13 +45,18 @@ Qwen35Attention::Qwen35Attention(std::shared_ptr<infinilm::config::ModelConfig> 
 
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
+    // Checkpoint path for this layer after removing
+    // `quantization_config.key_prefix`. It is used only by quantization
+    // schemes, such as GGUF, that resolve types by tensor name.
+    const std::string prefix = "layers." + std::to_string(layer_idx_) + ".self_attn";
     qkv_proj_ = std::make_shared<Qwen35FusedQKVLinear>(
         hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
         "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, device, rank_info);
+        quantization_method, use_bias, dtype, device, rank_info, prefix);
     o_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "o_proj", total_num_heads * head_dim_, hidden_size_, quantization_method,
-        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
+        use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm,
+        prefix + ".o_proj.");
 
     const auto &rope_params = model_config->get_config_json()["rope_parameters"];
     const double partial_rotary_factor = rope_params["partial_rotary_factor"].get<double>();
@@ -149,7 +155,9 @@ infinicore::Tensor Qwen35Attention::forward_paged_(const infinicore::Tensor &pos
     std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));
+    attn_output = infinicore::op::mul(
+        attn_output,
+        infinicore::op::sigmoid(gate)->view(attn_output->shape()));
     return o_proj_->forward(attn_output);
 }
 } // namespace infinilm::models::qwen3_5

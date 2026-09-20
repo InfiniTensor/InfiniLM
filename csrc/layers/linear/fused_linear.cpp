@@ -20,7 +20,7 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                         num_q_head, num_kv_head, num_kv_head,
                         bias, bias, bias,
                         quantization,
-                        dtype, device, rank_info) {}
+                        dtype, device, rank_info, "") {}
 
 QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      size_t q_dim, size_t k_dim, size_t v_dim,
@@ -29,16 +29,19 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                      const infinicore::DataType &dtype,
                                      const infinicore::Device &device,
-                                     engine::distributed::RankInfo rank_info)
+                                     engine::distributed::RankInfo rank_info,
+                                     const std::string &stem)
     : infinilm::nn::ColumnParallelLinear(
-        hidden_size,
-        calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        (q_bias || k_bias || v_bias),
-        dtype,
-        device,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          hidden_size,
+          calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          (q_bias || k_bias || v_bias),
+          dtype,
+          device,
+          rank_info.tp_rank,
+          rank_info.tp_size,
+          -1,
+          stem),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -83,8 +86,9 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      bool bias,
                                      const infinicore::DataType &dtype,
                                      const infinicore::Device &device,
-                                     engine::distributed::RankInfo rank_info)
-    : QKVParallelLinear(hidden_size, head_dim, head_dim, head_dim, num_q_head, num_kv_head, num_kv_head, bias, bias, bias, q_name, k_name, v_name, register_fn, quantization, dtype, device, rank_info) {
+                                     engine::distributed::RankInfo rank_info,
+                                     const std::string &prefix)
+    : QKVParallelLinear(hidden_size, head_dim, head_dim, head_dim, num_q_head, num_kv_head, num_kv_head, bias, bias, bias, q_name, k_name, v_name, register_fn, quantization, dtype, device, rank_info, prefix) {
 }
 
 QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
@@ -96,15 +100,41 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                      const infinicore::DataType &dtype,
                                      const infinicore::Device &device,
-                                     engine::distributed::RankInfo rank_info)
-    : QKVParallelLinear(hidden_size, q_dim, k_dim, v_dim, num_q_head, num_k_head, num_v_head, q_bias, k_bias, v_bias, quantization, dtype, device, rank_info) {
+                                     engine::distributed::RankInfo rank_info,
+                                     const std::string &prefix)
+    : QKVParallelLinear(hidden_size, q_dim, k_dim, v_dim, num_q_head, num_k_head, num_v_head, q_bias, k_bias, v_bias, quantization, dtype, device, rank_info, prefix) {
     register_fn_ = register_fn;
-    split_infos_ = {
-        {q_name, 0, q_out_size_, 0},
-        {k_name, q_out_size_, k_out_size_, num_k_head_},
-        {v_name, q_out_size_ + k_out_size_, v_out_size_, num_v_head_},
-    };
-    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
+    if (this->sharded_) {
+        // GGUF Q, K, and V shards may use different GGML types, so there is
+        // no fused buffer to narrow. Each shard owns a separate buffer and
+        // its stem identifies the corresponding checkpoint tensor.
+        if (prefix.empty()) {
+            throw std::runtime_error(
+                "QKVParallelLinear requires `prefix` when the quantization "
+                "scheme resolves layouts by checkpoint tensor name.");
+        }
+        shard_specs_ = {
+            {q_name, q_out_size_, prefix + "." + q_name + "."},
+            {k_name, k_out_size_, prefix + "." + k_name + "."},
+            {v_name, v_out_size_, prefix + "." + v_name + "."},
+        };
+    } else {
+        split_infos_ = {
+            {q_name, 0, q_out_size_, 0},
+            {k_name, q_out_size_, k_out_size_, num_k_head_},
+            {v_name, q_out_size_ + k_out_size_, v_out_size_, num_v_head_},
+        };
+    }
+    register_fused_params();
+}
+
+void QKVParallelLinear::register_fused_params() {
+    if (!register_fn_) {
+        return;
+    }
+    auto params = this->sharded_
+                    ? this->init_fused_shards(shard_specs_)
+                    : this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
     for (auto &sp : params) {
         register_fn_(sp.full_name, std::move(sp.param));
     }
@@ -112,11 +142,11 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 
 void QKVParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
+    // `split_infos_` is empty for sharded quantization layouts because the
+    // shard parameters are the load targets. Reallocation would discard the
+    // bytes that were already loaded.
     if (register_fn_ && !split_infos_.empty()) {
-        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
-        for (auto &sp : params) {
-            register_fn_(sp.full_name, std::move(sp.param));
-        }
+        register_fused_params();
     }
 }
 
@@ -125,23 +155,27 @@ void QKVParallelLinear::process_weights_after_loading() {
 // ---------------------------------------------------------
 GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization, bool bias,
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
-                                           engine::distributed::RankInfo rank_info)
-    : GateUpParallelLinear(hidden_size, intermediate_size, bias, bias, quantization, dtype, device, rank_info) {
+                                           engine::distributed::RankInfo rank_info,
+                                           const std::string &stem)
+    : GateUpParallelLinear(hidden_size, intermediate_size, bias, bias, quantization, dtype, device, rank_info, stem) {
 }
 
 GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
                                            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
-                                           engine::distributed::RankInfo rank_info)
+                                           engine::distributed::RankInfo rank_info,
+                                           const std::string &stem)
     : infinilm::nn::ColumnParallelLinear(
-        hidden_size,
-        intermediate_size * 2,
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        gate_bias || up_bias,
-        dtype,
-        device,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          hidden_size,
+          intermediate_size * 2,
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          gate_bias || up_bias,
+          dtype,
+          device,
+          rank_info.tp_rank,
+          rank_info.tp_size,
+          -1,
+          stem),
       gate_bias_(gate_bias),
       up_bias_(up_bias) {
     if (gate_bias_ != up_bias_) {
@@ -166,19 +200,45 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
                                            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                            bool bias,
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
-                                           engine::distributed::RankInfo rank_info)
-    : GateUpParallelLinear(hidden_size, intermediate_size, quantization, bias, dtype, device, rank_info) {
-    const std::string &key_name = parameters_.count("qweight") ? "qweight" : "weight";
-    const auto &key_param = get_parameter_ref(key_name);
-    int fused_dim = this->get_quantization()->get_fused_split_dim();
-    size_t logical_output = this->get_quantization()->get_logical_dim_size(key_param->size(fused_dim));
-    size_t half_size = logical_output / 2;
+                                           engine::distributed::RankInfo rank_info,
+                                           const std::string &prefix)
+    : GateUpParallelLinear(hidden_size, intermediate_size, quantization, bias, dtype, device, rank_info, prefix) {
     register_fn_ = register_fn;
-    split_infos_ = {
-        {gate_name, 0, half_size},
-        {up_name, half_size, half_size},
-    };
-    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
+    if (this->sharded_) {
+        // GGUF gate and up shards may use different types and row sizes, so
+        // they cannot share a fused buffer. Each shard owns its buffer and
+        // independently resolves whether it is quantized or dense.
+        if (prefix.empty()) {
+            throw std::runtime_error(
+                "GateUpParallelLinear requires `prefix` when the "
+                "quantization scheme resolves layouts by checkpoint tensor name.");
+        }
+        const size_t half = intermediate_size / tp_size_;
+        shard_specs_ = {
+            {gate_name, half, prefix + "." + gate_name + "."},
+            {up_name, half, prefix + "." + up_name + "."},
+        };
+    } else {
+        const std::string &key_name = parameters_.count("qweight") ? "qweight" : "weight";
+        const auto &key_param = get_parameter_ref(key_name);
+        int fused_dim = this->get_quantization()->get_fused_split_dim();
+        size_t logical_output = this->get_quantization()->get_logical_dim_size(key_param->size(fused_dim));
+        size_t half_size = logical_output / 2;
+        split_infos_ = {
+            {gate_name, 0, half_size},
+            {up_name, half_size, half_size},
+        };
+    }
+    register_fused_params();
+}
+
+void GateUpParallelLinear::register_fused_params() {
+    if (!register_fn_) {
+        return;
+    }
+    auto params = this->sharded_
+                    ? this->init_fused_shards(shard_specs_)
+                    : this->split_params(split_infos_, tp_rank_, tp_size_, -1);
     for (auto &sp : params) {
         register_fn_(sp.full_name, std::move(sp.param));
     }
@@ -186,11 +246,10 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 
 void GateUpParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
+    // As in `QKVParallelLinear`, sharded layouts have no `split_infos_` and
+    // must not repeat the split allocation.
     if (register_fn_ && !split_infos_.empty()) {
-        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
-        for (auto &sp : params) {
-            register_fn_(sp.full_name, std::move(sp.param));
-        }
+        register_fused_params();
     }
 }
 

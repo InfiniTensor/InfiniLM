@@ -11,6 +11,7 @@
 
 #include <any>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <random>
 #include <string>
@@ -72,6 +73,9 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+
+        /// Token IDs excluded from sampling for each request in the batch.
+        std::vector<std::vector<int64_t>> suppressed_token_ids{};
 
         float temperature{1};
 

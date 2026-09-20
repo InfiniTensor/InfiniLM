@@ -67,6 +67,12 @@ class LLMEngine:
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
+            if has_mamba_cache:
+                model_type = hf_config["model_type"]
+                raise RuntimeError(
+                    "Static KV cache is not supported for Mamba-cache model "
+                    f"{model_type!r} yet. Use --cache-type paged instead."
+                )
             self.scheduler = StaticScheduler(
                 max_cache_len=config.max_cache_len,
                 enable_prefix_caching=config.enable_prefix_caching,

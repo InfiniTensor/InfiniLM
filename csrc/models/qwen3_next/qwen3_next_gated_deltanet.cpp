@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_next {
@@ -125,12 +126,15 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     size_t projection_size_qkv = local_key_dim_ * 2 + local_value_dim_;
     auto quantization_method = model_config->get_quantization_method();
     auto register_fn = [this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); };
+    // Checkpoint path for this module. This is used only by quantization
+    // schemes, such as GGUF, that resolve layouts by tensor name.
+    const std::string prefix = "layers." + std::to_string(layer_idx_) + ".linear_attn";
     in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
         hidden_size, linear_key_head_dim, linear_key_head_dim, linear_value_head_dim, linear_num_key_heads, linear_num_key_heads, linear_num_value_heads,
         false, false, false,
         "in_proj_q", "in_proj_k", "in_proj_v", register_fn,
-        quantization_method, dtype, device, rank_info);
-    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, false, dtype, device, tp_rank, tp_size);
+        quantization_method, dtype, device, rank_info, prefix);
+    in_proj_z_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_z", hidden_size, value_dim, quantization_method, false, dtype, device, tp_rank, tp_size, -1, prefix + ".in_proj_z.");
     in_proj_a_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_a", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
     in_proj_b_ = this->register_module<infinilm::layers::linear::ColumnParallelLinear>("in_proj_b", hidden_size, linear_num_value_heads, false, dtype, device, tp_rank, tp_size);
 
@@ -140,7 +144,8 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config:
     INFINICORE_NN_MODULE_INIT(norm, linear_value_head_dim, rms_norm_eps, dtype, device);
     out_proj_ = this->register_module<layers::linear::RowParallelLinear>(
         "out_proj", value_dim, hidden_size, quantization_method,
-        false, dtype, device, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
+        false, dtype, device, rank_info.tp_rank, rank_info.tp_size, rank_info.comm,
+        prefix + ".out_proj.");
 }
 
 infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hidden_states) const {
@@ -242,7 +247,8 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
         {batch_size, seq_len, local_value_dim_},
         {static_cast<infinicore::Stride>(seq_len * local_value_dim_), static_cast<infinicore::Stride>(local_value_dim_), 1});
     auto gated = infinicore::op::mul(v_norm, infinicore::op::silu(z));
-    return out_proj_->forward(gated);
+    auto output = out_proj_->forward(gated);
+    return output;
 }
 
 } // namespace infinilm::models::qwen3_next

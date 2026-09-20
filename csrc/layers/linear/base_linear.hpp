@@ -18,7 +18,8 @@ public:
                const infinicore::DataType &dtype = infinicore::DataType::F32,
                const infinicore::Device &device = infinicore::Device(),
                int split_dim = -1, int tp_rank = 0, int tp_size = 1,
-               int tp_num_heads = -1);
+               int tp_num_heads = -1,
+               const std::string &stem = "");
 
     // Forward pass: output = input @ weight.T + bias
     infinicore::Tensor forward(infinicore::Tensor &input) const;
@@ -53,6 +54,23 @@ public:
         const std::vector<infinilm::quantization::SplitInfo> &splits,
         int tp_rank, int tp_size, int tp_num_heads) const;
 
+    // One shard of a fused linear, for schemes that cannot share a single fused
+    // buffer (GGUF block quantization: row_bytes differs per shard type).
+    struct FusedShard {
+        std::string name;    // Name used when registering with the parent module.
+        size_t out_features; // Logical output rows for this shard.
+        std::string stem;    // Checkpoint stem used for quantization lookup.
+    };
+
+    // Allocate one buffer per fused Linear shard. Local parameter keys use
+    // "shard<i>.<suffix>", while returned names use "<name>.<suffix>" for
+    // registration with the parent module. This path is selected when the
+    // quantization scheme returns an empty layout for the fused group.
+    // shard_stems_ preserves each checkpoint stem for per-shard lookup during
+    // forward execution.
+    std::vector<infinilm::quantization::SplitParam> init_fused_shards(
+        const std::vector<FusedShard> &shards);
+
     // Allow subclasses to access the raw parameters map
     const infinicore::nn::Parameter &get_parameter_ref(const std::string &name) const;
 
@@ -67,6 +85,12 @@ protected:
     infinicore::DataType dtype_;
     int split_dim_ = -1;
     float alpha_ = 1.0f;
+    std::string stem_; // Checkpoint tensor path used by name-based quantization lookup.
+    // Per-shard checkpoint stems recorded by init_fused_shards. The index
+    // matches the i in the corresponding "shard<i>.*" parameter key.
+    // This vector is empty for non-fused Linear layers.
+    std::vector<std::string> shard_stems_;
+    bool sharded_ = false; // Fused layout whose parameters live in shard<i>.* buffers.
     std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_;
 };
 

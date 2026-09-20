@@ -24,9 +24,13 @@ public:
      *
      * @param model_config: Model configuration.
      * @param device Device to create tensors on
+     * @param prefix Checkpoint path for this layer, such as
+     *        `layers.0.mlp`. It is used only by quantization schemes, such as
+     *        GGUF, that resolve layouts by tensor name.
      */
     MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const infinicore::Device &device);
+        const infinicore::Device &device,
+        const std::string &prefix = "");
 
     /**
      * @brief Forward pass: compute MLP output

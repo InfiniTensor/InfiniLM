@@ -21,7 +21,8 @@ public:
            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
            bool bias = true,
            const infinicore::DataType &dtype = infinicore::DataType::F32,
-           const infinicore::Device &device = infinicore::Device());
+           const infinicore::Device &device = infinicore::Device(),
+           const std::string &stem = "");
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
     std::string extra_repr() const;
@@ -42,7 +43,8 @@ public:
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
                          infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
-                         int tp_num_heads = -1);
+                         int tp_num_heads = -1,
+                         const std::string &stem = "");
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
     std::string extra_repr() const;
@@ -67,7 +69,8 @@ public:
                       const infinicore::DataType &dtype = infinicore::DataType::F32,
                       const infinicore::Device &device = infinicore::Device(),
                       infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
-                      infinicclComm_t communicator = nullptr);
+                      infinicclComm_t communicator = nullptr,
+                      const std::string &stem = "");
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
     std::string extra_repr() const;

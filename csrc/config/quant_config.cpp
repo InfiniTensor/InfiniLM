@@ -20,6 +20,12 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
         return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
+    } else if (quant_method == "fp8") {
+        return std::make_shared<infinilm::quantization::FP8Quantization>(quantization_config);
+    } else if (quant_method == "gguf") {
+        // Route B keeps the original GGUF block bytes on the device and
+        // delegates decoding and multiplication to InfiniCore.
+        return std::make_shared<infinilm::quantization::GGUFBlockQuantization>(quantization_config);
     } else if (quant_method == "quark") {
         return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
     } else {
