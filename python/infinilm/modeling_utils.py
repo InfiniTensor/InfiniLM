@@ -11,6 +11,29 @@ import torch
 from safetensors import safe_open
 from tqdm import tqdm
 
+from infinilm.draft_spec import (
+    get_draft_weight_remapper,
+    get_embedded_draft_target_remapper,
+)
+
+
+def get_weight_remapper(model_type: str):
+    """Load-time weight mapper for a model type.
+
+    A registered table entry always wins. When the table has none, the draft
+    registry answers: a draft model type derives its mapper from its structural
+    description, and a target model type whose checkpoint embeds a described
+    draft head derives the mapper that drops that head, so neither needs an
+    entry in this module's table.
+    """
+    remapper = _WEIGHT_REMAPPER.get(model_type)
+    if remapper is not None:
+        return remapper
+    remapper = get_draft_weight_remapper(model_type)
+    if remapper is not None:
+        return remapper
+    return get_embedded_draft_target_remapper(model_type)
+
 
 def _get_scale_emb(model_path: str) -> float:
     config_path = os.path.join(model_path, "config.json")
@@ -217,7 +240,7 @@ def load_model_state_dict_by_file(
     embed_tokens_torch_unscaled = None
     weights_processed = False
 
-    remapper = _WEIGHT_REMAPPER.get(model_type)
+    remapper = get_weight_remapper(model_type)
 
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
     if os.path.exists(index_file_path):
@@ -298,7 +321,7 @@ def load_model_state_dict_by_file(
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
 
         # Apply model-specific weight remapping
-        remapper = _WEIGHT_REMAPPER.get(model_type)
+        remapper = get_weight_remapper(model_type)
         if remapper is not None:
             model_params = remapper(model_params, config=model.hf_config)
 
@@ -800,6 +823,26 @@ def _remap_qwen3_5(state_dict, config):
     return state_dict
 
 
+def _remap_qwen3_5_mtp(state_dict, config):
+    """Extract the embedded Qwen3.5 MTP draft weights for the draft model.
+
+    The Qwen3.5 MTP key layout is one instance of the structural draft
+    descriptions in `infinilm.draft_spec`; this entry keeps the historical name
+    of the model-type registration.
+    """
+    return get_draft_weight_remapper("qwen3_5_mtp")(state_dict, config)
+
+
+def _remap_mimo(state_dict, config=None):
+    """Drop the draft head a MiMo checkpoint embeds next to its target weights.
+
+    MiMo publishes its MTP tensors under ``model.mtp_layers.<depth>.``; the
+    target model loads the whole checkpoint, so those tensors are removed here.
+    The draft engine extracts them through the family description instead.
+    """
+    return drop_keys(state_dict, ["model.mtp_layers."])
+
+
 def _remap_ernie4_5_moe_vl(state_dict, config=None):
     """Apply ERNIE 4.5 VL load-time weight fixes.
 
@@ -1079,8 +1122,10 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
+    "qwen3_5_mtp": _remap_qwen3_5_mtp,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "mimo": _remap_mimo,
 }

@@ -16,6 +16,22 @@
 
 namespace infinilm::models::qwen3_next {
 
+namespace {
+
+/// Whether the batch advances one token per request. Callers that know the batch
+/// shape state it explicitly; otherwise the packed layout is used, where one
+/// token per request is the only shape with as many requests as tokens.
+bool is_single_token_per_request(const infinicore::Tensor &input_offsets,
+                                 const std::optional<bool> &multi_token_batch,
+                                 size_t seq_len) {
+    if (multi_token_batch.has_value()) {
+        return !multi_token_batch.value();
+    }
+    return input_offsets->shape()[0] - 1 == seq_len;
+}
+
+} // namespace
+
 Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                              size_t layer_idx,
                                              const infinicore::Device &device) {
@@ -163,7 +179,7 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     auto q = conv_qkv->narrow({{2, 0, local_key_dim_}});
     auto k = conv_qkv->narrow({{2, local_key_dim_, local_key_dim_}});
     auto v = conv_qkv->narrow({{2, local_key_dim_ * 2, local_value_dim_}});
-    bool is_decode = mamba_metadata.input_offsets.value()->shape()[0] - 1 == seq_len;
+    bool is_decode = is_single_token_per_request(mamba_metadata.input_offsets.value(), mamba_metadata.multi_token_batch, seq_len);
     infinicore::Tensor delta_out;
     if (is_decode) {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];

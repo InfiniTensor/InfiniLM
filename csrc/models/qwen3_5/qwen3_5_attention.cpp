@@ -121,7 +121,7 @@ infinicore::Tensor Qwen35Attention::forward_static_(const infinicore::Tensor &po
     auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
-    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate));
+    attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));
     return o_proj_->forward(attn_output);
 }
 

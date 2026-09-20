@@ -671,6 +671,7 @@ class TestModel:
                     draft_model_path=self.draft_model_path,
                     num_draft_tokens=self.num_draft_tokens,
                     device=self.device_str,
+                    dtype=cfg.dtype,
                     tensor_parallel_size=self.tp,
                     cache_type="paged" if self.cache_config is not None else "static",
                     max_batch_size=batch_size,

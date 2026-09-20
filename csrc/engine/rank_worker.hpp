@@ -72,6 +72,9 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+        /// Whether the batch holds more than one token per request for every
+        /// request (the packed multi-token shape) instead of exactly one.
+        bool mamba_multi_token_batch{false};
 
         float temperature{1};
 
