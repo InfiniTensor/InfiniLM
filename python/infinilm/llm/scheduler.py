@@ -69,6 +69,7 @@ class Scheduler:
         max_num_batched_tokens: int = 1024,
         connector=None,
         has_mamba_cache: bool = False,
+        cacheless_state_model: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
     ):
@@ -84,6 +85,7 @@ class Scheduler:
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.has_mamba_cache = has_mamba_cache
+        self.cacheless_state_model = cacheless_state_model
         self.mamba_cache_manager = (
             MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
             if has_mamba_cache
@@ -199,37 +201,44 @@ class Scheduler:
                         deferred_requests.append(req)
                         break
 
-                if not self.can_accept_request(
-                    req,
-                    num_local_computed_tokens,
-                    current_prefill_extra_blocks,
-                ):
-                    logger.warning(
-                        "Insufficient KV cache blocks for request %s, deferring.",
-                        req.request_id,
+                # Pure recurrent models (Mamba2/RWKV5) do not have attention
+                # keys and values. Their state rows are managed separately;
+                # the normal BlockManager path remains unchanged for
+                # Transformer and hybrid attention models.
+                if self.cacheless_state_model:
+                    req_blocks, slot_mapping = [], []
+                else:
+                    if not self.can_accept_request(
+                        req,
+                        num_local_computed_tokens,
+                        current_prefill_extra_blocks,
+                    ):
+                        logger.warning(
+                            "Insufficient KV cache blocks for request %s, deferring.",
+                            req.request_id,
+                        )
+
+                        if num_local_computed_tokens > 0:
+                            self.cache_manager.free_blocks(cached_block_table)
+                        deferred_requests.append(req)
+                        break
+
+                    allocation = self.cache_manager.allocate_slots(
+                        num_new_tokens,
+                        num_computed_tokens=num_computed_tokens,
+                        cached_block_table=cached_block_table,
                     )
 
-                    if num_local_computed_tokens > 0:
-                        self.cache_manager.free_blocks(cached_block_table)
-                    deferred_requests.append(req)
-                    break
-
-                allocation = self.cache_manager.allocate_slots(
-                    num_new_tokens,
-                    num_computed_tokens=num_computed_tokens,
-                    cached_block_table=cached_block_table,
-                )
-
-                if allocation is None:
-                    logger.warning(
-                        "Failed to allocate KV cache blocks for request: %s",
-                        req.request_id,
-                    )
-                    if num_local_computed_tokens > 0:
-                        self.cache_manager.free_blocks(cached_block_table)
-                    deferred_requests.append(req)
-                    break
-                req_blocks, slot_mapping = allocation
+                    if allocation is None:
+                        logger.warning(
+                            "Failed to allocate KV cache blocks for request: %s",
+                            req.request_id,
+                        )
+                        if num_local_computed_tokens > 0:
+                            self.cache_manager.free_blocks(cached_block_table)
+                        deferred_requests.append(req)
+                        break
+                    req_blocks, slot_mapping = allocation
 
                 if self.has_mamba_cache and req.mamba_cache_index is None:
                     req.mamba_cache_index = self.mamba_cache_manager.allocate()
@@ -317,11 +326,18 @@ class Scheduler:
                 continue
 
             # Decode phase: allocate slot for newly generated token
-            req.block_table, new_slot = self.cache_manager.append_slot(
-                req.block_table, req.get_total_length()
-            )
-            req.slot_mapping = [new_slot]
-            req.num_blocks = len(req.block_table)
+            # This is an architecture property, not a change to KV admission
+            # or the BlockManager reservation policy.
+            if self.cacheless_state_model:
+                req.block_table = []
+                req.slot_mapping = []
+                req.num_blocks = 0
+            else:
+                req.block_table, new_slot = self.cache_manager.append_slot(
+                    req.block_table, req.get_total_length()
+                )
+                req.slot_mapping = [new_slot]
+                req.num_blocks = len(req.block_table)
             req.num_local_cached_tokens = req.get_total_length() - 1
             scheduled_requests.append(req)
 

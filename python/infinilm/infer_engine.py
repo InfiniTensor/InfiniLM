@@ -57,6 +57,10 @@ def model_uses_mamba_cache(config: dict) -> bool:
     return (
         config.get("model_type") == "mamba"
         or llm_config.get("model_type") == "mamba"
+        or config.get("model_type") == "mamba2"
+        or llm_config.get("model_type") == "mamba2"
+        or config.get("model_type") == "rwkv5"
+        or llm_config.get("model_type") == "rwkv5"
         or "linear_attention" in layer_types
         or all(
             key in llm_config
@@ -242,11 +246,11 @@ class InferEngine(_infinilm.InferEngine):
         # InternLM3's config.json has eos_token_id=2, while
         # generation_config.json has eos_token_id=[2, 128131].
         # Following this priority ensures we always get the authoritative value.
-        eos_token_id = (
-            self.hf_generation_config.get("eos_token_id")
-            or self.hf_config.get("eos_token_id")
-            or []
-        )
+        eos_token_id = self.hf_generation_config.get("eos_token_id")
+        if eos_token_id is None:
+            eos_token_id = self.hf_config.get("eos_token_id")
+        if eos_token_id is None:
+            eos_token_id = []
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
         return eos_token_id
@@ -452,6 +456,8 @@ class InferEngine(_infinilm.InferEngine):
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
+        mamba_init_state_indices=None,
+        mamba_final_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -474,6 +480,8 @@ class InferEngine(_infinilm.InferEngine):
                     cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
+                    mamba_init_state_indices=mamba_init_state_indices,
+                    mamba_final_state_indices=mamba_final_state_indices,
                     pixel_values=pixel_values,
                     image_bound=image_bound,
                     tgt_sizes=tgt_sizes,
@@ -542,10 +550,10 @@ class InferEngine(_infinilm.InferEngine):
         max_blocks_per_batch = 0
         mamba_state_indices = None
         if self.has_mamba_cache and not self.enable_paged_attn:
-            if self.model_type != "mamba":
-                raise RuntimeError(
-                    "Low-level generate for mamba-cache models currently requires paged attention"
-                )
+                if self.model_type not in {"mamba", "mamba2", "rwkv5"}:
+                    raise RuntimeError(
+                        "Low-level generate for mamba-cache models currently requires paged attention"
+                    )
         elif self.has_mamba_cache:
             mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
             if batch_size > mamba_pool_size - 1:

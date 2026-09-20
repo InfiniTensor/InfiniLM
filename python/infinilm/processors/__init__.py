@@ -40,7 +40,7 @@ class AutoInfinilmProcessor:
                 raw_config = json.load(f)
 
         raw_model_type = str(raw_config.get("model_type", "")).lower()
-        if raw_model_type in {"qwen3_5", "qwen3_5_moe"}:
+        if raw_model_type in {"qwen3_5", "qwen3_5_moe", "mamba2", "rwkv5"}:
             model_type = raw_model_type
         else:
             config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)

@@ -1,5 +1,3 @@
-add_requires("pybind11")
-
 set_toolchains("gcc")
 
 option("cxx11-abi")
@@ -20,13 +18,16 @@ end
 -- Add spdlog from third_party directory
 add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
+add_includedirs("/usr/include/python3.12")
 
 target("_infinilm")
-    add_packages("pybind11")
     set_default(false)
-    add_rules("python.module", {soabi = true})
+    -- The python.module rule is not shipped by the minimal xmake package used
+    -- on the NVIDIA benchmark host. A shared library is importable by Python
+    -- on Linux and keeps the build self-contained.
     set_languages("cxx17")
     set_kind("shared")
+    set_prefixname("")
 
     local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 
@@ -36,7 +37,8 @@ target("_infinilm")
     -- spdlog is already included globally via add_includedirs at the top
 
     add_linkdirs(INFINI_ROOT.."/lib")
-    add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl")
+    add_links("infinicore_cpp_api", "infiniop", "infinirt", "infiniccl", "fmt")
+    add_shflags("-Wl,--no-as-needed", "-lfmt", "-Wl,--as-needed", { force = true })
 
     -- Add C++ sources
     add_files("csrc/**.cpp")
