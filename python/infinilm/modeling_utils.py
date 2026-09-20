@@ -741,6 +741,109 @@ def _remap_mamba(state_dict, config=None):
     return remapped
 
 
+def _remap_mamba2(state_dict, config=None):
+    """Remap HuggingFace Mamba2 weights to the flattened scan layout."""
+    config = config or {}
+    intermediate = int(config.get("intermediate_size", config.get("d_inner", 0)))
+    num_heads = int(config.get("num_heads", config.get("nheads", 0)))
+    head_dim = int(config.get("head_dim", 0))
+    if intermediate == 0 and num_heads and head_dim:
+        intermediate = num_heads * head_dim
+    if num_heads == 0 and intermediate and head_dim:
+        num_heads = intermediate // head_dim
+    if head_dim == 0 and intermediate and num_heads:
+        head_dim = intermediate // num_heads
+    if not intermediate or not num_heads or not head_dim:
+        raise ValueError("Mamba2 config must define intermediate_size, num_heads and head_dim")
+
+    remapped = {}
+    for key, tensor in state_dict.items():
+        new_key = key.replace(".mixer.conv1d.weight", ".mixer.conv1d_weight")
+        new_key = new_key.replace(".mixer.conv1d.bias", ".mixer.conv1d_bias")
+        if new_key.startswith("backbone."):
+            new_key = "model." + new_key.removeprefix("backbone.")
+        if new_key.endswith((".mixer.A_log", ".mixer.D", ".mixer.dt_bias")):
+            values = tensor.reshape(-1)
+            if values.numel() == num_heads:
+                values = values.repeat_interleave(head_dim)
+            if values.numel() != intermediate:
+                raise ValueError(
+                    f"Mamba2 parameter {key} has {values.numel()} values; "
+                    f"expected {num_heads} or {intermediate}"
+                )
+            tensor = values.contiguous()
+        remapped[new_key] = tensor
+
+    if "lm_head.weight" not in remapped and "model.embedding.weight" in remapped:
+        remapped["lm_head.weight"] = remapped["model.embedding.weight"]
+    return remapped
+
+
+def _remap_rwkv5(state_dict, config=None):
+    """Remap native RWKV-5 checkpoints to the InfiniLM module layout."""
+    import torch
+
+    config = config or {}
+    num_heads = int(config["num_attention_heads"])
+    head_dim = int(config["head_dim"])
+    remapped = {}
+
+    def reshape_time_parameter(tensor, name, exponentiate=False):
+        original_dtype = tensor.dtype
+        values = tensor.squeeze()
+        if exponentiate:
+            values = torch.exp(values.float()).to(dtype=original_dtype)
+        if values.numel() == num_heads:
+            return (
+                values.reshape(num_heads, 1)
+                .expand(num_heads, head_dim)
+                .contiguous()
+            )
+        if values.numel() == num_heads * head_dim:
+            return values.reshape(num_heads, head_dim).contiguous()
+        raise ValueError(
+            f"RWKV-5 {name} has {values.numel()} values, expected "
+            f"{num_heads} or {num_heads * head_dim}"
+        )
+
+    for key, tensor in state_dict.items():
+        if key.endswith(".time_state"):
+            raise ValueError(
+                "RWKV-5 checkpoints with learned time_state are not supported yet"
+            )
+
+        new_key = key
+        if key == "emb.weight":
+            new_key = "model.embeddings.weight"
+        elif key.startswith("blocks.0.ln0."):
+            new_key = "model.ln0." + key.removeprefix("blocks.0.ln0.")
+        elif key.startswith("blocks."):
+            new_key = "model." + key
+        elif key.startswith("ln_out."):
+            new_key = "model." + key
+        elif key == "head.weight":
+            new_key = "lm_head.weight"
+
+        if new_key.endswith(
+            (".time_mix_k", ".time_mix_v", ".time_mix_r", ".time_mix_g")
+        ):
+            tensor = tensor.squeeze().reshape(-1).contiguous()
+        elif new_key.endswith(".time_decay"):
+            tensor = reshape_time_parameter(tensor, "time_decay")
+        elif new_key.endswith(".time_faaaa"):
+            tensor = reshape_time_parameter(tensor, "time_faaaa")
+        elif new_key.endswith(".time_first"):
+            # Older RWKV-5 checkpoints store log(time_first).
+            new_key = new_key.removesuffix(".time_first") + ".time_faaaa"
+            tensor = reshape_time_parameter(
+                tensor, "time_first", exponentiate=True
+            )
+
+        remapped[new_key] = tensor
+
+    return remapped
+
+
 def _remap_videonsa(state_dict, config=None):
     """Adapt VideoNSA/Qwen2.5-VL weights to the InfiniLM C++ module layout."""
     key = "visual.patch_embed.proj.weight"
@@ -1077,6 +1180,8 @@ _WEIGHT_REMAPPER = {
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
     "mamba": _remap_mamba,
+    "mamba2": _remap_mamba2,
+    "rwkv5": _remap_rwkv5,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,

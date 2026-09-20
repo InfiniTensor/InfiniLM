@@ -45,6 +45,71 @@
     pip install -e .
     ```
 
+  - RWKV-5（NVIDIA 单卡）
+
+    当前支持 RWKV-5.0、5.1 和 5.2 的官方 `.pth` 权重，以及 RWKV World
+    字节词表。先将检查点转换为 InfiniLM 可加载的目录：
+
+    ```bash
+    python scripts/convert_rwkv5_checkpoint.py \
+      /models/RWKV-5-World-0.1B-v1-20230803-ctx4096.pth \
+      /models/RWKV-5-World-0.1B-InfiniLM \
+      --vocab /path/to/rwkv_vocab_v20230424.txt
+    ```
+
+    在 NVIDIA GPU 上运行分页缓存推理：
+
+    ```bash
+    python examples/test_infer.py \
+      --device nvidia \
+      --model /models/RWKV-5-World-0.1B-InfiniLM \
+      --enable-paged-attn \
+      --disable-prefix-caching \
+      --num-blocks 64 \
+      --block-size 16 \
+      --max-new-tokens 32
+    ```
+
+    RWKV 为每个请求保存独立的循环状态，不使用传统注意力 KV Cache。当前实现
+    限定 NVIDIA 单卡（TP=1、PP=1），并暂不支持前缀缓存、CUDA Graph、量化权重
+    和带可学习 `time_state` 的检查点。
+
+    RWKV5 的 paged 调度路径只分配循环状态行，因为 RWKV5 的架构没有注意力 KV
+    Cache。这里是模型架构适配，不是对通用 Transformer KV admission（包括未来
+    token 预留策略）的优化；Transformer 和混合注意力模型仍按源代码使用
+    `BlockManager`。可运行固定矩阵微基准：
+
+    ```bash
+    INFINILM_RUN_GPU_TESTS=1 \
+      RWKV5_MODEL_PATH=/models/RWKV-5-World-0.1B-InfiniLM \
+      python test/models/rwkv5/benchmark.py \
+      --cache-type paged --batch-sizes 1,2,4 \
+      --input-lens 32,128,512 --output-lens 32,128 \
+      --warmup 3 --runs 5
+    ```
+
+    RTX 4090 D 的测试方法、两种调度路径对比和原始 JSONL 数据见
+    `test/models/rwkv5/BENCHMARK.md`。
+
+    静态缓存调度器目前是单请求串行模式，只使用 `--batch-sizes 1`。调度器专项单测
+    用于确认纯循环模型只占用循环状态行，同时确认带注意力的路径仍使用原来的 KV
+    block：
+
+    ```bash
+    python test/models/rwkv5/test_scheduler.py -v
+    ```
+
+    基础测试与 NVIDIA 正确性测试：
+
+    ```bash
+    python test/models/rwkv5/test_adaptation.py -v
+    INFINILM_RUN_GPU_TESTS=1 \
+      python test/models/rwkv5/test_correctness.py -v
+    INFINILM_RUN_GPU_TESTS=1 \
+      RWKV5_MODEL_PATH=/models/RWKV-5-World-0.1B-InfiniLM \
+      python test/models/rwkv5/test_real_model.py -v
+    ```
+
   - 单次推理测试
     - llama示例
     ```bash

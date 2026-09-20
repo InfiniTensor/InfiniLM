@@ -7,12 +7,19 @@ GeneralCompiler::GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, Ra
 }
 
 void GeneralCompiler::compile() {
+    if (!model_->supports_graph_compilation()) {
+        return;
+    }
     static_batching_compiler_->compile();
     paged_compiler_->compile();
 }
 
 GeneralCompiler::Compiled GeneralCompiler::get_compiled(const InfinilmModel::Input &input) {
     GeneralCompiler::Compiled result = {nullptr, nullptr};
+
+    if (!model_->supports_graph_compilation()) {
+        return result;
+    }
 
     // try each compiler, return the first valid result
     result = static_batching_compiler_.get()->get_compiled(input);

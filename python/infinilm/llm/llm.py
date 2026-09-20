@@ -42,6 +42,7 @@ class LLMEngine:
         self.config = config
         hf_config = read_hf_config(config.model_path)
         has_mamba_cache = model_uses_mamba_cache(hf_config)
+        cacheless_state_model = hf_config.get("model_type") in {"mamba2", "rwkv5"}
         if has_mamba_cache and config.enable_prefix_caching:
             model_type = hf_config["model_type"]
             raise RuntimeError(
@@ -108,6 +109,7 @@ class LLMEngine:
                 max_num_batched_tokens=max_num_batched_tokens,
                 connector=connector,
                 has_mamba_cache=has_mamba_cache,
+                cacheless_state_model=cacheless_state_model,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
             )

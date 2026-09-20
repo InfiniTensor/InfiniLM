@@ -246,6 +246,17 @@ class BasicLLMProcessor(InfinilmProcessor):
             block_tables.append(padded_block_table)
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
+        block_tables_tensor = (
+            infinicore.from_list(block_tables, dtype=infinicore.int32)
+            if max_block_table_len > 0
+            else None
+        )
+        slot_mapping_tensor = (
+            infinicore.from_list(slot_mapping, dtype=infinicore.int64)
+            if slot_mapping
+            else None
+        )
+
         return {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
@@ -255,8 +266,8 @@ class BasicLLMProcessor(InfinilmProcessor):
             "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
             "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
             "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
-            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
-            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+            "block_tables": block_tables_tensor,
+            "slot_mapping": slot_mapping_tensor,
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,

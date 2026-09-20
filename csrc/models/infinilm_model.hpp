@@ -69,6 +69,7 @@ public:
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input) const = 0;
     virtual void reset_cache(const cache::CacheConfig *cache_config);
+    virtual bool supports_graph_compilation() const { return true; }
     virtual const cache::CacheConfig *get_cache_config() const {
         return cache_config_.get();
     }
