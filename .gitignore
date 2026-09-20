@@ -24,6 +24,7 @@ __pycache__/
 
 # JSON
 *.json
+!benchmarks/kv_admission_tinyllama_fixed.json
 
 #GGUF
 *.gguf
