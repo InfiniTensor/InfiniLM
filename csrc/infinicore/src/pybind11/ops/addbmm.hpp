@@ -9,7 +9,6 @@ namespace infinicore::ops {
 
 inline void bind_addbmm(py::module &m) {
     // -----------------------------------------------------------
-    // 1. Out-of-place 接口: output = addbmm(...)
     // -----------------------------------------------------------
     m.def("addbmm",
           &op::addbmm,
@@ -36,11 +35,10 @@ Returns:
 )doc");
 
     // -----------------------------------------------------------
-    // 2. [新增] In-place 接口: addbmm_(out, ...)
     // -----------------------------------------------------------
     m.def("addbmm_",
-          &op::addbmm_,   // 绑定到 C++ 的 void addbmm_(...)
-          py::arg("out"), // 第一个参数通常是输出 Tensor
+          &op::addbmm_,
+          py::arg("out"),
           py::arg("input"),
           py::arg("batch1"),
           py::arg("batch2"),

@@ -1,4 +1,7 @@
 add_requires("pybind11")
+if is_plat("linux") then
+    add_requireconfs("pybind11.python", { configs = { headeronly = true } })
+end
 
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
 local CUDA_ROOT = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
@@ -178,7 +181,6 @@ target("_infinilm")
     add_files("csrc/models/minicpm_eagle/*.cpp")
     add_files("csrc/models/qwen2/*.cpp")
     add_files("csrc/models/qwen3/*.cpp")
-    remove_files("csrc/layers/quantization/mxfp4.cpp")
 
     set_installdir("python/infinilm")
 target_end()

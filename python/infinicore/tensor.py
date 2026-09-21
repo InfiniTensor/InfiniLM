@@ -201,7 +201,7 @@ def from_torch(torch_tensor, *, device=None):
     if target.index != index:
         raise ValueError("device index must match the source Torch tensor")
     if owner.device.type == "cuda":
-        if target.type not in ("cuda", "metax", "iluvatar", "hygon"):
+        if target.type not in ("cuda", "metax", "iluvatar", "hygon", "thead"):
             raise ValueError("device is not compatible with a Torch CUDA tensor")
     elif target.type != owner.device.type:
         raise ValueError("device type must match the source Torch tensor")

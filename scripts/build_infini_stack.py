@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SUPPORTED_BACKENDS = ("nvidia", "iluvatar", "hygon")
+SUPPORTED_BACKENDS = ("nvidia", "iluvatar", "hygon", "moore")
 DEFAULT_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
+MOORE_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops_moore.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -122,6 +123,22 @@ def backend_cmake_option(backend: str) -> str:
     return f"-DWITH_{backend.upper()}=ON"
 
 
+def provider_preflight_command(
+    source: Path, output: Path, operator_config: Path, backend: str
+) -> List[str]:
+    return [
+        sys.executable,
+        str(source / "scripts/resolve_linked_ops.py"),
+        "--devices",
+        "cpu",
+        backend,
+        "--ops-config",
+        str(operator_config),
+        "--output-dir",
+        str(output),
+    ]
+
+
 def append_gpu_arch(
     configure: List[str],
     backend: str,
@@ -215,6 +232,7 @@ def build_infiniops_commands(
         "-DAUTO_DETECT_DEVICES=OFF",
         "-DAUTO_DETECT_BACKENDS=OFF",
         "-DGENERATE_PYTHON_BINDINGS=OFF",
+        f"-DPython_EXECUTABLE={sys.executable}",
         f"-DINFINI_RT_ROOT={prefix}",
         f"-DINFINI_OPS_OPS={operator_config}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
@@ -256,7 +274,8 @@ def build_infiniccl_commands(
         "-B",
         str(build),
         backend_cmake_option(backend),
-        "-DWITH_NCCL=ON",
+        f"-DWITH_NCCL={'OFF' if backend == 'moore' else 'ON'}",
+        f"-DWITH_MCCL={'ON' if backend == 'moore' else 'OFF'}",
         "-DWITH_OMPI=OFF",
         "-DWITH_MPICH=OFF",
         "-DAUTO_DETECT_DEVICES=OFF",
@@ -408,7 +427,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         help=(
             "InfiniOps operator configuration. Required for Iluvatar and Hygon; "
-            "defaults to scripts/configs/infiniops_ops.json for NVIDIA."
+            "defaults to the bundled NVIDIA or Moore configuration."
         ),
     )
     parser.add_argument(
@@ -460,9 +479,13 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     if args.backend == "hygon" and args.hygon_arch is None:
         args.hygon_arch = "gfx936"
     if args.operator_config is None:
-        if args.backend != "nvidia":
+        if args.backend not in ("nvidia", "moore"):
             parser.error(f"--operator-config is required with --backend={args.backend}")
-        args.operator_config = DEFAULT_OPERATOR_CONFIG
+        args.operator_config = (
+            MOORE_OPERATOR_CONFIG
+            if args.backend == "moore"
+            else DEFAULT_OPERATOR_CONFIG
+        )
     if args.build_root is None:
         args.build_root = Path("build/integration") / args.backend
     return args
@@ -516,6 +539,18 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not args.dry_run:
         manifest_path.unlink(missing_ok=True)
         manifest_staging_path(manifest_path).unlink(missing_ok=True)
+
+    run(
+        provider_preflight_command(
+            infinicore_root / SUBMODULES["InfiniOps"],
+            build_root / "provider-preflight",
+            operator_config_path,
+            args.backend,
+        ),
+        PROJECT_ROOT,
+        build_env,
+        args.dry_run,
+    )
 
     for command in build_infinirt_commands(
         infinicore_root / SUBMODULES["InfiniRT"],

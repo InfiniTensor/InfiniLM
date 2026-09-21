@@ -36,6 +36,7 @@ class BuildInfiniStackTest(unittest.TestCase):
             )
         )
         for helper, command in (
+            ("provider_preflight_command", "provider-preflight"),
             ("build_infinirt_commands", "build-infinirt"),
             ("build_infiniops_commands", "build-ops"),
             ("build_infiniccl_commands", "build-ccl"),
@@ -44,7 +45,11 @@ class BuildInfiniStackTest(unittest.TestCase):
                 mock.patch.object(
                     build_infini_stack,
                     helper,
-                    return_value=[[command]],
+                    return_value=(
+                        [command]
+                        if helper == "provider_preflight_command"
+                        else [[command]]
+                    ),
                 )
             )
         run = stack.enter_context(mock.patch.object(build_infini_stack, "run"))
@@ -339,6 +344,9 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertIn(f"-DINFINI_OPS_OPS={Path('ops.json')}", configure)
         self.assertIn("-DWITH_LINKED=ON", configure)
         self.assertIn("-DWITH_TORCH=ON", configure)
+        self.assertIn(
+            f"-DPython_EXECUTABLE={build_infini_stack.sys.executable}", configure
+        )
         self.assertFalse(
             any(option.startswith("-DINFINI_OPS_LINKED_OPS=") for option in configure)
         )
@@ -457,9 +465,29 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertIn("-DWITH_OMPI=OFF", ccl)
         self.assertIn("-DWITH_NCCL=ON", ccl)
         self.assertIn("-DBUILD_EXAMPLES=OFF", ccl)
-        self.assertIn("-DCMAKE_CXX_COMPILER=/opt/dtk/bin/hipcc", ccl)
-        self.assertIn("-DNCCL_INC=/opt/dtk/include", ccl)
-        self.assertIn("-DNCCL_LIB=/opt/dtk/lib/librccl.so", ccl)
+        self.assertIn(f"-DCMAKE_CXX_COMPILER={Path('/opt/dtk/bin/hipcc')}", ccl)
+        self.assertIn(f"-DNCCL_INC={Path('/opt/dtk/include')}", ccl)
+        self.assertIn(f"-DNCCL_LIB={Path('/opt/dtk/lib/librccl.so')}", ccl)
+
+    def test_moore_build_uses_bundled_operator_config_and_mccl(self):
+        args = build_infini_stack.parse_args(
+            ["--infinicore-root", "core", "--backend", "moore"]
+        )
+        self.assertEqual(args.operator_config, build_infini_stack.MOORE_OPERATOR_CONFIG)
+        self.assertEqual(args.build_root, Path("build/integration/moore"))
+        ccl = build_infini_stack.build_infiniccl_commands(
+            Path("ccl"),
+            Path("build/ccl"),
+            Path("prefix"),
+            "Release",
+            8,
+            None,
+            False,
+            backend="moore",
+        )[0]
+        self.assertIn("-DWITH_MOORE=ON", ccl)
+        self.assertIn("-DWITH_MCCL=ON", ccl)
+        self.assertIn("-DWITH_NCCL=OFF", ccl)
 
     def test_main_uses_core_sources_infini_lm_cwd_and_one_prefix(self):
         args = build_infini_stack.parse_args(
@@ -560,9 +588,20 @@ class BuildInfiniStackTest(unittest.TestCase):
         self.assertTrue(
             all(call.args[1] == PROJECT_ROOT for call in run.call_args_list)
         )
-        infinirt_env = run.call_args_list[0].args[2]
-        infiniops_env = run.call_args_list[1].args[2]
-        infiniccl_env = run.call_args_list[2].args[2]
+        preflight = run.call_args_list[0].args[0]
+        self.assertEqual(preflight[0], build_infini_stack.sys.executable)
+        self.assertEqual(
+            Path(preflight[1]),
+            core_root / "submodules/InfiniOps/scripts/resolve_linked_ops.py",
+        )
+        self.assertEqual(preflight[2:5], ["--devices", "cpu", "nvidia"])
+        self.assertEqual(
+            Path(preflight[6]), build_infini_stack.DEFAULT_OPERATOR_CONFIG.resolve()
+        )
+        self.assertEqual(Path(preflight[8]), build_root / "provider-preflight")
+        infinirt_env = run.call_args_list[1].args[2]
+        infiniops_env = run.call_args_list[2].args[2]
+        infiniccl_env = run.call_args_list[3].args[2]
         self.assertNotIn("LD_LIBRARY_PATH", infinirt_env)
         self.assertTrue(infiniops_env["LD_LIBRARY_PATH"].startswith(str(prefix)))
         self.assertEqual(infiniops_env, infiniccl_env)
@@ -580,7 +619,13 @@ class BuildInfiniStackTest(unittest.TestCase):
 
         self.assertEqual(
             events,
-            ["build-infinirt", "build-ops", "build-ccl", "write-manifest"],
+            [
+                "provider-preflight",
+                "build-infinirt",
+                "build-ops",
+                "build-ccl",
+                "write-manifest",
+            ],
         )
 
     def test_failed_command_does_not_write_manifest(self):
@@ -613,6 +658,7 @@ class BuildInfiniStackTest(unittest.TestCase):
                     build_infini_stack.main([])
 
             write_manifest.assert_not_called()
+            run.assert_called_once()
             self.assertFalse(manifest_path.exists())
             self.assertFalse(staging_path.exists())
 

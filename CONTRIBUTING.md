@@ -63,7 +63,7 @@ Refer to [ReadMe](README.md) and [Adapt New Models](MODELS.md).
 Run the migrated stack-builder unit tests with:
 
 ```shell
-python -m unittest test/scripts/test_build_infini_stack.py -v
+python -m unittest discover -s test/scripts -p "test_build_infini_stack.py" -v
 ```
 
 Check the Core-backed build commands without creating build output:

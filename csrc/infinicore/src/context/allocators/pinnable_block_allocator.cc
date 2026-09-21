@@ -133,6 +133,28 @@ void PinnableBlockAllocator::release_frozen_blocks_(
 }
 
 // ------------------- allocate -------------------
+void PinnableBlockAllocator::remove_free_block_(SizeClass &cls, size_t index) {
+    cls.free_blocks[index]->free_list_index.reset();
+    if (index != cls.free_blocks.size() - 1) {
+        cls.free_blocks[index] = std::move(cls.free_blocks.back());
+        cls.free_blocks[index]->free_list_index = index;
+    }
+    cls.free_blocks.pop_back();
+}
+
+void PinnableBlockAllocator::cache_free_block_(const std::shared_ptr<Block> &block) {
+    if (block->free_list_index) {
+        return;
+    }
+    for (auto &cls : size_classes_) {
+        if (block->size == cls.block_size) {
+            cls.free_blocks.push_back(block);
+            block->free_list_index = cls.free_blocks.size() - 1;
+            break;
+        }
+    }
+}
+
 std::byte *PinnableBlockAllocator::allocate(size_t size) {
     if (size == 0) {
         return nullptr;
@@ -146,14 +168,9 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
     // 1. Try size-class allocation for small/medium
     for (auto &cls : size_classes_) {
         if (size <= cls.block_size) {
-            const auto free_block = std::find_if(
-                cls.free_blocks.begin(), cls.free_blocks.end(),
-                [](const auto &block) {
-                    return !block->in_use;
-                });
-            if (free_block != cls.free_blocks.end()) {
-                block = *free_block;
-                cls.free_blocks.erase(free_block);
+            if (!cls.free_blocks.empty()) {
+                block = cls.free_blocks.back();
+                remove_free_block_(cls, cls.free_blocks.size() - 1);
                 block->in_use = true;
                 block->use_count = 1;
                 freeze_for_capture_(block);
@@ -229,12 +246,7 @@ void PinnableBlockAllocator::deallocate(std::byte *ptr) {
     }
 
     block->in_use = false;
-    for (auto &cls : size_classes_) {
-        if (block->size == cls.block_size) {
-            cls.free_blocks.push_back(block);
-            break;
-        }
-    }
+    cache_free_block_(block);
 }
 
 size_t PinnableBlockAllocator::mark_in_use_(void *ptr, bool in_use) {
@@ -247,15 +259,12 @@ size_t PinnableBlockAllocator::mark_in_use_(void *ptr, bool in_use) {
 
     auto block = it->second;
     if (in_use) {
-        for (auto &cls : size_classes_) {
-            if (block->size == cls.block_size) {
-                cls.free_blocks.erase(
-                    std::remove(
-                        cls.free_blocks.begin(),
-                        cls.free_blocks.end(),
-                        block),
-                    cls.free_blocks.end());
-                break;
+        if (block->free_list_index) {
+            for (auto &cls : size_classes_) {
+                if (block->size == cls.block_size) {
+                    remove_free_block_(cls, *block->free_list_index);
+                    break;
+                }
             }
         }
         block->in_use = true;
@@ -263,6 +272,9 @@ size_t PinnableBlockAllocator::mark_in_use_(void *ptr, bool in_use) {
     } else if (block->use_count > 0) {
         --block->use_count;
         block->in_use = block->use_count > 0;
+        if (!block->in_use) {
+            cache_free_block_(block);
+        }
     }
     return it->second->size;
 }
@@ -272,13 +284,14 @@ void PinnableBlockAllocator::trim() {
     std::lock_guard<std::mutex> lock(mutex_);
     // Free non-frozen size-class blocks
     for (auto &cls : size_classes_) {
-        for (auto it = cls.free_blocks.begin(); it != cls.free_blocks.end();) {
-            if ((*it)->pin_count == 0) {
-                INFINICORE_CHECK_ERROR(infini::rt::runtime::Free((*it)->ptr));
-                all_blocks_.erase((*it)->ptr);
-                it = cls.free_blocks.erase(it);
+        for (size_t index = 0; index < cls.free_blocks.size();) {
+            const auto &block = cls.free_blocks[index];
+            if (block->pin_count == 0) {
+                INFINICORE_CHECK_ERROR(infini::rt::runtime::Free(block->ptr));
+                all_blocks_.erase(block->ptr);
+                remove_free_block_(cls, index);
             } else {
-                ++it;
+                ++index;
             }
         }
     }

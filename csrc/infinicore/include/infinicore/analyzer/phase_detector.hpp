@@ -57,11 +57,9 @@ public:
         for (auto &entry : window) {
             if (isAttentionOp(entry.op_type)) {
                 attention_count++;
-                // For attention ops, shape[1] or shape[2] typically indicates seq_len
-                if (entry.ndim >= 2) {
-                    // Heuristic: for attention-like ops, look at the sequence dimension
-                    // Typically shape = [batch, seq_len, ...] or [batch, heads, seq_len, ...]
-                    uint32_t seq_dim = (entry.ndim >= 3) ? entry.shape[2] : entry.shape[1];
+                const auto seq_axis = sequenceAxis(entry);
+                if (seq_axis < entry.ndim) {
+                    uint32_t seq_dim = entry.shape[seq_axis];
                     max_seq_len = std::max(max_seq_len, seq_dim);
                     min_seq_len = std::min(min_seq_len, seq_dim);
                     has_attention_shape = true;
@@ -120,6 +118,20 @@ public:
     void setConfig(Config config) { config_ = config; }
 
 private:
+    static uint32_t sequenceAxis(const OpTraceEntry &entry) {
+        switch (entry.op_type) {
+        case OpType::MHA_KVCACHE:
+            // Output layout: [batch, query length, heads, head size].
+            return entry.ndim == 4 ? 1 : OpTraceEntry::MAX_DIMS;
+        case OpType::CAUSAL_SOFTMAX:
+            // Scores end in [query length, key length].
+            return entry.ndim >= 2 ? entry.ndim - 2 : OpTraceEntry::MAX_DIMS;
+        default:
+            // Packed varlen shapes do not encode per-request query lengths.
+            return OpTraceEntry::MAX_DIMS;
+        }
+    }
+
     Config config_;
 };
 

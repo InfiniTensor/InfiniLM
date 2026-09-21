@@ -8,7 +8,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_smooth_l1_loss(py::module &m) {
-    // 1. 绑定 out-of-place 接口: output = smooth_l1_loss(input, target, beta, reduction)
     m.def("smooth_l1_loss",
           &op::smooth_l1_loss,
           py::arg("input"),

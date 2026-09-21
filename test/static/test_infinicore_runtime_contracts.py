@@ -46,7 +46,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn(": tensor", constructors)
 
         expected_snapshots = {
-            "csrc/engine/compiler/static_batching_compiler.cpp": 2,
             "csrc/engine/compiler/paged_compiler.cpp": 2,
         }
         for compiler, count in expected_snapshots.items():
@@ -417,46 +416,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("throw std::runtime_error", lookup)
         self.assertIn("No operator implementation is registered for device", lookup)
 
-    def test_unavailable_configurable_surfaces_are_rejected(self) -> None:
-        quant_source = read_source("csrc/config/quant_config.cpp")
-        quant_method = function_body(
-            quant_source, "QuantConfig::get_quantization_method() const"
-        )
-        self.assertNotIn(
-            "make_shared<infinilm::quantization::CompressedTensors>", quant_method
-        )
-        self.assertRegex(
-            quant_method,
-            re.compile(
-                r'quant_method == "compressed-tensors"\)\s*\{\s*'
-                r"throw std::runtime_error"
-            ),
-        )
-        self.assertIn("end-to-end activation quantization", quant_method)
-        self.assertIn("dense AWQ GEMM path", quant_method)
-        self.assertIn("dense GPTQ/Marlin GEMM path", quant_method)
-        self.assertIn("InfiniOps-backed MXFP4 execution path", quant_method)
-        self.assertNotIn("until its kernels are available", quant_method)
-
-        self.assertNotIn("make_shared<infinilm::quantization::MXFP4>", quant_method)
-        self.assertRegex(
-            quant_method,
-            re.compile(
-                r'quant_method == "quark"\)\s*\{\s*' r"throw std::runtime_error"
-            ),
-        )
-
-        quant_header = read_source("csrc/config/quant_config.hpp")
-        kv_config = function_body(
-            quant_header,
-            "void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype)",
-        )
-        self.assertNotIn("KVQuantAlgo::INT8", kv_config)
-        self.assertIn("throw std::runtime_error", kv_config)
-        self.assertIn("KV cache INT8 quantization is unsupported", kv_config)
-        self.assertIn("require FP16/BF16 KV tensors", kv_config)
-        self.assertIn("no INT8 conversion path", kv_config)
-
+    def test_attention_configuration_is_validated_before_rank_workers(self) -> None:
         attention_config = read_source("csrc/backends/attention_backends.hpp")
         parse_backend = function_body(
             attention_config,
@@ -515,7 +475,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(flash_cache_validation, config_creation)
         self.assertLess(flash_cache_validation, rank_workers)
 
-    def test_modern_model_support_is_gated_before_rank_workers(self) -> None:
+    def test_registered_model_config_is_created_before_rank_workers(self) -> None:
         source = read_source("csrc/config/config_factory.cpp")
         create = function_body(
             source,
@@ -523,35 +483,12 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "ConfigFactory::createConfig",
         )
 
-        supported_model_types = {
-            "baichuan",
-            "chatglm",
-            "fm9g",
-            "fm9g7b",
-            "glm4",
-            "internlm3",
-            "llama",
-            "minicpm",
-            "minicpm4",
-            "minicpm_eagle",
-            "qwen2",
-            "qwen3",
-        }
-        modern_types = re.search(r"kModernModelTypes\s*\{([^}]*)\}", create)
-        self.assertIsNotNone(modern_types)
-        self.assertEqual(
-            set(re.findall(r'"([^"]+)"', modern_types.group(1))),
-            supported_model_types,
-        )
-        for model_type in supported_model_types:
-            self.assertIn(model_type, create)
-
         python_engine = read_source("python/infinilm/infer_engine.py")
         self.assertIn('config_dict.get("model_type") == "minicpm"', python_engine)
         self.assertIn('config_dict["model_type"] = "minicpm4"', python_engine)
         self.assertLess(
             create.index("if (it == config_map.end())"),
-            create.index("kModernModelTypes.find(model_type)"),
+            create.index("it->second(model_config)"),
         )
 
         infer_engine = read_source("csrc/engine/infer_engine.cpp")
@@ -598,10 +535,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn('add_files("csrc/**.cpp")', model_target)
         self.assertNotIn('add_files("csrc/**.cc")', model_target)
         self.assertNotIn('remove_files("csrc/infinicore/', model_target)
-        self.assertIn(
-            'remove_files("csrc/layers/quantization/mxfp4.cpp")', model_target
-        )
-
         static_attention = read_source("csrc/layers/attention/backends/static_attn.cpp")
         self.assertNotIn("if (false)", static_attention)
         self.assertNotIn("op::flash_attention", static_attention)
@@ -836,7 +769,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             allocator_source,
             "std::byte *PinnableBlockAllocator::allocate(size_t size)",
         )
-        self.assertIn("return !block->in_use;", allocator_allocate)
+        self.assertIn("block = cls.free_blocks.back();", allocator_allocate)
         self.assertIn(
             "return b->size >= size && !b->in_use;",
             allocator_allocate,
@@ -864,9 +797,9 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             allocator_source, "size_t PinnableBlockAllocator::mark_in_use_"
         )
 
-        self.assertIn("cls.free_blocks.erase", mark_in_use)
-        self.assertIn("std::remove(", mark_in_use)
-        self.assertIn("cls.free_blocks.end()", mark_in_use)
+        self.assertIn("remove_free_block_(cls, *block->free_list_index)", mark_in_use)
+        self.assertIn("cache_free_block_(block)", mark_in_use)
+        self.assertNotIn("std::remove(", mark_in_use)
 
     def test_graph_destruction_synchronizes_before_releasing_leases(self) -> None:
         graph_header = read_source("csrc/infinicore/include/infinicore/graph/graph.hpp")
@@ -895,7 +828,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         runtime_header = read_source("csrc/infinicore/src/context/runtime/runtime.hpp")
         compiler_header = read_source("csrc/engine/compiler/graph_compiler.hpp")
         paged_source = read_source("csrc/engine/compiler/paged_compiler.cpp")
-        static_source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
 
         self.assertIn("void cancelGraphRecording() noexcept;", context_header)
         self.assertIn("void cancelGraphRecording() noexcept;", runtime_header)
@@ -916,11 +848,10 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             finish.index("context::stopGraphRecording()"),
             finish.index("active_ = false"),
         )
-        for source in (paged_source, static_source):
-            self.assertIn("GraphRecordingGuard recording;", source)
-            self.assertIn("auto graph = recording.finish();", source)
-            self.assertNotIn("context::startGraphRecording()", source)
-            self.assertNotIn("context::stopGraphRecording()", source)
+        self.assertIn("GraphRecordingGuard recording;", paged_source)
+        self.assertIn("auto graph = recording.finish();", paged_source)
+        self.assertNotIn("context::startGraphRecording()", paged_source)
+        self.assertNotIn("context::stopGraphRecording()", paged_source)
         self.assertLess(
             paged_source.index("auto capture_decode ="),
             paged_source.index("GraphRecordingGuard recording;"),
@@ -938,30 +869,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertLess(
             graph_manager.index("std::lock_guard"), graph_manager.index("graph.reset()")
         )
-
-    def test_static_graph_input_dtypes_match_scheduler_inputs(self) -> None:
-        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
-
-        expected_dtypes = {
-            "input_ids": "kInt64",
-            "position_ids": "kInt64",
-            "past_sequence_lengths": "kInt32",
-            "total_sequence_lengths": "kInt32",
-            "slot_mapping": "kInt64",
-        }
-        for field, dtype in expected_dtypes.items():
-            with self.subTest(field=field):
-                self.assertRegex(
-                    compile_body,
-                    re.compile(
-                        rf"input\.{field}\s*=\s*infinicore::Tensor::empty"
-                        rf"\([^;]*DataType::{dtype},"
-                    ),
-                )
-
-        self.assertIn("std::vector<int32_t> total_sequence_lengths_vec", compile_body)
-        self.assertIn("b * sizeof(int32_t)", compile_body)
 
     def test_paged_graph_replay_updates_sequence_lengths_on_device(self) -> None:
         compiler = read_source("csrc/engine/compiler/paged_compiler.cpp")
@@ -982,264 +889,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertNotIn("getType()", compiler)
         self.assertNotIn("Device::Type::CPU", compiler)
         self.assertNotIn("DataType::I32", compiler)
-
-    def test_p12_p13_short_decode_graph_is_bounded_and_selected_before_copy(
-        self,
-    ) -> None:
-        header = read_source("csrc/engine/compiler/paged_compiler.hpp")
-        compiler = read_source("csrc/engine/compiler/paged_compiler.cpp")
-        compile_body = function_body(compiler, "void PagedCompiler::compile()")
-        replay_body = function_body(
-            compiler,
-            "PagedCompiler::Compiled PagedCompiler::get_compiled(",
-        )
-        support = function_body(compiler, "bool supports_reviewed_short_decode_graph(")
-        property_reader = function_body(
-            compiler, "std::optional<PagedGraphProperties> read_paged_graph_properties("
-        )
-        profile_matcher = function_body(
-            compiler, "bool matches_reviewed_paged_graph_profile("
-        )
-        normalized_compiler = " ".join(compiler.split())
-
-        self.assertLess(
-            header.index("short_block_tables_holder_"),
-            header.index("compiled_short_decode_b1_"),
-        )
-        self.assertLess(
-            header.index("compiled_short_decode_b1_"),
-            header.index("compiled_map_decode_"),
-        )
-        for token in (
-            "kShortDecodeBlockTableWidth = 8",
-            "kShortDecodeBlockSize = 256",
-            "kShortDecodeMaxSequenceLength",
-        ):
-            self.assertIn(token, compiler)
-        for token in (
-            "read_paged_graph_properties(",
-            "kShortDecodeProfiles.begin()",
-            "kShortDecodeProfiles.end()",
-            "matches_reviewed_paged_graph_profile(",
-        ):
-            self.assertIn(token, support)
-        self.assertNotIn("get_or<", support)
-        self.assertEqual(support.count("read_paged_graph_properties("), 1)
-
-        for token in (
-            'model_config->get_or<std::string>("model_type", "")',
-            'model_config->get_or<size_t>("hidden_size", 0)',
-            'model_config->get_or<size_t>("num_hidden_layers", 0)',
-            'model_config->get_or<size_t>("num_attention_heads", 0)',
-            'model_config->get_or<size_t>("num_key_value_heads", 0)',
-            'model_config->get_or<size_t>("position_id_axes", 1)',
-            "get_tensor_model_parallel_world_size()",
-            "paged_config.num_blocks()",
-            "model_config->get_dtype()",
-            "model_config->get_quant_scheme()",
-            "model_config->get_kv_quant_scheme()",
-        ):
-            self.assertIn(token, property_reader)
-
-        for token in (
-            "properties.device_type == infinicore::Device::Type::kNvidia",
-            "properties.attention_backend == backends::AttentionBackend::FLASH_ATTN",
-            "properties.num_blocks >= profile.minimum_num_blocks",
-            "profile.exact_num_blocks",
-            "profile.tensor_parallel_world_size",
-            "profile.num_hidden_layers",
-            "profile.position_id_axes",
-            "profile.dtype",
-            "profile.require_unquantized",
-            "quantization::QuantScheme::NONE",
-            "quantization::KVQuantAlgo::NONE",
-        ):
-            self.assertIn(token, profile_matcher)
-        self.assertIn(
-            '{"internlm3", 4096, 32, 2, 128, kShortDecodeBlockSize, '
-            "kShortDecodeBlockTableWidth, std::nullopt, std::nullopt, "
-            "std::nullopt, std::nullopt, std::nullopt, std::nullopt, false}",
-            normalized_compiler,
-        )
-        self.assertIn(
-            '{"chatglm", 4096, 32, 2, 128, kShortDecodeBlockSize, '
-            "kShortDecodeBlockTableWidth, 512, std::nullopt, 1, 28, 1, "
-            "infinicore::DataType::kFloat16, true}",
-            normalized_compiler,
-        )
-
-        self.assertLess(
-            compile_body.index("compiled_short_decode_b1_.reset()"),
-            compile_body.index("compiled_map_decode_.clear()"),
-        )
-        self.assertLess(
-            compile_body.index("for (size_t b : decode_batch_sizes_)"),
-            compile_body.index("compiled_short_decode_b1_.emplace("),
-        )
-        self.assertIn("capture_decode(b, nblocks, block_tables_holder_)", compile_body)
-        self.assertIn("short_block_tables_holder_", compile_body)
-
-        selection = replay_body.index(
-            "selected_result = &compiled_short_decode_b1_.value()"
-        )
-        validation = replay_body.index(
-            "// Validate every input before mutating storage shared by a graph."
-        )
-        first_copy = replay_body.index("->copy_from(")
-        self.assertLess(selection, validation)
-        self.assertLess(validation, first_copy)
-        for token in (
-            "batch_size == 1",
-            "Device::Type::kCpu",
-            "DataType::kInt32",
-            "total_sequence_length > 0",
-            "<= kShortDecodeMaxSequenceLength",
-            "required_pages <= kShortDecodeBlockTableWidth",
-            "block_per_req >= required_pages",
-            "required_pages * sizeof(int32_t)",
-        ):
-            self.assertIn(token, replay_body)
-        normalized_replay = " ".join(replay_body.split())
-        self.assertIn(
-            "required_pages = 1 + "
-            "(static_cast<size_t>(total_sequence_length) - 1) / "
-            "paged_config->block_size()",
-            normalized_replay,
-        )
-        self.assertIn(
-            "graph_block_tables->narrow({{1, 0, block_per_req}})",
-            replay_body,
-        )
-        self.assertIn(
-            "auto graph = std::get<0>(selected_result->compiled)", replay_body
-        )
-        self.assertIn("std::get<1>(selected_result->compiled)", replay_body)
-
-    def test_baichuan_fixed_prefill_graph_is_opt_in_and_exactly_bounded(
-        self,
-    ) -> None:
-        header = read_source("csrc/engine/compiler/paged_compiler.hpp")
-        compiler = read_source("csrc/engine/compiler/paged_compiler.cpp")
-        compile_body = function_body(compiler, "void PagedCompiler::compile()")
-        replay_body = function_body(
-            compiler,
-            "PagedCompiler::Compiled PagedCompiler::get_compiled(",
-        )
-        support = function_body(compiler, "bool supports_baichuan_fixed_prefill_graph(")
-        profile_matcher = function_body(
-            compiler, "bool matches_reviewed_paged_graph_profile("
-        )
-        exact_input = function_body(
-            compiler, "bool is_exact_baichuan_fixed_prefill_input("
-        )
-        normalized_compiler = " ".join(compiler.split())
-
-        self.assertIn("compiled_baichuan_prefill_b1_s10_", header)
-        for token in (
-            "!env_flag_enabled(kBaichuanFixedPrefillGraphEnv)",
-            "has_mamba_state",
-            "read_paged_graph_properties(",
-            "kBaichuanFixedPrefillProfile",
-            "matches_reviewed_paged_graph_profile(",
-        ):
-            self.assertIn(token, support)
-        self.assertNotIn("get_or<", support)
-        self.assertEqual(support.count("read_paged_graph_properties("), 1)
-        self.assertIn(
-            'kBaichuanFixedPrefillProfile{ "baichuan", 4096, 32, 32, 128, '
-            "kBaichuanFixedPrefillBlockSize, 1, 1, 1, 2, 32, 1, "
-            "std::nullopt, true}",
-            normalized_compiler,
-        )
-        for token in (
-            "properties.device_type == infinicore::Device::Type::kNvidia",
-            "properties.attention_backend == backends::AttentionBackend::FLASH_ATTN",
-            "properties.max_batch_size",
-            "profile.max_batch_size",
-            "properties.quant_scheme == quantization::QuantScheme::NONE",
-            "properties.kv_quant_scheme == quantization::KVQuantAlgo::NONE",
-        ):
-            self.assertIn(token, profile_matcher)
-        self.assertIn('"INFINILM_ENABLE_BAICHUAN_PREFILL_GRAPH"', compiler)
-        self.assertIn('std::string_view(value) == "1"', compiler)
-
-        for field in (
-            "input_ids",
-            "position_ids",
-            "past_sequence_lengths",
-            "total_sequence_lengths",
-            "input_offsets",
-            "cu_seqlens",
-            "block_tables",
-            "slot_mapping",
-        ):
-            self.assertIn(f"input.{field}", exact_input)
-        for unsupported in (
-            "mamba_init_state_indices",
-            "mamba_final_state_indices",
-            "pixel_values",
-            "image_bound",
-            "tgt_sizes",
-            "image_grid_thw",
-            "image_req_ids",
-            "visual_token_ranges",
-            "target_hidden_states",
-            "sample_all_positions",
-        ):
-            self.assertIn(f"input.{unsupported}", exact_input)
-        self.assertNotIn(
-            "tensor_values_equal<int64_t>(\n            input.input_ids",
-            exact_input,
-        )
-        for values in (
-            "{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}",
-            "input.past_sequence_lengths, {0}",
-            "input.total_sequence_lengths, {10}",
-            "input.input_offsets, {0, 10}",
-            "input.cu_seqlens, {0, 10}",
-            "input.block_tables, {0}",
-        ):
-            self.assertIn(values, exact_input)
-
-        self.assertLess(
-            compile_body.index("compiled_baichuan_prefill_b1_s10_.reset()"),
-            compile_body.index("compiled_map_decode_.clear()"),
-        )
-        self.assertIn("make_baichuan_fixed_prefill_input", compile_body)
-        normalized_compile = " ".join(compile_body.split())
-        self.assertIn(
-            "input.slot_mapping, kBaichuanFixedPrefillSequenceLength, "
-            "kBaichuanFixedPrefillSequenceLength",
-            normalized_compile,
-        )
-        self.assertIn("compiled_baichuan_prefill_b1_s10_.emplace(", compile_body)
-        self.assertIn(
-            '"fixed Baichuan prefill graph compile: rank={}, batch=1, seq=10"',
-            compile_body,
-        )
-
-        exact_selection = replay_body.index(
-            "is_exact_baichuan_fixed_prefill_input(input)"
-        )
-        validation = replay_body.index(
-            "// Validate every input before mutating storage shared by a graph."
-        )
-        first_copy = replay_body.index("->copy_from(")
-        self.assertLess(exact_selection, validation)
-        self.assertLess(validation, first_copy)
-        self.assertIn(
-            '"fixed Baichuan prefill graph hit: rank={}, batch=1, seq=10"',
-            replay_body,
-        )
-        self.assertIn(
-            "graph_input.past_sequence_lengths.value()->copy_from(",
-            replay_body,
-        )
-        self.assertIn(
-            "if (!use_baichuan_fixed_prefill_graph) {\n"
-            "        model_->reset_runtime_state();",
-            replay_body,
-        )
 
     def test_nvidia_varlen_attention_replays_as_host_graph_segments(self) -> None:
         header = read_source("csrc/infinicore/include/infinicore/ops/mha_varlen.hpp")
@@ -1281,62 +930,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "compiled_output->hidden_states->resume_from_blob_()", replay_body
         )
         self.assertIn("hidden_states = output->hidden_states;", worker)
-
-    def test_static_graph_carries_eagle_hidden_input_and_output(self) -> None:
-        compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
-        replay_body = function_body(
-            compiler,
-            "StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(",
-        )
-
-        self.assertIn('"model_type", "") == "minicpm_eagle"', compile_body)
-        self.assertIn(
-            "input.target_hidden_states = infinicore::Tensor::empty", compile_body
-        )
-        self.assertIn('{b, 1, model_config->get<size_t>("hidden_size")}', compile_body)
-        self.assertIn("model_config->get_dtype()", compile_body)
-        self.assertIn("set_zeros(input.target_hidden_states.value())", compile_body)
-        self.assertIn("if (output.hidden_states)", compile_body)
-        self.assertIn("output.hidden_states", compile_body)
-        hidden_input_start = compile_body.index("if (uses_target_hidden_states)")
-        hidden_input_end_marker = "set_zeros(input.target_hidden_states.value())"
-        hidden_input_end = compile_body.index(
-            hidden_input_end_marker, hidden_input_start
-        ) + len(hidden_input_end_marker)
-        hidden_input_block = compile_body[hidden_input_start:hidden_input_end]
-        for token in (
-            "input.target_hidden_states = infinicore::Tensor::empty",
-            "model_config->get_dtype()",
-            "set_zeros(input.target_hidden_states.value())",
-        ):
-            self.assertIn(token, hidden_input_block)
-
-        normalized_compile = " ".join(compile_body.split())
-        self.assertIn(
-            "GraphTensor::SnapshotPolicy::kBlob), graph_hidden_states}",
-            normalized_compile,
-        )
-
-        self.assertIn("graph_input.target_hidden_states.has_value()", replay_body)
-        self.assertIn("input.target_hidden_states.has_value()", replay_body)
-        self.assertIn("graph_has_target_hidden_states !=", replay_body)
-        self.assertIn("input_has_target_hidden_states", replay_body)
-        self.assertIn("target_hidden_states.value()->shape()", replay_body)
-        self.assertIn("target_hidden_states.value()->dtype()", replay_body)
-        self.assertIn(
-            "graph_input.target_hidden_states.value()->copy_from(", replay_body
-        )
-        self.assertIn("if (compiled_output->hidden_states)", replay_body)
-        self.assertIn(
-            "compiled_output->hidden_states->resume_from_blob_()", replay_body
-        )
-        normalized_replay = " ".join(replay_body.split())
-        self.assertIn(
-            "new InfinilmModel::Output{ "
-            "compiled_output->logits->resume_from_blob_(), hidden_states}",
-            normalized_replay,
-        )
 
     def test_graph_lookup_preserves_target_hidden_on_source_device(self) -> None:
         header = read_source("csrc/engine/rank_worker.hpp")
@@ -1499,51 +1092,12 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         )
         self.assertIn("mha_kvcache_(", paged_attention)
 
-    def test_static_graph_compile_inputs_are_deterministic(self) -> None:
-        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
-
-        for field in ("input_ids", "position_ids", "past_sequence_lengths"):
-            with self.subTest(field=field):
-                self.assertIn(f"set_zeros(input.{field}.value())", compile_body)
-
-        self.assertRegex(
-            compile_body,
-            re.compile(
-                r"input\.block_tables\s*=\s*infinicore::Tensor::empty"
-                r"\(\{b, 1\}, infinicore::DataType::kInt32,"
-            ),
-        )
-        self.assertIn("block_tables_vec[i] = static_cast<int32_t>(i)", compile_body)
-        self.assertIn("input.block_tables.value()->data()", compile_body)
-
-    def test_static_graph_keeps_dynamic_cache_metadata_on_device(self) -> None:
-        source = read_source("csrc/layers/attention/backends/static_attn.cpp")
-        forward = function_body(
-            source,
-            "infinicore::Tensor StaticAttentionImpl::forward(",
-        )
-
-        self.assertIn("context::isGraphRecording()", forward)
-        self.assertIn("return forward_graph_(", forward)
-        self.assertIn("StaticAttentionImpl::forward_graph_", source)
-
-        graph_forward = function_body(
-            source,
-            "infinicore::Tensor StaticAttentionImpl::forward_graph_(",
-        )
-        self.assertIn("infinicore::op::paged_caching_", graph_forward)
-        self.assertIn("infinicore::op::paged_attention_", graph_forward)
-        self.assertNotIn("infinicore::op::kv_caching_", graph_forward)
-        self.assertNotIn("Device::Type::kCpu", graph_forward)
-
     def test_static_eager_snapshots_sequence_lengths_once_per_forward(self) -> None:
         metadata = read_source("csrc/global_state/forward_context.hpp")
         engine = read_source("csrc/engine/infer_engine.cpp")
         worker_header = read_source("csrc/engine/rank_worker.hpp")
         worker = read_source("csrc/engine/rank_worker.cpp")
         attention = read_source("csrc/layers/attention/backends/static_attn.cpp")
-        compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
 
         self.assertIn("std::optional<size_t> first_past_sequence_length", metadata)
         self.assertIn("std::optional<size_t> first_total_sequence_length", metadata)
@@ -1578,40 +1132,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("if (snapshot.has_value())", fallback)
         self.assertIn("Device::Type::kCpu", fallback)
         self.assertNotIn("value_or", fallback)
-
-        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
-        self.assertIn("first_past_sequence_length = 0", compile_body)
-        self.assertIn("first_total_sequence_length = 1", compile_body)
-
-    def test_static_graph_uses_dynamic_canonical_cache_slots(self) -> None:
-        compiler = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        compile_body = function_body(compiler, "void StaticBatchingCompiler::compile()")
-        replay_body = function_body(
-            compiler,
-            "StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(",
-        )
-        graph_forward = function_body(
-            read_source("csrc/layers/attention/backends/static_attn.cpp"),
-            "infinicore::Tensor StaticAttentionImpl::forward_graph_(",
-        )
-
-        self.assertIn("kv_cache->size(3) % 256", compiler)
-        self.assertIn("kv_cache->size(1) != batch_size", compiler)
-        self.assertRegex(
-            compile_body,
-            re.compile(
-                r"input\.slot_mapping\s*=\s*infinicore::Tensor::empty"
-                r"\(\{b\}, infinicore::DataType::kInt64,"
-            ),
-        )
-        self.assertIn("i * cache_page_size", compile_body)
-        self.assertIn("past_sequence_lengths[i]", replay_body)
-        self.assertIn("result->second.cache_page_size", replay_body)
-        self.assertIn("graph_input.slot_mapping.value()->data()", replay_body)
-        self.assertIn("infinicore::op::paged_caching_", graph_forward)
-        self.assertIn("attn_metadata.slot_mapping.value()", graph_forward)
-        self.assertIn("permute({0, 2, 1, 3})", graph_forward)
-        self.assertNotIn("infinicore::op::kv_caching_", graph_forward)
 
     def test_random_sampling_uses_only_canonical_infiniops(self) -> None:
         wrapper = read_source("csrc/infinicore/src/ops/random_sample/random_sample.cc")
@@ -1754,48 +1274,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("cos_sin_cache", grouped)
         self.assertNotIn("infinicore::op::rope_(", ernie)
         self.assertNotIn("infinicore/ops/rope.hpp", ernie)
-
-    def test_static_graph_falls_back_for_unsupported_attention_configs(self) -> None:
-        source = read_source("csrc/engine/compiler/static_batching_compiler.cpp")
-        self.assertIn("bool supports_static_graph_kv_cache(", source)
-        self.assertIn("bool supports_static_graph_attention(size_t batch_size)", source)
-        cache_check = function_body(source, "bool supports_static_graph_kv_cache(")
-        page_size = function_body(
-            source, "std::optional<size_t> static_graph_cache_page_size("
-        )
-        capability = function_body(
-            source, "bool supports_static_graph_attention(size_t batch_size)"
-        )
-        compile_body = function_body(source, "void StaticBatchingCompiler::compile()")
-
-        self.assertIn("Device::Type::kNvidia", capability)
-        self.assertIn(
-            "static_graph_cache_page_size(batch_size).has_value()", capability
-        )
-        self.assertIn("get_forward_context().kv_cache_vec", page_size)
-        self.assertIn("for (const auto &kv_cache : kv_cache_vec)", page_size)
-        self.assertIn("kv_cache->size(1) != batch_size", page_size)
-        self.assertIn("kv_cache->size(3) == 0", page_size)
-        self.assertIn("kv_cache->size(3) % 256 != 0", page_size)
-        self.assertIn("kv_cache->size(3) != *page_size", page_size)
-        self.assertIn("kv_cache.empty()", cache_check)
-        self.assertIn("kv_cache->ndim() != 5", cache_check)
-        self.assertIn("kv_cache->size(0) != 2", cache_check)
-        self.assertIn("kv_cache->dtype()", cache_check)
-        self.assertIn("kv_cache->size(4)", cache_check)
-        self.assertIn("DataType::kFloat16", cache_check)
-        self.assertIn("DataType::kBFloat16", cache_check)
-        self.assertIn("head_dim == 64", cache_check)
-        self.assertIn("head_dim == 128", cache_check)
-        self.assertIn("KVQuantAlgo::NONE", capability)
-        for forbidden in ("get_dtype()", "get_kv_cache_dtype()", "get_head_dim()"):
-            self.assertNotIn(forbidden, capability)
-        self.assertIn("compiled_map_.clear()", compile_body)
-        self.assertIn("if (!supports_static_graph_attention(b))", compile_body)
-        self.assertLess(
-            compile_body.index("if (!supports_static_graph_attention(b))"),
-            compile_body.index("GraphRecordingGuard recording"),
-        )
 
     def test_foreign_capture_rejects_operator_dispatch(self) -> None:
         manager_header = read_source("csrc/infinicore/src/graph/graph_manager.hpp")

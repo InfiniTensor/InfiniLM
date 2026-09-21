@@ -8,7 +8,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_kthvalue(py::module &m) {
-    // 1. 绑定 functional 接口: (values, indices) = kthvalue(input, k, dim, keepdim)
     m.def("kthvalue",
           &op::kthvalue,
           py::arg("input"),
@@ -24,7 +23,6 @@ inline void bind_kthvalue(py::module &m) {
         keepdim (bool): Whether to keep the output dimension.
     )doc");
 
-    // 2. 绑定 explicit output 接口: kthvalue_(values, indices, input, k, dim, keepdim)
     m.def("kthvalue_",
           &op::kthvalue_,
           py::arg("values"),

@@ -27,12 +27,10 @@ inline void bind_huber_loss(py::module &m) {
     )doc");
 
     // -------------------------------------------------------------------------
-    // 2. 绑定 in-place 接口 (huber_loss_)
     // -------------------------------------------------------------------------
     m.def(
         "huber_loss_",
         [](Tensor &output, const Tensor &input, const Tensor &target, float delta, int reduction) {
-            // 调用底层
             op::huber_loss_(output, input, target, delta, reduction);
         },
         py::arg("output"),

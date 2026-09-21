@@ -33,15 +33,21 @@ public:
 
 class DispatchableGraphOperator : public GraphOperator {
 public:
+    DispatchableGraphOperator() = default;
+    DispatchableGraphOperator(const DispatchableGraphOperator &) = delete;
+    DispatchableGraphOperator &operator=(const DispatchableGraphOperator &) = delete;
+    DispatchableGraphOperator(DispatchableGraphOperator &&) = delete;
+    DispatchableGraphOperator &operator=(DispatchableGraphOperator &&) = delete;
+
     void run() const override;
     ~DispatchableGraphOperator() override;
 
 protected:
     using run_schema = void (*)(void *);
     using cleanup_schema = void (*)(void **);
-    void *planned_meta_;
-    run_schema runner_;
-    cleanup_schema deleter_;
+    void *planned_meta_ = nullptr;
+    run_schema runner_ = nullptr;
+    cleanup_schema deleter_ = nullptr;
 };
 
 class Graph {
@@ -110,10 +116,16 @@ private:
         return dispatcher_;                                                                \
     }
 
-#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)                  \
-    planned_meta_ = plan_dispatcher().lookup(__DEVICE_TYPE__)(__VA_ARGS__); \
-    runner_ = run_dispatcher().lookup(__DEVICE_TYPE__);                     \
-    deleter_ = cleanup_dispatcher().lookup(__DEVICE_TYPE__);
+#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)             \
+    do {                                                               \
+        const auto device_type = (__DEVICE_TYPE__);                    \
+        const auto plan = plan_dispatcher().lookup(device_type);       \
+        const auto runner = run_dispatcher().lookup(device_type);      \
+        const auto deleter = cleanup_dispatcher().lookup(device_type); \
+        planned_meta_ = plan(__VA_ARGS__);                             \
+        runner_ = runner;                                              \
+        deleter_ = deleter;                                            \
+    } while (0)
 
 #define INFINICORE_DETAIL_FIRST_ARG(__FIRST__, ...) __FIRST__
 

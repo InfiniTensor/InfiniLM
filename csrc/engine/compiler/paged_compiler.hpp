@@ -18,15 +18,12 @@ private:
     std::vector<size_t> decode_batch_sizes_;
 
     infinicore::Tensor block_tables_holder_;
-    infinicore::Tensor short_block_tables_holder_;
 
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
     };
 
-    std::optional<CompiledResult> compiled_short_decode_b1_;
-    std::optional<CompiledResult> compiled_baichuan_prefill_b1_s10_;
     std::unordered_map<
         size_t, // num_requests
         CompiledResult>

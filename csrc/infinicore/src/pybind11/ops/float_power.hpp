@@ -29,12 +29,10 @@ void bind_float_power(py::module &m) {
         "float_power", [](py::object input_obj, py::object exp_obj) -> Tensor {
             Tensor input = unwrap(input_obj);
 
-            // 处理标量指数的情况 (float 或 int)
             if (py::isinstance<py::float_>(exp_obj) || py::isinstance<py::int_>(exp_obj)) {
                 return float_power(input, exp_obj.cast<double>());
             }
 
-            // 处理张量指数的情况
             Tensor exponent = unwrap(exp_obj);
             return float_power(input, exponent);
         },

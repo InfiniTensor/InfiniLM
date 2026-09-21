@@ -16,7 +16,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_ldexp(py::module &m) {
-    // 1. 绑定 functional 接口: output = ldexp(input, other)
     m.def("ldexp",
           &op::ldexp,
           py::arg("input"),
@@ -28,7 +27,6 @@ inline void bind_ldexp(py::module &m) {
         other (Tensor): The exponent tensor.
     )doc");
 
-    // 2. 绑定 explicit output 接口: ldexp_(output, input, other)
     m.def("ldexp_",
           &op::ldexp_,
           py::arg("output"),

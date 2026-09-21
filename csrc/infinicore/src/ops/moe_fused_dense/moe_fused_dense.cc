@@ -18,9 +18,9 @@ MoeFusedDense::MoeFusedDense(Tensor output,
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(
         output, hidden_states, w13, w2, topk_weights, topk_ids,
         sorted_token_ids, expert_ids, num_tokens_post_padded);
-    INFINICORE_GRAPH_OP_DISPATCH(
-        output->device().type(), output, hidden_states, w13, w2, topk_weights, topk_ids,
-        sorted_token_ids, expert_ids, num_tokens_post_padded);
+    throw std::runtime_error(
+        "`moe_fused_dense` requires an InfiniOps dense expert provider; "
+        "quantized WNA16/Marlin providers do not accept floating-point expert weights");
 }
 
 void MoeFusedDense::execute(Tensor output,

@@ -8,7 +8,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_binary_cross_entropy_with_logits(py::module &m) {
-    // 1. 绑定 out-of-place 接口: out = binary_cross_entropy_with_logits(...)
     m.def(
         "binary_cross_entropy_with_logits",
         [](Tensor logits,
@@ -41,7 +40,6 @@ Returns:
     A tensor representing the loss.
 )doc");
 
-    // 2. 绑定指定输出接口: binary_cross_entropy_with_logits_(out, ...)
     m.def(
         "binary_cross_entropy_with_logits_",
         [](Tensor output,
