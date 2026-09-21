@@ -21,8 +21,8 @@ struct AttentionMetadata {
     size_t max_query_length{0};
     /// Maximum total sequence length in the current batch.
     size_t max_sequence_length{0};
-    // Single-request checkpoint verification can reuse Decode Attention with
-    // one causal KV length per query. These buffers are shared by all layers.
+    // Packed checkpoint verification reuses Decode Attention with one causal
+    // KV length and request page-table row per query, shared by all layers.
     std::optional<infinicore::Tensor> verification_sequence_lengths;
     std::optional<infinicore::Tensor> verification_block_tables;
 

@@ -339,30 +339,52 @@ InferEngine::Input::to_model_input(infinicore::Device device, bool for_graph) co
         max_query_length,
         max_sequence_length};
 
-    // The single-request fast path expands only the attention query rows.
-    // Each checkpoint request has at most eight tokens. GDN/Conv keep
-    // their original request offsets and recurrent state indices.
+    // Expand only attention rows, giving every speculative query its causal
+    // length and its own request's page table. GDN/Conv retain packed offsets.
     const bool short_draft = target_hidden_states && input_offsets
-                          && input_offsets.value()->numel() == 2 && max_query_length <= 8;
-    if ((token_state_indices || short_draft) && input_offsets.value()->numel() == 2 && is_prefill && input.block_tables
+                          && max_query_length <= 8;
+    if ((token_state_indices || short_draft) && is_prefill && input.block_tables
         && device.getType() == infinicore::Device::Type::NVIDIA
         && max_sequence_length > max_query_length) {
-        std::vector<int32_t> lengths(max_query_length);
-        for (size_t i = 0; i < lengths.size(); ++i) {
-            lengths[i] = static_cast<int32_t>(max_sequence_length - max_query_length + i + 1);
+        auto host_offsets = input_offsets.value()->to(infinicore::Device::cpu())->contiguous();
+        auto host_lengths = total_sequence_lengths.value()->to(infinicore::Device::cpu())->contiguous();
+        if (input_offsets.value()->device().getType() != infinicore::Device::Type::CPU
+            || total_sequence_lengths.value()->device().getType() != infinicore::Device::Type::CPU) {
+            infinicore::context::syncStream();
         }
+        const size_t requests = host_offsets->numel() - 1;
+        if (host_lengths->dtype() != infinicore::DataType::I32
+            || host_lengths->shape() != std::vector<size_t>{requests}
+            || input.block_tables.value()->ndim() != 2
+            || input.block_tables.value()->size(0) != requests) {
+            throw std::invalid_argument("Short verification needs one KV length and page-table row per request.");
+        }
+        const auto *offsets = reinterpret_cast<const int32_t *>(host_offsets->data());
+        const auto *totals = reinterpret_cast<const int32_t *>(host_lengths->data());
+        const size_t tokens = input_ids.value()->numel();
+        if (offsets[0] != 0 || offsets[requests] != static_cast<int32_t>(tokens)) {
+            throw std::invalid_argument("Short verification offsets must cover all query tokens.");
+        }
+        std::vector<int32_t> lengths(tokens);
         auto &metadata = global_state::get_forward_context().attn_metadata;
+        const auto &tables = input.block_tables.value();
+        auto expanded_tables = infinicore::Tensor::empty({tokens, tables->size(1)}, tables->dtype(), device);
+        for (size_t r = 0; r < requests; ++r) {
+            const auto count = offsets[r + 1] - offsets[r];
+            if (count <= 0 || totals[r] < count) {
+                throw std::invalid_argument("Short verification requires nonempty queries within each KV length.");
+            }
+            for (int32_t t = 0; t < count; ++t) {
+                lengths[offsets[r] + t] = totals[r] - count + t + 1;
+            }
+            auto repeated = tables->narrow({{0, r, 1}})->as_strided({static_cast<size_t>(count), tables->size(1)}, {0, tables->stride(1)});
+            expanded_tables->narrow({{0, static_cast<size_t>(offsets[r]), static_cast<size_t>(count)}})->copy_from(repeated);
+        }
         metadata.verification_sequence_lengths = infinicore::Tensor::empty(
             {lengths.size()}, infinicore::DataType::I32, device);
         infinicore::context::memcpyH2D(metadata.verification_sequence_lengths.value()->data(),
                                        lengths.data(), lengths.size() * sizeof(int32_t), false);
-        // Each query references the same physical KV pages. Its own length
-        // hides the speculative future. NVIDIA Decode kernels assume packed
-        // page-table rows, so materialize only these small indices, never KV.
-        metadata.verification_block_tables = input.block_tables.value()->as_strided(
-                                                                           {max_query_length, input.block_tables.value()->size(1)},
-                                                                           {0, input.block_tables.value()->stride(1)})
-                                                 ->contiguous();
+        metadata.verification_block_tables = std::move(expanded_tables);
     }
 
     infinilm::global_state::get_forward_context().mamba_metadata = {

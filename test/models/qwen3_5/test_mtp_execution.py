@@ -8,6 +8,7 @@ import os
 
 import infinicore
 import pytest
+import torch
 from infinilm.cache import PagedKVCacheConfig
 from infinilm.llm.llm import LLM
 from infinilm.llm.request import InferenceRequest
@@ -202,5 +203,63 @@ def test_batched_mtp_matches_serial_with_cancellation():
         engine.add_request(other)
         actual = drain(engine, [cancel, keep, other], admit=False)
         assert actual[1:] == expected[1:]
+    finally:
+        llm.close()
+
+
+def test_packed_verification_preserves_request_and_causal_boundaries():
+    llm = create(num_draft_tokens=2, max_batch_size=2, enable_graph=False)
+    runner = llm.engine.model_runner.speculative_runner
+    raw = llm.engine.model_runner.model_engine
+    reqs = [
+        request("left", [i % 59 + 1 for i in range(63)]),
+        request("right", [i % 53 + 1 for i in range(127)]),
+    ]
+    # Different histories and query lengths cross distinct physical page boundaries.
+    for row, (req, blocks) in enumerate(zip(reqs, ([0, 2], [1, 3, 4])), 1):
+        req.block_table = blocks
+        req.mamba_cache_index = row
+
+    def logits_for(inputs):
+        result = raw.forward_raw(**inputs, sample_all_positions=True)
+        logits = result["logits"]
+        cpu = torch.empty(logits.shape, dtype=torch.bfloat16)
+        infinicore.from_torch(cpu).copy_(logits)
+        infinicore.sync_device()
+        return cpu[0]
+
+    def verify(left, right):
+        return logits_for(
+            runner._pack(
+                [
+                    runner._inputs(reqs[0], left, 63, destinations=[3, 4, 5]),
+                    runner._inputs(reqs[1], right, 127, destinations=[6, 7]),
+                ]
+            )
+        )
+
+    try:
+        inputs = runner._pack(
+            [runner._inputs(req, list(req.prompt_token_ids), 0) for req in reqs]
+        )
+        raw.forward_raw(**inputs)
+        expected = verify([5, 7, 9], [11, 13])
+        changed_future = verify([5, 17, 19], [11, 23])
+        torch.testing.assert_close(
+            changed_future[[0, 3]], expected[[0, 3]], rtol=0, atol=0
+        )
+        changed_request = verify([5, 7, 9], [29, 31])
+        torch.testing.assert_close(changed_request[:3], expected[:3], rtol=0, atol=0)
+        # Verification writes scratch rows, so the committed initial states can
+        # also be consumed by ordinary Decode for an independent prefix check.
+        ordinary = logits_for(
+            runner._pack(
+                [
+                    runner._inputs(reqs[0], [5], 63),
+                    runner._inputs(reqs[1], [11], 127),
+                ]
+            )
+        )
+        torch.testing.assert_close(ordinary, expected[[0, 3]], rtol=0, atol=0)
     finally:
         llm.close()

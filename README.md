@@ -52,6 +52,10 @@ GDN state precision follows the model's `mamba_ssm_dtype` even with MTP disabled
 FP32 states use twice the storage of BF16 states; `num_state_rows` controls their
 capacity without changing the precision. Short multi-token GDN recurrence is
 selected by speculative checkpoint metadata, not ordinary prompt length.
+NVIDIA batched Decode uses the same per-token GDN gate projection shape as
+checkpointed verification to avoid BF16 rounding changes with batch size.
+Short packed verification reuses Decode Attention with a causal KV length and
+the owning request's page-table row for each query.
 
 Ordinary Qwen inference also uses vocabulary-parallel output projection and the
 corrected norm/weight-loading path. These shared changes require ordinary-model

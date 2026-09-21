@@ -185,12 +185,15 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
 
     auto qkv = in_proj_qkv_->forward(hidden_states_mutable);
     auto z = in_proj_z_->forward(hidden_states_mutable);
-    // Keep the tiny gate projections on the same GEMM shape as decode.
-    // In BF16, Q=1 and Q=2 can round differently and change candidate ranking
-    // after recurrent-state updates. Large quantized projections stay batched.
+    // Keep tiny gate projections on a common GEMM shape for ordinary NVIDIA
+    // batched Decode and verification. BF16 shape-dependent rounding changes
+    // recurrent states even when the input prefix is identical.
     auto project_gate = [&](const auto &projection) {
         const auto &metadata = infinilm::global_state::get_forward_context().mamba_metadata;
-        if (!metadata.token_state_indices.has_value() || seq_len == 1) {
+        const bool decode = hidden_states->device().getType() == infinicore::Device::Type::NVIDIA
+                         && metadata.input_offsets
+                         && metadata.input_offsets.value()->numel() - 1 == seq_len;
+        if ((!metadata.token_state_indices && !decode) || seq_len == 1) {
             return projection->forward(hidden_states_mutable);
         }
         auto output = infinicore::Tensor::empty({batch_size, seq_len, local_num_value_heads_},
