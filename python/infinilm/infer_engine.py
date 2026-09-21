@@ -55,8 +55,8 @@ def model_uses_mamba_cache(config: dict) -> bool:
     layer_types = llm_config.get("layer_types") or []
     linear_attn_config = llm_config.get("linear_attn_config") or {}
     return (
-        config.get("model_type") == "mamba"
-        or llm_config.get("model_type") == "mamba"
+        config.get("model_type") in ("mamba", "mamba2")
+        or llm_config.get("model_type") in ("mamba", "mamba2")
         or "linear_attention" in layer_types
         or all(
             key in llm_config
@@ -452,6 +452,8 @@ class InferEngine(_infinilm.InferEngine):
         cu_seqlens=None,
         block_tables=None,
         slot_mapping=None,
+        mamba_init_state_indices=None,
+        mamba_final_state_indices=None,
         pixel_values=None,
         image_bound=None,
         tgt_sizes=None,
@@ -474,6 +476,8 @@ class InferEngine(_infinilm.InferEngine):
                     cu_seqlens=cu_seqlens,
                     block_tables=block_tables,
                     slot_mapping=slot_mapping,
+                    mamba_init_state_indices=mamba_init_state_indices,
+                    mamba_final_state_indices=mamba_final_state_indices,
                     pixel_values=pixel_values,
                     image_bound=image_bound,
                     tgt_sizes=tgt_sizes,

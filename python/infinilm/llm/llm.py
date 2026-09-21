@@ -50,6 +50,20 @@ class LLMEngine:
                 "--disable-prefix-caching."
             )
 
+        if hf_config.get("model_type") == "mamba2":
+            if config.pipeline_parallel_size != 1:
+                raise ValueError("Mamba-2 requires `pipeline_parallel_size=1`.")
+            if config.cache_type != "paged":
+                raise ValueError(
+                    "Mamba-2 requires the paged request-state cache interface."
+                )
+            if config.draft_model_path is not None:
+                raise ValueError("Mamba-2 does not support speculative state rollback.")
+            if config.kv_transfer_config and config.kv_transfer_config.kv_connector:
+                raise ValueError(
+                    "Mamba-2 state transfer is not supported by KV connectors."
+                )
+
         if config.pipeline_parallel_size > 1 and config.pipeline_parallel_stage != 0:
             raise ValueError(
                 "LLMEngine can only run pipeline stage 0; launch non-host nodes "
@@ -123,7 +137,9 @@ class LLMEngine:
         self.cache_type = config.cache_type
 
         # Get EOS token IDs from model config
-        self.eos_token_ids = self.model_runner.eos_token_id or []
+        self.eos_token_ids = self.model_runner.eos_token_id
+        if self.eos_token_ids is None:
+            self.eos_token_ids = []
         if isinstance(self.eos_token_ids, int):
             self.eos_token_ids = [self.eos_token_ids]
 

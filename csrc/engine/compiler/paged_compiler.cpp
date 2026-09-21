@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <stdexcept>
 #include <vector>
 
@@ -22,6 +23,43 @@ bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_conte
 
     return has_state(forward_context.conv_state_vec) || has_state(forward_context.ssm_state_vec);
 }
+
+class CacheStateGuard {
+public:
+    void save(const infinicore::Tensor &state, size_t rows) {
+        if (!state) {
+            return;
+        }
+        save_region(state->narrow({{0, 1, rows}}));
+    }
+
+    void save_region(const infinicore::Tensor &region) {
+        auto backup = infinicore::Tensor::empty(region->shape(), region->dtype(), region->device());
+        backup->copy_from(region);
+        saved_.emplace_back(region, backup);
+    }
+
+    void restore() {
+        for (auto &[region, backup] : saved_) {
+            region->copy_from(backup);
+        }
+        if (!saved_.empty()) {
+            infinicore::context::syncStream();
+            saved_.clear();
+        }
+    }
+
+    ~CacheStateGuard() {
+        try {
+            restore();
+        } catch (const std::exception &error) {
+            spdlog::error("Failed to restore request states after graph capture: {}", error.what());
+        }
+    }
+
+private:
+    std::vector<std::pair<infinicore::Tensor, infinicore::Tensor>> saved_;
+};
 
 } // namespace
 
@@ -70,8 +108,40 @@ void PagedCompiler::compile() {
             throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
         }
 
-        size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        infinicore::context::syncStream();
         compiled_map_decode_.clear();
+        if (decode_batch_sizes_.empty()) {
+            return;
+        }
+        size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        if (has_mamba_state) {
+            for (const auto *states : {&forward_context.conv_state_vec, &forward_context.ssm_state_vec}) {
+                for (const auto &state : *states) {
+                    if (state) {
+                        const size_t capacity = state->size(0) == 0 ? 0 : state->size(0) - 1;
+                        max_batch_size = std::min(max_batch_size, capacity);
+                    }
+                }
+            }
+        }
+        if (max_batch_size == 0) {
+            return;
+        }
+        CacheStateGuard state_guard;
+        if (has_mamba_state) {
+            for (const auto *states : {&forward_context.conv_state_vec, &forward_context.ssm_state_vec}) {
+                for (const auto &state : *states) {
+                    state_guard.save(state, max_batch_size);
+                }
+            }
+        }
+        // Warmup and capture write into physical page zero. Preserve it so
+        // recapturing also remains safe while a request owns that page.
+        for (const auto &kv : forward_context.kv_cache_vec) {
+            if (kv) {
+                state_guard.save_region(kv->narrow({{1, 0, 1}}));
+            }
+        }
         block_tables_holder_ = infinicore::Tensor::empty(
             {nblocks * max_batch_size}, infinicore::DataType::I32, infinicore::context::getDevice());
         set_zeros(block_tables_holder_);
@@ -109,7 +179,8 @@ void PagedCompiler::compile() {
                 input.mamba_final_state_indices = infinicore::Tensor::empty(
                     {b}, infinicore::DataType::I32, infinicore::context::getDevice());
                 std::vector<int32_t> init_state_indices_vec(b, 0);
-                std::vector<int32_t> final_state_indices_vec(b, 1);
+                std::vector<int32_t> final_state_indices_vec(b);
+                std::iota(final_state_indices_vec.begin(), final_state_indices_vec.end(), 1);
                 infinicore::context::memcpyH2D(
                     input.mamba_init_state_indices.value()->data(),
                     init_state_indices_vec.data(),
@@ -155,6 +226,9 @@ void PagedCompiler::compile() {
         }
 
         for (size_t b : decode_batch_sizes_) {
+            if (b > max_batch_size) {
+                continue;
+            }
             auto input = make_decode_input(b);
 
             barrier_->wait();
@@ -176,6 +250,7 @@ void PagedCompiler::compile() {
 
             compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
         }
+        state_guard.restore();
     }
 }
 

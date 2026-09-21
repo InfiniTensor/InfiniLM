@@ -6,6 +6,71 @@
 
 当前版本依赖[`InfiniCore v0.2.9`](https://github.com/InfiniTensor/InfiniCore/releases/tag/v0.2.9)版本。
 
+### Mamba-2
+
+Mamba-2 requires an InfiniCore build containing `mamba2_scan`, the reduction
+graph support, and the graph allocator fixes accompanying this adaptation.
+Use matching InfiniLM/InfiniCore revisions; the v0.2.9 release alone is insufficient.
+On NVIDIA, enable Core's `nv-gpu`, `aten` (device dtype conversions), `ccl`
+(TP), and `graph` (Decode graphs) build options.
+On MetaX, use `metax-gpu=y use-mc=y aten=y ccl=y graph=y` and a matching
+MACA PyTorch build. Set `INFINIOP_METAX_ALLOW_TF32=0` before starting a process
+for strict FP32 comparisons; MetaX GEMM otherwise retains its TF32 default.
+
+The initial checkpoint is `state-spaces/mamba2-130m`. Prepare the native
+checkpoint and the `EleutherAI/gpt-neox-20b` tokenizer from local directories:
+
+```bash
+python scripts/prepare_mamba2_checkpoint.py \
+  --source /models/mamba2-130m-native \
+  --tokenizer /models/gpt-neox-tokenizer \
+  --output /models/mamba2-130m
+
+python examples/test_infer.py --device nvidia --model /models/mamba2-130m \
+  --enable-paged-attn --attn paged-attn --disable-prefix-caching \
+  --num-blocks 64 --max-new-tokens 32 --prompt "The capital of France is"
+```
+
+Add `--enable-graph` for eager Prefill plus Decode graphs, or `--tp 2` with
+two visible GPUs. The same prepared directory works with the existing service
+and benchmark entrypoints. This is a base language model for text continuation.
+For MetaX, replace `--device nvidia` with `--device metax`. The validated C500
+configuration is TP1 on a 50% compute / 32,000 MiB slice with MACA 3.5.3 and
+PyTorch 2.8.0+metax3.5.3.9; C500 TP2 has not been validated.
+
+The NVIDIA and MetaX implementations cover FP32, FP16 and BF16 activations with FP32
+residuals and SSM state. The preparation tool defaults to BF16 activation
+configuration and preserves source weight precision; setting `torch_dtype`
+in the prepared config selects FP16 or FP32. The loader retains the source
+precision of state parameters and normalization weights in FP32.
+
+The model uses the existing paged **request-state** interface, with separate
+convolution and SSM state rather than Attention KV pages. The state pool has
+`max(2, num_blocks // 4)` rows, including a reserved zero row, so its request
+capacity is one less than that value. For 130M, each row occupies about
+18.25 MiB in TP1 BF16. The scheduler still applies its logical page budget.
+
+Current scope is pure Mamba-2 with one B/C group, convolution width 4,
+head-wise D, gated RMSNorm after gating, and unbounded time steps. PP, hybrid
+Attention/SSM layers, quantization, prefix caching, remote state transfer,
+speculative rollback and scheduler chunked Prefill are outside this adaptation.
+The SSD kernel's internal chunks do not enable scheduler chunking.
+
+Device kernels live in InfiniCore under `src/infiniop/ops/mamba2_scan/`.
+NVIDIA and MetaX share the scan kernels through runtime-specific launch wrappers
+and the same indexed-state and workspace contract. Moore and Ascend backends
+are not implemented by this adaptation. Model math stays on the device.
+
+Targeted validation can be run with a prepared checkpoint:
+
+```bash
+INFINILM_MAMBA2_MODEL=/models/mamba2-130m \
+INFINILM_MAMBA2_TP=1 INFINILM_MAMBA2_GRAPH=1 \
+NVIDIA_TF32_OVERRIDE=0 \
+INFINIOP_METAX_ALLOW_TF32=0 \
+python -m pytest test/models/mamba2 -q
+```
+
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :

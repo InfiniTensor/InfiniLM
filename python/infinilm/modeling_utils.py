@@ -204,6 +204,15 @@ def load_model_state_dict_by_file(
     preserve_fp32_suffixes = (".e_score_correction_bias",)
     if model_type == "kimi_k3":
         preserve_fp32_suffixes += (".A_log", ".dt_bias")
+    elif model_type == "mamba2":
+        preserve_fp32_suffixes += (
+            ".A_log",
+            ".A",
+            ".D",
+            ".dt_bias",
+            ".norm.weight",
+            ".norm_f.weight",
+        )
 
     torch_device = "cpu"
     torch_dtype = infinicore.utils.to_torch_dtype(dtype)
@@ -215,7 +224,6 @@ def load_model_state_dict_by_file(
 
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
-    weights_processed = False
 
     remapper = _WEIGHT_REMAPPER.get(model_type)
 
@@ -290,9 +298,6 @@ def load_model_state_dict_by_file(
             embed_tokens_torch_unscaled = None
             gc.collect()
 
-        model.process_weights_after_loading()
-        weights_processed = True
-
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
         model_params = torch.load(file_path, weights_only=True, map_location="cpu")
@@ -352,8 +357,8 @@ def load_model_state_dict_by_file(
 
     check_parameters(model_keys, already_loaded_keys)
 
-    if not weights_processed:
-        model.process_weights_after_loading()
+    # All weights, including a tied output head, must exist before packing/capture.
+    model.process_weights_after_loading()
 
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
@@ -728,6 +733,54 @@ def _remap_gpt2(state_dict, config=None):
     return remapped
 
 
+def _remap_mamba2(state_dict, config=None):
+    """Map Mamba-2 weights and prepare constant FP32 state parameters once."""
+    remapped = {}
+    config = config or {}
+    for name, tensor in state_dict.items():
+        name = name.replace("backbone.", "model.", 1)
+        if name.endswith(".mixer.in_proj.weight"):
+            heads, head_dim = config["num_heads"], config["head_dim"]
+            inner, state = heads * head_dim, config["state_size"]
+            z, x, b, c, dt = tensor.split([inner, inner, state, state, heads], dim=0)
+            prefix = name.removesuffix("in_proj.weight")
+            zxd = torch.cat(
+                [
+                    z.reshape(heads, head_dim, -1),
+                    x.reshape(heads, head_dim, -1),
+                    dt[:, None],
+                ],
+                dim=1,
+            )
+            remapped[prefix + "in_proj_zxd.weight"] = zxd.flatten(0, 1).contiguous()
+            remapped[prefix + "in_proj_b.weight"] = b.contiguous()
+            remapped[prefix + "in_proj_c.weight"] = c.contiguous()
+            continue
+        if name.endswith((".mixer.conv1d.weight", ".mixer.conv1d.bias")):
+            suffix = name.rsplit(".", 1)[-1]
+            prefix = name.rsplit("conv1d.", 1)[0]
+            inner = config["num_heads"] * config["head_dim"]
+            for part, value in zip(
+                ("x", "b", "c"),
+                tensor.split(
+                    [inner, config["state_size"], config["state_size"]], dim=0
+                ),
+            ):
+                remapped[prefix + f"conv1d_{part}_{suffix}"] = value.contiguous()
+            continue
+        if name.endswith(".A_log"):
+            name = name.removesuffix("A_log") + "A"
+            tensor = -torch.exp(tensor.float())
+        elif name.endswith((".D", ".dt_bias", ".norm.weight", ".norm_f.weight")):
+            tensor = tensor.float()
+        remapped[name] = tensor
+    if config.get("tie_word_embeddings", False):
+        embedding = remapped.get("model.embeddings.weight")
+        if embedding is not None:
+            remapped["lm_head.weight"] = embedding
+    return remapped
+
+
 def _remap_mamba(state_dict, config=None):
     """Remap HuggingFace Mamba weights to InfiniLM native names."""
     remapped = {}
@@ -1077,6 +1130,7 @@ _WEIGHT_REMAPPER = {
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
     "mamba": _remap_mamba,
+    "mamba2": _remap_mamba2,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,

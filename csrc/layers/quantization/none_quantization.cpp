@@ -82,12 +82,13 @@ std::vector<SplitParam> NoneQuantization::split_params(
     std::vector<SplitParam> result;
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
+    const int weight_dim = weight_prepacked_ ? 1 - narrow_dim : narrow_dim;
 
     for (const auto &s : splits) {
         result.push_back({s.prefix + ".weight",
                           infinicore::nn::Parameter(
-                              weight_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
-                              narrow_dim, tp_rank, tp_size, s.num_shards)});
+                              weight_it->second->narrow({{static_cast<size_t>(weight_dim), s.start, s.size}}),
+                              weight_dim, tp_rank, tp_size, s.num_shards)});
         if (bias_it != params.end()) {
             result.push_back({s.prefix + ".bias",
                               infinicore::nn::Parameter(
@@ -104,7 +105,7 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
     int /*split_dim*/) const {
 
     // Controlled by --pre-transpose CLI flag, default off.
-    if (!global_state::get_infinilm_config().pre_transpose) {
+    if (!global_state::get_infinilm_config().pre_transpose || weight_prepacked_) {
         return nullptr;
     }
 
@@ -115,15 +116,13 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
         // subsequent forwards can feed it directly to GEMM.
         params["weight"] = weight_it->second->permute({1, 0})->contiguous();
 
-        // Mark as pre-packed so forward() uses linear_packed.
-        weight_prepacked_ = true;
+        // A quantization object may be shared by several unprocessed linears.
+        auto packed = std::make_shared<NoneQuantization>(get_config());
+        packed->weight_prepacked_ = true;
+        return packed;
     }
 
-    // Must return non-null so that BaseLinear::process_weights_after_loading
-    // writes the modified params back into parameters_.
-    // Returning shared_from_this() triggers the "quantization changed" path
-    // which calls parameters_.clear() + re-insert from params.
-    return std::const_pointer_cast<BaseQuantization>(shared_from_this());
+    return nullptr;
 }
 
 } // namespace infinilm::quantization
