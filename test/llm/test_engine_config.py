@@ -6,7 +6,7 @@ import os
 import runpy
 import sys
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -39,39 +39,38 @@ CLI = [
 
 
 class EngineConfigTests(unittest.TestCase):
-    def parse_cli(self, *args):
+    @contextmanager
+    def cli(self, *args):
         with (
             patch.object(
                 sys, "argv", ["server", "--model", "unused", "--device", "cpu", *args]
             ),
             patch.dict(os.environ),
         ):
+            yield
+
+    def parse_cli(self, *args):
+        with self.cli(*args):
             return BaseConfig()
 
-    def assert_options(self, config):
-        for key, value in OPTIONS.items():
+    def assert_options(self, config, expected=OPTIONS):
+        for key, value in expected.items():
             self.assertEqual(getattr(config, key), value)
 
     def test_defaults_preserve_existing_behavior(self):
-        for cache_type in ("paged", "static"):
-            config = EngineConfig("unused", cache_type=cache_type)
-            self.assertEqual(
-                (
-                    config.prefix_cache_policy,
-                    config.prefix_cache_protected_ratio,
-                    config.prefill_chunk_size,
+        for config in (
+            EngineConfig("unused", cache_type="paged"),
+            EngineConfig("unused", cache_type="static"),
+            self.parse_cli(),
+        ):
+            self.assert_options(
+                config,
+                dict(
+                    prefix_cache_policy="lru",
+                    prefix_cache_protected_ratio=0.8,
+                    prefill_chunk_size=0,
                 ),
-                ("lru", 0.8, 0),
             )
-        cli = self.parse_cli()
-        self.assertEqual(
-            (
-                cli.prefix_cache_policy,
-                cli.prefix_cache_protected_ratio,
-                cli.prefill_chunk_size,
-            ),
-            ("lru", 0.8, 0),
-        )
 
     def test_invalid_policy_ratio_and_chunk_values(self):
         invalid = [("prefix_cache_policy", "fifo")]
@@ -261,18 +260,29 @@ class EngineConfigTests(unittest.TestCase):
         )
         self.assertEqual(closed, [True])
 
-    def test_cli_reaches_server_lifespan(self):
+    def check_entrypoint(self, main):
         configs = []
 
+        def make_engine(config):
+            configs.append(config)
+            return SimpleNamespace(config=config, close=lambda: None)
+
+        with (
+            self.cli(*CLI),
+            patch.object(LLM_MODULE, "LLMEngine", make_engine),
+            redirect_stdout(io.StringIO()),
+        ):
+            main()
+        self.assertEqual(len(configs), 1)
+        self.assert_options(configs[0])
+
+    def test_cli_reaches_server_lifespan(self):
         async def start_without_listener(server):
             app = server._create_app()
             async with app.router.lifespan_context(app):
-                configs.append(server.engine.config)
+                self.assert_options(server.engine.config)
 
         with (
-            patch.object(
-                LLM_MODULE, "LLMEngine", lambda config: SimpleNamespace(config=config)
-            ),
             patch.object(LLM_MODULE.AsyncLLMEngine, "start"),
             patch.object(LLM_MODULE.AsyncLLMEngine, "stop"),
             patch.object(
@@ -281,17 +291,10 @@ class EngineConfigTests(unittest.TestCase):
                 lambda server: asyncio.run(start_without_listener(server)),
             ),
             patch.object(SERVER_MODULE, "setup_logging"),
-            patch.dict(os.environ),
-            patch.object(
-                sys, "argv", ["server", "--model", "unused", "--device", "cpu", *CLI]
-            ),
         ):
-            SERVER_MODULE.main()
-        self.assertEqual(len(configs), 1)
-        self.assert_options(configs[0])
+            self.check_entrypoint(SERVER_MODULE.main)
 
     def test_offline_cli_reaches_llm(self):
-        configs = []
         modules = {
             "infinilm.base_config": SimpleNamespace(BaseConfig=BaseConfig),
             "infinilm.llm.llm": LLM_MODULE,
@@ -303,32 +306,17 @@ class EngineConfigTests(unittest.TestCase):
             ),
         }
 
-        def chat(model, messages):
-            configs.append(model.config)
-            return []
-
         with (
             patch.dict(sys.modules, modules),
-            patch.dict(os.environ),
-            patch.object(
-                sys,
-                "argv",
-                ["test_infer", "--model", "unused", "--device", "cpu", *CLI],
-            ),
-            patch.object(
-                LLM_MODULE,
-                "LLMEngine",
-                lambda config: SimpleNamespace(close=lambda: None),
-            ),
-            patch.object(LLM_MODULE.LLM, "chat", chat),
+            patch.object(LLM_MODULE.LLM, "chat", return_value=[]),
             patch.object(SERVER_MODULE.logging, "basicConfig"),
-            redirect_stdout(io.StringIO()),
         ):
-            runpy.run_path(
-                str(SOURCE.parents[1] / "examples/test_infer.py"), run_name="__main__"
+            self.check_entrypoint(
+                lambda: runpy.run_path(
+                    str(SOURCE.parents[1] / "examples/test_infer.py"),
+                    run_name="__main__",
+                )
             )
-        self.assertEqual(len(configs), 1)
-        self.assert_options(configs[0])
 
 
 if __name__ == "__main__":

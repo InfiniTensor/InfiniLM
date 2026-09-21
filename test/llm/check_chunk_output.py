@@ -1,27 +1,90 @@
-"""Native output suppression plus the existing per-rank KV lifecycle checks."""
+"""Opt-in native chunk/output/cancellation regression for a dense FP16 model."""
 
 import argparse
-import json
-from pathlib import Path
 from unittest.mock import patch
 
-from check_chunk_tp import run
 
-
-def check(args):
+def check(model, tp=1, chunk_size=17, graph=False):
+    import infinicore
+    from infinilm.config.engine_config import EngineConfig
     from infinilm.lib import _infinilm
+    from infinilm.llm.llm import LLMEngine
+    from infinilm.llm.request import InferenceRequest
+    from infinilm.llm.sampling_params import SamplingParams
 
-    # Fail before loading a model if the native extension has not been rebuilt.
-    assert _infinilm.InferEngine.Input(prefill_only=True).prefill_only
-    native = _infinilm.InferEngine.forward
-    calls = []
-    rejected = []
+    outputs = []
+    for chunk in (0, chunk_size):
+        engine = LLMEngine(
+            EngineConfig(
+                model,
+                device="cuda",
+                dtype="float16",
+                tensor_parallel_size=tp,
+                enable_graph=graph,
+                attn_backend="paged-attn",
+                num_blocks=16,
+                block_size=64,
+                max_batch_size=1,
+                prefill_chunk_size=chunk,
+                enable_prefix_caching=True,
+                prefix_cache_policy="slru",
+            )
+        )
+        raw = engine.model_runner.model_engine
+        native = _infinilm.InferEngine.forward
+        calls = []
 
-    def forward(engine, inputs):
-        if not calls:
-            # Rejection must happen before any worker job is submitted; the
-            # subsequent normal lifecycle must still be able to use this engine.
-            for kwargs, message in (
+        def forward(instance, inputs):
+            result = native(instance, inputs)
+            calls.append(inputs.prefill_only)
+            if inputs.prefill_only:
+                assert (
+                    not result.output_ids
+                    and not result.logits
+                    and not result.hidden_states
+                )
+            else:
+                assert result.output_ids and result.logits
+            return result
+
+        def generate(name, tokens, cancel=False, reused=False):
+            request = InferenceRequest(
+                name,
+                prompt_token_ids=tokens,
+                sampling_params=SamplingParams(max_tokens=4, ignore_eos=True, top_k=1),
+            )
+            engine.add_request(request)
+            for step in range(100):
+                if request.is_finished():
+                    break
+                assert engine.step()[0]
+                if step == 0 and reused:
+                    assert request.num_local_cached_tokens == 64
+                if cancel and step == 0:
+                    assert not request.generated_token_ids
+                    request.abort()
+            assert request.is_finished()
+            cache = engine.scheduler.cache_manager
+            assert all(block.ref_count == 0 for block in cache.blocks)
+            assert cache.get_total_usable_blocks() == cache.num_blocks
+            if cancel:
+                assert (
+                    request.status.name == "CANCELED"
+                    and not request.generated_token_ids
+                )
+            else:
+                assert len(request.generated_token_ids) == 4
+            return list(request.generated_token_ids)
+
+        try:
+            caches = _infinilm.InferEngine.get_kv_cache(raw)
+            assert len(caches) == tp
+            for rank, tensors in enumerate(caches):
+                assert {infinicore.Tensor(t).device.index for t in tensors if t} == {
+                    rank
+                }
+            # Invalid output suppression must fail before dispatching worker jobs.
+            for arguments, message in (
                 (
                     {"prefill_only": True, "sample_all_positions": True},
                     "sample_all_positions=false",
@@ -29,50 +92,36 @@ def check(args):
                 ({"prefill_only": True}, "input_offsets"),
             ):
                 try:
-                    native(engine, _infinilm.InferEngine.Input(**kwargs))
+                    native(raw, _infinilm.InferEngine.Input(**arguments))
                 except ValueError as error:
                     assert message in str(error)
-                    rejected.append(message)
                 else:
-                    raise AssertionError("invalid outputless forward was accepted")
-        output = native(engine, inputs)
-        if inputs.prefill_only:
-            assert not output.output_ids
-            assert not output.logits
-            assert not output.hidden_states
-        else:
-            assert output.output_ids
-            assert output.logits
-        calls.append(dict(prefill_only=inputs.prefill_only))
-        return output
-
-    with patch.object(_infinilm.InferEngine, "forward", forward):
-        result = run(args)
-    skipped = sum(c["prefill_only"] for c in calls)
-    assert skipped > 0
-    result["native_rejections"] = rejected
-    assert len(rejected) == 2
-    result["native_outputs"] = dict(
-        calls=len(calls), prefill_only=skipped, checked=True
-    )
-    return result
+                    raise AssertionError("Invalid outputless forward was accepted.")
+            with patch.object(_infinilm.InferEngine, "forward", forward):
+                tokens = list(range(1, 68))
+                result = generate("first", tokens)
+                assert generate("prefix-reuse", tokens, reused=True) == result
+                if chunk:
+                    assert any(calls) and not all(calls)
+                    generate("cancel", [7] * len(tokens), cancel=True)
+                else:
+                    assert not any(calls)
+                outputs.append(result)
+        finally:
+            engine.close()
+    assert outputs[0] == outputs[1], "Chunked and ordinary greedy tokens differ."
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--tp", type=int, default=2)
-    parser.add_argument("--chunk-size", type=int, default=300)
-    parser.add_argument("--cache-off", action="store_true")
-    parser.add_argument("--output", type=Path, required=True)
-    parser.set_defaults(graph=False, pp=1, stage=0, port=29761, policy="lru")
+    parser.add_argument("--tp", type=int, default=1)
+    parser.add_argument("--chunk-size", type=int, default=17)
+    parser.add_argument("--graph", action="store_true")
     args = parser.parse_args()
-    try:
-        payload = check(args)
-    except Exception as error:
-        args.output.write_text(
-            json.dumps(dict(status="failure", error=repr(error)), indent=2) + "\n"
+    if not 0 < args.chunk_size < 67:
+        parser.error(
+            "--chunk-size must be between 1 and 66 to exercise intermediate chunks"
         )
-        raise
-    args.output.write_text(json.dumps(payload, indent=2) + "\n")
-    print(json.dumps(payload["native_outputs"]))
+    check(args.model, args.tp, args.chunk_size, args.graph)
+    print("Native chunk output, prefix reuse, cancellation and reclamation passed.")

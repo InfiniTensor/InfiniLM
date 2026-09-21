@@ -11,36 +11,23 @@ They cover cache ownership/capacity, LRU/SLRU eviction, admission rollback,
 remote-KV delayed release, configuration forwarding, chunk boundaries,
 phase progress, cancellation and final-only output.
 
-With matching built InfiniLM/InfiniCore extensions and a local dense FP16 model,
-run the opt-in A6000 lifecycle check (use `--tp 1` for a single GPU):
+With matching built InfiniLM/InfiniCore extensions and a dense FP16 model,
+run the short native regression (use `--tp 1` for a single GPU):
 
 ```sh
-CUDA_VISIBLE_DEVICES=0,1 python test/llm/check_chunk_tp.py \
-  --model /path/to/model --tp 2 --chunk-size 300 --policy slru \
-  --output /tmp/chunk-tp2.json
+CUDA_VISIBLE_DEVICES=0,1 python test/llm/check_chunk_output.py \
+  --model /path/to/model --tp 2 --chunk-size 17
 ```
 
-The check poisons scheduled KV slots, verifies writes on each rank, exercises
-shared/repeated prefixes and cancellation, and requires zero final references.
-It uses page256/pool16 and compares repeated greedy outputs. `--cache-off`
-disables prefix reuse. For PP2 eager, run separate processes with `--tp 1
---pp 2 --stage 0` and `--tp 1 --pp 2 --stage 1`, one visible GPU per process,
-matching `--port` values and different output paths.
+The check compares chunked and ordinary greedy output, verifies native
+intermediate-output suppression and invalid-input rejection, and exercises
+prefix reuse, cancellation and complete page-reference reclamation. Add `--graph`
+to run ordinary Decode with graphs; compile InfiniCore with `--graph=y` first.
+The model must accept token IDs 1–67 and meet the scheduler’s minimum
+`max_position_embeddings` of 1024.
 
-For actual Decode-graph launch checks, build InfiniCore with `--graph=y` and
-preload the counter:
-
-```sh
-g++ -std=c++17 -shared -fPIC -I"$INFINI_ROOT/include" \
-  test/llm/graph_counter.cc -ldl -o /tmp/infini-graph-counter.so
-LD_PRELOAD=/tmp/infini-graph-counter.so CUDA_VISIBLE_DEVICES=0,1 \
-  python test/llm/check_chunk_tp.py --model /path/to/model --tp 2 \
-  --chunk-size 300 --policy slru --graph --output /tmp/chunk-graph.json
-```
-
-`check_chunk_output.py` accepts `--model`, `--tp`, `--chunk-size` and `--output`
-to additionally check native output suppression and invalid-input rejection.
-KV poisoning is correctness instrumentation, not a performance measurement.
+Longer TP/PP experiments, KV poisoning and graph-launch interception are archived
+in the [validation tools](https://github.com/big-hip/InfiniCore/tree/b635f35f359d2f536b9ba5ca82686b6b2b988cb7/docs/validation/cache-chunk-tools-20260921).
 
 Configuration and limits: [cache and chunking](../../docs/cache-and-chunking.md).
 Historical benchmark scripts and measurements are linked from
