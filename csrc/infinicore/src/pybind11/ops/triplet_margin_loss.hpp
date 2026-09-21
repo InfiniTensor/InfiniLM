@@ -8,7 +8,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_triplet_margin_loss(py::module &m) {
-    // 1. 绑定 functional 接口: output = triplet_margin_loss(anchor, positive, negative, ...)
     m.def("triplet_margin_loss",
           &op::triplet_margin_loss,
           py::arg("anchor"),
@@ -32,7 +31,6 @@ inline void bind_triplet_margin_loss(py::module &m) {
         reduction (int): Specifies the reduction to apply to the output: 0 (none), 1 (mean), 2 (sum). Default: 1.
     )doc");
 
-    // 2. 绑定 explicit output 接口: triplet_margin_loss_(output, anchor, positive, negative, ...)
     m.def("triplet_margin_loss_",
           &op::triplet_margin_loss_,
           py::arg("output"),

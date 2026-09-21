@@ -1,7 +1,5 @@
 #include "mxfp4.hpp"
 
-#include <infinicore/ops/linear_mxfp4.hpp>
-
 #include <optional>
 #include <stdexcept>
 
@@ -17,8 +15,8 @@ std::vector<ParamDescriptor> MXFP4::get_param_layout(
         throw std::runtime_error("MXFP4: in_features must be divisible by 32");
     }
     std::vector<ParamDescriptor> descs;
-    descs.push_back({"weight", {out_features, in_features / 2}, infinicore::DataType::U8, split_dim, tp_rank, tp_size});
-    descs.push_back({"weight_scale", {out_features, in_features / 32}, infinicore::DataType::U8, split_dim, tp_rank, tp_size});
+    descs.push_back({"weight", {out_features, in_features / 2}, infinicore::DataType::kUInt8, split_dim, tp_rank, tp_size});
+    descs.push_back({"weight_scale", {out_features, in_features / 32}, infinicore::DataType::kUInt8, split_dim, tp_rank, tp_size});
     if (bias) {
         descs.push_back({"bias", {out_features}, dtype, split_dim >= 0 ? 0 : -1, split_dim >= 0 ? tp_rank : 0, split_dim >= 0 ? tp_size : 1});
     }
@@ -26,20 +24,12 @@ std::vector<ParamDescriptor> MXFP4::get_param_layout(
 }
 
 infinicore::Tensor MXFP4::forward(
-    const ParamsMap &params,
-    const infinicore::Tensor &input,
-    bool has_bias,
-    float alpha) const {
-    std::optional<infinicore::Tensor> bias = std::nullopt;
-    if (has_bias) {
-        bias = params.at("bias");
-    }
-    return infinicore::op::linear_mxfp4(
-        input->contiguous(),
-        params.at("weight"),
-        params.at("weight_scale"),
-        bias,
-        alpha);
+    const ParamsMap &,
+    const infinicore::Tensor &,
+    bool,
+    float) const {
+    throw std::runtime_error(
+        "MXFP4 linear execution requires an InfiniOps-backed MXFP4 GEMM provider");
 }
 
 std::vector<SplitParam> MXFP4::split_params(

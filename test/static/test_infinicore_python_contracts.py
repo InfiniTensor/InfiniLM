@@ -2,6 +2,7 @@ import ast
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -11,6 +12,139 @@ def read_source(relative_path: str) -> str:
 
 
 class InfiniCorePythonContractsTest(unittest.TestCase):
+    def test_thead_device_round_trip_preserves_native_type_and_index(self) -> None:
+        names = (
+            "CPU",
+            "NVIDIA",
+            "CAMBRICON",
+            "ASCEND",
+            "METAX",
+            "MOORE",
+            "ILUVATAR",
+            "HYGON",
+            "THEAD",
+        )
+
+        class NativeDevice:
+            Type = SimpleNamespace(**dict.fromkeys(names))
+
+            def __init__(self, device_type, index):
+                self.type = device_type
+                self.index = index
+
+        for index, name in enumerate(names):
+            setattr(NativeDevice.Type, name, index)
+        source = ast.parse(read_source("python/infinicore/device.py"))
+        source.body = [
+            node for node in source.body if not isinstance(node, ast.ImportFrom)
+        ]
+        namespace = {"_infinicore": SimpleNamespace(Device=NativeDevice)}
+        exec(compile(source, "device.py", "exec"), namespace)
+        device = namespace["device"]
+        value = device("thead:2")
+        self.assertEqual(value.type, "thead")
+        self.assertEqual(value.index, 2)
+        self.assertEqual(value._underlying.type, NativeDevice.Type.THEAD)
+        self.assertEqual(device._from_underlying(value._underlying), value)
+        self.assertEqual(str(value), "thead:2")
+
+    def test_rope_wrapper_preserves_arguments_and_output_identity(self) -> None:
+        calls = []
+
+        class Tensor:
+            def __init__(self, underlying):
+                self._underlying = underlying
+
+        native_output = object()
+
+        def native_rope(*arguments):
+            calls.append(arguments)
+            return native_output
+
+        native = SimpleNamespace(
+            rope=native_rope,
+            rope_=lambda *args: calls.append(args),
+        )
+        nodes = [
+            node
+            for node in ast.parse(read_source("python/infinicore/ops/__init__.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name in ("_unwrap", "rope")
+        ]
+        namespace = {"Tensor": Tensor, "_infinicore": native}
+        exec(
+            compile(ast.Module(body=nodes, type_ignores=[]), "ops.py", "exec"),
+            namespace,
+        )
+
+        arguments = tuple(Tensor(object()) for _ in range(4))
+        algorithm = object()
+        expected = tuple(tensor._underlying for tensor in arguments) + (algorithm,)
+        result = namespace["rope"](*arguments, algorithm)
+        self.assertIs(result._underlying, native_output)
+        self.assertEqual(calls.pop(), expected)
+
+        output = Tensor(object())
+        self.assertIs(namespace["rope"](*arguments, algorithm, out=output), output)
+        self.assertEqual(calls.pop(), (output._underlying,) + expected)
+
+        functional = read_source("python/infinicore/nn/functional/__init__.py")
+        for name in ("rope", "RoPEAlgo"):
+            self.assertIn(f'"{name}"', functional)
+
+    def test_model_dtype_conversion_uses_the_runtime_supported_set(self) -> None:
+        names = (
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float16",
+            "bfloat16",
+            "float32",
+            "float64",
+        )
+        torch = SimpleNamespace(**{name: object() for name in (*names, "bool")})
+        infinicore = SimpleNamespace(**{name: object() for name in names})
+        namespace = {}
+        converter = next(
+            node
+            for node in ast.parse(read_source("python/infinicore/utils.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name == "to_infinicore_dtype"
+        )
+        exec(
+            compile(ast.Module(body=[converter], type_ignores=[]), "utils.py", "exec"),
+            namespace,
+        )
+        infinicore.utils = SimpleNamespace(
+            to_infinicore_dtype=namespace["to_infinicore_dtype"]
+        )
+
+        model_namespace = {"infinicore": infinicore}
+        model_converter = next(
+            node
+            for node in ast.parse(read_source("test/models/llama/utils.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name == "to_infinicore_dtype"
+        )
+        exec(
+            compile(
+                ast.Module(body=[model_converter], type_ignores=[]),
+                "llama_utils.py",
+                "exec",
+            ),
+            model_namespace,
+        )
+        with patch.dict("sys.modules", {"torch": torch, "infinicore": infinicore}):
+            for name in names:
+                self.assertIs(
+                    model_namespace["to_infinicore_dtype"](getattr(torch, name)),
+                    getattr(infinicore, name),
+                )
+            with self.assertRaisesRegex(ValueError, "unsupported torch dtype"):
+                model_namespace["to_infinicore_dtype"](torch.bool)
+
     def test_paged_decode_reuses_cpu_metadata_storage(self) -> None:
         import numpy as np
 
@@ -229,6 +363,7 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
             "kMoore",
             "kIluvatar",
             "kHygon",
+            "kThead",
         ):
             self.assertIn(f"Device::Type::{native_name}", source)
         for legacy_name in ("::CPU", "::NVIDIA", "::QY", "::KUNLUN", "::ALI"):
@@ -237,10 +372,11 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         self.assertIn("&Device::index", source)
         self.assertIn("&Device::ToString", source)
 
-    def test_model_runner_accepts_native_metax_device_name(self) -> None:
+    def test_model_runner_accepts_native_accelerator_device_names(self) -> None:
         source = read_source("python/infinilm/llm/model_runner/model_runner.py")
 
         self.assertIn('"metax"', source)
+        self.assertIn('"thead"', source)
         self.assertIn("self.device = infinicore.device(device_str, 0)", source)
 
     def test_dtype_binding_matches_native_infini_rt_set(self) -> None:

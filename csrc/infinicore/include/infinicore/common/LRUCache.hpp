@@ -27,6 +27,11 @@ public:
         cleanup();
     }
 
+    LRUCache(const LRUCache &) = delete;
+    LRUCache &operator=(const LRUCache &) = delete;
+    LRUCache(LRUCache &&) = delete;
+    LRUCache &operator=(LRUCache &&) = delete;
+
     bool contains(const Key &key) const {
         return map_.find(key) != map_.end();
     }

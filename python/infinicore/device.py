@@ -15,6 +15,7 @@ _TYPE_ALIASES = {
     "musa": (_infinicore.Device.Type.MOORE, "musa"),
     "iluvatar": (_infinicore.Device.Type.ILUVATAR, "iluvatar"),
     "hygon": (_infinicore.Device.Type.HYGON, "hygon"),
+    "thead": (_infinicore.Device.Type.THEAD, "thead"),
 }
 
 _NATIVE_TO_NAME = {native: name for native, name in set(_TYPE_ALIASES.values())}

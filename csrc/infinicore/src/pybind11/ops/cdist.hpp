@@ -9,7 +9,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_cdist(py::module &m) {
-    // 1. 绑定 out-of-place 接口: out = cdist(x1, x2, p)
     m.def("cdist",
           &op::cdist,
           py::arg("x1"),
@@ -26,7 +25,6 @@ Returns:
     A matrix containing pairwise distances, shape (M, N)
 )doc");
 
-    // 2. 绑定 in-place / specified output 接口: cdist_(out, x1, x2, p)
     m.def("cdist_",
           &op::cdist_,
           py::arg("out"),

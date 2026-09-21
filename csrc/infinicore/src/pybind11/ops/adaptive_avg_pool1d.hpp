@@ -9,7 +9,6 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_adaptive_avg_pool1d(py::module &m) {
-    // 绑定函数接口: output = adaptive_avg_pool1d(input, output_size)
     m.def("adaptive_avg_pool1d",
           &op::adaptive_avg_pool1d,
           py::arg("input"),

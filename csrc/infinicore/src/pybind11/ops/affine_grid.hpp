@@ -9,12 +9,11 @@ namespace py = pybind11;
 namespace infinicore::ops {
 
 inline void bind_affine_grid(py::module &m) {
-    // 绑定函数接口: grid = affine_grid(theta, size, align_corners)
     m.def("affine_grid",
           &op::affine_grid,
           py::arg("theta"),
           py::arg("size"),
-          py::arg("align_corners") = false, // 设置默认值
+          py::arg("align_corners") = false,
           R"doc(Generates a 2D or 3D flow field (sampling grid), given a batch of affine matrices theta.
 
 Args:

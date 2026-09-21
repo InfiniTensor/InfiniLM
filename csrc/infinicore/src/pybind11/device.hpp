@@ -19,7 +19,8 @@ inline void bind(py::module &m) {
         .value("METAX", Device::Type::kMetax)
         .value("MOORE", Device::Type::kMoore)
         .value("ILUVATAR", Device::Type::kIluvatar)
-        .value("HYGON", Device::Type::kHygon);
+        .value("HYGON", Device::Type::kHygon)
+        .value("THEAD", Device::Type::kThead);
 
     device
         .def(py::init<const Device::Type &, const int &>(),

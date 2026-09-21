@@ -10,6 +10,7 @@ python/infinilm/lib/*.so
 .vscode/
 
 *.sh
+!test/native/run_tests.sh
 model_weight/
 
 # Python

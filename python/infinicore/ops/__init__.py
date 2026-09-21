@@ -1,6 +1,8 @@
 from infinicore.lib import _infinicore
 from infinicore.tensor import Tensor
 
+RoPEAlgo = _infinicore.RoPEAlgo
+
 
 def _unwrap(value):
     return value._underlying
@@ -49,6 +51,21 @@ def rms_norm(input, weight, epsilon=1e-5, *, out=None):
     if out is None:
         return Tensor(_infinicore.rms_norm(_unwrap(input), _unwrap(weight), epsilon))
     _infinicore.rms_norm_(_unwrap(out), _unwrap(input), _unwrap(weight), epsilon)
+    return out
+
+
+def rope(x, pos, sin_table, cos_table, algo, *, out=None):
+    """Apply rotary position embeddings with the specified rotation algorithm."""
+    arguments = (
+        _unwrap(x),
+        _unwrap(pos),
+        _unwrap(sin_table),
+        _unwrap(cos_table),
+        algo,
+    )
+    if out is None:
+        return Tensor(_infinicore.rope(*arguments))
+    _infinicore.rope_(_unwrap(out), *arguments)
     return out
 
 
