@@ -179,6 +179,10 @@ def run_case(model, tokenizer, cfg, video_payload, batch_size, input_len, output
 
 def main():
     cfg = BaseConfig()
+    if cfg.prefill_chunk_size:
+        raise ValueError(
+            "Chunked prefill requires the LLM engine; use test_infer.py or the server."
+        )
     cfg.enable_prefix_caching = False
     normalize_bench_defaults(cfg)
 

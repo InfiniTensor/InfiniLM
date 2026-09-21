@@ -207,11 +207,12 @@ class BasicLLMProcessor(InfinilmProcessor):
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                prefill_end = scheduler_output.prefill_end
+                seq_len = len(req_tokens) if prefill_end is None else prefill_end
+                tokens_to_compute = req_tokens[num_cached:seq_len]
                 tokens.extend(tokens_to_compute)
 
                 compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
                 seq_lens.append(seq_len)
 
                 current_offset += compute_len

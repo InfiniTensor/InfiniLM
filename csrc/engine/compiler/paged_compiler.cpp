@@ -180,6 +180,9 @@ void PagedCompiler::compile() {
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    if (input.prefill_only) {
+        return {nullptr, nullptr};
+    }
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
         size_t batch_size = input.block_tables.value()->size(0);
         size_t block_per_req = input.block_tables.value()->size(1);

@@ -79,6 +79,9 @@ public:
 
         float top_p{1};
 
+        /// Compute KV for an intermediate prefill without returning model output.
+        bool prefill_only{false};
+
         infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
     };
 

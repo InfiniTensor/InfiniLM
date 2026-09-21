@@ -435,6 +435,24 @@ void RankWorker::thread_loop() {
                             hidden_states = model_output.hidden_states;
                         }
 
+                        if (local_args.prefill_only) {
+                            if (rank_info_.tp_rank == 0) {
+                                // Preserve the old sampler's RNG advancement, but
+                                // avoid LM output sampling and the token D2H copy.
+                                const auto n_req = local_args.input_offsets.value()->numel() - 1;
+                                for (size_t i = 0; i < n_req; ++i) {
+                                    (void)std::uniform_real_distribution<float>(0, 1)(rng_);
+                                }
+                                // Keep the ordinary forward completion contract.
+                                // Publication/cancellation follows this return.
+                                infinicore::context::syncStream();
+                            }
+                            output_ = Output{};
+                            job_done_ = true;
+                            cv_.notify_all();
+                            continue;
+                        }
+
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
                             infinicore::Tensor output_ids;
                             if (rank_info_.pp_stage == 0 && rank_info_.tp_rank == 0) {

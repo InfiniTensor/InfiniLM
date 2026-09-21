@@ -753,6 +753,10 @@ class TestModel:
 
 if __name__ == "__main__":
     cfg = BaseConfig()
+    if cfg.prefill_chunk_size:
+        raise ValueError(
+            "Chunked prefill requires the LLM engine; use test_infer.py or the server."
+        )
     logging.basicConfig(
         level=getattr(logging, cfg.log_level.upper(), logging.INFO),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -903,9 +907,11 @@ if __name__ == "__main__":
         )
         cfg.max_cache_len = max(
             max_benchmark_cache_len,
-            next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
-            if cfg.warmup
-            else 0,
+            (
+                next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
+                if cfg.warmup
+                else 0
+            ),
         )
         cfg.attn = attn_backend
         if enable_paged_attn:
@@ -945,9 +951,11 @@ if __name__ == "__main__":
         block_size=cfg.block_size,
         max_cache_len=max(
             max_benchmark_cache_len,
-            next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
-            if cfg.warmup
-            else 0,
+            (
+                next(iter(cases_dict.values()))["input_len"] + _WARMUP_DECODE_LEN
+                if cfg.warmup
+                else 0
+            ),
         ),
         temperature=cfg.temperature,
         top_p=cfg.top_p,

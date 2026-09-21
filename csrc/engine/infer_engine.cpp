@@ -240,7 +240,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         image_req_ids,
         visual_token_ranges,
         to_device(target_hidden_states),
-        sample_all_positions};
+        sample_all_positions,
+        prefill_only};
 
     if (serialize_host_copy) {
         infinicore::context::syncStream();
@@ -269,6 +270,13 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
 }
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    // Every PP stage receives prefill_only and skips the sampled-ID exchange.
+    if (input.prefill_only && input.sample_all_positions) {
+        throw std::invalid_argument("prefill_only requires sample_all_positions=false");
+    }
+    if (input.prefill_only && (!input.input_offsets.has_value() || input.input_offsets.value()->numel() < 2)) {
+        throw std::invalid_argument("prefill_only requires request input_offsets");
+    }
     // Trigger each worker to run inference
     for (auto &worker : workers_) {
         worker->run(input);

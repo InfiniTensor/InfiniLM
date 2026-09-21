@@ -1,13 +1,13 @@
-import infinicore
-from transformers import AutoTokenizer
-from tokenizers import decoders as _dec
-from infinilm.modeling_utils import get_model_state_dict
-import infinilm
-import argparse
+import os
 import sys
 import time
-import os
+
+import infinicore
+import infinilm
 from infinilm.base_config import BaseConfig
+from infinilm.modeling_utils import get_model_state_dict
+from tokenizers import decoders as _dec
+from transformers import AutoTokenizer
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
@@ -103,6 +103,10 @@ def test(
 
 if __name__ == "__main__":
     cfg = BaseConfig()
+    if cfg.prefill_chunk_size:
+        raise ValueError(
+            "Chunked prefill requires the LLM engine; use test_infer.py or the server."
+        )
 
     device_str = cfg.get_device_str(cfg.device)
 
