@@ -17,9 +17,8 @@ batching benefit has not been established.
 It handles cancellation, EOS/output limits and ordinary Decode when speculative
 cache capacity is unavailable. This requires the matching FP8/MTP InfiniCore build;
 the release dependency listed above does not contain these additions. Track the
-runtime patch in [InfiniCore #1565](https://github.com/InfiniTensor/InfiniCore/issues/1565).
-Graph execution additionally requires the graph lifetime/recording fixes in
-[InfiniCore #1560](https://github.com/InfiniTensor/InfiniCore/pull/1560).
+runtime and graph lifetime/recording fixes in
+[InfiniCore #1566](https://github.com/InfiniTensor/InfiniCore/pull/1566).
 
 For Qwen3.8-27B-FP8 with E4M3 weights and 128×128 weight blocks, set
 `quantization_config.fp8_backend` to `"marlin"` in the checkpoint configuration

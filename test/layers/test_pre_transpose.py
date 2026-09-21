@@ -55,40 +55,36 @@ def test_pre_transpose_and_reprocessing_preserve_logits(tmp_path):
             weights[name] = values
         save_file(weights, tmp_path / "model.safetensors")
         load_model_state_dict_by_file(engine, str(tmp_path), dtype=engine.dtype)
-        for recapture in (False, True):
-            engine.process_weights_after_loading()
-            output = engine.forward_raw(
-                infinicore.from_list([[17, 83, 51]], dtype=infinicore.int64),
-                position_ids=infinicore.from_list([0, 1, 2], dtype=infinicore.int64),
-                past_kv_lengths=infinicore.from_list([0], dtype=infinicore.int32),
-                total_kv_lengths=infinicore.from_list([3], dtype=infinicore.int32),
-                input_offsets=infinicore.from_list([0, 3], dtype=infinicore.int32),
-                cu_seqlens=infinicore.from_list([0, 3], dtype=infinicore.int32),
-                block_tables=infinicore.from_list([[0]], dtype=infinicore.int32),
-                slot_mapping=infinicore.from_list([0, 1, 2], dtype=infinicore.int64),
-                sample_all_positions=True,
+
+        def forward(model, tokens, past=0):
+            def tensor(values, dtype=infinicore.int32):
+                return infinicore.from_list(values, dtype=dtype)
+
+            end = past + len(tokens)
+            output = model.forward_raw(
+                tensor([tokens], infinicore.int64),
+                position_ids=tensor(list(range(past, end)), infinicore.int64),
+                past_kv_lengths=tensor([past]),
+                total_kv_lengths=tensor([end]),
+                input_offsets=tensor([0, len(tokens)]),
+                cu_seqlens=tensor([0, end]),
+                block_tables=tensor([[0]]),
+                slot_mapping=tensor(list(range(past, end)), infinicore.int64),
+                sample_all_positions=past == 0,
             )["logits"]
             copied = torch.empty(output.shape, dtype=torch.float16)
             infinicore.from_torch(copied).copy_(output)
             infinicore.sync_device()
             assert torch.isfinite(copied).all()
-            results.append(copied)
+            return copied
+
+        for recapture in (False, True):
+            engine.process_weights_after_loading()
+            results.append(forward(engine, [17, 83, 51]))
             if recapture:
-                engine.compile()  # Must preserve page zero of an ordinary model.
-            decoded = engine.forward_raw(
-                infinicore.from_list([[23]], dtype=infinicore.int64),
-                position_ids=infinicore.from_list([3], dtype=infinicore.int64),
-                past_kv_lengths=infinicore.from_list([3], dtype=infinicore.int32),
-                total_kv_lengths=infinicore.from_list([4], dtype=infinicore.int32),
-                input_offsets=infinicore.from_list([0, 1], dtype=infinicore.int32),
-                cu_seqlens=infinicore.from_list([0, 4], dtype=infinicore.int32),
-                block_tables=infinicore.from_list([[0]], dtype=infinicore.int32),
-                slot_mapping=infinicore.from_list([3], dtype=infinicore.int64),
-            )["logits"]
-            copied_decode = torch.empty(decoded.shape, dtype=torch.float16)
-            infinicore.from_torch(copied_decode).copy_(decoded)
-            infinicore.sync_device()
-            decode_results.append(copied_decode)
+                # Reprocessing also recaptures graphs and must preserve live KV.
+                engine.process_weights_after_loading()
+            decode_results.append(forward(engine, [23], past=3))
         del engine
     for actual in results[1:]:
         torch.testing.assert_close(actual, results[0], atol=1e-3, rtol=1e-3)
