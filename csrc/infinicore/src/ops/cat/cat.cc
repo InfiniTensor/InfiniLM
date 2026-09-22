@@ -13,7 +13,8 @@ bool use_slice_copy_cat(Device::Type device_type, int dim, int ndim) {
     return dim == ndim - 1
         && (device_type == Device::Type::kNvidia
             || device_type == Device::Type::kHygon
-            || device_type == Device::Type::kIluvatar);
+            || device_type == Device::Type::kIluvatar
+            || device_type == Device::Type::kThead);
 }
 
 class CatInfo {

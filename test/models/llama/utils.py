@@ -23,30 +23,11 @@ def normalize_param_name(name: str) -> str:
 
 
 def to_infinicore_dtype(torch_dtype):
-    """Convert PyTorch data type to infinicore data type"""
+    """Convert a PyTorch dtype using the public InfiniCore conversion helper."""
     if infinicore is None:
         raise ImportError("InfiniCore package not found")
 
-    if torch_dtype == torch.float32:
-        return infinicore.float32
-    elif torch_dtype == torch.float16:
-        return infinicore.float16
-    elif torch_dtype == torch.bfloat16:
-        return infinicore.bfloat16
-    elif torch_dtype == torch.int8:
-        return infinicore.int8
-    elif torch_dtype == torch.int16:
-        return infinicore.int16
-    elif torch_dtype == torch.int32:
-        return infinicore.int32
-    elif torch_dtype == torch.int64:
-        return infinicore.int64
-    elif torch_dtype == torch.uint8:
-        return infinicore.uint8
-    elif torch_dtype == torch.bool:
-        return infinicore.bool
-    else:
-        raise ValueError(f"Unsupported torch dtype: {torch_dtype}")
+    return infinicore.utils.to_infinicore_dtype(torch_dtype)
 
 
 def torch_to_infinicore_tensor(torch_tensor, infini_device):

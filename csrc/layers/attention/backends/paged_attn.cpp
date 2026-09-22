@@ -44,19 +44,25 @@ infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
     if (is_prefill) {
         ASSERT(input_offsets.has_value());
         ASSERT(cu_seqlens.has_value());
-        const auto max_seqlen_k = block_tables.value()->size(1) * k_total->size(1);
-        infinicore::op::mha_varlen_(
-            attn_output,
-            query,
-            k_total,
-            v_total,
-            input_offsets.value(),
-            cu_seqlens.value(),
-            block_tables.value(),
-            static_cast<int>(seq_len),
-            static_cast<int>(max_seqlen_k),
-            std::nullopt,
-            scale_);
+        if (attn_metadata.max_query_length == 0 || attn_metadata.max_sequence_length == 0) {
+            infinicore::op::paged_attention_prefill_(
+                attn_output, query, k_total, v_total,
+                block_tables.value(), total_sequence_lengths.value(),
+                input_offsets.value(), std::nullopt, scale_);
+        } else {
+            infinicore::op::mha_varlen_(
+                attn_output,
+                query,
+                k_total,
+                v_total,
+                input_offsets.value(),
+                cu_seqlens.value(),
+                block_tables.value(),
+                static_cast<int>(attn_metadata.max_query_length),
+                static_cast<int>(attn_metadata.max_sequence_length),
+                std::nullopt,
+                scale_);
+        }
     } else {
         infinicore::op::paged_attention_(
             attn_output,

@@ -14,6 +14,11 @@ public:
     Memory(std::byte *data, size_t size, Device device, Deleter deleter, bool pin_memory = false);
     ~Memory();
 
+    Memory(const Memory &) = delete;
+    Memory &operator=(const Memory &) = delete;
+    Memory(Memory &&) = delete;
+    Memory &operator=(Memory &&) = delete;
+
     std::byte *data();
     Device device() const;
     size_t size() const;

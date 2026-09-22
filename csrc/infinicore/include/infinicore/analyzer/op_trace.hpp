@@ -7,6 +7,8 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
+#include <stdexcept>
 #include <vector>
 
 namespace infinicore::analyzer {
@@ -51,19 +53,12 @@ struct OpTraceEntry {
 };
 
 // ============================================================
-// OpTraceRing — lock-free ring buffer for op trace entries
+// OpTraceRing - synchronized ring buffer for op trace entries
 // ============================================================
 
 /// A fixed-capacity ring buffer for OpTraceEntry.
-/// Single-producer (op execution thread) friendly.
-/// Reader can safely read a snapshot via getRecentEntries().
-///
-/// Thread safety:
-/// - write() is safe to call from the single producer thread
-///   (typical in InfiniCore where ops are dispatched on one thread).
-/// - getRecentEntries() takes a snapshot and is safe to call from
-///   any thread (may see a partially written entry at the boundary,
-///   which is acceptable for heuristic phase detection).
+/// Writers and snapshot readers serialize access to the entries, including
+/// wraparound and clear. Snapshots contain only complete entries.
 class OpTraceRing {
 public:
     static constexpr size_t DEFAULT_CAPACITY = 256;
@@ -73,10 +68,14 @@ public:
           entries_(capacity),
           write_pos_(0),
           total_count_(0) {
+        if (capacity == 0) {
+            throw std::invalid_argument("op trace capacity must be positive");
+        }
     }
 
     /// Record a new op trace entry.
     void write(const OpTraceEntry &entry) {
+        std::lock_guard<std::mutex> lock(mutex_);
         size_t pos = write_pos_.load(std::memory_order_relaxed);
         entries_[pos % capacity_] = entry;
         write_pos_.store(pos + 1, std::memory_order_release);
@@ -86,6 +85,7 @@ public:
     /// Get the most recent N entries (ordered oldest to newest).
     /// Returns fewer entries if the ring hasn't filled up yet.
     std::vector<OpTraceEntry> getRecentEntries(size_t n) const {
+        std::lock_guard<std::mutex> lock(mutex_);
         size_t wp = write_pos_.load(std::memory_order_acquire);
         size_t available = wp < capacity_ ? wp : capacity_;
         size_t count = n < available ? n : available;
@@ -121,11 +121,13 @@ public:
 
     /// Clear all entries.
     void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
         write_pos_.store(0, std::memory_order_relaxed);
         total_count_.store(0, std::memory_order_relaxed);
     }
 
 private:
+    mutable std::mutex mutex_;
     size_t capacity_;
     std::vector<OpTraceEntry> entries_;
     std::atomic<size_t> write_pos_;

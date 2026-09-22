@@ -14,7 +14,7 @@ class OpCache {
 private:
     using BaseCache = infinicore::common::LRUCache<Key, Value>;
     using Destructor = typename BaseCache::Destructor;
-    using CacheVector = std::vector<BaseCache>;
+    using CacheVector = std::vector<std::unique_ptr<BaseCache>>;
 
 public:
     explicit OpCache(size_t capacity = 100, Destructor destructor = nullptr)
@@ -24,16 +24,22 @@ public:
         clear();
     }
 
+    OpCache(const OpCache &) = delete;
+    OpCache &operator=(const OpCache &) = delete;
+    OpCache(OpCache &&) = delete;
+    OpCache &operator=(OpCache &&) = delete;
+
     BaseCache &getCache(Device::Type device_type, size_t device_index) {
         auto &cache_vector = caches_[static_cast<size_t>(device_type)];
 
         if (cache_vector.size() <= device_index) {
-            cache_vector.resize(device_index + 1, BaseCache(capacity_, destructor_));
-        } else {
-            cache_vector[device_index].setDestructor(destructor_);
+            cache_vector.resize(device_index + 1);
         }
-
-        return cache_vector[device_index];
+        auto &cache = cache_vector[device_index];
+        if (!cache) {
+            cache = std::make_unique<BaseCache>(capacity_, destructor_);
+        }
+        return *cache;
     }
 
     BaseCache &getCache(Device device) {
@@ -44,7 +50,9 @@ public:
         capacity_ = capacity;
         for (auto &vec : caches_) {
             for (auto &cache : vec) {
-                cache.setCapacity(capacity);
+                if (cache) {
+                    cache->setCapacity(capacity);
+                }
             }
         }
     }
@@ -55,13 +63,16 @@ public:
         for (size_t type_idx = 0; type_idx < caches_.size(); ++type_idx) {
             auto &vec = caches_[type_idx];
             for (size_t dev_idx = 0; dev_idx < vec.size(); ++dev_idx) {
+                if (!vec[dev_idx] || vec[dev_idx]->getAllItems().empty()) {
+                    continue;
+                }
                 Device target_device(static_cast<Device::Type>(type_idx), dev_idx);
 
                 if (current_device != target_device) {
                     context::setDevice(target_device);
                 }
 
-                vec[dev_idx].clear();
+                vec[dev_idx]->clear();
 
                 if (current_device != target_device) {
                     context::setDevice(current_device);

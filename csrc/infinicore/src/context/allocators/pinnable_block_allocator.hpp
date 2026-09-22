@@ -3,6 +3,7 @@
 #include "memory_allocator.hpp"
 
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -17,6 +18,7 @@ class PinnableBlockAllocator : public MemoryAllocator {
         size_t pin_count = 0; // Number of graphs retaining this block
         bool in_use = false;  // Wether the block is currently in use
         size_t use_count = 0; // Number of Memory owners for this block
+        std::optional<size_t> free_list_index;
     };
 
     // A simple size-class allocator for small/medium blocks
@@ -74,6 +76,8 @@ private:
     std::mutex mutex_; // Thread safety
 
     void freeze_for_capture_(const std::shared_ptr<Block> &block);
+    static void remove_free_block_(SizeClass &cls, size_t index);
+    void cache_free_block_(const std::shared_ptr<Block> &block);
     void release_frozen_blocks_(
         const std::vector<std::shared_ptr<Block>> &blocks) noexcept;
 };

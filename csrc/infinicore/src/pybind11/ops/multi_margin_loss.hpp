@@ -19,7 +19,7 @@ inline void bind_multi_margin_loss(py::module &m) {
         },
         py::arg("input"),
         py::arg("target"),
-        py::arg("weight") = py::none(), // Python 端看到默认值是 None
+        py::arg("weight") = py::none(),
         py::arg("p") = 1,
         py::arg("margin") = 1.0f,
         py::arg("reduction") = 1,
@@ -41,7 +41,6 @@ inline void bind_multi_margin_loss(py::module &m) {
             if (!weight.is_none()) {
                 weight_tensor = weight.cast<Tensor>();
             }
-            // 调用底层
             op::multi_margin_loss_(output, input, target, weight_tensor, p, margin, reduction);
         },
         py::arg("output"),

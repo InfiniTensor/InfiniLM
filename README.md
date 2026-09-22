@@ -21,8 +21,42 @@ git clone --recurse-submodules https://github.com/InfiniTensor/InfiniCore.git
 git clone --recurse-submodules https://github.com/InfiniTensor/InfiniLM.git
 ```
 
+Use Linux with a backend-compatible PyTorch installation, the corresponding GPU
+SDK and collective library, CMake, xmake, and GNU binutils (`nm`, `readelf`, and
+`c++filt`). Use the same Python environment for building and running InfiniLM.
+
+The default NVIDIA operator configuration also selects external FlashAttention
+and FlashInfer shared libraries. Install their providers before building the
+stack:
+
+```shell
+python3 -m pip install packaging PyYAML ninja
+python3 -m pip install "apache-tvm-ffi==0.1.10"
+python3 -m pip install "flashinfer-jit-cache==0.6.7" \
+  --index-url https://flashinfer.ai/whl/cu130
+```
+
+Install a FlashAttention 2 `flash-attn` wheel built for your Python, PyTorch,
+CUDA, and libstdc++ ABI. The pinned InfiniOps metadata requires
+`flash_attn_2_cuda*.so` and validates its exact exported C++ signatures; it does
+not specify a package-version range. A wheel with a matching version number
+alone is insufficient if its PyTorch or C++ ABI differs. The FlashInfer sampling
+provider accepts `flashinfer-jit-cache>=0.6.7,<0.7` and requires
+`apache-tvm-ffi==0.1.10`. These requirements come from the selected InfiniOps
+checkout's `src/linked/**/nvidia/*.yaml` files.
+
+The NVIDIA validation image used Python 3.12, PyTorch
+`2.10.0a0+b4e4ee81d3.nv25.12`, `flash_attn==2.7.4.post1+25.12`,
+`flashinfer-jit-cache==0.6.7+cu130`, and `apache-tvm-ffi==0.1.10`.
+The FlashAttention build is supplied by that NVIDIA image. For another
+environment, install an ABI-compatible FlashAttention wheel and replace `cu130`
+with the CUDA version of its FlashInfer wheel index.
+
 From InfiniLM, build the NVIDIA dependency stack pinned by the InfiniCore
-checkout. The default operator set is the set required by InfiniLM:
+checkout. Before compiling any component, the builder runs InfiniOps' linked
+provider resolver for the selected operator slots and checks installed packages,
+versions, and library symbols. `--dry-run` prints this preflight command without
+executing it:
 
 ```shell
 cd InfiniLM
@@ -50,11 +84,40 @@ export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
 export INFINILM_CXX11_ABI=0
 ```
 
+For Moore, install MUSA (including muDNN and muBLAS), MCCL, and a compatible
+`torch_musa` environment, then select the bundled Moore operator configuration:
+
+```shell
+python3 scripts/build_infini_stack.py \
+  --infinicore-root ../InfiniCore \
+  --backend moore \
+  --jobs 16
+export INFINI_ROOT="$PWD/build/integration/moore/prefix"
+export LD_LIBRARY_PATH="$INFINI_ROOT/lib:${LD_LIBRARY_PATH:-}"
+```
+
+The Moore configuration supports greedy sampling and does not select the
+NVIDIA-only FlashInfer sampling provider. The builder enables `WITH_MCCL` for
+Moore. `MUSA_ROOT`, `MUSA_HOME`, or `MUSA_PATH` may select a non-default SDK
+installation. Match `INFINILM_CXX11_ABI` to the installed PyTorch build when
+needed.
+
 Then build and install InfiniLM:
 
 ```shell
 python3 -m pip install . --no-build-isolation
 ```
+
+The InfiniLM wheel includes its two Python extensions, `libinfinicore_runtime`,
+and the installed InfiniRT, InfiniOps, and InfiniCCL shared libraries. PyTorch,
+FlashAttention, FlashInfer, TVM-FFI, and vendor SDK libraries remain external
+runtime dependencies when selected by the operator configuration. Their Python
+packages locate native libraries during the build; their presence does not imply
+Python operator calls during inference. Keep compatible provider libraries
+available to the dynamic loader in the deployment environment. The wheel targets
+the Python version, platform, and native ABIs used to build it; it is not a
+portable `abi3` or manylinux wheel. On Linux the extension modules resolve Python
+symbols from the running interpreter rather than linking directly to `libpython`.
 
 Current migration validation covers NVIDIA A100 and Iluvatar BI-V150 dense,
 non-quantized configurations. Real-weight, two-token static-attention smoke

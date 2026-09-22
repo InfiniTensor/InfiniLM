@@ -9,6 +9,7 @@
 #endif
 
 #include <cstdlib>
+#include <stdexcept>
 #include <utility>
 
 namespace infinicore::graph {
@@ -147,6 +148,9 @@ GraphTensor::GraphTensor(const Tensor &tensor, SnapshotPolicy policy)
  * ========================= */
 
 void DispatchableGraphOperator::run() const {
+    if (runner_ == nullptr) {
+        throw std::logic_error("graph operator has no execution plan");
+    }
     runner_(planned_meta_);
 }
 

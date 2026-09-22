@@ -15,17 +15,13 @@ QuantConfig::get_quantization_method() const {
     const std::string quant_method = quantization_config.value("quant_method", "");
 
     if (quant_method == "compressed-tensors") {
-        throw std::runtime_error(
-            "`compressed-tensors` quantization is unsupported because InfiniLM lacks the end-to-end activation quantization and scaled-GEMM integration.");
+        return std::make_shared<infinilm::quantization::CompressedTensors>(quantization_config);
     } else if (quant_method == "awq") {
-        throw std::runtime_error(
-            "AWQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense AWQ GEMM path.");
+        return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
     } else if (quant_method == "gptq") {
-        throw std::runtime_error(
-            "GPTQ quantization is unsupported because InfiniLM has no InfiniOps-backed dense GPTQ/Marlin GEMM path.");
+        return std::make_shared<infinilm::quantization::GPTQ>(quantization_config);
     } else if (quant_method == "quark") {
-        throw std::runtime_error(
-            "MXFP4 quantization is unsupported because InfiniLM has no InfiniOps-backed MXFP4 execution path.");
+        return std::make_shared<infinilm::quantization::MXFP4>(quantization_config);
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }

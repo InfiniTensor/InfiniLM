@@ -12,8 +12,8 @@ inline void bind_addr(py::module_ &m) {
         py::arg("input"),
         py::arg("vec1"),
         py::arg("vec2"),
-        py::arg("alpha"),
-        py::arg("beta"),
+        py::arg("beta") = 1.0f,
+        py::arg("alpha") = 1.0f,
         R"doc(Addr.)doc");
     m.def(
         "addr_",
@@ -22,8 +22,8 @@ inline void bind_addr(py::module_ &m) {
         py::arg("input"),
         py::arg("vec1"),
         py::arg("vec2"),
-        py::arg("beta"),
-        py::arg("alpha"),
+        py::arg("beta") = 1.0f,
+        py::arg("alpha") = 1.0f,
         R"doc(Addr.)doc");
 }
 } // namespace infinicore::ops
