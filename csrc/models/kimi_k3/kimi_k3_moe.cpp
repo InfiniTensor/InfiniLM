@@ -6,7 +6,6 @@
 #include <infinicore/ops/distributed/allreduce.hpp>
 #include <infinicore/ops/fused_moe_mxfp4.hpp>
 #include <infinicore/ops/fused_moe_w4a8.hpp>
-#include <infinicore/ops/mul_scalar.hpp>
 #include <infinicore/ops/situ_and_mul.hpp>
 #include <infinicore/ops/w4a8_moe_shuffle.hpp>
 #include <stdexcept>
@@ -213,10 +212,6 @@ void KimiK3Experts::process_weights_after_loading() {
     shuffle_experts(weights_.packed_w13);
     shuffle_experts(weights_.packed_w2);
 
-    // AITER's W4A8 intrinsic consumes int4 values shifted into the high nibble.
-    // Compensate once at load time so inference stays fully fused.
-    infinicore::op::mul_scalar_(weights_.w13_scale, weights_.w13_scale, 1.0 / 16.0);
-    infinicore::op::mul_scalar_(weights_.w2_scale, weights_.w2_scale, 1.0 / 16.0);
     weights_are_aiter_shuffled_ = true;
 }
 
