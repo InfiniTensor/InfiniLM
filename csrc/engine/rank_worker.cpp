@@ -253,15 +253,6 @@ std::vector<infinicore::Tensor> RankWorker::get_kv_cache() {
 //------------------------------------------------------
 // close -- request shutdown and join thread
 //------------------------------------------------------
-std::vector<std::vector<infinicore::Tensor>> RankWorker::get_hybrid_states() {
-    std::unique_lock<std::mutex> lk(mutex_);
-    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
-    if (should_exit_ || has_job_) {
-        throw std::runtime_error("State access requires an idle worker.");
-    }
-    return {forward_context_.conv_state_vec, forward_context_.ssm_state_vec};
-}
-
 void RankWorker::close() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -605,9 +596,7 @@ void RankWorker::thread_loop() {
             } else if (local_cmd == Command::COMPILE) {
                 try {
                     if (compiler_ != nullptr) {
-                        spdlog::info("Graph capture begin: tp_rank={}", rank_info_.tp_rank);
                         compiler_->compile();
-                        spdlog::info("Graph capture end: tp_rank={}", rank_info_.tp_rank);
                     }
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

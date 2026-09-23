@@ -57,7 +57,6 @@ public:
     void reset_cache(const cache::CacheConfig *new_config);
 
     std::vector<std::vector<infinicore::Tensor>> get_kv_cache();
-    std::vector<std::vector<std::vector<infinicore::Tensor>>> get_hybrid_states();
 
     ~InferEngine();
 

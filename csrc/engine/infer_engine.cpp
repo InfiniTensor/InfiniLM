@@ -490,15 +490,6 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
     this->compile();
 }
 
-std::vector<std::vector<std::vector<infinicore::Tensor>>> InferEngine::get_hybrid_states() {
-    std::vector<std::vector<std::vector<infinicore::Tensor>>> result;
-    for (auto &worker : workers_) {
-        worker->wait();
-        result.push_back(worker->get_hybrid_states());
-    }
-    return result;
-}
-
 std::vector<std::vector<infinicore::Tensor>> InferEngine::get_kv_cache() {
     std::vector<std::vector<infinicore::Tensor>> kv_cache_list;
     if (workers_.empty()) {

@@ -130,30 +130,7 @@ inline void bind_infer_engine(py::module &m) {
                 py::gil_scoped_release release;
                 return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
-        .def("get_kv_cache", [](InferEngine &self) {
-            py::list ranks;
-            for (const auto &rank : self.get_kv_cache()) {
-                py::list layers;
-                for (const auto &tensor : rank) {
-                    layers.append(tensor ? py::cast(tensor) : py::none());
-                }
-                ranks.append(layers);
-            }
-            return ranks; })
-        .def("get_hybrid_states", [](InferEngine &self) {
-            py::list ranks;
-            for (const auto &rank : self.get_hybrid_states()) {
-                py::list kinds;
-                for (const auto &kind : rank) {
-                    py::list layers;
-                    for (const auto &tensor : kind) {
-                        layers.append(tensor ? py::cast(tensor) : py::none());
-                    }
-                    kinds.append(layers);
-                }
-                ranks.append(kinds);
-            }
-            return ranks; })
+        .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
             return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
