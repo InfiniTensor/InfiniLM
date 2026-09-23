@@ -1,7 +1,6 @@
 """Greedy Qwen MTP using the target engine's built-in head."""
 
 import infinicore
-from infinilm.llm.hybrid_prefix_cache import HybridPrefixCache
 from infinilm.llm.request import MTPRequestState
 
 
@@ -23,10 +22,6 @@ class MTPRunner:
         self.num_accepted = 0
         self.num_target_calls = 0
         self.num_capacity_fallbacks = 0
-        budget = getattr(config, "mtp_prefix_cache_bytes", 0)
-        self.prefix_cache = (
-            HybridPrefixCache(self.engine, budget, self.block_size) if budget else None
-        )
 
     def _target(self, inputs, *, all_positions=False, device_verify=True):
         self.num_target_calls += 1
@@ -338,7 +333,6 @@ class MTPRunner:
         return outputs
 
     def _prefill(self, requests, cache_ops, model_input):
-        outputs, misses = {}, []
         for req in requests:
             self.validate_request(req)
             if cache_ops is None or req.mamba_cache_index is None:
@@ -347,59 +341,22 @@ class MTPRunner:
                 )
             if req.num_local_cached_tokens or req.mtp_state is not None:
                 raise RuntimeError("Qwen MTP requires a fresh full prompt prefill.")
-            saved = self.prefix_cache.restore(req) if self.prefix_cache else None
-            if saved is not None:
-                if self._can_continue(req, [saved.pending]):
-                    rows = cache_ops.allocate_state_rows(self.num_draft_tokens + 1)
-                    if rows is not None:
-                        req.mtp_state = MTPRequestState(rows)
-                        # Requests own these small tensors too: evicting the
-                        # snapshot must release all of its budgeted storage.
-                        req.mtp_state.draft_hidden = self.prefix_cache._clone(
-                            saved.hidden
-                        )
-                        req.mtp_state.draft_token = (
-                            self.prefix_cache._clone(saved.proposal)
-                            if isinstance(saved.proposal, infinicore.Tensor)
-                            else saved.proposal
-                        )
-                        req.mtp_state.cached_tokens = req.get_prompt_length()
-                    else:
-                        self.num_capacity_fallbacks += 1
-                outputs[req] = [saved.pending]
-            else:
-                misses.append(req)
-        if misses:
-            # The processor already built this full-prompt batch. Only rebuild
-            # metadata when snapshot hits remove requests from the target batch.
-            inputs = (
-                model_input
-                if len(misses) == len(requests)
-                else self._pack(
-                    [self._inputs(req, list(req.prompt_token_ids), 0) for req in misses]
-                )
-            )
-            target = self._target(inputs)
-            sampled = list(map(int, target["output_ids"].to_numpy()))
-            offset = 0
-            for req, pending in zip(misses, sampled):
-                hidden = target["hidden_states"].narrow(
-                    1, offset, req.get_prompt_length()
-                )
-                offset += req.get_prompt_length()
-                if self._can_continue(req, [pending]):
-                    rows = cache_ops.allocate_state_rows(self.num_draft_tokens + 1)
-                    if rows is not None:
-                        req.mtp_state = MTPRequestState(rows)
-                        self._draft(
-                            req, list(req.prompt_token_ids[1:]) + [pending], 0, hidden
-                        )
-                    else:
-                        self.num_capacity_fallbacks += 1
-                if self.prefix_cache:
-                    self.prefix_cache.save(req, pending)
-                outputs[req] = [pending]
-        return [outputs[req] for req in requests]
+        target = self._target(model_input)
+        sampled = list(map(int, target["output_ids"].to_numpy()))
+        offset = 0
+        for req, pending in zip(requests, sampled):
+            hidden = target["hidden_states"].narrow(1, offset, req.get_prompt_length())
+            offset += req.get_prompt_length()
+            if self._can_continue(req, [pending]):
+                rows = cache_ops.allocate_state_rows(self.num_draft_tokens + 1)
+                if rows is not None:
+                    req.mtp_state = MTPRequestState(rows)
+                    self._draft(
+                        req, list(req.prompt_token_ids[1:]) + [pending], 0, hidden
+                    )
+                else:
+                    self.num_capacity_fallbacks += 1
+        return [[pending] for pending in sampled]
 
     def _decode_batch(self, requests, cache_ops):
         outputs, prepared = {}, []

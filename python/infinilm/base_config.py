@@ -63,7 +63,6 @@ class BaseConfig:
         self.num_draft_tokens = self.args.num_draft_tokens
         self.enable_mtp = self.args.enable_mtp
         self.num_state_rows = self.args.num_state_rows
-        self.mtp_prefix_cache_mib = self.args.mtp_prefix_cache_mib
         self.device = self.args.device
         self.tp = self.args.tp
         self.pp = self.args.pp
@@ -217,12 +216,6 @@ class BaseConfig:
             type=int,
             default=0,
             help="Qwen hybrid state rows, including zero row; 0 selects automatic capacity",
-        )
-        self.parser.add_argument(
-            "--mtp-prefix-cache-mib",
-            type=int,
-            default=0,
-            help="device storage budget for exact-prompt MTP snapshots; TP1 only",
         )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
         self.parser.add_argument(

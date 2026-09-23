@@ -283,8 +283,4 @@ class ModelRunner:
             self.pipeline_control.close()
         if self.kv_connector is not None:
             self.kv_connector.shutdown()
-        if self.speculative_runner is not None:
-            cache = getattr(self.speculative_runner, "prefix_cache", None)
-            if cache is not None:
-                cache.clear()
         self._closed = True

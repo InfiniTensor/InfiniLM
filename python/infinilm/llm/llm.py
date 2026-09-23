@@ -50,11 +50,7 @@ class LLMEngine:
             raise ValueError(
                 "Explicit num_state_rows is currently supported for Qwen hybrid models only."
             )
-        if (
-            has_mamba_cache
-            and config.enable_prefix_caching
-            and not (config.enable_mtp and config.mtp_prefix_cache_bytes)
-        ):
+        if has_mamba_cache and config.enable_prefix_caching:
             model_type = hf_config["model_type"]
             raise RuntimeError(
                 "Prefix caching is not supported for Mamba-cache model "
@@ -428,7 +424,6 @@ class LLM:
         enable_prefix_caching: bool = True,
         enable_mtp: bool = False,
         num_state_rows: int = 0,
-        mtp_prefix_cache_bytes: int = 0,
     ):
         """Initialize LLM.
 
@@ -451,8 +446,6 @@ class LLM:
                 paged cache). Requires eager execution; disable enable_graph.
             num_state_rows: Hybrid state pool capacity including zero row.
                 Zero selects a concurrency/candidate-based capacity for MTP.
-            mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).
-                Nonzero requires enable_prefix_caching; zero disables snapshots.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -489,7 +482,6 @@ class LLM:
             enable_prefix_caching=enable_prefix_caching,
             enable_mtp=enable_mtp,
             num_state_rows=num_state_rows,
-            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
         )
         self.engine = LLMEngine(config)
         self.config = config
@@ -668,7 +660,6 @@ class AsyncLLMEngine:
         enable_prefix_caching: bool = True,
         enable_mtp: bool = False,
         num_state_rows: int = 0,
-        mtp_prefix_cache_bytes: int = 0,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -691,8 +682,6 @@ class AsyncLLMEngine:
                 paged cache). Requires eager execution; disable enable_graph.
             num_state_rows: Hybrid state pool capacity including zero row.
                 Zero selects a concurrency/candidate-based capacity for MTP.
-            mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).
-                Nonzero requires enable_prefix_caching; zero disables snapshots.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
@@ -734,7 +723,6 @@ class AsyncLLMEngine:
             enable_prefix_caching=enable_prefix_caching,
             enable_mtp=enable_mtp,
             num_state_rows=num_state_rows,
-            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
         )
         self.engine = LLMEngine(config)
         self.config = config

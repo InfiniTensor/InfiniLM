@@ -61,14 +61,8 @@ corrected norm/weight-loading path. These shared changes require ordinary-model
 regression checks independently of MTP equivalence. Graph capture preserves the
 KV page and recurrent rows that its warmup touches, including on recapture.
 
-For exact full-prompt reuse, replace `--disable-prefix-caching` with
-`--mtp-prefix-cache-mib 512`. This TP1-only LRU cache owns device copies of both
-target/draft KV, recurrent state and the initial MTP outputs. Hits restore into
-request-owned pages and state rows. The budget limits live snapshot tensor
-storage, not model memory, allocator reservations or total process memory.
-Partial-prefix matching and the Attention-only cache's SLRU policy are not
-supported by this hybrid snapshot cache. Cache reset or weight loading
-invalidates snapshots.
+Prefix reuse is disabled for MTP: Attention KV alone cannot restore the matching
+Conv/GDN state. Requests still use the existing paged KV allocator.
 
 Built-in MTP uses eager execution for all candidate counts; do not combine
 `--enable-mtp` with `--enable-graph`. Ordinary inference retains Decode graphs.
@@ -76,8 +70,7 @@ Random sampling, multimodal requests, multi-layer MTP service execution and remo
 state transfer are rejected. NVIDIA A6000 validation covers TP1 and TP2 greedy
 execution, batched requests, cancellation and cache reclamation. The 27B FP8 TP2
 checks use K=2; K=1/2/4 and ordinary graph recapture are also checked with a tiny
-checkpoint. Exact full-prompt caching remains TP1-only. Other accelerators have
-not been validated for this service path.
+checkpoint. Other accelerators have not been validated for this service path.
 
 Control-flow and GPU integration checks:
 
@@ -89,7 +82,7 @@ INFINILM_QWEN_MTP_TEST_TP=1 python -m pytest \
 ```
 
 For the TP2 execution and batching checks, expose two GPUs and set
-`INFINILM_QWEN_MTP_TEST_TP=2`; the prefix-cache check still uses TP1.
+`INFINILM_QWEN_MTP_TEST_TP=2`.
 The three test modules cover CPU scheduling/lifecycle, GPU execution, and
 checkpoint/model contracts. GPU checks skip when no test checkpoint is set.
 

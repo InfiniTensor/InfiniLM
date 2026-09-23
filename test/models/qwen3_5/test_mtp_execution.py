@@ -1,7 +1,7 @@
 """GPU correctness: serial equivalence, checkpoint ownership, graphs and batching.
 
 Set INFINILM_QWEN_MTP_TEST_MODEL to a tiny checkpoint with MTP weights;
-INFINILM_QWEN_MTP_TEST_TP=1 or 2 selects the parallelism (prefix caching uses TP1).
+INFINILM_QWEN_MTP_TEST_TP=1 or 2 selects the parallelism.
 """
 
 import os
@@ -134,54 +134,6 @@ def test_ordinary_graph_recapture_preserves_recurrent_state():
         assert actual == expected
     finally:
         llm.close()
-
-
-def test_bounded_prefix_hit_eviction_and_rebuild():
-    llm = create(
-        num_draft_tokens=1,
-        tensor_parallel_size=1,
-        enable_prefix_caching=True,
-        mtp_prefix_cache_bytes=8 * 1024**2,
-    )
-    engine = llm.engine
-    runner = engine.model_runner
-    mtp = runner.speculative_runner
-    prompt = [i % 59 + 1 for i in range(63)]
-    try:
-        runner.speculative_runner = None
-        engine.config.enable_mtp = False
-        expected = drain(engine, [request("ordinary", prompt)])[0]
-        runner.speculative_runner = mtp
-        engine.config.enable_mtp = True
-        assert drain(engine, [request("cold", prompt)])[0] == expected
-        cache = mtp.prefix_cache
-        assert cache.entries and cache.used_bytes <= cache.budget_bytes
-        cache.budget_bytes = cache.used_bytes
-        hits = cache.hits
-        calls = []
-        forward = runner.model_engine.forward_raw
-
-        def capture(**kw):
-            calls.append(kw["input_ids"].shape[-1])
-            return forward(**kw)
-
-        runner.model_engine.forward_raw = capture
-        assert drain(engine, [request("hit", prompt)])[0] == expected
-        assert cache.hits == hits + 1 and max(calls) <= 2
-        runner.model_engine.forward_raw = forward
-        drain(engine, [request("different", [7, 2, 19, 8])])
-        assert cache.evictions == 1 and cache.used_bytes <= cache.budget_bytes
-        assert drain(engine, [request("evicted", prompt)])[0] == expected
-        assert cache.evictions == 2
-        generation = runner.model_engine.cache_generation
-        runner.model_engine.reset_cache(PagedKVCacheConfig(40, 64, 1, 13))
-        assert runner.model_engine.cache_generation > generation
-        hits = cache.hits
-        assert drain(engine, [request("reset", prompt)])[0] == expected
-        assert cache.hits == hits
-    finally:
-        llm.close()
-    assert not mtp.prefix_cache.entries
 
 
 def test_batched_mtp_matches_serial_with_cancellation():

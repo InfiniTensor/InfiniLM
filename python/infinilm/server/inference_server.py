@@ -128,7 +128,6 @@ class InferenceServer:
         enable_mtp: bool = False,
         num_draft_tokens: int = 1,
         num_state_rows: int = 0,
-        mtp_prefix_cache_bytes: int = 0,
     ):
         """Initialize inference server.
 
@@ -195,7 +194,6 @@ class InferenceServer:
         self.enable_mtp = enable_mtp
         self.num_draft_tokens = num_draft_tokens
         self.num_state_rows = num_state_rows
-        self.mtp_prefix_cache_bytes = mtp_prefix_cache_bytes
 
         self.engine: AsyncLLMEngine = None
 
@@ -243,7 +241,6 @@ class InferenceServer:
                 enable_mtp=self.enable_mtp,
                 num_draft_tokens=self.num_draft_tokens,
                 num_state_rows=self.num_state_rows,
-                mtp_prefix_cache_bytes=self.mtp_prefix_cache_bytes,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -682,7 +679,6 @@ def main():
         enable_mtp=cfg.enable_mtp,
         num_draft_tokens=cfg.num_draft_tokens,
         num_state_rows=cfg.num_state_rows,
-        mtp_prefix_cache_bytes=cfg.mtp_prefix_cache_mib * 1024 * 1024,
     )
     server.start()
 

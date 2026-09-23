@@ -168,7 +168,6 @@ class InferEngine(_infinilm.InferEngine):
         pre_transpose=False,
         enable_mtp=None,
     ):
-        self.cache_generation = 0
         self.hf_config = read_hf_config(model_path)
         if enable_mtp is not None:
             self.hf_config["enable_mtp"] = bool(enable_mtp)
@@ -775,7 +774,6 @@ class InferEngine(_infinilm.InferEngine):
         return output_ids
 
     def reset_cache(self, cache_config):
-        self.cache_generation += 1
         infinicore.sync_device()
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         super().reset_cache(cache_config)
@@ -784,7 +782,6 @@ class InferEngine(_infinilm.InferEngine):
         return list(super().state_dict_keyname())
 
     def load_state_dict(self, state_dict, strict=None):
-        self.cache_generation += 1
         # MoE/quantized paths may register internal packed tensors that are not
         # present in the HF checkpoint, so callers can request non-strict loads.
         super().load_params(

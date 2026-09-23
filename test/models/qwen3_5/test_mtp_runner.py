@@ -416,17 +416,9 @@ def test_mtp_config_sizes_state_pool_independently_from_pages():
         "unused",
         enable_mtp=True,
         num_state_rows=5,
-        enable_prefix_caching=True,
-        mtp_prefix_cache_bytes=1024,
+        enable_prefix_caching=False,
     )
     assert config.num_state_rows == 5
-    with pytest.raises(ValueError, match="tensor_parallel_size"):
-        EngineConfig(
-            "unused",
-            enable_mtp=True,
-            tensor_parallel_size=2,
-            mtp_prefix_cache_bytes=1024,
-        )
 
 
 def test_packed_draft_preserves_different_acceptance_lengths():

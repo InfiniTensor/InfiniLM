@@ -21,7 +21,6 @@ class InfiniLMBenchmark(BaseBenchmark):
         enable_mtp=False,
         num_draft_tokens=4,
         num_state_rows=0,
-        mtp_prefix_cache_bytes=0,
         num_blocks=128,
         block_size=256,
     ):
@@ -69,9 +68,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             enable_mtp=enable_mtp,
             num_draft_tokens=num_draft_tokens,
             num_state_rows=num_state_rows,
-            mtp_prefix_cache_bytes=mtp_prefix_cache_bytes,
-            enable_prefix_caching=bool(mtp_prefix_cache_bytes)
-            or not model_uses_mamba_cache(self.config_dict),
+            enable_prefix_caching=not model_uses_mamba_cache(self.config_dict),
             enable_graph=enable_graph,
             attn_backend=attn_backend,
         )
