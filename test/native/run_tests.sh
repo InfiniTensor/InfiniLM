@@ -72,7 +72,10 @@ if [[ "$suite" == all || "$suite" == config ]]; then
         "$root/csrc/layers/quantization/none_quantization.cpp" \
         "$root/csrc/layers/quantization/compressed_tensors.cpp" \
         "$root/csrc/layers/quantization/awq.cpp" \
+        "$root/csrc/layers/quantization/awq_marlin.cpp" \
         "$root/csrc/layers/quantization/gptq.cpp" \
+        "$root/csrc/layers/quantization/gptq_marlin.cpp" \
+        "$root/csrc/layers/quantization/gptq_qy.cpp" \
         "$root/csrc/layers/quantization/mxfp4.cpp" \
         "${links[@]}"
 fi

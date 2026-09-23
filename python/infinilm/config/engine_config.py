@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from infinilm.config.attention import resolve_attention_backend
 from infinilm.config.kv_transfer import KVTransferConfig
 
 
@@ -32,7 +33,7 @@ class EngineConfig:
         top_p: Default top-p sampling parameter.
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
-        attn_backend: Attention backend to use ('default', 'flash-attn').
+        attn_backend: Attention backend ('default', 'static-attn', 'flash-attn').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
@@ -71,6 +72,9 @@ class EngineConfig:
     enable_prefix_caching: bool = True
 
     def __post_init__(self) -> None:
+        self.attn_backend = resolve_attention_backend(
+            self.attn_backend, self.cache_type
+        )
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
         if self.pipeline_parallel_size < 1:

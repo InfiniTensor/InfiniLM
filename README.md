@@ -180,8 +180,10 @@ Start the OpenAI-compatible server:
 python python/infinilm/server/inference_server.py --device nvidia --model=/path/to/model --tp=1
 ```
 
-Paged attention and graph execution are selected by InfiniLM arguments and are
-built as part of InfiniLM:
+The `--enable-paged-attn` flag selects the paged KV cache layout. With
+`--attn=default`, paged caches use the InfiniOps FlashAttention providers and
+static caches use `static-attn`. The removed `paged-attn` backend is no longer
+a valid `--attn` value. Enable paged cache and graph execution with:
 
 ```shell
 python examples/bench.py --device nvidia --model=/path/to/model --enable-paged-attn --enable-graph
