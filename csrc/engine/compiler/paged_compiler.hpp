@@ -2,7 +2,6 @@
 
 #include "graph_compiler.hpp"
 
-#include <optional>
 #include <unordered_map>
 
 namespace infinilm::engine {
