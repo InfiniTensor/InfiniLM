@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import infinicore
 
 from infinilm.cache import PagedKVCacheConfig
+from infinilm.config.attention import resolve_attention_backend
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
@@ -253,6 +254,10 @@ class InferEngine(_infinilm.InferEngine):
             distributed_config.moe_ep_backend = moe_ep_backend
             distributed_config.moe_ep_size = moe_ep_size
 
+        attention_backend = resolve_attention_backend(
+            attention_backend,
+            "paged" if isinstance(cache_config, PagedKVCacheConfig) else "static",
+        )
         hf_config_str = json.dumps(self.hf_config)
         super().__init__(
             hf_config_str,
