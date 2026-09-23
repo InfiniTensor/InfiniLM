@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
-#include <string>
 #include <vector>
 
 namespace infinilm::engine {
