@@ -448,9 +448,7 @@ class LLM:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             enable_mtp: Use built-in Qwen MTP (text, greedy, 1-4 candidates,
-                paged cache). Batched verification runs eager. With one request
-                and one candidate, enable_graph captures Decode and MTP drafts;
-                target verification remains eager.
+                paged cache). Requires eager execution; disable enable_graph.
             num_state_rows: Hybrid state pool capacity including zero row.
                 Zero selects a concurrency/candidate-based capacity for MTP.
             mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).
@@ -690,9 +688,7 @@ class AsyncLLMEngine:
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
             enable_mtp: Use built-in Qwen MTP (text, greedy, 1-4 candidates,
-                paged cache). Batched verification runs eager. With one request
-                and one candidate, enable_graph captures Decode and MTP drafts;
-                target verification remains eager.
+                paged cache). Requires eager execution; disable enable_graph.
             num_state_rows: Hybrid state pool capacity including zero row.
                 Zero selects a concurrency/candidate-based capacity for MTP.
             mtp_prefix_cache_bytes: Budget for exact-prompt MTP snapshots (TP1).

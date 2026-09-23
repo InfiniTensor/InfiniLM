@@ -213,8 +213,7 @@ def test_state_capacity_uses_normal_decode_without_stale_draft_cache():
     [
         {"enable_prefix_caching": True},
         {"num_draft_tokens": 5},
-        {"num_draft_tokens": 2, "enable_graph": True},
-        {"max_batch_size": 2, "enable_graph": True},
+        {"enable_graph": True},
         {"pipeline_parallel_size": 2},
         {"cache_type": "static"},
         {"draft_model_path": "external"},

@@ -54,7 +54,7 @@ def drain(engine, reqs, *, admit=True, recapture=False):
             break
         assert engine.step()[0]
         if recapture and step == 1:
-            engine.model_runner.model_engine.compile()
+            engine.model_runner.model_engine.process_weights_after_loading()
     assert all(r.is_finished() for r in reqs)
     assert not engine.scheduler.mamba_cache_manager.used_block_ids
     cache = engine.scheduler.cache_manager
@@ -63,9 +63,9 @@ def drain(engine, reqs, *, admit=True, recapture=False):
     return [list(r.generated_token_ids) for r in reqs]
 
 
-@pytest.mark.parametrize("candidates,graph", [(1, True), (2, False), (4, False)])
-def test_mtp_matches_ordinary_with_reused_and_recaptured_state(candidates, graph):
-    llm = create(num_draft_tokens=candidates, enable_graph=graph)
+@pytest.mark.parametrize("candidates", [1, 2, 4])
+def test_mtp_matches_ordinary_with_reused_and_rebuilt_state(candidates):
+    llm = create(num_draft_tokens=candidates)
     engine = llm.engine
     runner = engine.model_runner
     mtp = runner.speculative_runner
@@ -73,8 +73,8 @@ def test_mtp_matches_ordinary_with_reused_and_recaptured_state(candidates, graph
 
     prompt = [i % 63 + 1 for i in range(63)]
 
-    def generate(recapture=False):
-        return drain(engine, [request("test", prompt, 20)], recapture=recapture)[0]
+    def generate():
+        return drain(engine, [request("test", prompt, 20)])[0]
 
     try:
         runner.speculative_runner = None
@@ -85,7 +85,7 @@ def test_mtp_matches_ordinary_with_reused_and_recaptured_state(candidates, graph
         mtp.device_tokens = False
         assert generate() == expected
         mtp.device_tokens = True
-        assert generate(recapture=graph) == expected
+        assert generate() == expected
         raw.reset_cache(PagedKVCacheConfig(40, 64, 1, llm.config.num_state_rows))
         assert generate() == expected
         # Exercise every device-side acceptance length, then consume the
@@ -125,10 +125,20 @@ def test_mtp_matches_ordinary_with_reused_and_recaptured_state(candidates, graph
         llm.close()
 
 
+def test_ordinary_graph_recapture_preserves_recurrent_state():
+    llm = create(enable_mtp=False, enable_graph=True)
+    prompt = [i % 63 + 1 for i in range(63)]
+    try:
+        expected = drain(llm.engine, [request("ordinary", prompt)])[0]
+        actual = drain(llm.engine, [request("recapture", prompt)], recapture=True)[0]
+        assert actual == expected
+    finally:
+        llm.close()
+
+
 def test_bounded_prefix_hit_eviction_and_rebuild():
     llm = create(
         num_draft_tokens=1,
-        enable_graph=True,
         tensor_parallel_size=1,
         enable_prefix_caching=True,
         mtp_prefix_cache_bytes=8 * 1024**2,

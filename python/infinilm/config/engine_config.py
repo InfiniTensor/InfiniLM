@@ -99,11 +99,9 @@ class EngineConfig:
                 )
             if not 1 <= self.num_draft_tokens <= 4:
                 raise ValueError("Qwen MTP requires `1 <= num_draft_tokens <= 4`.")
-            if self.enable_graph and (
-                self.num_draft_tokens != 1 or self.max_batch_size != 1
-            ):
+            if self.enable_graph:
                 raise ValueError(
-                    "Batched or multi-candidate Qwen MTP currently requires eager mode."
+                    "Qwen MTP requires eager execution; disable `enable_graph`."
                 )
             if self.cache_type != "paged" or self.pipeline_parallel_size != 1:
                 raise ValueError(

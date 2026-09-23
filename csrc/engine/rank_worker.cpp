@@ -437,17 +437,15 @@ void RankWorker::thread_loop() {
                             && !model_->supports_token_state_checkpoints()) {
                             throw std::runtime_error("This model does not support per-token state checkpoints.");
                         }
-                        const bool graph_candidate = !local_args.token_state_indices
+                        const bool graph_candidate = !local_args.token_state_indices && !local_args.target_hidden_states
                                                   && local_args.input_ids && local_args.input_offsets
-                                                  && (local_args.input_ids.value()->numel() == local_args.input_offsets.value()->numel() - 1
-                                                      || (local_args.target_hidden_states && local_args.input_ids.value()->numel() <= 2));
+                                                  && local_args.input_ids.value()->numel() == local_args.input_offsets.value()->numel() - 1;
                         if (graph_candidate && compiler_ != nullptr && rank_info_.pp_size == 1) {
                             auto graph_input = local_args.to_model_input(infinicore::Device::cpu(), true);
                             auto [graph, output] = compiler_->get_compiled(graph_input);
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
-                                hidden_states = output->hidden_states;
                                 model_input_ids = graph_input.input_ids.value();
                             }
                         }

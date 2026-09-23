@@ -70,13 +70,12 @@ Partial-prefix matching and the Attention-only cache's SLRU policy are not
 supported by this hybrid snapshot cache. Cache reset or weight loading
 invalidates snapshots.
 
-`--enable-graph` currently requires `--num-draft-tokens 1 --max-batch-size 1`.
-It captures ordinary Decode and supported short draft shapes; Prefill and target
-verification remain eager. Multi-candidate and batched execution use eager.
+Built-in MTP uses eager execution for all candidate counts; do not combine
+`--enable-mtp` with `--enable-graph`. Ordinary inference retains Decode graphs.
 Random sampling, multimodal requests, multi-layer MTP service execution and remote
 state transfer are rejected. NVIDIA A6000 validation covers TP1 and TP2 greedy
 execution, batched requests, cancellation and cache reclamation. The 27B FP8 TP2
-checks use K=2; K=1/2/4 and graph recapture are additionally checked with a tiny
+checks use K=2; K=1/2/4 and ordinary graph recapture are also checked with a tiny
 checkpoint. Exact full-prompt caching remains TP1-only. Other accelerators have
 not been validated for this service path.
 

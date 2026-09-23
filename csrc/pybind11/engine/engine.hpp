@@ -130,7 +130,6 @@ inline void bind_infer_engine(py::module &m) {
                 py::gil_scoped_release release;
                 return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
         .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
-        .def("compile", &InferEngine::compile, py::call_guard<py::gil_scoped_release>())
         .def("get_kv_cache", [](InferEngine &self) {
             py::list ranks;
             for (const auto &rank : self.get_kv_cache()) {

@@ -74,6 +74,9 @@ InferEngine::InferEngine(
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
+    if (enable_graph_compiling && model_config_->get_or<bool>("enable_mtp", false)) {
+        throw std::invalid_argument("Built-in MTP requires eager execution; disable graph compiling.");
+    }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
         attention_backend,
         this->model_config_,

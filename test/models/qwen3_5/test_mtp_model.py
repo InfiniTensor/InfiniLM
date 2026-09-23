@@ -112,6 +112,16 @@ def create_model(path, enable_mtp=True):
     return model, tp
 
 
+def test_native_mtp_graph_is_rejected_before_model_loading(checkpoint):
+    with pytest.raises(ValueError, match="MTP requires eager"):
+        InferEngine(
+            checkpoint,
+            device=infinicore.device("cpu", 0),
+            enable_mtp=True,
+            enable_graph_compiling=True,
+        )
+
+
 @pytest.fixture
 def engine(checkpoint):
     # Malformed raw inputs can stop the workers: never share this engine across tests.
