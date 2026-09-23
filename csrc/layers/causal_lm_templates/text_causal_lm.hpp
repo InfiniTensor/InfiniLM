@@ -46,6 +46,10 @@ public:
         model_ = this->register_module<Model>("model", model_config, device);
         if (is_last_pp_stage()) {
             lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+            // Modern InfiniCore does not provide a dedicated last-token
+            // hidden selector op.
+            // Keep a device-side -1 tensor so packed prefill can compute
+            // last-token positions as input_offsets[1:] - 1 with generic ops.
             auto last_token_shift_cpu = infinicore::Tensor::empty(
                 {1}, infinicore::DataType::kInt32,
                 infinicore::Device{infinicore::Device::Type::kCpu});
@@ -70,6 +74,8 @@ public:
                                         && hidden_states->size(0) == 1
                                         && hidden_states->size(1) > num_requests;
             if (is_packed_prefill) {
+                // Equivalent to the old dedicated selector path:
+                // gather hidden_states at each request's last packed token position.
                 auto end_offsets = input.input_offsets.value()->narrow(
                     {{0, 1, num_requests}});
                 auto last_token_positions = infinicore::op::add(

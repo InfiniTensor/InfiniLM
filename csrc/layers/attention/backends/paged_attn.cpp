@@ -1,8 +1,6 @@
 #include "paged_attn.hpp"
 
-#include "../../../utils.hpp"
-#include "infinicore/ops.hpp"
-#include "infinicore/ops/mha_varlen.hpp"
+#include <stdexcept>
 
 namespace infinilm::layers::attention::backends {
 
@@ -18,81 +16,22 @@ PagedAttentionImpl::PagedAttentionImpl(size_t num_heads,
       layer_idx_(layer_idx),
       head_dim_(head_size) {}
 
-infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
-                                               const infinicore::Tensor &query,
-                                               const infinicore::Tensor &key,
-                                               const infinicore::Tensor &value,
-                                               infinicore::Tensor &kv_cache,
-                                               const infinilm::global_state::AttentionMetadata &attn_metadata) const {
-    auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
-    auto input_offsets = attn_metadata.input_offsets;
-    auto cu_seqlens = attn_metadata.cu_seqlens;
-    auto block_tables = attn_metadata.block_tables;
-    auto slot_mapping = attn_metadata.slot_mapping;
-    ASSERT(block_tables.has_value());
-    ASSERT(slot_mapping.has_value());
-
-    // 1. update paged kv cache
-    auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value());
-
-    size_t seq_len = query->shape()[0];
-    bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
-
-    // 2. Compute attention
-    const size_t value_head_dim = value->size(value->ndim() - 1);
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, value_head_dim}, query->dtype(), query->device());
-    if (is_prefill) {
-        ASSERT(input_offsets.has_value());
-        ASSERT(cu_seqlens.has_value());
-        if (attn_metadata.max_query_length == 0 || attn_metadata.max_sequence_length == 0) {
-            infinicore::op::paged_attention_prefill_(
-                attn_output, query, k_total, v_total,
-                block_tables.value(), total_sequence_lengths.value(),
-                input_offsets.value(), std::nullopt, scale_);
-        } else {
-            infinicore::op::mha_varlen_(
-                attn_output,
-                query,
-                k_total,
-                v_total,
-                input_offsets.value(),
-                cu_seqlens.value(),
-                block_tables.value(),
-                static_cast<int>(attn_metadata.max_query_length),
-                static_cast<int>(attn_metadata.max_sequence_length),
-                std::nullopt,
-                scale_);
-        }
-    } else {
-        infinicore::op::paged_attention_(
-            attn_output,
-            query,
-            k_total,
-            v_total,
-            block_tables.value(),
-            total_sequence_lengths.value(),
-            std::nullopt,
-            scale_);
-    }
-    attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
-    return attn_output;
+infinicore::Tensor PagedAttentionImpl::forward(const AttentionLayer &,
+                                               const infinicore::Tensor &,
+                                               const infinicore::Tensor &,
+                                               const infinicore::Tensor &,
+                                               infinicore::Tensor &,
+                                               const infinilm::global_state::AttentionMetadata &) const {
+    throw std::runtime_error(
+        "PagedAttention has been temporarily removed and may be restored in a future release.");
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
-                                                                                          const infinicore::Tensor key,
-                                                                                          const infinicore::Tensor value,
-                                                                                          infinicore::Tensor &kv_cache,
-                                                                                          const infinicore::Tensor slot_mapping) const {
-    auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
-    auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
-    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});
-    infinicore::op::paged_caching_(
-        k_cache_layer,
-        v_cache_layer,
-        key,
-        value,
-        slot_mapping);
-
-    return {k_cache_layer, v_cache_layer};
+std::tuple<infinicore::Tensor, infinicore::Tensor> PagedAttentionImpl::do_kv_cache_update(const AttentionLayer &,
+                                                                                          const infinicore::Tensor,
+                                                                                          const infinicore::Tensor,
+                                                                                          infinicore::Tensor &,
+                                                                                          const infinicore::Tensor) const {
+    throw std::runtime_error(
+        "PagedAttention has been temporarily removed and may be restored in a future release.");
 }
 } // namespace infinilm::layers::attention::backends
