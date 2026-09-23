@@ -1,6 +1,9 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
+#include "../../cache/kv_cache.hpp"
+#include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
+#include <infinicore/ops/select_last_token_hidden.hpp>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -16,14 +19,45 @@ Qwen35ForCausalLM::Qwen35ForCausalLM(
     const auto &dtype = model_config->get_dtype();
 
     INFINICORE_NN_MODULE_INIT(model, model_config, device);
+    const auto &rank = global_state::get_tensor_model_parallel_rank_info();
     INFINICORE_NN_MODULE_INIT(
-        lm_head, hidden_size, vocab_size, false, dtype, device);
+        lm_head, hidden_size, vocab_size, dtype, device, rank.tp_rank, rank.tp_size, rank.comm);
+    if (model_config->get_or<bool>("enable_mtp", false)) {
+        INFINICORE_NN_MODULE_INIT(mtp, model_config, device);
+    }
 }
 
 InfinilmModel::Output Qwen35ForCausalLM::forward(
     const InfinilmModel::Input &input) const {
-    auto hidden_states = model_->forward(input);
-    return {lm_head_->forward(hidden_states)};
+    infinicore::Tensor hidden_states;
+    if (input.target_hidden_states.has_value()) {
+        if (!mtp_) {
+            throw std::runtime_error("Qwen MTP weights must be enabled before draft execution.");
+        }
+        hidden_states = mtp_->forward(model_->embed_input_ids(input.input_ids.value()),
+                                      input.target_hidden_states.value(), input.position_ids.value());
+    } else {
+        hidden_states = model_->forward(input);
+    }
+    auto head_input = hidden_states;
+    const bool packed_greedy = input.greedy_output && input.block_tables && input.input_offsets
+                            && hidden_states->size(0) == 1
+                            && hidden_states->device().getType() == infinicore::Device::Type::NVIDIA;
+    if (packed_greedy && !input.sample_all_positions
+        && hidden_states->size(1) != input.input_offsets.value()->numel() - 1) {
+        head_input = infinicore::Tensor::empty(
+            {1, input.input_offsets.value()->numel() - 1, hidden_states->size(2)},
+            hidden_states->dtype(), hidden_states->device());
+        infinicore::op::select_last_token_hidden_(head_input, hidden_states, input.input_offsets.value());
+    }
+    if (packed_greedy) {
+        return {{}, mtp_ ? hidden_states : infinicore::Tensor{}, lm_head_->top_tokens(head_input)};
+    }
+    auto logits = lm_head_->forward(head_input);
+    if (mtp_) {
+        return {logits, hidden_states};
+    }
+    return {logits};
 }
 
 void Qwen35ForCausalLM::reset_cache(
@@ -34,6 +68,19 @@ void Qwen35ForCausalLM::reset_cache(
         cache_config_ = cache_config->unique_copy();
     }
     model_->reset_cache(cache_config);
+    if (mtp_ && cache_config != nullptr) {
+        const auto *paged = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+        if (paged == nullptr) {
+            throw std::runtime_error("Qwen MTP requires paged KV storage.");
+        }
+        const auto head_dim = model_config_->get<size_t>("head_dim");
+        const auto heads = model_config_->get<size_t>("num_key_value_heads");
+        auto &context = global_state::get_forward_context();
+        context.kv_cache_vec.push_back(cache::PagedKVCache::create_layer_kv_cache(
+            head_dim, head_dim, heads, heads, model_config_->get_kv_cache_dtype(), *paged));
+        context.conv_state_vec.emplace_back();
+        context.ssm_state_vec.emplace_back();
+    }
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {

@@ -40,17 +40,20 @@ public:
     PagedKVCacheConfig(
         size_t num_blocks,
         size_t block_size = 256,
-        size_t max_batch_size = 1);
+        size_t max_batch_size = 1,
+        size_t num_state_rows = 0);
 
     std::unique_ptr<CacheConfig> unique_copy() const override;
     size_t num_blocks() const;
     size_t block_size() const;
     size_t max_batch_size() const;
+    size_t num_state_rows() const { return num_state_rows_; }
 
 private:
     size_t num_blocks_;
     size_t block_size_;
     size_t max_batch_size_;
+    size_t num_state_rows_;
 };
 
 namespace PagedKVCache {

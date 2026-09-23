@@ -445,6 +445,8 @@ class TestModel:
         top_k=1,
         use_legacy_moe=False,
         enable_prefix_caching=False,
+        enable_mtp=False,
+        num_state_rows=0,
         processor=None,
         tokenizer=None,
         prompt_token_segments=None,
@@ -454,6 +456,7 @@ class TestModel:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
         self.num_draft_tokens = num_draft_tokens
+        self.enable_mtp = enable_mtp
         self.model_path = model_path
         self.device_str = infini_device.type
         self.tp = tp
@@ -474,7 +477,9 @@ class TestModel:
         if pp > 1 and draft_model_path is not None:
             raise ValueError("pipeline-parallel speculative decoding is not supported")
 
-        if draft_model_path is not None:
+        if enable_mtp and processed_multimodal_inputs is not None:
+            raise ValueError("Built-in MTP benchmarks support text prompts only.")
+        if draft_model_path is not None and not enable_mtp:
             if processed_multimodal_inputs is not None:
                 raise ValueError("Draft-model benchmarks do not support --image")
             if self.processor is None:
@@ -490,9 +495,13 @@ class TestModel:
             self.model = None
             return
 
-        if pp > 1:
+        if pp > 1 or enable_mtp:
             self.model = LLM(
                 model_path=model_path,
+                draft_model_path=draft_model_path,
+                num_draft_tokens=num_draft_tokens,
+                enable_mtp=enable_mtp,
+                num_state_rows=num_state_rows,
                 device=self.device_str,
                 dtype=cfg.dtype,
                 tensor_parallel_size=tp,
@@ -514,6 +523,7 @@ class TestModel:
                 enable_graph=enable_graph,
                 attn_backend=attn_backend,
                 use_mla=use_mla,
+                pre_transpose=pre_transpose,
                 weight_load_mode=weight_load_mode,
                 skip_load=skip_load,
                 use_legacy_moe=use_legacy_moe,
@@ -638,11 +648,11 @@ class TestModel:
         return inputs
 
     @property
-    def uses_pipeline_parallel(self) -> bool:
-        return self.pp > 1
+    def uses_llm_engine(self) -> bool:
+        return self.pp > 1 or self.enable_mtp
 
     def close(self) -> None:
-        if self.uses_pipeline_parallel:
+        if self.uses_llm_engine:
             self.model.close()
 
     def run(
@@ -662,7 +672,7 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
-        if self.draft_model_path is not None or self.uses_pipeline_parallel:
+        if self.draft_model_path is not None or self.uses_llm_engine:
             prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
             llm = self.model
             if self.draft_model_path is not None:
@@ -699,6 +709,9 @@ class TestModel:
                 use_tqdm=False,
             )
             t2 = time.time()
+            actual_input_lengths = [len(output.prompt_token_ids) for output in outputs]
+            if any(length != input_len for length in actual_input_lengths):
+                print(f"[bench] tokenized input lengths: {actual_input_lengths}")
             if cfg.verbose and not skip_load:
                 if output_len <= 256:
                     for output in outputs:
@@ -859,7 +872,7 @@ if __name__ == "__main__":
     #             测试
     # -------------------------------------------------------- #
     if enable_paged_attn:
-        paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
+        paged_kv_block_size = cfg.block_size if cfg.enable_mtp else _PAGED_KV_BLOCK_SIZE
         max_num_blocks = max(
             [
                 (
@@ -953,7 +966,9 @@ if __name__ == "__main__":
         top_p=cfg.top_p,
         top_k=cfg.top_k,
         use_legacy_moe=cfg.use_legacy_moe,
-        enable_prefix_caching=False,
+        enable_prefix_caching=cfg.enable_prefix_caching if cfg.enable_mtp else False,
+        enable_mtp=cfg.enable_mtp,
+        num_state_rows=cfg.num_state_rows,
         processor=processor,
         tokenizer=tokenizer,
         prompt_token_segments=prompt_token_segments,
@@ -979,7 +994,7 @@ if __name__ == "__main__":
         )
         print("=================== warmup start ===================")
 
-        if test.uses_pipeline_parallel:
+        if test.uses_llm_engine:
             for _ in range(warmup_steps):
                 test.run(
                     batch_size=warmup_batch,
@@ -1030,7 +1045,7 @@ if __name__ == "__main__":
         print("=================== warmup done ====================")
 
         # reset cache back to benchmark config
-        if cache_config is not None and not test.uses_pipeline_parallel:
+        if cache_config is not None and not test.uses_llm_engine:
             test.model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #
@@ -1044,7 +1059,7 @@ if __name__ == "__main__":
         input_len = case["input_len"]
         output_len = case["output_len"]
 
-        if not test.uses_pipeline_parallel and not enable_paged_attn:
+        if not test.uses_llm_engine and not enable_paged_attn:
             # reset cache if static kvcache is used
             initial_capacity = input_len + output_len
             test.model.reset_cache(

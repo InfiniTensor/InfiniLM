@@ -17,8 +17,17 @@ logger = logging.getLogger(__name__)
 class SpeculativeCacheOps:
     """Limited cache operations needed by speculative verification."""
 
-    def __init__(self, cache_manager: BlockManager):
+    def __init__(self, cache_manager: BlockManager, state_manager=None):
         self._cache_manager = cache_manager
+        self._state_manager = state_manager
+
+    def allocate_state_rows(self, count: int) -> Optional[List[int]]:
+        if (
+            self._state_manager is None
+            or self._state_manager.get_num_free_blocks() < count
+        ):
+            return None
+        return [self._state_manager.allocate() for _ in range(count)]
 
     def append_verify_slots(
         self,
@@ -89,7 +98,9 @@ class Scheduler:
             if has_mamba_cache
             else None
         )
-        self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
+        self.speculative_cache_ops = SpeculativeCacheOps(
+            self.cache_manager, self.mamba_cache_manager
+        )
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
@@ -430,9 +441,19 @@ class Scheduler:
                     self.cache_manager.free_blocks(req.block_table)
                 elif req.block_table and delay_free_blocks:
                     self.pending_free_blocks[req.request_id] = list(req.block_table)
+                # Ownership has been released or moved to `pending_free_blocks`.
+                # A repeated completion must not free pages reassigned to a
+                # different request in the meantime.
+                req.block_table = []
+                req.slot_mapping = []
+                req.num_blocks = 0
                 if self.mamba_cache_manager is not None:
                     self.mamba_cache_manager.free(req.mamba_cache_index)
                     req.mamba_cache_index = None
+                    if req.mtp_state is not None:
+                        for row in req.mtp_state.scratch_indices:
+                            self.mamba_cache_manager.free(row)
+                        req.mtp_state = None
 
                 if req.status == RequestStatus.CANCELED:
                     logger.info(
@@ -449,6 +470,21 @@ class Scheduler:
             else:
                 # Still running, put back in running queue
                 self.running_queue.sync_q.put(req)
+
+    def cancel_all(self):
+        """Release queued requests after the engine's execution loop has stopped."""
+        canceled = []
+        for pending in (self.waiting_queue, self.running_queue):
+            while True:
+                try:
+                    req = pending.sync_q.get_nowait()
+                except queue.Empty:
+                    break
+                if not req.is_finished():
+                    req.mark_canceled()
+                self.complete_requests([req])
+                canceled.append(req)
+        return canceled
 
     def can_accept_request(
         self,

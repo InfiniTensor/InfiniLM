@@ -80,10 +80,11 @@ infinicore::Tensor create_layer_kv_cache(
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
     size_t block_size,
-    size_t max_batch_size)
+    size_t max_batch_size,
+    size_t num_state_rows)
     : num_blocks_(num_blocks),
       block_size_(block_size),
-      max_batch_size_(max_batch_size) {
+      max_batch_size_(max_batch_size), num_state_rows_(num_state_rows) {
 }
 
 std::unique_ptr<CacheConfig>

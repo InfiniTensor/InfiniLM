@@ -613,6 +613,11 @@ def main():
             cfg.enable_paged_attn,
             cfg.enable_graph,
             cfg.attn,
+            enable_mtp=cfg.enable_mtp,
+            num_draft_tokens=cfg.num_draft_tokens,
+            num_state_rows=cfg.num_state_rows,
+            num_blocks=cfg.num_blocks,
+            block_size=cfg.block_size,
         )
     else:
         raise ValueError(f"Unsupported backend: {cfg.backend}")

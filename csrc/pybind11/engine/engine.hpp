@@ -122,18 +122,14 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def(
-            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 py::gil_scoped_release release;
-                return self.forward(input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
-        .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+                return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();
@@ -161,6 +157,7 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<std::vector<size_t>> visual_token_ranges,
                          std::optional<infinicore::Tensor> target_hidden_states,
                          bool sample_all_positions,
+                         std::optional<infinicore::Tensor> token_state_indices,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
                     std::move(input_ids),
@@ -181,6 +178,7 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(visual_token_ranges),
                     std::move(target_hidden_states),
                     sample_all_positions,
+                    std::move(token_state_indices),
                 };
 
                 // Explicit defaults
@@ -193,6 +191,9 @@ inline void bind_infer_engine(py::module &m) {
                     "temperature",
                     "top_p",
                     "top_k",
+                    "return_logits",
+                    "return_device_tokens",
+                    "verify_draft",
                 };
 
                 for (auto &item : kwargs) {
@@ -207,6 +208,12 @@ inline void bind_infer_engine(py::module &m) {
                         input.temperature = py::cast<float>(item.second);
                     } else if (key == "top_p") {
                         input.top_p = py::cast<float>(item.second);
+                    } else if (key == "return_device_tokens") {
+                        input.return_device_tokens = py::cast<bool>(item.second);
+                    } else if (key == "verify_draft") {
+                        input.verify_draft = py::cast<bool>(item.second);
+                    } else if (key == "return_logits") {
+                        input.return_logits = py::cast<bool>(item.second);
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
                     }
@@ -231,7 +238,8 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("image_req_ids") = std::nullopt,
             py::arg("visual_token_ranges") = std::nullopt,
             py::arg("target_hidden_states") = std::nullopt,
-            py::arg("sample_all_positions") = false)
+            py::arg("sample_all_positions") = false,
+            py::arg("token_state_indices") = std::nullopt)
         .def_readwrite("input_ids", &InferEngine::Input::input_ids)
         .def_readwrite("position_ids", &InferEngine::Input::position_ids)
         .def_readwrite("past_sequence_lengths", &InferEngine::Input::past_sequence_lengths)
@@ -250,6 +258,7 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("token_state_indices", &InferEngine::Input::token_state_indices)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p);
@@ -257,7 +266,8 @@ inline void bind_infer_engine(py::module &m) {
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
         .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor");
+        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor")
+        .def_readwrite("accepted_draft_tokens", &InferEngine::Output::accepted_draft_tokens);
 }
 
 } // namespace infinilm::engine

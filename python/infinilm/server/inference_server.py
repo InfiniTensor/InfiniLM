@@ -125,6 +125,9 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        enable_mtp: bool = False,
+        num_draft_tokens: int = 1,
+        num_state_rows: int = 0,
     ):
         """Initialize inference server.
 
@@ -188,6 +191,9 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
+        self.enable_mtp = enable_mtp
+        self.num_draft_tokens = num_draft_tokens
+        self.num_state_rows = num_state_rows
 
         self.engine: AsyncLLMEngine = None
 
@@ -232,6 +238,9 @@ class InferenceServer:
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
                 pre_transpose=self.pre_transpose,
+                enable_mtp=self.enable_mtp,
+                num_draft_tokens=self.num_draft_tokens,
+                num_state_rows=self.num_state_rows,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -667,6 +676,9 @@ def main():
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        enable_mtp=cfg.enable_mtp,
+        num_draft_tokens=cfg.num_draft_tokens,
+        num_state_rows=cfg.num_state_rows,
     )
     server.start()
 

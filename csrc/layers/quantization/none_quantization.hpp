@@ -6,7 +6,7 @@ namespace infinilm::quantization {
 class NoneQuantization : public BaseQuantization {
 public:
     explicit NoneQuantization(const nlohmann::json &quant_config)
-        : BaseQuantization(quant_config){};
+        : BaseQuantization(quant_config) {};
 
     NoneQuantization();
 
@@ -40,15 +40,14 @@ public:
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;
 
-    // Ascend: pre-pack weight to [IC, OC] after loading to skip runtime permute.
-    // Returns shared_from_this() only on Ascend; nullptr otherwise (no-op).
+    // Pre-pack to [IC, OC] when enabled and return a per-linear layout state.
     std::shared_ptr<BaseQuantization> process_weights_after_loading(
         ParamsMap &params,
         const infinicore::Device &device,
         int split_dim = -1) const override;
 
 private:
-    mutable bool weight_prepacked_ = false; // true when weight was pre-packed for Ascend
+    bool weight_prepacked_ = false;
 };
 
 } // namespace infinilm::quantization

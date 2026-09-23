@@ -6,6 +6,91 @@
 
 当前版本依赖[`InfiniCore v0.2.9`](https://github.com/InfiniTensor/InfiniCore/releases/tag/v0.2.9)版本。
 
+### Qwen built-in MTP (experimental)
+
+The text-only greedy path supports one built-in MTP layer, 1–4 draft tokens,
+paged KV caching and PP1. Target verification selects matching Conv/GDN
+checkpoints without replay. The scheduler batches target verification while
+keeping acceptance and state independent for each request. TP1 also batches
+draft continuation; TP2 retains separate draft calls because its end-to-end
+batching benefit has not been established.
+It handles cancellation, EOS/output limits and ordinary Decode when speculative
+cache capacity is unavailable. This requires the matching FP8/MTP InfiniCore build;
+the release dependency listed above does not contain these additions. Track the
+runtime and graph lifetime/recording fixes in
+[InfiniCore #1566](https://github.com/InfiniTensor/InfiniCore/pull/1566).
+
+For Qwen3.8-27B-FP8 with E4M3 weights and 128×128 weight blocks, set
+`quantization_config.fp8_backend` to `"marlin"` in the checkpoint configuration
+for NVIDIA inference. Weights are packed once during loading using the existing
+Marlin operator; a separately converted weight file is unnecessary. The default
+`"compatibility"` backend dequantizes on the device at execution time and is slower.
+On A6000, Marlin stores weights in FP8 and computes with BF16/FP16 activations;
+it does not require native FP8 matrix multiplication.
+
+Example on one A6000 with the Marlin configuration:
+
+```bash
+python -m infinilm.server.inference_server \
+  --model /models/Qwen3.8-27B-FP8-marlin --device nvidia --dtype bfloat16 \
+  --enable-paged-attn --enable-mtp --num-draft-tokens 2 \
+  --max-batch-size 2 --num-state-rows 9 --num-blocks 40 --block-size 64 \
+  --disable-prefix-caching --top-k 1 --max-new-tokens 64
+```
+
+The same MTP and cache options are accepted by `examples/test_infer.py`,
+`examples/bench.py` and `test/bench/test_benchmark.py`. The offline benchmark
+reuses the scheduler-backed `LLM` path for MTP; it does not time model loading.
+
+`num_state_rows` counts the zero row, committed request states and speculative
+checkpoints. Its MTP default is `1 + max_batch_size * (num_draft_tokens + 2)`,
+independent of KV page count. A smaller pool can reduce concurrent admission or
+use ordinary Decode when checkpoint rows are unavailable. The page budget must
+also accommodate each prompt and its requested output limit.
+GDN state precision follows the model's `mamba_ssm_dtype` even with MTP disabled.
+FP32 states use twice the storage of BF16 states; `num_state_rows` controls their
+capacity without changing the precision. Short multi-token GDN recurrence is
+selected by speculative checkpoint metadata, not ordinary prompt length.
+NVIDIA batched Decode uses the same per-token GDN gate projection shape as
+checkpointed verification to avoid BF16 rounding changes with batch size.
+Short packed verification reuses Decode Attention with a causal KV length and
+the owning request's page-table row for each query.
+
+Ordinary Qwen inference also uses vocabulary-parallel output projection and the
+corrected norm/weight-loading path. These shared changes require ordinary-model
+regression checks independently of MTP equivalence. Graph capture preserves the
+KV page and recurrent rows that its warmup touches, including on recapture.
+
+Prefix reuse is disabled for MTP: Attention KV alone cannot restore the matching
+Conv/GDN state. Requests still use the existing paged KV allocator.
+
+Built-in MTP uses eager execution for all candidate counts; do not combine
+`--enable-mtp` with `--enable-graph`. Ordinary inference retains Decode graphs.
+Random sampling, multimodal requests, multi-layer MTP service execution and remote
+state transfer are rejected. NVIDIA A6000 validation covers TP1 and TP2 greedy
+execution, batched requests, cancellation and cache reclamation. The 27B FP8 TP2
+checks use K=2; K=1/2/4 and ordinary graph recapture are also checked with a tiny
+checkpoint. Other accelerators have not been validated for this service path.
+
+Control-flow and GPU integration checks:
+
+```bash
+python -m pytest test/models/qwen3_5 -q
+INFINILM_QWEN_MTP_TEST_MODEL=/models/tiny-qwen-mtp \
+INFINILM_QWEN_MTP_TEST_TP=1 python -m pytest \
+  test/models/qwen3_5 -q
+```
+
+For the TP2 execution and batching checks, expose two GPUs and set
+`INFINILM_QWEN_MTP_TEST_TP=2`.
+The three test modules cover CPU scheduling/lifecycle, GPU execution, and
+checkpoint/model contracts. GPU checks skip when no test checkpoint is set.
+
+`AsyncLLMEngine.stop(timeout=5.0)` raises `TimeoutError` if a forward is still
+running at the deadline. The worker retains its resources and closes the engine
+after that forward returns. A caller may retry `stop()` to wait again; a stopping
+or closed engine cannot be restarted.
+
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :

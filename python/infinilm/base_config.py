@@ -61,6 +61,8 @@ class BaseConfig:
         self.model = self.args.model
         self.draft_model = self.args.draft_model
         self.num_draft_tokens = self.args.num_draft_tokens
+        self.enable_mtp = self.args.enable_mtp
+        self.num_state_rows = self.args.num_state_rows
         self.device = self.args.device
         self.tp = self.args.tp
         self.pp = self.args.pp
@@ -192,7 +194,7 @@ class BaseConfig:
             "--num-draft-tokens",
             type=int,
             default=1,
-            help="number of Eagle draft tokens to verify per target step",
+            help="number of Eagle or built-in MTP draft tokens to verify per target step",
         )
         self.parser.add_argument(
             "--device",
@@ -203,6 +205,17 @@ class BaseConfig:
                 "ali, cambricon, ascend, kunlun, hygon, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
+        )
+        self.parser.add_argument(
+            "--enable-mtp",
+            action="store_true",
+            help="use the checkpoint's built-in Qwen MTP head (greedy)",
+        )
+        self.parser.add_argument(
+            "--num-state-rows",
+            type=int,
+            default=0,
+            help="Qwen hybrid state rows, including zero row; 0 selects automatic capacity",
         )
         self.parser.add_argument("--tp", "--tensor-parallel-size", type=int, default=1)
         self.parser.add_argument(

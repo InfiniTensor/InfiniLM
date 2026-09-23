@@ -14,7 +14,9 @@ QuantConfig::get_quantization_method() const {
     const std::string quant_method = quantization_config.value("quant_method", "");
 
     // Determine the quantization scheme from the JSON config
-    if (quant_method == "compressed-tensors") {
+    if (quant_method == "fp8") {
+        return std::make_shared<infinilm::quantization::FP8Block>(quantization_config);
+    } else if (quant_method == "compressed-tensors") {
         return std::make_shared<infinilm::quantization::CompressedTensors>(quantization_config);
     } else if (quant_method == "awq") {
         return std::make_shared<infinilm::quantization::AWQ>(quantization_config);
