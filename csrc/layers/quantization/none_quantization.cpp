@@ -102,7 +102,8 @@ std::vector<SplitParam> NoneQuantization::split_params(
 }
 
 std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loading(
-    infinilm::runtime::Runtime &runtime, ParamsMap &params, bool pre_transpose, int) const {
+    infinilm::runtime::Runtime &runtime, ParamsMap &params, bool pre_transpose,
+    int split_dim) const {
     if (!pre_transpose) {
         return nullptr; // No TLS, allocation, submission or success fence.
     }
@@ -144,7 +145,7 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
                     conversion_source = &padded;
                 }
                 nz_weight = infinilm::runtime::Tensor::empty(
-                    runtime, conversion_source->shape(), dtype);
+                    runtime, (*conversion_source)->shape(), dtype);
                 infinilm::execution::submit<infini::ops::TransMatmulWeightNz>(
                     runtime, infinilm::execution::RecordingPolicy::HostOnly,
                     infini::ops::TransMatmulWeightNz::DefaultConfig(runtime.device().type()),
