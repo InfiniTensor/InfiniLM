@@ -438,6 +438,7 @@ class TestModel:
         max_batch_size=1,
         max_tokens=512,
         num_blocks=512,
+        num_mamba_blocks=None,
         block_size=256,
         max_cache_len=4096,
         temperature=1.0,
@@ -506,6 +507,7 @@ class TestModel:
                 max_batch_size=max_batch_size,
                 max_tokens=max_tokens,
                 num_blocks=num_blocks,
+                num_mamba_blocks=num_mamba_blocks,
                 block_size=block_size,
                 max_cache_len=max_cache_len,
                 temperature=temperature,
@@ -888,6 +890,7 @@ if __name__ == "__main__":
             max_num_blocks,
             paged_kv_block_size,
             max_batch_size=max_batch_size,
+            num_mamba_blocks=cfg.num_mamba_blocks,
         )
     else:
         cache_config = None
@@ -942,6 +945,7 @@ if __name__ == "__main__":
             _WARMUP_DECODE_LEN if cfg.warmup else 0,
         ),
         num_blocks=max_num_blocks if enable_paged_attn else cfg.num_blocks,
+        num_mamba_blocks=cfg.num_mamba_blocks,
         block_size=cfg.block_size,
         max_cache_len=max(
             max_benchmark_cache_len,
@@ -999,6 +1003,7 @@ if __name__ == "__main__":
                     warmup_num_blocks,
                     paged_kv_block_size,
                     max_batch_size=warmup_batch,
+                    num_mamba_blocks=cfg.num_mamba_blocks,
                 )
             else:
                 warmup_cache_config = StaticKVCacheConfig(

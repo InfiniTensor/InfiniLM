@@ -23,7 +23,10 @@ class PagedKVCacheConfig(CacheConfig, _infinilm.PagedKVCacheConfig):
         num_blocks: int,
         block_size: int = 256,
         max_batch_size: int = 1,
+        num_mamba_blocks: int | None = None,
     ):
+        if num_mamba_blocks is None:
+            num_mamba_blocks = max_batch_size + 1
         _infinilm.PagedKVCacheConfig.__init__(
-            self, num_blocks, block_size, max_batch_size
+            self, num_blocks, block_size, max_batch_size, num_mamba_blocks
         )

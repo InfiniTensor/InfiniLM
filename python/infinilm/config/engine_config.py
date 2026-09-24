@@ -25,6 +25,7 @@ class EngineConfig:
         max_batch_size: Maximum batch size for inference (only for paged cache).
         max_tokens: Default maximum tokens to generate.
         num_blocks: Number of KV cache blocks (only for paged cache).
+        num_mamba_blocks: Number of Mamba cache rows, including the zero row.
         block_size: Size of each KV cache block (only for paged cache).
         max_cache_len: Maximum sequence length (only for static cache).
         enable_prefix_caching: Whether to reuse KV cache across requests.
@@ -55,6 +56,7 @@ class EngineConfig:
     max_batch_size: int = 16
     max_tokens: int = 4096
     num_blocks: int = 512
+    num_mamba_blocks: Optional[int] = None
     block_size: int = 256
     max_cache_len: int = 4096
     temperature: float = 1.0
@@ -71,6 +73,10 @@ class EngineConfig:
     enable_prefix_caching: bool = True
 
     def __post_init__(self) -> None:
+        if self.num_mamba_blocks is None:
+            self.num_mamba_blocks = self.max_batch_size + 1
+        if self.num_mamba_blocks < 2:
+            raise ValueError("num_mamba_blocks must be >= 2")
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
         if self.pipeline_parallel_size < 1:

@@ -27,6 +27,7 @@ def run_worker(cfg: BaseConfig) -> None:
         max_batch_size=cfg.max_batch_size,
         max_tokens=cfg.max_new_tokens,
         num_blocks=cfg.num_blocks,
+        num_mamba_blocks=cfg.num_mamba_blocks,
         block_size=cfg.block_size,
         max_cache_len=cfg.max_cache_len,
         temperature=cfg.temperature,

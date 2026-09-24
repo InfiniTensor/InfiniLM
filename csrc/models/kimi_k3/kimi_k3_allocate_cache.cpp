@@ -5,7 +5,6 @@
 #include "../../cache/mamba_cache.hpp"
 #include "../../global_state/global_state.hpp"
 
-#include <algorithm>
 #include <stdexcept>
 #include <vector>
 
@@ -58,7 +57,7 @@ qwen3_next::AllocatedHybridCache kimi_k3_allocate_cache_tensors(
     if (config == nullptr) {
         throw std::runtime_error("Kimi K3 paged attention requires PagedKVCacheConfig");
     }
-    const size_t state_pool_size = std::max<size_t>(2, config->num_blocks() / 4);
+    const size_t state_pool_size = config->num_mamba_blocks();
     for (size_t i = local_begin; i < local_end; ++i) {
         if (is_kda[i]) {
             allocate_kda(i, state_pool_size);

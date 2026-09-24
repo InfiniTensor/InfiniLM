@@ -84,10 +84,12 @@ class Scheduler:
 
         self.cache_manager = BlockManager(num_blocks=num_blocks, block_size=block_size)
         self.has_mamba_cache = has_mamba_cache
+        if has_mamba_cache and num_mamba_cache_blocks is None:
+            raise ValueError(
+                "num_mamba_cache_blocks is required for Mamba-cache models"
+            )
         self.mamba_cache_manager = (
-            MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
-            if has_mamba_cache
-            else None
+            MambaCacheManager(num_mamba_cache_blocks) if has_mamba_cache else None
         )
         self.speculative_cache_ops = SpeculativeCacheOps(self.cache_manager)
         self.block_size = block_size

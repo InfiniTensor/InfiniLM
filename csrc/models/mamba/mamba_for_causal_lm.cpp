@@ -167,7 +167,7 @@ void MambaForCausalLM::reset_cache(const cache::CacheConfig *cache_config) {
     if (auto static_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config)) {
         max_batch_size = static_config->max_batch_size();
     } else if (auto paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config)) {
-        max_batch_size = paged_config->num_blocks();
+        max_batch_size = paged_config->num_mamba_blocks();
     }
     const auto &dtype = model_config_->get_dtype();
     const auto device = infinicore::context::getDevice();

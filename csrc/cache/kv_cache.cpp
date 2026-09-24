@@ -3,6 +3,8 @@
 #include "../global_state/global_state.hpp"
 #include "../utils.hpp"
 
+#include <stdexcept>
+
 namespace infinilm::cache {
 // ==========================
 // StaticKVCacheConfig
@@ -80,10 +82,15 @@ infinicore::Tensor create_layer_kv_cache(
 PagedKVCacheConfig::PagedKVCacheConfig(
     size_t num_blocks,
     size_t block_size,
-    size_t max_batch_size)
+    size_t max_batch_size,
+    size_t num_mamba_blocks)
     : num_blocks_(num_blocks),
       block_size_(block_size),
-      max_batch_size_(max_batch_size) {
+      max_batch_size_(max_batch_size),
+      num_mamba_blocks_(num_mamba_blocks) {
+    if (num_mamba_blocks_ < 2) {
+        throw std::runtime_error("PagedKVCacheConfig: num_mamba_blocks must be at least 2");
+    }
 }
 
 std::unique_ptr<CacheConfig>
@@ -104,6 +111,11 @@ PagedKVCacheConfig::block_size() const {
 size_t
 PagedKVCacheConfig::max_batch_size() const {
     return max_batch_size_;
+}
+
+size_t
+PagedKVCacheConfig::num_mamba_blocks() const {
+    return num_mamba_blocks_;
 }
 
 namespace PagedKVCache {

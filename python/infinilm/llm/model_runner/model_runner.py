@@ -64,6 +64,7 @@ class ModelRunner:
                 num_blocks=config.num_blocks,
                 block_size=config.block_size,
                 max_batch_size=config.max_batch_size,
+                num_mamba_blocks=config.num_mamba_blocks,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
         else:

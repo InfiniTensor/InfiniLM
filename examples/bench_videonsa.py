@@ -211,6 +211,7 @@ def main():
         max_batch_size=max_batch_size,
         max_tokens=max(output_lens),
         num_blocks=cfg.num_blocks,
+        num_mamba_blocks=cfg.num_mamba_blocks,
         block_size=cfg.block_size,
         max_cache_len=max_cache_len,
         temperature=cfg.temperature,

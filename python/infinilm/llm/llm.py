@@ -94,7 +94,7 @@ class LLMEngine:
             max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
-            num_mamba_cache_blocks = max(2, config.num_blocks // 4)
+            num_mamba_cache_blocks = config.num_mamba_blocks
 
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
@@ -353,6 +353,7 @@ class LLM:
         max_batch_size: int = 16,
         max_tokens: int = 4096,
         num_blocks: int = 512,
+        num_mamba_blocks: Optional[int] = None,
         block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
@@ -378,6 +379,7 @@ class LLM:
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
+            num_mamba_blocks: Number of Mamba cache rows, including the zero row.
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
@@ -405,6 +407,7 @@ class LLM:
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
+            num_mamba_blocks=num_mamba_blocks,
             block_size=block_size,
             max_cache_len=max_cache_len,
             temperature=temperature,
@@ -580,6 +583,7 @@ class AsyncLLMEngine:
         max_batch_size: int = 16,
         max_tokens: int = 512,
         num_blocks: int = 512,
+        num_mamba_blocks: Optional[int] = None,
         block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
@@ -606,6 +610,7 @@ class AsyncLLMEngine:
             max_batch_size: Maximum batch size (only for paged cache).
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
+            num_mamba_blocks: Number of Mamba cache rows, including the zero row.
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
@@ -637,6 +642,7 @@ class AsyncLLMEngine:
             max_batch_size=max_batch_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
+            num_mamba_blocks=num_mamba_blocks,
             block_size=block_size,
             max_cache_len=max_cache_len,
             temperature=temperature,

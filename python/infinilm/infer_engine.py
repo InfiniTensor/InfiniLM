@@ -547,7 +547,7 @@ class InferEngine(_infinilm.InferEngine):
                     "Low-level generate for mamba-cache models currently requires paged attention"
                 )
         elif self.has_mamba_cache:
-            mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
+            mamba_pool_size = self.get_cache_config().num_mamba_blocks()
             if batch_size > mamba_pool_size - 1:
                 raise RuntimeError(
                     f"Batch size {batch_size} exceeds available mamba cache rows "

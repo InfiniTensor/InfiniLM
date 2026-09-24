@@ -109,6 +109,7 @@ class InferenceServer:
         max_tokens: int = 4096,
         max_batch_size: int = 16,
         num_blocks: int = 512,
+        num_mamba_blocks: Optional[int] = None,
         block_size: int = 256,
         max_cache_len: int = 4096,
         temperature: float = 1.0,
@@ -140,6 +141,7 @@ class InferenceServer:
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
             num_blocks: Number of KV cache blocks (only for paged cache).
+            num_mamba_blocks: Number of Mamba cache rows, including the zero row.
             block_size: Size of each KV cache block (only for paged cache).
             max_cache_len: Maximum sequence length (only for static cache).
             temperature: Default sampling temperature.
@@ -172,6 +174,7 @@ class InferenceServer:
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
         self.num_blocks = num_blocks
+        self.num_mamba_blocks = num_mamba_blocks
         self.block_size = block_size
         self.max_cache_len = max_cache_len
         self.temperature = temperature
@@ -219,6 +222,7 @@ class InferenceServer:
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
                 num_blocks=self.num_blocks,
+                num_mamba_blocks=self.num_mamba_blocks,
                 block_size=self.block_size,
                 max_cache_len=self.max_cache_len,
                 temperature=self.temperature,
@@ -651,6 +655,7 @@ def main():
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,
         num_blocks=cfg.num_blocks,
+        num_mamba_blocks=cfg.num_mamba_blocks,
         block_size=cfg.block_size,
         max_cache_len=cfg.max_cache_len,
         temperature=cfg.temperature,
