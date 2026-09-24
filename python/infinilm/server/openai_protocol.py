@@ -106,6 +106,19 @@ def parse_tool_calls(
         tool_calls.extend(parsed)
 
     if not saw_tool_block:
+        start = text.find(_TOOL_CALL_OPEN)
+        if start >= 0:
+            parsed = _parse_tool_block(text[start + len(_TOOL_CALL_OPEN) :])
+            if parsed:
+                if allowed_tool_names is not None:
+                    parsed = [
+                        call
+                        for call in parsed
+                        if call["function"]["name"] in allowed_tool_names
+                    ]
+                content = text[:start].strip()
+                return content or None, parsed
+
         content = text.strip()
         return content or None, []
 
@@ -175,13 +188,14 @@ class ToolCallStreamParser:
             return [], []
         buffered = self._buffer
         self._buffer = ""
-        if buffered.startswith(_TOOL_CALL_OPEN) or _TOOL_CALL_OPEN.startswith(
-            buffered
-        ):
-            return [], []
         content, tool_calls = parse_tool_calls(
             buffered, allowed_tool_names=self.allowed_tool_names
         )
         if tool_calls:
             self.has_tool_calls = True
+            return ([content] if content else []), tool_calls
+        if buffered.startswith(_TOOL_CALL_OPEN) or _TOOL_CALL_OPEN.startswith(
+            buffered
+        ):
+            return [], []
         return ([content] if content else []), tool_calls

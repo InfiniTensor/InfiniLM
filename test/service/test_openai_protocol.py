@@ -480,3 +480,37 @@ def test_stream_parser_drops_truncated_open_marker():
 
     assert "".join(content_parts) == "Visible answer."
     assert calls == []
+
+
+def test_parse_tool_call_with_complete_function_and_missing_outer_close():
+    content, calls = parse_tool_calls(
+        "<tool_call>\n<function=write_file>\n"
+        "<parameter=file_path>outline.md</parameter>\n"
+        "<parameter=content># Outline</parameter>\n"
+        "</function>"
+    )
+
+    assert content is None
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "write_file"
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "file_path": "outline.md",
+        "content": "# Outline",
+    }
+
+
+def test_stream_parser_accepts_complete_function_without_outer_close():
+    parser = ToolCallStreamParser(allowed_tool_names={"write_file"})
+    content_parts, calls = parser.feed(
+        "<tool_call>\n<function=write_file>\n"
+        "<parameter=file_path>outline.md</parameter>\n"
+        "<parameter=content># Outline</parameter>\n"
+        "</function>"
+    )
+    final_content, final_calls = parser.finalize()
+    content_parts.extend(final_content)
+    calls.extend(final_calls)
+
+    assert content_parts == []
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "write_file"
