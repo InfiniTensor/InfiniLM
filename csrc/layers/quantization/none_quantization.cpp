@@ -35,6 +35,30 @@ std::vector<ParamDescriptor> NoneQuantization::get_param_layout(
     return descs;
 }
 
+NoneQuantization::WeightLayout NoneQuantization::weight_layout(
+    const infinilm::runtime::Tensor &weight) const {
+    std::lock_guard<std::mutex> lock(weight_layouts_mutex_);
+    const auto item = weight_layouts_.find(weight.operator->());
+    return item == weight_layouts_.end() ? WeightLayout::None : item->second;
+}
+
+void NoneQuantization::set_weight_layout(
+    const infinilm::runtime::Tensor &weight, WeightLayout layout,
+    size_t nz_output_width) const {
+    std::lock_guard<std::mutex> lock(weight_layouts_mutex_);
+    weight_layouts_[weight.operator->()] = layout;
+    if (layout == WeightLayout::AscendNz) {
+        nz_output_widths_[weight.operator->()] = nz_output_width;
+    }
+}
+
+void NoneQuantization::erase_weight_layout(
+    const infinilm::runtime::Tensor &weight) const {
+    std::lock_guard<std::mutex> lock(weight_layouts_mutex_);
+    weight_layouts_.erase(weight.operator->());
+    nz_output_widths_.erase(weight.operator->());
+}
+
 infinilm::runtime::Tensor NoneQuantization::forward(
     infinilm::runtime::Runtime &runtime,
     const ParamsMap &params,
@@ -52,15 +76,15 @@ infinilm::runtime::Tensor NoneQuantization::forward(
     // Validate before either contiguous operation can allocate/copy/submit.
     const auto resolved = output_dtype_.value_or(input ? input->dtype() : infinilm::runtime::DataType::kFloat32);
     infinilm::layers::linear::validate_projection(
-        runtime, input, weight, bias_opt, resolved, weight_layout_ != WeightLayout::None);
+        runtime, input, weight, bias_opt, resolved, weight_layout(weight) != WeightLayout::None);
     auto input_contiguous = input->contiguous(runtime);
 
-    if (weight_layout_ == WeightLayout::AscendNz) {
+    if (weight_layout(weight) == WeightLayout::AscendNz) {
         auto output = infinilm::layers::linear::dense_projection_nz(
             runtime, input_contiguous, weight, bias_opt, alpha, output_dtype_);
         return narrow_nz_output(runtime, output, weight);
     }
-    if (weight_layout_ == WeightLayout::PackedNd) {
+    if (weight_layout(weight) == WeightLayout::PackedNd) {
         return infinilm::layers::linear::dense_projection(
             runtime, input_contiguous, static_cast<infinilm::runtime::Tensor>(weight),
             bias_opt, alpha, output_dtype_, true);
@@ -78,7 +102,7 @@ std::vector<SplitParam> NoneQuantization::split_params(
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
     int weight_narrow_dim = narrow_dim;
-    if (weight_layout_ != WeightLayout::None) {
+    if (weight_layout(weight_it->second) != WeightLayout::None) {
         if (narrow_dim != 0 && narrow_dim != 1) {
             throw std::invalid_argument(
                 "prepacked linear weight split dimension must be 0 or 1");
@@ -124,7 +148,7 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
             pending = infinilm::runtime::Tensor::empty(runtime, permuted->shape(), permuted->dtype());
             pending->copy_from(runtime, permuted);
             weight_it->second = pending;
-            weight_layout_ = WeightLayout::PackedNd;
+            set_weight_layout(pending, WeightLayout::PackedNd);
 
             const auto dtype = pending->dtype();
             const bool dtype_eligible = dtype == infinilm::runtime::DataType::kFloat16
@@ -151,8 +175,8 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
                     infini::ops::TransMatmulWeightNz::DefaultConfig(runtime.device().type()),
                     *conversion_source, nz_weight);
                 weight_it->second = nz_weight;
-                weight_layout_ = WeightLayout::AscendNz;
-                nz_output_width_ = packed_n;
+                erase_weight_layout(pending);
+                set_weight_layout(nz_weight, WeightLayout::AscendNz, packed_n);
             }
         } catch (...) {
             const auto failure = std::current_exception();
@@ -169,10 +193,19 @@ infinilm::runtime::Tensor NoneQuantization::narrow_nz_output(
     infinilm::runtime::Runtime &runtime,
     const infinilm::runtime::Tensor &output,
     const infinilm::runtime::Tensor &weight) const {
-    if (nz_output_width_ == 0 || nz_output_width_ == weight->size(1)) {
+    size_t nz_output_width = 0;
+    {
+        std::lock_guard<std::mutex> lock(weight_layouts_mutex_);
+        const auto item = nz_output_widths_.find(weight.operator->());
+        if (item != nz_output_widths_.end()) {
+            nz_output_width = item->second;
+        }
+    }
+    if (nz_output_width == 0 || nz_output_width == weight->size(1)) {
         return output;
     }
-    return output->narrow({{output->ndim() - 1, 0, nz_output_width_}})->contiguous(runtime);
+    return output->narrow({{output->ndim() - 1, 0, nz_output_width}})
+        ->contiguous(runtime);
 }
 
 } // namespace infinilm::quantization
