@@ -1,11 +1,11 @@
+from types import SimpleNamespace
+
 import pytest
-from infinilm.config.engine_config import EngineConfig
 from infinilm.llm.llm import validate_request_capacity
 
 
-def paged_config(num_blocks: int, block_size: int) -> EngineConfig:
-    return EngineConfig(
-        model_path="/tmp/model",
+def paged_config(num_blocks: int, block_size: int) -> SimpleNamespace:
+    return SimpleNamespace(
         cache_type="paged",
         num_blocks=num_blocks,
         block_size=block_size,
