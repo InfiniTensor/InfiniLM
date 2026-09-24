@@ -17,6 +17,12 @@ def strip_reasoning_markers(text: str) -> str:
 _TOOL_BLOCK_RE = re.compile(r"<tool_call>\s*(.*?)\s*</tool_call>", re.DOTALL)
 _FUNCTION_RE = re.compile(r"<function=([^>\n]+)>\s*(.*?)\s*</function>", re.DOTALL)
 _PARAMETER_RE = re.compile(r"<parameter=([^>\n]+)>\s*(.*?)\s*</parameter>", re.DOTALL)
+_COMPAT_FUNCTION_RE = re.compile(
+    r"^\s*<function=([^>\n]+)>\s*(.*?)(?:\s*</function>)?\s*$", re.DOTALL
+)
+_COMPAT_PARAMETER_RE = re.compile(
+    r"<parameter=([^>\n]+)>\s*(.*?)\s*</(?:parameter|arg_value)>", re.DOTALL
+)
 
 
 def _new_tool_call(name: str, arguments) -> dict:
@@ -56,7 +62,11 @@ def _parse_tool_block(body: str) -> list[dict]:
     calls = []
     for function_match in _FUNCTION_RE.finditer(body):
         arguments = {}
-        for parameter_match in _PARAMETER_RE.finditer(function_match.group(2)):
+        function_body = function_match.group(2)
+        parameter_matches = list(_PARAMETER_RE.finditer(function_body))
+        if function_body.count("<parameter=") != len(parameter_matches):
+            continue
+        for parameter_match in parameter_matches:
             arguments[parameter_match.group(1).strip()] = _decode_parameter(
                 parameter_match.group(2)
             )
@@ -64,6 +74,25 @@ def _parse_tool_block(body: str) -> list[dict]:
 
     if calls:
         return calls
+
+    # Some GLM tool templates close the final argument with </arg_value> and
+    # omit </function>. Accept that only inside an already complete outer
+    # <tool_call> block, and only when every parameter has an explicit close.
+    function_match = _COMPAT_FUNCTION_RE.fullmatch(body)
+    if function_match:
+        function_body = function_match.group(2)
+        parameter_matches = list(_COMPAT_PARAMETER_RE.finditer(function_body))
+        if (
+            parameter_matches
+            and function_body.count("<parameter=") == len(parameter_matches)
+        ):
+            remainder = _COMPAT_PARAMETER_RE.sub("", function_body).strip()
+            if not remainder:
+                arguments = {
+                    match.group(1).strip(): _decode_parameter(match.group(2))
+                    for match in parameter_matches
+                }
+                return [_new_tool_call(function_match.group(1), arguments)]
 
     try:
         payload = json.loads(body.strip())
@@ -174,9 +203,9 @@ class ToolCallStreamParser:
             if parsed:
                 self.has_tool_calls = True
                 tool_calls.extend(parsed)
-            elif self.allowed_tool_names is not None and content is None:
-                # A complete tool block was rejected because its function was
-                # not exposed for this request. Do not leak its XML markup.
+            elif self.allowed_tool_names is not None:
+                # A complete tool block was rejected as malformed or because
+                # its function was not exposed. Never leak its XML markup.
                 pass
             else:
                 content_parts.append(content if content is not None else block)

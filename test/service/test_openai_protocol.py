@@ -514,3 +514,38 @@ def test_stream_parser_accepts_complete_function_without_outer_close():
     assert content_parts == []
     assert len(calls) == 1
     assert calls[0]["function"]["name"] == "write_file"
+
+
+def test_stream_parser_accepts_glm_arg_value_close_in_complete_outer_block():
+    parser = ToolCallStreamParser(allowed_tool_names={"write_file"})
+    content_parts, calls = parser.feed(
+        "<tool_call>\n<function=write_file>\n"
+        "<parameter=file_path>\noutline.md\n</parameter>\n"
+        "<parameter=content>\n# Outline\n- First section\n"
+        "</arg_value></tool_call>"
+    )
+    final_content, final_calls = parser.finalize()
+    content_parts.extend(final_content)
+    calls.extend(final_calls)
+
+    assert content_parts == []
+    assert len(calls) == 1
+    assert calls[0]["function"]["name"] == "write_file"
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "file_path": "outline.md",
+        "content": "# Outline\n- First section",
+    }
+
+
+def test_stream_parser_rejects_unclosed_parameter_in_complete_outer_block():
+    parser = ToolCallStreamParser(allowed_tool_names={"write_file"})
+    content_parts, calls = parser.feed(
+        "<tool_call>\n<function=write_file>\n"
+        "<parameter=file_path>outline.md</parameter>\n"
+        "<parameter=content># Outline</tool_call>"
+    )
+    final_content, final_calls = parser.finalize()
+    content_parts.extend(final_content)
+    calls.extend(final_calls)
+
+    assert content_parts == []
