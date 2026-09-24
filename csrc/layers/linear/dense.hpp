@@ -1,7 +1,10 @@
 #pragma once
 
 #include "../../execution/submit.hpp"
+#include <base/fill.h>
 #include <base/gemm.h>
+#include <base/matmul_weight_nz.h>
+#include <base/mul.h>
 #include <optional>
 #include <stdexcept>
 
@@ -76,6 +79,46 @@ inline infinilm::runtime::Tensor dense_projection(
         infinilm::execution::submit<infini::ops::Add>(
             runtime, infini::ops::Add::DefaultConfig(device), output_view, *bias, output_view);
         INFINILM_TRACE_OP(Add, output_view);
+    }
+    return output;
+}
+
+// NZ weights retain the same logical [IC, OC] contract as packed ND weights.
+// aclnnMatmulWeightNz has no alpha parameter; preserve scaled-linear semantics
+// with Fill+Mul instead of excluding those layers from NZ loading.
+inline infinilm::runtime::Tensor dense_projection_nz(
+    infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input,
+    const infinilm::runtime::Tensor &weight, const std::optional<infinilm::runtime::Tensor> &bias,
+    float alpha = 1.0F, std::optional<infinilm::runtime::DataType> output_dtype = std::nullopt) {
+    const auto dtype = output_dtype.value_or(input->dtype());
+    validate_projection(runtime, input, weight, bias, dtype, true);
+    auto shape = input->shape();
+    shape.back() = weight->size(1);
+    auto output = infinilm::runtime::Tensor::empty(runtime, shape, dtype);
+    infinilm::runtime::Size rows = 1;
+    for (size_t dim = 0; dim + 1 < input->ndim(); ++dim) {
+        rows *= input->size(dim);
+    }
+    const auto input_view = input->view({rows, weight->size(0)});
+    const auto output_view = output->view({rows, weight->size(1)});
+    const auto device = runtime.device().type();
+    infinilm::execution::submit<infini::ops::MatmulWeightNz>(
+        runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+        infini::ops::MatmulWeightNz::DefaultConfig(device), input_view, weight, output_view);
+    INFINILM_TRACE_OP(MatmulWeightNz, output_view);
+    if (alpha != 1.0F) {
+        auto scale = infinilm::runtime::Tensor::empty(runtime, shape, dtype);
+        infinilm::execution::submit<infini::ops::Fill>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::Fill::DefaultConfig(device), scale, static_cast<double>(alpha), scale);
+        infinilm::execution::submit<infini::ops::Mul>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::Mul::DefaultConfig(device), output, scale, output);
+    }
+    if (bias) {
+        infinilm::execution::submit<infini::ops::Add>(
+            runtime, infini::ops::Add::DefaultConfig(device), output, *bias, output);
+        INFINILM_TRACE_OP(Add, output);
     }
     return output;
 }

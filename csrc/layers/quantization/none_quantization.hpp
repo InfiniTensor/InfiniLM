@@ -39,15 +39,27 @@ public:
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;
 
-    // Ascend: pre-pack weight to [IC, OC] after loading to skip runtime permute.
-    // Returns shared_from_this() only on Ascend; nullptr otherwise (no-op).
+    // With pre_transpose, materialize [IC, OC]. Eligible Ascend weights are
+    // additionally converted to the ACLNN MatmulWeightNz physical layout.
     std::shared_ptr<BaseQuantization> process_weights_after_loading(
         infinilm::runtime::Runtime &runtime, ParamsMap &params, bool pre_transpose,
         int split_dim = -1) const override;
 
 private:
+    enum class WeightLayout {
+        None,
+        PackedNd,
+        AscendNz,
+    };
+
+    infinilm::runtime::Tensor narrow_nz_output(
+        infinilm::runtime::Runtime &runtime,
+        const infinilm::runtime::Tensor &output,
+        const infinilm::runtime::Tensor &weight) const;
+
     const std::optional<infinilm::runtime::DataType> output_dtype_;
-    mutable bool weight_prepacked_ = false; // true when weight was pre-packed for Ascend
+    mutable WeightLayout weight_layout_ = WeightLayout::None;
+    mutable size_t nz_output_width_ = 0;
 };
 
 } // namespace infinilm::quantization
