@@ -148,12 +148,15 @@ infinilm::runtime::Tensor Attention::forward_static_(const infinilm::runtime::Te
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+    auto [q, k, v, qk] = qkv_proj_->forward_split_with_qk(*forward_context.runtime, hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({batch_size, seq_len, num_key_value_heads_, head_dim_});
+    // q and k are adjacent contiguous slices of the same buffer; RoPE them in
+    // one fused kernel launch (saves one AscendC launch per layer per step).
+    auto qk_reshaped = qk->view({batch_size, seq_len, num_attention_heads_ + num_key_value_heads_, head_dim_});
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
@@ -170,9 +173,7 @@ infinilm::runtime::Tensor Attention::forward_static_(const infinilm::runtime::Te
         throw std::runtime_error("infinilm::layers::attention::Attention: Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
-    rotary_emb_->forward(*forward_context.runtime, q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(*forward_context.runtime, k_reshaped, pos_ids_for_rope, true);
+    rotary_emb_->forward(*forward_context.runtime, qk_reshaped, pos_ids_for_rope, true);
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, forward_context);
@@ -195,12 +196,15 @@ infinilm::runtime::Tensor Attention::forward_paged_(const infinilm::runtime::Ten
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    auto [q, k, v] = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+    auto [q, k, v, qk] = qkv_proj_->forward_split_with_qk(*forward_context.runtime, hidden_states_mutable);
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
+    // q and k are adjacent contiguous slices of the same buffer; RoPE them in
+    // one fused kernel launch (saves one AscendC launch per layer per step).
+    auto qk_reshaped = qk->view({seq_len, num_attention_heads_ + num_key_value_heads_, head_dim_});
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
@@ -214,9 +218,7 @@ infinilm::runtime::Tensor Attention::forward_paged_(const infinilm::runtime::Ten
         throw std::runtime_error("Unexpected position_ids shape");
     }
 
-    // 4. Apply RoPE to QK
-    rotary_emb_->forward(*forward_context.runtime, q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(*forward_context.runtime, k_reshaped, pos_ids_for_rope, true);
+    rotary_emb_->forward(*forward_context.runtime, qk_reshaped, pos_ids_for_rope, true);
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, forward_context);
