@@ -2,7 +2,9 @@
 #include "../../weights/weights.hpp"
 
 #include "base_quantization.hpp"
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 namespace infinilm::quantization {
 
 class NoneQuantization : public BaseQuantization {
@@ -52,14 +54,22 @@ private:
         AscendNz,
     };
 
+    WeightLayout weight_layout(const infinilm::runtime::Tensor &weight) const;
+    void set_weight_layout(const infinilm::runtime::Tensor &weight,
+                           WeightLayout layout, size_t nz_output_width = 0) const;
+    void erase_weight_layout(const infinilm::runtime::Tensor &weight) const;
+
     infinilm::runtime::Tensor narrow_nz_output(
         infinilm::runtime::Runtime &runtime,
         const infinilm::runtime::Tensor &output,
         const infinilm::runtime::Tensor &weight) const;
 
     const std::optional<infinilm::runtime::DataType> output_dtype_;
-    mutable WeightLayout weight_layout_ = WeightLayout::None;
-    mutable size_t nz_output_width_ = 0;
+    mutable std::mutex weight_layouts_mutex_;
+    mutable std::unordered_map<const infinilm::runtime::TensorImpl *, WeightLayout>
+        weight_layouts_;
+    mutable std::unordered_map<const infinilm::runtime::TensorImpl *, size_t>
+        nz_output_widths_;
 };
 
 } // namespace infinilm::quantization
