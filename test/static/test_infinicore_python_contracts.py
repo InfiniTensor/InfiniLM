@@ -41,16 +41,14 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         namespace = {"_infinicore": SimpleNamespace(Device=NativeDevice)}
         exec(compile(source, "device.py", "exec"), namespace)
         device = namespace["device"]
-        for name in ("thead", "ali"):
-            with self.subTest(name=name):
-                value = device(f"{name}:2")
-                self.assertEqual(value.type, "thead")
-                self.assertEqual(value.index, 2)
-                self.assertEqual(value._underlying.type, NativeDevice.Type.THEAD)
-                self.assertEqual(device._from_underlying(value._underlying), value)
-                self.assertEqual(str(value), "thead:2")
+        value = device("thead:2")
+        self.assertEqual(value.type, "thead")
+        self.assertEqual(value.index, 2)
+        self.assertEqual(value._underlying.type, NativeDevice.Type.THEAD)
+        self.assertEqual(device._from_underlying(value._underlying), value)
+        self.assertEqual(str(value), "thead:2")
 
-    def test_legacy_ali_cli_alias_and_ppu_detection_select_thead(self) -> None:
+    def test_ppu_detection_selects_thead(self) -> None:
         source = ast.parse(read_source("python/infinilm/base_config.py"))
         source.body = [
             node
@@ -66,7 +64,6 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         exec(compile(source, "base_config.py", "exec"), namespace)
         config = namespace["BaseConfig"].__new__(namespace["BaseConfig"])
         config._torch_device_available = lambda name: False
-        self.assertEqual(config.get_device_str("ali"), "thead")
         self.assertEqual(config.get_device_str("thead"), "thead")
         self.assertEqual(config.detect_device(), "thead")
         with self.assertRaisesRegex(ValueError, "unsupported device platform 'qy'"):
@@ -506,7 +503,7 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         base_config = read_source("python/infinilm/base_config.py")
         benchmark = read_source("test/bench/backends/infinilm.py")
         readme = read_source("README.md")
-        for legacy_device in ("qy", "kunlun"):
+        for legacy_device in ("qy", "kunlun", "ali"):
             self.assertNotIn(f'"{legacy_device}"', base_config)
             self.assertNotIn(f'"{legacy_device}"', benchmark)
             self.assertNotIn(f"--{legacy_device}", readme)
