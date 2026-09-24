@@ -168,7 +168,6 @@ class ModelRunner:
             "cuda",
             "hygon",
             "thead",
-            "ali",
             "iluvatar",
             "metax",
             "mlu",
