@@ -5,6 +5,7 @@ import os
 import shutil
 import warnings
 
+from infinilm.config.attention import resolve_attention_backend
 from infinilm.moe_config import MOE_EP_BACKEND_HELP
 
 
@@ -152,8 +153,9 @@ class BaseConfig:
                 self.video_min_pixels
             )
 
-        if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
+        self.attn = resolve_attention_backend(
+            self.attn, "paged" if self.enable_paged_attn else "static"
+        )
 
         # Force sync weight loading for Metax devices
         self._force_sync_for_metax()
@@ -249,7 +251,8 @@ class BaseConfig:
             "--attn",
             type=str,
             default="default",
-            choices=["default", "paged-attn", "flash-attn"],
+            choices=["default", "static-attn", "flash-attn"],
+            help="select attention; default follows the selected KV cache layout",
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument(
@@ -532,6 +535,7 @@ class BaseConfig:
             ("moore", ["mthreads-gmi"]),
             ("metax", ["mx-smi", "ht-smi"]),
             ("hygon", ["hy-smi"]),
+            ("thead", ["ppu-smi"]),
             ("iluvatar", ["ixsmi"]),
             ("nvidia", ["nvidia-smi"]),
         ]

@@ -46,9 +46,6 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
-    if enable_paged_attn and attn_backend == "default":
-        attn_backend = "paged-attn"
-
     model = LLM(
         model_path=model_path,
         draft_model_path=draft_model_path,

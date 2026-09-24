@@ -48,6 +48,27 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         self.assertEqual(device._from_underlying(value._underlying), value)
         self.assertEqual(str(value), "thead:2")
 
+    def test_ppu_detection_selects_thead(self) -> None:
+        source = ast.parse(read_source("python/infinilm/base_config.py"))
+        source.body = [
+            node
+            for node in source.body
+            if isinstance(node, ast.ClassDef) and node.name == "BaseConfig"
+        ]
+        namespace = {
+            "os": SimpleNamespace(getenv=lambda name: None),
+            "shutil": SimpleNamespace(
+                which=lambda name: "/usr/bin/ppu-smi" if name == "ppu-smi" else None
+            ),
+        }
+        exec(compile(source, "base_config.py", "exec"), namespace)
+        config = namespace["BaseConfig"].__new__(namespace["BaseConfig"])
+        config._torch_device_available = lambda name: False
+        self.assertEqual(config.get_device_str("thead"), "thead")
+        self.assertEqual(config.detect_device(), "thead")
+        with self.assertRaisesRegex(ValueError, "unsupported device platform 'qy'"):
+            config.get_device_str("qy")
+
     def test_rope_wrapper_preserves_arguments_and_output_identity(self) -> None:
         calls = []
 
@@ -459,7 +480,7 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         for removed_name in ("infiniStatus_t", "QY", "KUNLUN", "ALI"):
             self.assertNotIn(removed_name, init)
 
-    def test_legacy_inference_runtime_and_device_aliases_are_removed(self) -> None:
+    def test_legacy_inference_runtime_and_unsupported_devices_are_removed(self) -> None:
         obsolete_paths = (
             "src",
             "include/infinicore_infer.h",

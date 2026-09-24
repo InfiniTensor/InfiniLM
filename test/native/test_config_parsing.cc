@@ -5,6 +5,24 @@
 #include <cassert>
 #include <memory>
 #include <stdexcept>
+#include <string>
+
+namespace {
+
+void expect_unsupported(const infinilm::quantization::BaseQuantization &quantization,
+                        const std::string &scheme) {
+    bool rejected = false;
+    try {
+        quantization.forward({}, {}, false);
+    } catch (const std::runtime_error &error) {
+        const std::string message = error.what();
+        rejected = message.find(scheme) != std::string::npos
+                && message.find("unsupported") != std::string::npos;
+    }
+    assert(rejected);
+}
+
+} // namespace
 
 int main() {
     using infinicore::DataType;
@@ -51,6 +69,55 @@ int main() {
         gptq.get_quantization_method());
     assert(gptq_method && gptq_method->get_group_size() == 32);
     assert(gptq_method->get_packing_num() == 8);
+
+    infinilm::quantization::AWQMarlin awq_marlin(awq_json, 128, 64);
+    assert(awq_marlin.get_quant_scheme() == QuantScheme::AWQ_MARLIN_W4A16);
+    assert(awq_marlin.get_config() == awq_json);
+    assert(awq_marlin.get_param_layout(128, 64, -1, 0, 1, -1, DataType::kFloat16, false).empty());
+    awq_marlin.reset_runtime_state();
+    expect_unsupported(awq_marlin, "AWQ Marlin");
+
+    infinilm::quantization::GPTQMarlin gptq_marlin(gptq_method->get_config(), 128, 64, true);
+    assert(gptq_marlin.get_quant_scheme() == QuantScheme::GPTQ_MARLIN_W4A16);
+    assert(gptq_marlin.get_param_layout(128, 64, -1, 0, 1, -1, DataType::kFloat16, false).empty());
+    gptq_marlin.reset_runtime_state();
+    expect_unsupported(gptq_marlin, "GPTQ Marlin");
+
+    infinilm::quantization::GPTQ_QY gptq_qy(gptq_method->get_config());
+    assert(gptq_qy.get_quant_scheme() == QuantScheme::GPTQ_W4A16_QY);
+    assert(gptq_qy.get_packing_num() == 8);
+    assert(gptq_qy.get_group_size() == 32);
+    const auto qy_layout = gptq_qy.get_param_layout(128, 64, 0, 1, 2, -1, DataType::kFloat16, true);
+    assert(qy_layout.size() == 5);
+    assert(qy_layout[0].name == "qweight");
+    assert(qy_layout[0].shape == std::vector<size_t>({64, 64}));
+    assert(qy_layout[0].dtype == DataType::kUInt8);
+    assert(qy_layout[0].split_dim == 1);
+    assert(qy_layout[0].tp_rank == 1 && qy_layout[0].tp_size == 2);
+    assert(qy_layout[1].shape == std::vector<size_t>({4, 64}));
+    assert(qy_layout[3].dtype == DataType::kInt32);
+    assert(qy_layout[4].name == "bias");
+    expect_unsupported(gptq_qy, "GPTQ QY");
+
+    infinilm::quantization::ParamsMap qy_params;
+    rejected = false;
+    try {
+        infinilm::quantization::GPTQ_QY::convert_from_gptq(
+            qy_params, infinicore::Device(infinicore::Device::Type::kCpu, 0), gptq_method->get_config());
+    } catch (const std::runtime_error &error) {
+        rejected = std::string(error.what()).find("GPTQ QY conversion is unsupported") != std::string::npos;
+    }
+    assert(rejected);
+    assert(qy_params.empty());
+
+    rejected = false;
+    try {
+        infinilm::quantization::GPTQ_QY invalid_qy(nlohmann::json{{"group_size", 0}});
+        invalid_qy.get_param_layout(128, 64, -1, 0, 1, -1, DataType::kFloat16, false);
+    } catch (const std::invalid_argument &) {
+        rejected = true;
+    }
+    assert(rejected);
 
     QuantConfig compressed(nlohmann::json::parse(
         R"({"quant_method":"compressed-tensors"})"));

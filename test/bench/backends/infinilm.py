@@ -31,6 +31,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             "moore": "musa",
             "iluvatar": "iluvatar",
             "hygon": "hygon",
+            "thead": "thead",
             "cuda": "cuda",
             "mlu": "mlu",
             "musa": "musa",
