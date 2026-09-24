@@ -139,6 +139,7 @@ target("_infinilm")
             "csrc/models/fm9g/fm9g_for_causal_lm.cpp",
             "csrc/layers/quantization/base_quantization.cpp",
             "csrc/layers/quantization/none_quantization.cpp",
+            "csrc/layers/quantization/fm9g_stubs.cpp",
             "csrc/layers/normalization/rmsnorm.cpp")
     else
         add_files("csrc/**.cpp|runtime/**.cpp")
