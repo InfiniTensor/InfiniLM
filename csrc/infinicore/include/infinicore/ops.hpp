@@ -47,8 +47,6 @@
 #include "ops/moe_topk_softmax.hpp"
 #include "ops/nrm2.hpp"
 #include "ops/ones.hpp"
-#include "ops/paged_attention.hpp"
-#include "ops/paged_attention_prefill.hpp"
 #include "ops/paged_caching.hpp"
 #include "ops/per_tensor_dequant_i8.hpp"
 #include "ops/per_tensor_quant_i8.hpp"

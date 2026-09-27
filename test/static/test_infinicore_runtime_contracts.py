@@ -167,6 +167,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
             "gelutanh/gelutanh_infiniops.cc": 1,
             "gemm/gemm_infiniops.cc": 3,
             "mha_kvcache/mha_kvcache_infiniops.cc": 21,
+            "multi_head_attention/mha_dense_infiniops.cc": 3,
             "mul/mul_infiniops.cc": 3,
             "multi_head_attention_varlen/mha_varlen_infiniops.cc": 21,
             "ones/ones_infiniops.cc": 3,
@@ -433,8 +434,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertRegex(
             parse_backend,
             re.compile(
-                r'backend == "flashinfer"\)\s*\{\s*'
-                r"throw std::invalid_argument"
+                r'backend == "flashinfer"\)\s*\{\s*' r"throw std::invalid_argument"
             ),
         )
         self.assertIn(
@@ -973,9 +973,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         adapter = read_source(
             "csrc/infinicore/src/ops/mha_kvcache/mha_kvcache_infiniops.cc"
         )
-        paged_attention_source = read_source(
-            "csrc/infinicore/src/ops/paged_attention/paged_attention.cc"
-        )
         capture_safety = function_body(
             mha_header, "bool is_device_graph_capture_safe() const override"
         )
@@ -1077,7 +1074,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertIn("std::unique_ptr<FlashAttnOperator> graph_safe_provider", adapter)
         self.assertIn("make_graph_safe_provider(*planned)", adapter)
         self.assertIn("FlashAttnOperator::Make(", adapter)
-        self.assertIn("Device::Type::kNvidia, 17", adapter)
+        self.assertIn("Device::Type::kNvidia, 16", adapter)
         self.assertIn("(*planned->graph_safe_provider)(", adapter)
         self.assertIn("implementation_index_for_device(device_type)", adapter)
         for implementation_index in (0, 8, 16):
@@ -1087,10 +1084,6 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
                     adapter,
                 )
         self.assertIn("infini::ops::FlashAttnWithKvcache::Call(", adapter)
-        paged_attention = function_body(
-            paged_attention_source, "void PagedAttention::execute("
-        )
-        self.assertIn("mha_kvcache_(", paged_attention)
 
     def test_static_eager_snapshots_sequence_lengths_once_per_forward(self) -> None:
         metadata = read_source("csrc/global_state/forward_context.hpp")
@@ -1161,8 +1154,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertRegex(
             adapter,
             re.compile(
-                r"TopKTopPSamplingFromLogits::Call\(\s*handle,"
-                r"\s*sampling_config,"
+                r"TopKTopPSamplingFromLogits::Call\(\s*handle," r"\s*sampling_config,"
             ),
         )
         self.assertIn("infini::ops::Fill::Call", adapter)
@@ -1323,8 +1315,7 @@ class InfiniCoreRuntimeContractsTest(unittest.TestCase):
         self.assertRegex(
             context_header,
             re.compile(
-                r"std::unordered_map<std::thread::id,\s*"
-                r"std::weak_ptr<Runtime>>"
+                r"std::unordered_map<std::thread::id,\s*" r"std::weak_ptr<Runtime>>"
             ),
         )
         self.assertIn(

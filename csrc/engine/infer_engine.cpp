@@ -300,7 +300,7 @@ InferEngine::Input::to_model_input(
     // copies so TP ranks never access the same host registration concurrently.
     static std::mutex maca_host_copy_mutex;
     const bool serialize_host_copy
-        = device.getType() == infinicore::Device::Type::METAX;
+        = device.type() == infinicore::Device::Type::kMetax;
     std::unique_lock<std::mutex> maca_host_copy_lock;
     if (serialize_host_copy) {
         maca_host_copy_lock = std::unique_lock<std::mutex>(maca_host_copy_mutex);
