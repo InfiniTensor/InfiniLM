@@ -27,12 +27,10 @@ MLP::MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
 }
 
 infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
-    // 1. Project to gate and up
     auto hidden_states_mutable = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
-    // 2. Apply SwiGLU: silu(gate) * up
-    auto intermediate = infinicore::op::swiglu(up, gate);
-    // 3. Project down
+    // GateUpParallelLinear produces the packed [gate, up] layout expected here.
+    auto gate_up = gate_up_proj_->forward(hidden_states_mutable);
+    auto intermediate = infinicore::op::silu_and_mul(gate_up);
     auto output = down_proj_->forward(intermediate);
     return output;
 }

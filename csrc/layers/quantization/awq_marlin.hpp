@@ -13,6 +13,7 @@ public:
 
     QuantScheme get_quant_scheme() const override { return QuantScheme::AWQ_MARLIN_W4A16; }
 
+    // Marlin consumes parameters already registered and repacked by AWQ.
     std::vector<ParamDescriptor> get_param_layout(
         size_t, size_t, int, int, int, int, const infinicore::DataType &, bool) const override;
 
@@ -31,25 +32,8 @@ public:
     void reset_runtime_state() const override;
 
 private:
-    infinicore::Tensor get_workspace(
-        infinicore::Tensor out,
-        const infinicore::Tensor &a,
-        const infinicore::Tensor &b,
-        infinicore::Tensor &b_scales,
-        infinicore::Tensor &global_scales,
-        infinicore::Tensor &b_zeros,
-        infinicore::Tensor &g_idx,
-        infinicore::Tensor &perm) const;
-
     size_t input_size_per_partition_;
     size_t output_size_per_partition_;
-    // Per-layer Marlin workspace. It must be all-zero before each launch
-    // because the current InfiniCore Marlin kernels use it as lock state.
-    // TODO: replace per-layer memset with a shared global zero workspace, or
-    // update the kernels so the lock region is self-reset at completion. The
-    // remaining gap to vLLM is mainly from two sources: TP communication cost
-    // and this workspace memset/reset path.
-    mutable infinicore::Tensor workspace_;
 };
 
 } // namespace infinilm::quantization

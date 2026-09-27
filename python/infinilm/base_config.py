@@ -5,6 +5,7 @@ import os
 import shutil
 import warnings
 
+from infinilm.config.attention import resolve_attention_backend
 from infinilm.moe_config import MOE_EP_BACKEND_HELP
 
 
@@ -152,8 +153,9 @@ class BaseConfig:
                 self.video_min_pixels
             )
 
-        if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
+        self.attn = resolve_attention_backend(
+            self.attn, "paged" if self.enable_paged_attn else "static"
+        )
 
         # Force sync weight loading for Metax devices
         self._force_sync_for_metax()
@@ -199,8 +201,8 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
-                "ali, cambricon, ascend, kunlun, hygon, or backend name "
+                "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
+                "cambricon, ascend, hygon, thead, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
         )
@@ -249,13 +251,14 @@ class BaseConfig:
             "--attn",
             type=str,
             default="default",
-            choices=["default", "paged-attn", "flash-attn"],
+            choices=["default", "static-attn", "flash-attn"],
+            help="select attention; default follows the selected KV cache layout",
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",
-            help="enable weight pre-transposition optimization (Ascend)",
+            help="enable one-time weight pre-transposition for packed GEMM",
         )
         self.parser.add_argument(
             "--use-mla",
@@ -532,7 +535,7 @@ class BaseConfig:
             ("moore", ["mthreads-gmi"]),
             ("metax", ["mx-smi", "ht-smi"]),
             ("hygon", ["hy-smi"]),
-            ("ali", ["ppu-smi"]),
+            ("thead", ["ppu-smi"]),
             ("iluvatar", ["ixsmi"]),
             ("nvidia", ["nvidia-smi"]),
         ]
@@ -554,21 +557,25 @@ class BaseConfig:
             "musa": "musa",
             "npu": "npu",
             "nvidia": "cuda",
-            "qy": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
-            "metax": "cuda",
+            "metax": "metax",
             "moore": "musa",
-            "iluvatar": "cuda",
-            "kunlun": "cuda",
-            "hygon": "cuda",
-            "ali": "cuda",
+            "iluvatar": "iluvatar",
+            "hygon": "hygon",
+            "thead": "thead",
         }
         device = device.lower()
         if device == "auto":
             device = self.detect_device()
             print(f"Auto-detected device platform: {device}")
-        return DEVICE_STR_MAP.get(device, "cpu")
+        try:
+            return DEVICE_STR_MAP[device]
+        except KeyError:
+            supported = ", ".join(sorted(DEVICE_STR_MAP))
+            raise ValueError(
+                f"unsupported device platform {device!r}; expected one of: {supported}"
+            ) from None
 
     def __repr__(self):
         """String representation of configuration"""

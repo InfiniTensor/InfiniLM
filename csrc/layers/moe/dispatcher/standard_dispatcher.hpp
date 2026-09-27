@@ -3,7 +3,7 @@
 #include "../common/moe_types.hpp"
 #include "base_dispatcher.hpp"
 
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
 
 namespace infinilm::layers::moe {
 

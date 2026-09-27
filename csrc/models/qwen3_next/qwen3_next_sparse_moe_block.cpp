@@ -7,7 +7,7 @@
 #include <infinicore/ops/linear.hpp>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/sigmoid.hpp>
-#include <infinicore/ops/swiglu.hpp>
+#include <infinicore/ops/silu_and_mul.hpp>
 
 #include <string>
 
@@ -48,8 +48,8 @@ Qwen3NextSharedExpert::Qwen3NextSharedExpert(std::shared_ptr<infinilm::config::M
 
 infinicore::Tensor Qwen3NextSharedExpert::forward(const infinicore::Tensor &hidden_states) const {
     auto hidden_states_mutable = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(hidden_states_mutable);
-    auto intermediate = infinicore::op::swiglu(up, gate);
+    auto gate_up = gate_up_proj_->forward(hidden_states_mutable);
+    auto intermediate = infinicore::op::silu_and_mul(gate_up);
     return down_proj_->forward(intermediate);
 }
 

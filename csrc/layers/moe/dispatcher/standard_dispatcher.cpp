@@ -33,7 +33,7 @@ infinicore::Tensor StandardDispatcher::combine(const CombineInput &combine_input
         infinicore::op::distributed::allreduce_(
             combine_input.hidden_states,
             combine_input.hidden_states,
-            INFINICCL_SUM,
+            infinicclSum,
             communicator_);
     }
     return combine_input.hidden_states;

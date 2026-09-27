@@ -1,0 +1,614 @@
+import ast
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def read_source(relative_path: str) -> str:
+    return (ROOT / relative_path).read_text(encoding="utf-8")
+
+
+class InfiniCorePythonContractsTest(unittest.TestCase):
+    def test_thead_device_round_trip_preserves_native_type_and_index(self) -> None:
+        names = (
+            "CPU",
+            "NVIDIA",
+            "CAMBRICON",
+            "ASCEND",
+            "METAX",
+            "MOORE",
+            "ILUVATAR",
+            "HYGON",
+            "THEAD",
+        )
+
+        class NativeDevice:
+            Type = SimpleNamespace(**dict.fromkeys(names))
+
+            def __init__(self, device_type, index):
+                self.type = device_type
+                self.index = index
+
+        for index, name in enumerate(names):
+            setattr(NativeDevice.Type, name, index)
+        source = ast.parse(read_source("python/infinicore/device.py"))
+        source.body = [
+            node for node in source.body if not isinstance(node, ast.ImportFrom)
+        ]
+        namespace = {"_infinicore": SimpleNamespace(Device=NativeDevice)}
+        exec(compile(source, "device.py", "exec"), namespace)
+        device = namespace["device"]
+        value = device("thead:2")
+        self.assertEqual(value.type, "thead")
+        self.assertEqual(value.index, 2)
+        self.assertEqual(value._underlying.type, NativeDevice.Type.THEAD)
+        self.assertEqual(device._from_underlying(value._underlying), value)
+        self.assertEqual(str(value), "thead:2")
+
+    def test_ppu_detection_selects_thead(self) -> None:
+        source = ast.parse(read_source("python/infinilm/base_config.py"))
+        source.body = [
+            node
+            for node in source.body
+            if isinstance(node, ast.ClassDef) and node.name == "BaseConfig"
+        ]
+        namespace = {
+            "os": SimpleNamespace(getenv=lambda name: None),
+            "shutil": SimpleNamespace(
+                which=lambda name: "/usr/bin/ppu-smi" if name == "ppu-smi" else None
+            ),
+        }
+        exec(compile(source, "base_config.py", "exec"), namespace)
+        config = namespace["BaseConfig"].__new__(namespace["BaseConfig"])
+        config._torch_device_available = lambda name: False
+        self.assertEqual(config.get_device_str("thead"), "thead")
+        self.assertEqual(config.detect_device(), "thead")
+        with self.assertRaisesRegex(ValueError, "unsupported device platform 'qy'"):
+            config.get_device_str("qy")
+
+    def test_rope_wrapper_preserves_arguments_and_output_identity(self) -> None:
+        calls = []
+
+        class Tensor:
+            def __init__(self, underlying):
+                self._underlying = underlying
+
+        native_output = object()
+
+        def native_rope(*arguments):
+            calls.append(arguments)
+            return native_output
+
+        native = SimpleNamespace(
+            rope=native_rope,
+            rope_=lambda *args: calls.append(args),
+        )
+        nodes = [
+            node
+            for node in ast.parse(read_source("python/infinicore/ops/__init__.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name in ("_unwrap", "rope")
+        ]
+        namespace = {"Tensor": Tensor, "_infinicore": native}
+        exec(
+            compile(ast.Module(body=nodes, type_ignores=[]), "ops.py", "exec"),
+            namespace,
+        )
+
+        arguments = tuple(Tensor(object()) for _ in range(4))
+        algorithm = object()
+        expected = tuple(tensor._underlying for tensor in arguments) + (algorithm,)
+        result = namespace["rope"](*arguments, algorithm)
+        self.assertIs(result._underlying, native_output)
+        self.assertEqual(calls.pop(), expected)
+
+        output = Tensor(object())
+        self.assertIs(namespace["rope"](*arguments, algorithm, out=output), output)
+        self.assertEqual(calls.pop(), (output._underlying,) + expected)
+
+        functional = read_source("python/infinicore/nn/functional/__init__.py")
+        for name in ("rope", "RoPEAlgo"):
+            self.assertIn(f'"{name}"', functional)
+
+    def test_model_dtype_conversion_uses_the_runtime_supported_set(self) -> None:
+        names = (
+            "int8",
+            "int16",
+            "int32",
+            "int64",
+            "uint8",
+            "uint16",
+            "uint32",
+            "uint64",
+            "float16",
+            "bfloat16",
+            "float32",
+            "float64",
+        )
+        torch = SimpleNamespace(**{name: object() for name in (*names, "bool")})
+        infinicore = SimpleNamespace(**{name: object() for name in names})
+        namespace = {}
+        converter = next(
+            node
+            for node in ast.parse(read_source("python/infinicore/utils.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name == "to_infinicore_dtype"
+        )
+        exec(
+            compile(ast.Module(body=[converter], type_ignores=[]), "utils.py", "exec"),
+            namespace,
+        )
+        infinicore.utils = SimpleNamespace(
+            to_infinicore_dtype=namespace["to_infinicore_dtype"]
+        )
+
+        model_namespace = {"infinicore": infinicore}
+        model_converter = next(
+            node
+            for node in ast.parse(read_source("test/models/llama/utils.py")).body
+            if isinstance(node, ast.FunctionDef) and node.name == "to_infinicore_dtype"
+        )
+        exec(
+            compile(
+                ast.Module(body=[model_converter], type_ignores=[]),
+                "llama_utils.py",
+                "exec",
+            ),
+            model_namespace,
+        )
+        with patch.dict("sys.modules", {"torch": torch, "infinicore": infinicore}):
+            for name in names:
+                self.assertIs(
+                    model_namespace["to_infinicore_dtype"](getattr(torch, name)),
+                    getattr(infinicore, name),
+                )
+            with self.assertRaisesRegex(ValueError, "unsupported torch dtype"):
+                model_namespace["to_infinicore_dtype"](torch.bool)
+
+    def test_paged_decode_reuses_cpu_metadata_storage(self) -> None:
+        import numpy as np
+
+        source = read_source("python/infinilm/infer_engine.py")
+
+        self.assertIn("class _PagedDecodeMetadataBuffers:", source)
+        self.assertIn("self._storage_views.append(storage)", source)
+        self.assertIn("self._input_offsets_values[:] = self._sequence_indices", source)
+        self.assertIn("out=self._slot_mapping_values", source)
+        self.assertIn("out=self._cu_seqlens_values", source)
+
+        generate_start = source.index("    def generate(")
+        generate_end = source.index("    def reset_cache(", generate_start)
+        generate = source[generate_start:generate_end]
+        self.assertIn("decode_metadata = None", generate)
+        self.assertIn("and iter > 0", generate)
+        self.assertIn("and seq_len == 1", generate)
+        self.assertIn("and prompt_position_ids is None", generate)
+        self.assertIn("and self.position_id_axes == 1", generate)
+        self.assertIn("and mamba_state_indices is None", generate)
+        self.assertIn(") = decode_metadata.update(past_seq_len)", generate)
+        self.assertIn("if not reuse_decode_metadata:", generate)
+
+        class FakeTensor:
+            def __init__(self, shape, dtype):
+                self.values = np.empty(shape, dtype=dtype)
+
+            def data_ptr(self):
+                return self.values.ctypes.data
+
+            def numel(self):
+                return self.values.size
+
+        fake_infinicore = SimpleNamespace(
+            int32=np.int32,
+            int64=np.int64,
+            empty=lambda shape, *, dtype: FakeTensor(shape, dtype),
+        )
+        helper_node = next(
+            node
+            for node in ast.parse(source).body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "_PagedDecodeMetadataBuffers"
+        )
+        namespace = {"infinicore": fake_infinicore}
+        exec(
+            compile(
+                ast.Module(body=[helper_node], type_ignores=[]),
+                "infer_engine.py",
+                "exec",
+            ),
+            namespace,
+        )
+
+        buffers = namespace["_PagedDecodeMetadataBuffers"](3, 2048)
+        first = buffers.update(1024)
+        first_pointers = [tensor.data_ptr() for tensor in first]
+        self.assertEqual(
+            [tensor.values.shape for tensor in first],
+            [(3,), (3,), (3,), (3,), (4,), (4,)],
+        )
+        self.assertEqual(
+            [tensor.values.dtype for tensor in first],
+            [np.int64, np.int64, np.int32, np.int32, np.int32, np.int32],
+        )
+        self.assertEqual(first[0].values.tolist(), [1024, 1024, 1024])
+        self.assertEqual(first[1].values.tolist(), [1024, 3072, 5120])
+        self.assertEqual(first[2].values.tolist(), [1024, 1024, 1024])
+        self.assertEqual(first[3].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(first[4].values.tolist(), [0, 1025, 2050, 3075])
+        self.assertEqual(first[5].values.tolist(), [0, 1, 2, 3])
+
+        second = buffers.update(1025)
+        self.assertEqual(
+            [tensor.data_ptr() for tensor in second],
+            first_pointers,
+        )
+        self.assertEqual(second[0].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(second[1].values.tolist(), [1025, 3073, 5121])
+        self.assertEqual(second[2].values.tolist(), [1025, 1025, 1025])
+        self.assertEqual(second[3].values.tolist(), [1026, 1026, 1026])
+        self.assertEqual(second[4].values.tolist(), [0, 1026, 2052, 3078])
+        self.assertEqual(second[5].values.tolist(), [0, 1, 2, 3])
+
+    def test_build_installs_one_shared_runtime_for_both_extensions(self) -> None:
+        xmake = read_source("xmake.lua")
+        setup = read_source("setup.py")
+
+        runtime_start = xmake.index('target("infinicore_runtime")')
+        runtime_block = xmake[
+            runtime_start : xmake.index("target_end()", runtime_start)
+        ]
+        self.assertIn('set_kind("shared")', runtime_block)
+        self.assertIn('set_installdir("python/infinicore")', runtime_block)
+        modern_libraries = 'add_links("infiniops", "infiniccl", "infinirt"'
+        self.assertIn(modern_libraries, runtime_block)
+
+        self.assertIn('target("_infinicore")', xmake)
+        self.assertIn('add_deps("infinicore_runtime")', xmake)
+        self.assertIn("csrc/infinicore/src/pybind11/infinicore.cc", xmake)
+        self.assertIn("csrc/infinicore/src/pybind11/from_list.cc", xmake)
+        self.assertIn('set_installdir("python/infinicore")', xmake)
+        self.assertIn(
+            'for target in ("infinicore_runtime", "_infinicore", "_infinilm"):',
+            setup,
+        )
+        self.assertIn('["xmake", "build", target]', setup)
+        self.assertIn('["xmake", "install", target]', setup)
+
+        for target in ("_infinicore", "_infinilm"):
+            start = xmake.index(f'target("{target}")')
+            block = xmake[start : xmake.index("target_end()", start)]
+            self.assertNotIn(modern_libraries, block)
+            self.assertIn('add_deps("infinicore_runtime")', block)
+            self.assertNotIn('add_linkgroups("infinicore_runtime"', block)
+
+        infinicore_start = xmake.index('target("_infinicore")')
+        infinicore_block = xmake[
+            infinicore_start : xmake.index("target_end()", infinicore_start)
+        ]
+        infinilm_start = xmake.index('target("_infinilm")')
+        infinilm_block = xmake[
+            infinilm_start : xmake.index("target_end()", infinilm_start)
+        ]
+        self.assertIn('add_rpathdirs("$ORIGIN")', runtime_block)
+        self.assertNotIn("add_rpathdirs(INFINI_ROOT", runtime_block)
+        self.assertIn('add_rpathdirs("$ORIGIN")', infinicore_block)
+        self.assertIn('add_rpathdirs("$ORIGIN/../../infinicore/lib")', infinilm_block)
+
+    def test_wheel_contains_native_artifacts_and_is_platform_specific(self) -> None:
+        setup = read_source("setup.py")
+
+        self.assertIn("class BinaryDistribution(Distribution):", setup)
+        self.assertIn("def has_ext_modules(self):", setup)
+        self.assertIn("distclass=BinaryDistribution", setup)
+        self.assertIn('"infinicore.lib": INFINICORE_NATIVE_ARTIFACTS', setup)
+        self.assertIn('"infinilm.lib": INFINILM_EXTENSION_ARTIFACTS', setup)
+        for extension in ("_infinicore", "_infinilm"):
+            self.assertIn(f'"{extension}*.so"', setup)
+            self.assertIn(f'"{extension}*.pyd"', setup)
+        for library in (
+            "infinicore_runtime",
+            "infiniops",
+            "infiniccl",
+            "infinirt",
+        ):
+            self.assertIn(f'"lib{library}.so"', setup)
+            self.assertIn(f'"lib{library}.so.*"', setup)
+
+    def test_wheel_stages_modern_infini_runtime_dependencies(self) -> None:
+        setup = read_source("setup.py")
+
+        self.assertIn(
+            'INFINI_LIBRARY_NAMES = ("infiniops", "infiniccl", "infinirt")',
+            setup,
+        )
+        self.assertIn("def stage_runtime_dependencies():", setup)
+        self.assertIn('destination = PROJECT_ROOT / "python/infinicore/lib"', setup)
+        self.assertIn('infini_root / "lib"', setup)
+        self.assertIn('infini_root / "lib64"', setup)
+        self.assertIn("raise FileNotFoundError", setup)
+        self.assertIn("stage_runtime_dependencies()", setup)
+        build_start = setup.index("def build_cpp_module():")
+        stage_call = setup.index("stage_runtime_dependencies()", build_start)
+        xmake_build = setup.index('subprocess.run(["xmake", "build"', build_start)
+        self.assertLess(stage_call, xmake_build)
+
+    def test_wheel_includes_all_python_packages(self) -> None:
+        python_root = ROOT / "python"
+        setup = read_source("setup.py")
+        missing_package_markers = sorted(
+            str(directory.relative_to(python_root))
+            for directory in python_root.rglob("*")
+            if directory.is_dir()
+            and any(directory.glob("*.py"))
+            and not (directory / "__init__.py").is_file()
+        )
+
+        self.assertIn('packages=find_packages(where="python")', setup)
+        self.assertEqual(missing_package_markers, [])
+
+    def test_wheel_declares_its_eager_import_dependencies(self) -> None:
+        metadata = read_source("pyproject.toml")
+        dependencies = metadata[
+            metadata.index("dependencies = [") : metadata.index(
+                "]", metadata.index("dependencies = [")
+            )
+        ]
+        for package in (
+            "janus",
+            "numpy",
+            "Pillow",
+            "safetensors",
+            "tokenizers",
+            "torch",
+            "tqdm",
+            "transformers",
+            "typing-extensions",
+            "xxhash",
+        ):
+            self.assertIn(f'"{package}"', dependencies)
+        loader = read_source("python/infinicore/lib/__init__.py")
+        self.assertLess(
+            loader.index("import torch"), loader.index("from . import _infinicore")
+        )
+
+    def test_device_binding_uses_native_infini_rt_types(self) -> None:
+        source = read_source("csrc/infinicore/src/pybind11/device.hpp")
+
+        for native_name in (
+            "kCpu",
+            "kNvidia",
+            "kCambricon",
+            "kAscend",
+            "kMetax",
+            "kMoore",
+            "kIluvatar",
+            "kHygon",
+            "kThead",
+        ):
+            self.assertIn(f"Device::Type::{native_name}", source)
+        for legacy_name in ("::CPU", "::NVIDIA", "::QY", "::KUNLUN", "::ALI"):
+            self.assertNotIn(legacy_name, source)
+        self.assertIn("&Device::type", source)
+        self.assertIn("&Device::index", source)
+        self.assertIn("&Device::ToString", source)
+
+    def test_model_runner_accepts_native_accelerator_device_names(self) -> None:
+        source = read_source("python/infinilm/llm/model_runner/model_runner.py")
+
+        self.assertIn('"metax"', source)
+        self.assertIn('"thead"', source)
+        self.assertIn("self.device = infinicore.device(device_str, 0)", source)
+
+    def test_dtype_binding_matches_native_infini_rt_set(self) -> None:
+        source = read_source("csrc/infinicore/src/pybind11/dtype.hpp")
+        native_names = (
+            "kInt8",
+            "kInt16",
+            "kInt32",
+            "kInt64",
+            "kUInt8",
+            "kUInt16",
+            "kUInt32",
+            "kUInt64",
+            "kFloat16",
+            "kBFloat16",
+            "kFloat32",
+            "kFloat64",
+        )
+        for native_name in native_names:
+            self.assertIn(f"DataType::{native_name}", source)
+        for removed_name in ("BOOL", "BYTE", "F8", "C16", "C32", "C64", "C128"):
+            self.assertNotIn(f"DataType::{removed_name}", source)
+
+    def test_from_list_and_stream_binding_do_not_use_legacy_runtime(self) -> None:
+        from_list = read_source("csrc/infinicore/src/pybind11/from_list.cc")
+        context = read_source("csrc/infinicore/src/pybind11/context.hpp")
+        event = read_source("csrc/infinicore/src/pybind11/device_event.hpp")
+
+        for native_name in (
+            "kInt8",
+            "kInt16",
+            "kInt32",
+            "kInt64",
+            "kUInt8",
+            "kUInt16",
+            "kUInt32",
+            "kUInt64",
+            "kFloat16",
+            "kBFloat16",
+            "kFloat32",
+            "kFloat64",
+        ):
+            self.assertIn(f"case DataType::{native_name}:", from_list)
+        self.assertNotIn("infinirt", from_list + context + event)
+        self.assertIn("reinterpret_cast<std::uintptr_t>(getStream())", context)
+
+    def test_python_package_exposes_only_the_migrated_surface(self) -> None:
+        package = ROOT / "python" / "infinicore"
+        for relative_path in (
+            "__init__.py",
+            "context.py",
+            "device.py",
+            "dtype.py",
+            "tensor.py",
+            "utils.py",
+            "lib/__init__.py",
+            "nn/__init__.py",
+            "nn/parameter.py",
+            "nn/modules/module.py",
+        ):
+            self.assertTrue((package / relative_path).is_file(), relative_path)
+
+        init = (package / "__init__.py").read_text(encoding="utf-8")
+        for public_name in (
+            "Tensor",
+            "device",
+            "dtype",
+            "empty",
+            "from_list",
+            "from_torch",
+            "cat",
+            "sync_device",
+            "sync_stream",
+            "cancel_graph_recording",
+        ):
+            self.assertIn(f'"{public_name}"', init)
+        context = (package / "context.py").read_text(encoding="utf-8")
+        self.assertIn("def cancel_graph_recording():", context)
+        self.assertIn("_infinicore.cancel_graph_recording()", context)
+        for removed_name in ("infiniStatus_t", "QY", "KUNLUN", "ALI"):
+            self.assertNotIn(removed_name, init)
+
+    def test_legacy_inference_runtime_and_unsupported_devices_are_removed(self) -> None:
+        obsolete_paths = (
+            "src",
+            "include/infinicore_infer.h",
+            "include/infinicore_infer",
+            "scripts/libinfinicore_infer",
+            "scripts/deepseek.py",
+            "scripts/infer_task.py",
+            "scripts/jiuge.py",
+            "scripts/jiuge_awq.py",
+            "scripts/jiuge_gptq.py",
+            "scripts/jiuge_ppl.py",
+            "scripts/kvcache_pool.py",
+            "scripts/launch_server.py",
+            "scripts/qwen3vl.py",
+            "scripts/test_ceval.py",
+        )
+        for relative_path in obsolete_paths:
+            self.assertFalse((ROOT / relative_path).exists(), relative_path)
+
+        base_config = read_source("python/infinilm/base_config.py")
+        benchmark = read_source("test/bench/backends/infinilm.py")
+        readme = read_source("README.md")
+        for legacy_device in ("qy", "kunlun", "ali"):
+            self.assertNotIn(f'"{legacy_device}"', base_config)
+            self.assertNotIn(f'"{legacy_device}"', benchmark)
+            self.assertNotIn(f"--{legacy_device}", readme)
+        self.assertIn("raise ValueError", base_config)
+        self.assertIn(
+            "enable one-time weight pre-transposition for packed GEMM", base_config
+        )
+        self.assertNotIn("weight pre-transposition optimization (Ascend)", base_config)
+        self.assertIn("--attn=flash-attn", readme)
+
+        llama_utils = read_source("test/models/llama/utils.py")
+        for legacy_dtype in (
+            "DataType.F32",
+            "DataType.F16",
+            "DataType.BF16",
+            "DataType.I8",
+            "DataType.I16",
+            "DataType.I32",
+            "DataType.I64",
+            "DataType.U8",
+            "DataType.BOOL",
+        ):
+            self.assertNotIn(legacy_dtype, llama_utils)
+        intermediate_test = read_source(
+            "test/models/llama/test_intermediate_validation.py"
+        )
+        self.assertIn("from infinilm.lib import _infinilm", intermediate_test)
+        self.assertNotIn("\n    import _infinilm", intermediate_test)
+        self.assertIn("from infinicore.ops import add, matmul", intermediate_test)
+        self.assertNotIn("from infinicore.ops.", intermediate_test)
+
+    def test_device_sentinel_is_not_public_or_indexable(self) -> None:
+        binding = read_source("csrc/infinicore/src/pybind11/device.hpp")
+        self.assertNotIn('.value("COUNT"', binding)
+
+        context = read_source("csrc/infinicore/src/context/context_impl.cc")
+        self.assertIn("type_index >= runtime_table_.size()", context)
+        self.assertIn('throw std::invalid_argument("invalid device type")', context)
+
+    def test_from_torch_disambiguates_cuda_compatible_devices(self) -> None:
+        source = read_source("python/infinicore/tensor.py")
+
+        self.assertIn("def from_torch(torch_tensor, *, device=None):", source)
+        self.assertIn('owner.device.type == "cuda"', source)
+        self.assertIn("get_device()", source)
+        self.assertIn("Device(device)", source)
+        self.assertIn("pass device=", source)
+
+    def test_from_torch_returns_an_owning_synchronized_copy(self) -> None:
+        source = read_source("python/infinicore/tensor.py")
+        from_torch = source[
+            source.index("def from_torch(") : source.index("def from_numpy(")
+        ]
+
+        self.assertIn("torch.cuda.synchronize(owner.device)", from_torch)
+        self.assertIn("borrowed = Tensor(", from_torch)
+        self.assertIn("result = empty(", from_torch)
+        self.assertIn("result.copy_(borrowed)", from_torch)
+        self.assertIn("sync_stream()", from_torch)
+        self.assertNotIn("return Tensor(\n        _infinicore.from_blob", from_torch)
+
+    def test_from_list_reads_uint64_as_unsigned(self) -> None:
+        source = read_source("csrc/infinicore/src/pybind11/from_list.cc")
+
+        self.assertIn("PyLong_AsUnsignedLongLong", source)
+        self.assertIn("read_pyuint64", source)
+        self.assertIn("write_dtype_native<uint64_t>", source)
+
+        utils = read_source("python/infinicore/utils.py")
+        self.assertIn('for name in ("uint16", "uint32", "uint64"):', utils)
+        self.assertIn("getattr(torch, name, None)", utils)
+        self.assertIn("getattr(infinicore, name)", utils)
+
+    def test_from_numpy_converts_before_taking_an_owning_copy(self) -> None:
+        source = read_source("python/infinicore/tensor.py")
+        binding = read_source("csrc/infinicore/src/pybind11/tensor.hpp")
+
+        self.assertIn("infinicore_to_numpy_dtype", source)
+        self.assertIn("np.ascontiguousarray(array, dtype=numpy_dtype)", source)
+        self.assertIn("_infinicore._from_numpy_copy(owner", source)
+        self.assertNotIn("result.copy_(source)", source)
+
+        self.assertIn('"_from_numpy_copy"', binding)
+        self.assertIn("py::buffer", binding)
+        self.assertIn("std::memcpy", binding)
+
+    def test_to_numpy_is_owned_by_the_tensor_api(self) -> None:
+        tensor = read_source("python/infinicore/tensor.py")
+        generation = read_source("python/infinilm/generation/utils.py")
+
+        self.assertIn("def to_numpy(self):", tensor)
+        self.assertIn("infinicore_to_numpy_dtype", tensor)
+        self.assertIn("ctypes.memmove", tensor)
+        self.assertIn("return infini_tensor.to_numpy()", generation)
+        self.assertNotIn("Tensor.to_numpy =", generation)
+
+    def test_uninitialized_ones_factory_is_not_exported(self) -> None:
+        tensor = read_source("python/infinicore/tensor.py")
+        init = read_source("python/infinicore/__init__.py")
+        binding = read_source("csrc/infinicore/src/pybind11/tensor.hpp")
+
+        self.assertNotIn("def ones(", tensor)
+        self.assertNotIn('"ones"', init)
+        self.assertNotIn('m.def("ones"', binding)
+
+
+if __name__ == "__main__":
+    unittest.main()

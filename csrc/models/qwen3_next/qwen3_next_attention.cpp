@@ -107,10 +107,13 @@ infinicore::Tensor Qwen3NextAttention::forward_static_(const infinicore::Tensor 
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
     if (pos_shape.size() == 2) {
-        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
-        pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
-    } else if (pos_shape.size() == 1) {
+        ASSERT_EQ(pos_shape[0], batch_size);
+        ASSERT_EQ(pos_shape[1], seq_len);
         pos_ids_for_rope = position_ids->contiguous();
+    } else if (pos_shape.size() == 1) {
+        ASSERT_EQ(batch_size, 1);
+        ASSERT_EQ(pos_shape[0], seq_len);
+        pos_ids_for_rope = position_ids->contiguous()->view({1, seq_len});
     } else {
         throw std::runtime_error("infinilm::models::qwen3_next::Qwen3NextAttention: Unexpected position_ids shape");
     }

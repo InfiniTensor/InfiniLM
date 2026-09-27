@@ -1,4 +1,5 @@
 #include "quant_config.hpp"
+#include <stdexcept>
 
 namespace infinilm::config {
 QuantConfig::QuantConfig(const nlohmann::json &json) : quantization_config(json) {
@@ -13,7 +14,6 @@ QuantConfig::get_quantization_method() const {
 
     const std::string quant_method = quantization_config.value("quant_method", "");
 
-    // Determine the quantization scheme from the JSON config
     if (quant_method == "compressed-tensors") {
         return std::make_shared<infinilm::quantization::CompressedTensors>(quantization_config);
     } else if (quant_method == "awq") {
@@ -25,8 +25,5 @@ QuantConfig::get_quantization_method() const {
     } else {
         return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config);
     }
-    // Add other schemes as needed
-
-    return std::make_shared<infinilm::quantization::NoneQuantization>(quantization_config); // Default case if no matching scheme
 }
 } // namespace infinilm::config

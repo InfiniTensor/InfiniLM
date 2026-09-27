@@ -6,11 +6,11 @@ This test follows a clean 8-step setup process, then performs systematic validat
 of all intermediate values in step 9 using the validation pattern.
 """
 
-import sys
-import os
-from pathlib import Path
-from typing import Optional, Tuple, List, Dict
 import json
+import os
+import sys
+from pathlib import Path
+from typing import Dict, Tuple
 
 try:
     import torch
@@ -26,21 +26,19 @@ except ImportError as e:
     sys.exit(1)
 
 try:
-    from infinilm.models.llama import LlamaConfig, LlamaForCausalLM, Device
-    import _infinilm  # Import C++ bindings for HookRegistry
+    from infinilm.lib import _infinilm  # Import C++ bindings for HookRegistry
+    from infinilm.models.llama import Device, LlamaConfig, LlamaForCausalLM
 except ImportError as e:
     print(f"Error: InfiniLM Python package not found. Please install it: {e}")
     sys.exit(1)
 
-from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
-
 from infinicore.lib import _infinicore
-
+from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 from utils import (
+    infinicore_to_torch_tensor,
     normalize_param_name,
     tensor_all_close,
     torch_to_infinicore_tensor,
-    infinicore_to_torch_tensor,
     validate_infinicore_component,
 )
 
@@ -379,7 +377,7 @@ def test_intermediate_validation(
     print("\n1. Loading model configuration...")
     try:
         config_dict = load_model_config(model_dir)
-        print(f"   ✓ Configuration loaded")
+        print("   ✓ Configuration loaded")
     except Exception as e:
         print(f"   ✗ Failed to load configuration: {e}")
         return False
@@ -398,7 +396,7 @@ def test_intermediate_validation(
             nvidia_device_type = _infinicore.Device.Type.NVIDIA
             device_count = _infinicore.get_device_count(nvidia_device_type)
             if device_count == 0:
-                print(f"   ✗ No NVIDIA/CUDA devices available")
+                print("   ✗ No NVIDIA/CUDA devices available")
                 return False
             if device_index >= device_count:
                 print(f"   ✗ CUDA device index {device_index} is out of range")
@@ -410,7 +408,7 @@ def test_intermediate_validation(
             device_type_upper = "NVIDIA"
         device = Device(device_type_upper, device_index)
         infinilm_model = LlamaForCausalLM(infinilm_config, device)
-        print(f"   ✓ InfiniLM model created")
+        print("   ✓ InfiniLM model created")
     except Exception as e:
         print(f"   ✗ Failed to create InfiniLM model: {e}")
         import traceback
@@ -431,7 +429,7 @@ def test_intermediate_validation(
         )
         transformers_model = transformers_model.to(torch_device)
         transformers_model.eval()
-        print(f"   ✓ Transformers model loaded")
+        print("   ✓ Transformers model loaded")
     except Exception as e:
         print(f"   ✗ Failed to load transformers model: {e}")
         import traceback
@@ -465,7 +463,7 @@ def test_intermediate_validation(
             0, seq_len, dtype=torch.long, device=torch_device
         ).unsqueeze(0)
 
-        print(f"   ✓ Input prepared")
+        print("   ✓ Input prepared")
         print(f"     Input shape: {input_ids.shape}")
         print(f"     Sequence length: {seq_len}")
     except Exception as e:
@@ -731,11 +729,11 @@ def test_intermediate_validation(
                 hook.remove()
 
         transformers_logits = outputs.logits
-        print(f"   ✓ Extracted intermediate values from transformers")
+        print("   ✓ Extracted intermediate values from transformers")
         print(f"     Captured {len(transformers_intermediates)} intermediate tensors")
 
         # List all captured intermediate values
-        print(f"\n     Available Transformers intermediate values (in order):")
+        print("\n     Available Transformers intermediate values (in order):")
         for i, name in enumerate(sorted(transformers_intermediates.keys()), 1):
             tensor = transformers_intermediates[name]
             print(f"       {i}. {name}: shape={tensor.shape}, dtype={tensor.dtype}")
@@ -818,14 +816,12 @@ def test_intermediate_validation(
                 None,  # kv_caches
                 hook_registry,  # hook_registry
             )
-            infinilm_logits = infinicore_to_torch_tensor(
-                infini_logits, transformers_logits
-            )
+            infinicore_to_torch_tensor(infini_logits, transformers_logits)
 
-            print(f"   ✓ InfiniLM forward pass completed")
+            print("   ✓ InfiniLM forward pass completed")
             print(f"     Captured {len(infinilm_intermediates)} intermediate tensors")
         else:
-            print(f"   ✗ Forward method not available")
+            print("   ✗ Forward method not available")
             return False
 
     except Exception as e:
@@ -837,7 +833,6 @@ def test_intermediate_validation(
 
     # Step 8: Compare intermediate values (basic comparison)
     print("\n8. Comparing intermediate values (basic comparison)...")
-    all_match = True
     rtol = 1e-3
     atol = 1e-3
 
@@ -855,18 +850,15 @@ def test_intermediate_validation(
     for trans_name, infini_name in hook_name_mapping.items():
         if trans_name in transformers_intermediates:
             if infini_name in infinilm_intermediates:
-                match, stats = compare_tensors(
+                compare_tensors(
                     f"{trans_name} vs {infini_name}",
                     transformers_intermediates[trans_name],
                     infinilm_intermediates[infini_name],
                     rtol=1e-3,
                     atol=1e-3,
                 )
-                if not match:
-                    all_match = False
             else:
                 print(f"   ⚠ {infini_name} not found in InfiniLM intermediates")
-                all_match = False
 
     # Step 9: Systematic validation of intermediate values in order
     print("\n9. Systematic validation of intermediate values (in order)...")
@@ -963,7 +955,7 @@ def test_intermediate_validation(
 
         # Basic shape check
         if trans_tensor.shape != infini_tensor.shape:
-            print(f"   ✗ Shape mismatch!")
+            print("   ✗ Shape mismatch!")
             validation_results[trans_name] = {
                 "status": "shape_mismatch",
                 "trans_shape": trans_tensor.shape,
@@ -999,24 +991,24 @@ def test_intermediate_validation(
         )
 
         if match:
-            print(f"   ✓ Validation PASSED")
+            print("   ✓ Validation PASSED")
             validation_results[trans_name] = {"status": "passed", "stats": stats}
         else:
-            print(f"   ✗ Validation FAILED")
+            print("   ✗ Validation FAILED")
             validation_results[trans_name] = {"status": "failed", "stats": stats}
 
             # Detailed difference analysis
             diff = (trans_tensor - infini_tensor).abs()
             rel_diff = diff / (trans_tensor.abs() + 1e-10)
 
-            print(f"\n   Detailed difference analysis:")
+            print("\n   Detailed difference analysis:")
             print(f"     Max abs diff: {diff.max().item():.6e}")
             print(f"     Mean abs diff: {diff.mean().item():.6e}")
             print(f"     Max rel diff: {rel_diff.max().item():.6e}")
             print(f"     Mean rel diff: {rel_diff.mean().item():.6e}")
 
             # Error distribution
-            print(f"\n   Error distribution:")
+            print("\n   Error distribution:")
             for threshold in [1e-6, 1e-5, 1e-4, 1e-3, 1e-2]:
                 count = (diff > threshold).sum().item()
                 pct = 100.0 * count / diff.numel()
@@ -1025,7 +1017,7 @@ def test_intermediate_validation(
                 )
 
             # Top problematic positions
-            print(f"\n   Top 5 positions with largest absolute differences:")
+            print("\n   Top 5 positions with largest absolute differences:")
             topk_values, topk_indices = torch.topk(
                 diff.flatten(), k=min(5, diff.numel())
             )
@@ -1045,9 +1037,7 @@ def test_intermediate_validation(
                 "layer0_post_attention_layernorm",
                 "final_norm",
             ]:
-                print(
-                    f"\n   Validating with InfiniCore ops using validation pattern..."
-                )
+                print("\n   Validating with InfiniCore ops using validation pattern...")
                 try:
                     import infinicore.nn.functional as F
 
@@ -1122,7 +1112,7 @@ def test_intermediate_validation(
                             results
                         )
                     else:
-                        print(f"   ⚠ Cannot validate: missing input tensors or weight")
+                        print("   ⚠ Cannot validate: missing input tensors or weight")
                 except Exception as e:
                     print(f"   ⚠ Could not validate with InfiniCore ops: {e}")
                     import traceback
@@ -1131,12 +1121,11 @@ def test_intermediate_validation(
 
             # Validate q_proj operation (linear projection only, before reshape)
             elif trans_name == "layer0_attention_q_after_proj":
-                print(
-                    f"\n   Validating with InfiniCore ops using validation pattern..."
-                )
+                print("\n   Validating with InfiniCore ops using validation pattern...")
                 try:
-                    from infinicore.ops.matmul import matmul
-                    from infinicore.ops.add import add
+                    from infinicore.ops import add, matmul
+
+                    del add
 
                     # Get the input (layer0_input_layernorm)
                     trans_input = transformers_intermediates.get(
@@ -1224,7 +1213,7 @@ def test_intermediate_validation(
                             results
                         )
                     else:
-                        print(f"   ⚠ Cannot validate: missing input tensors")
+                        print("   ⚠ Cannot validate: missing input tensors")
                 except Exception as e:
                     print(f"   ⚠ Could not validate with InfiniCore ops: {e}")
                     import traceback
@@ -1236,7 +1225,7 @@ def test_intermediate_validation(
                 "layer0_attention_q_after_rope",
                 "layer0_attention_k_after_rope",
             ]:
-                print(f"\n   Validating RoPE application with PyTorch reference...")
+                print("\n   Validating RoPE application with PyTorch reference...")
                 head_type = "q" if trans_name.endswith("_q_after_rope") else "k"
                 cos = transformers_intermediates.get("layer0_attention_rope_cos")
                 sin = transformers_intermediates.get("layer0_attention_rope_sin")
@@ -1336,7 +1325,7 @@ def test_intermediate_validation(
 
             # Validate MLP intermediate values
             elif trans_name == "layer0_mlp":
-                print(f"\n   Validating MLP intermediate values...")
+                print("\n   Validating MLP intermediate values...")
 
                 # Get intermediate values from both implementations
                 trans_gate_proj = transformers_intermediates.get("layer0_mlp_gate_proj")
@@ -1361,30 +1350,28 @@ def test_intermediate_validation(
 
                 # Step 0: Compare inputs
                 print(
-                    f"\n   Step 0: Comparing MLP inputs (post_attention_layernorm output)..."
+                    "\n   Step 0: Comparing MLP inputs (post_attention_layernorm output)..."
                 )
                 if trans_input is not None and infini_input is not None:
                     input_match, input_stats = compare_tensors(
                         "mlp_input", trans_input, infini_input, rtol=1e-3, atol=1e-3
                     )
                     if input_match:
-                        print(f"   ✓ MLP input: Match")
+                        print("   ✓ MLP input: Match")
                     else:
-                        print(f"   ✗ MLP input: Mismatch")
+                        print("   ✗ MLP input: Mismatch")
                         print(
                             f"      Max abs diff: {input_stats.get('max_abs_diff', 'N/A'):.6e}"
                         )
                         print(
                             f"      Mean abs diff: {input_stats.get('mean_abs_diff', 'N/A'):.6e}"
                         )
-                        print(
-                            f"      ⚠ Input mismatch may cause downstream differences"
-                        )
+                        print("      ⚠ Input mismatch may cause downstream differences")
                 else:
-                    print(f"   ⚠ Missing MLP input tensors")
+                    print("   ⚠ Missing MLP input tensors")
 
                 # Step 1: Compare gate_proj outputs
-                print(f"\n   Step 1: Comparing gate_proj outputs...")
+                print("\n   Step 1: Comparing gate_proj outputs...")
                 if trans_gate_proj is not None and infini_gate_proj is not None:
                     if trans_gate_proj.shape != infini_gate_proj.shape:
                         print(
@@ -1399,9 +1386,9 @@ def test_intermediate_validation(
                             atol=1e-3,
                         )
                         if gate_match:
-                            print(f"   ✓ gate_proj: Match")
+                            print("   ✓ gate_proj: Match")
                         else:
-                            print(f"   ✗ gate_proj: Mismatch")
+                            print("   ✗ gate_proj: Mismatch")
                             print(
                                 f"      Max abs diff: {gate_stats.get('max_abs_diff', 'N/A'):.6e}"
                             )
@@ -1420,7 +1407,7 @@ def test_intermediate_validation(
                                 diff = (trans_gate_proj - infini_gate_proj).abs()
                                 problem_positions = [1703, 894, 1334, 636, 1002]
                                 print(
-                                    f"\n      Sample values at problematic positions (from final output):"
+                                    "\n      Sample values at problematic positions (from final output):"
                                 )
                                 for pos in problem_positions:
                                     if pos < trans_gate_proj.shape[-1]:
@@ -1448,7 +1435,7 @@ def test_intermediate_validation(
                     print(f"   ⚠ Missing gate_proj tensors: {', '.join(missing)}")
 
                 # Step 2: Compare up_proj outputs
-                print(f"\n   Step 2: Comparing up_proj outputs...")
+                print("\n   Step 2: Comparing up_proj outputs...")
                 if trans_up_proj is not None and infini_up_proj is not None:
                     if trans_up_proj.shape != infini_up_proj.shape:
                         print(
@@ -1463,9 +1450,9 @@ def test_intermediate_validation(
                             atol=1e-3,
                         )
                         if up_match:
-                            print(f"   ✓ up_proj: Match")
+                            print("   ✓ up_proj: Match")
                         else:
-                            print(f"   ✗ up_proj: Mismatch")
+                            print("   ✗ up_proj: Mismatch")
                             print(
                                 f"      Max abs diff: {up_stats.get('max_abs_diff', 'N/A'):.6e}"
                             )
@@ -1484,9 +1471,7 @@ def test_intermediate_validation(
                     print(f"   ⚠ Missing up_proj tensors: {', '.join(missing)}")
 
                 # Step 3: Compare SwiGLU intermediate
-                print(
-                    f"\n   Step 3: Comparing SwiGLU intermediate (silu(gate) * up)..."
-                )
+                print("\n   Step 3: Comparing SwiGLU intermediate (silu(gate) * up)...")
                 if trans_intermediate is not None and infini_intermediate is not None:
                     if trans_intermediate.shape != infini_intermediate.shape:
                         print(
@@ -1501,9 +1486,9 @@ def test_intermediate_validation(
                             atol=1e-3,
                         )
                         if inter_match:
-                            print(f"   ✓ SwiGLU intermediate: Match")
+                            print("   ✓ SwiGLU intermediate: Match")
                         else:
-                            print(f"   ✗ SwiGLU intermediate: Mismatch")
+                            print("   ✗ SwiGLU intermediate: Mismatch")
                             print(
                                 f"      Max abs diff: {inter_stats.get('max_abs_diff', 'N/A'):.6e}"
                             )
@@ -1578,20 +1563,17 @@ def test_intermediate_validation(
                     print(f"   ⚠ Missing intermediate tensors: {', '.join(missing)}")
 
                 print(
-                    f"\n   Step 4: Final MLP output comparison (shown above in main validation)"
+                    "\n   Step 4: Final MLP output comparison (shown above in main validation)"
                 )
                 print(
-                    f"   Summary: This validation helps identify which MLP step introduces the mismatch."
+                    "   Summary: This validation helps identify which MLP step introduces the mismatch."
                 )
 
             # Validate q_proj_reshape operation
             elif trans_name == "layer0_attention_q_after_proj_reshape":
-                print(
-                    f"\n   Validating with InfiniCore ops using validation pattern..."
-                )
+                print("\n   Validating with InfiniCore ops using validation pattern...")
                 try:
-                    from infinicore.ops.matmul import matmul
-                    from infinicore.ops.add import add
+                    from infinicore.ops import matmul
 
                     # Get the input (layer0_input_layernorm)
                     trans_input = transformers_intermediates.get(
@@ -1608,8 +1590,6 @@ def test_intermediate_validation(
                     # Get model config for dimensions
                     num_heads = transformers_model.config.num_attention_heads
                     head_dim = transformers_model.config.head_dim
-                    hidden_size = transformers_model.config.hidden_size
-
                     # Convert weight and bias to InfiniCore tensors (once, outside the op)
                     weight_tensor = torch_to_infinicore_tensor(weight, infini_device)
                     bias_tensor = None
@@ -1709,7 +1689,7 @@ def test_intermediate_validation(
                             results
                         )
                     else:
-                        print(f"   ⚠ Cannot validate: missing input tensors")
+                        print("   ⚠ Cannot validate: missing input tensors")
                 except Exception as e:
                     print(f"   ⚠ Could not validate with InfiniCore ops: {e}")
                     import traceback
@@ -1744,7 +1724,7 @@ def test_intermediate_validation(
     print(f"  ✗ Failed: {failed}")
     print(f"  ⚠ Missing: {missing}")
 
-    print(f"\nDetailed results:")
+    print("\nDetailed results:")
     for trans_name, result in validation_results.items():
         status = result.get("status", "unknown")
         if status == "passed":
@@ -1792,7 +1772,7 @@ def main():
             if model_dir is None:
                 model_dir = arg
             else:
-                print(f"Error: Multiple model directories specified")
+                print("Error: Multiple model directories specified")
                 sys.exit(1)
             i += 1
 

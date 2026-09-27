@@ -21,6 +21,10 @@ struct AttentionMetadata {
     size_t max_query_length{0};
     /// Maximum total sequence length in the current batch.
     size_t max_sequence_length{0};
+    /// Element 0 of past_sequence_lengths, snapshotted for static eager attention.
+    std::optional<size_t> first_past_sequence_length;
+    /// Element 0 of total_sequence_lengths, snapshotted for static eager attention.
+    std::optional<size_t> first_total_sequence_length;
 
     AttentionMetadata() = default;
 

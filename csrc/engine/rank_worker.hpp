@@ -79,7 +79,10 @@ public:
 
         float top_p{1};
 
-        infinilm::InfinilmModel::Input to_model_input(infinicore::Device device) const;
+        infinilm::InfinilmModel::Input to_model_input(
+            infinicore::Device device,
+            bool snapshot_static_sequence_lengths = false,
+            bool preserve_target_hidden_device = false) const;
     };
 
     struct Output {

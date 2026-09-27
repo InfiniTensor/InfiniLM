@@ -1,10 +1,10 @@
 #include "infer_engine.hpp"
+#include "../cache/kv_cache.hpp"
 #include "../config/config_factory.hpp"
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <cstdint>
 #include <future>
-#include <mutex>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -19,12 +19,13 @@ size_t max_length_from_offsets(
     }
 
     auto cpu_offsets = offsets.value();
-    if (cpu_offsets->device().getType() != infinicore::Device::Type::CPU) {
-        cpu_offsets = cpu_offsets->to(infinicore::Device::cpu());
+    if (cpu_offsets->device().type() != infinicore::Device::Type::kCpu) {
+        cpu_offsets = cpu_offsets->to(
+            infinicore::Device{infinicore::Device::Type::kCpu});
         infinicore::context::syncStream();
     }
 
-    if (cpu_offsets->dtype() != infinicore::DataType::I32
+    if (cpu_offsets->dtype() != infinicore::DataType::kInt32
         || cpu_offsets->shape().size() != 1
         || cpu_offsets->shape()[0] < 2) {
         throw std::invalid_argument(
@@ -42,6 +43,33 @@ size_t max_length_from_offsets(
             static_cast<size_t>(values[i] - values[i - 1]));
     }
     return max_length;
+}
+
+std::optional<size_t> first_sequence_length(
+    const std::optional<infinicore::Tensor> &lengths,
+    const char *name) {
+    if (!lengths.has_value()) {
+        return std::nullopt;
+    }
+
+    auto cpu_lengths = lengths.value();
+    if (cpu_lengths->device().type() != infinicore::Device::Type::kCpu) {
+        cpu_lengths = cpu_lengths->to(
+            infinicore::Device{infinicore::Device::Type::kCpu});
+    }
+
+    if (cpu_lengths->dtype() != infinicore::DataType::kInt32
+        || cpu_lengths->shape().size() != 1
+        || cpu_lengths->shape()[0] == 0) {
+        throw std::invalid_argument(
+            std::string(name) + " must be a non-empty one-dimensional int32 tensor");
+    }
+
+    const auto value = reinterpret_cast<const int32_t *>(cpu_lengths->data())[0];
+    if (value < 0) {
+        throw std::invalid_argument(std::string(name) + " must contain nonnegative lengths");
+    }
+    return static_cast<size_t>(value);
 }
 
 } // namespace
@@ -67,12 +95,65 @@ InferEngine::InferEngine(
     if (weight_load_mode_ != "async" && weight_load_mode_ != "sync") {
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
     }
+    if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
+        // These backends register both canonical InfiniOps flash-attention
+        // providers used by the paged prefill and decode paths below.
+        if (device_type != infinicore::Device::Type::kNvidia
+            && device_type != infinicore::Device::Type::kMetax
+            && device_type != infinicore::Device::Type::kMoore
+            && device_type != infinicore::Device::Type::kCambricon
+            && device_type != infinicore::Device::Type::kIluvatar
+            && device_type != infinicore::Device::Type::kHygon
+            && device_type != infinicore::Device::Type::kAscend) {
+            throw std::invalid_argument(
+                "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, and Ascend devices");
+        }
+        const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+        if (paged_cache_config == nullptr) {
+            throw std::invalid_argument(
+                "flash-attn requires a paged KV cache configuration");
+        }
+        if (paged_cache_config->num_blocks() == 0) {
+            throw std::invalid_argument(
+                "flash-attn requires at least one paged KV cache block");
+        }
+        if (paged_cache_config->block_size() == 0
+            || paged_cache_config->block_size() % 256 != 0) {
+            throw std::invalid_argument(
+                "flash-attn requires a nonzero paged KV cache block size divisible by 256");
+        }
+    }
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
+    if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
+        const auto dtype = model_config_->get_dtype();
+        if (dtype != infinicore::DataType::kFloat16
+            && dtype != infinicore::DataType::kBFloat16) {
+            throw std::invalid_argument(
+                "flash-attn requires a float16 or bfloat16 model dtype");
+        }
+        const size_t head_dim = model_config_->get_head_dim();
+        if (head_dim == 0 || head_dim > 256 || head_dim % 8 != 0) {
+            throw std::invalid_argument(
+                "flash-attn requires head_dim to be a positive multiple of 8 no greater than 256");
+        }
+        if (device_type == infinicore::Device::Type::kMoore
+            && head_dim != 64
+            && head_dim != 128) {
+            throw std::invalid_argument(
+                "flash-attn on Moore requires head_dim to be 64 or 128");
+        }
+        if (device_type == infinicore::Device::Type::kIluvatar
+            && head_dim != 64
+            && head_dim != 128) {
+            throw std::invalid_argument(
+                "flash-attn on Iluvatar requires head_dim to be 64 or 128");
+        }
+    }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
         attention_backend,
         this->model_config_,
@@ -186,7 +267,10 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 // forward
 //------------------------------------------------------
 infinilm::InfinilmModel::Input
-InferEngine::Input::to_model_input(infinicore::Device device) const {
+InferEngine::Input::to_model_input(
+    infinicore::Device device,
+    bool snapshot_static_sequence_lengths,
+    bool preserve_target_hidden_device) const {
 
     auto to_device = [&](const std::optional<infinicore::Tensor> &t)
         -> std::optional<infinicore::Tensor> {
@@ -216,10 +300,19 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     // copies so TP ranks never access the same host registration concurrently.
     static std::mutex maca_host_copy_mutex;
     const bool serialize_host_copy
-        = device.getType() == infinicore::Device::Type::METAX;
+        = device.type() == infinicore::Device::Type::kMetax;
     std::unique_lock<std::mutex> maca_host_copy_lock;
     if (serialize_host_copy) {
         maca_host_copy_lock = std::unique_lock<std::mutex>(maca_host_copy_mutex);
+    }
+
+    std::optional<size_t> first_past_sequence_length;
+    std::optional<size_t> first_total_sequence_length;
+    if (snapshot_static_sequence_lengths) {
+        first_past_sequence_length = first_sequence_length(
+            past_sequence_lengths, "past_sequence_lengths");
+        first_total_sequence_length = first_sequence_length(
+            total_sequence_lengths, "total_sequence_lengths");
     }
 
     infinilm::InfinilmModel::Input input = {
@@ -239,14 +332,17 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         to_device_vec(image_grid_thw),
         image_req_ids,
         visual_token_ranges,
-        to_device(target_hidden_states),
+        preserve_target_hidden_device
+            ? target_hidden_states
+            : to_device(target_hidden_states),
         sample_all_positions};
 
     if (serialize_host_copy) {
         infinicore::context::syncStream();
     }
 
-    infinilm::global_state::get_forward_context().attn_metadata = {
+    auto &attn_metadata = infinilm::global_state::get_forward_context().attn_metadata;
+    attn_metadata = {
         input.past_sequence_lengths,
         input.total_sequence_lengths,
         input.input_offsets,
@@ -255,6 +351,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
         input.slot_mapping,
         max_query_length,
         max_sequence_length};
+    attn_metadata.first_past_sequence_length = first_past_sequence_length;
+    attn_metadata.first_total_sequence_length = first_total_sequence_length;
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,

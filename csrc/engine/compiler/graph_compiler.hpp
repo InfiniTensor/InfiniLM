@@ -5,6 +5,33 @@
 
 namespace infinilm::engine {
 
+class GraphRecordingGuard {
+public:
+    GraphRecordingGuard() {
+        infinicore::context::startGraphRecording();
+    }
+
+    ~GraphRecordingGuard() noexcept {
+        if (active_) {
+            infinicore::context::cancelGraphRecording();
+        }
+    }
+
+    GraphRecordingGuard(const GraphRecordingGuard &) = delete;
+    GraphRecordingGuard &operator=(const GraphRecordingGuard &) = delete;
+    GraphRecordingGuard(GraphRecordingGuard &&) = delete;
+    GraphRecordingGuard &operator=(GraphRecordingGuard &&) = delete;
+
+    std::shared_ptr<infinicore::graph::Graph> finish() {
+        auto graph = infinicore::context::stopGraphRecording();
+        active_ = false;
+        return graph;
+    }
+
+private:
+    bool active_ = true;
+};
+
 class GraphCompiler {
 public:
     using Compiled = std::tuple<
