@@ -121,7 +121,7 @@ std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     PlannedMeta &planned) {
     const auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(
-        infini::ops::Device::Type::kNvidia, 17);
+        infini::ops::Device::Type::kNvidia, 16);
 
     const auto q = planned.q.tensor(planned.q_tensor);
     const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);
