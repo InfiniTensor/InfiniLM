@@ -13,7 +13,9 @@ from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import (
     constrain_tools,
     direct_literal_write_arguments,
+    direct_read_arguments,
     direct_bash_arguments,
+    direct_edit_step,
     forced_read_tool_prefix,
     direct_read_result,
     direct_edit_complete,
@@ -535,6 +537,105 @@ def test_explicit_bash_uses_exact_command_and_tool_output_cap(monkeypatch):
     assert call["function"]["name"] == "bash"
     assert json.loads(call["function"]["arguments"]) == {"command": command}
     assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
+
+    completed = {
+        **data,
+        "messages": data["messages"] + [
+            {"role": "assistant", "tool_calls": [{
+                "id": "bash-1", "function": {
+                    "name": "bash", "arguments": json.dumps({"command": command})
+                }
+            }]},
+            {"role": "tool", "tool_call_id": "bash-1",
+             "content": "BASH_RESULT[success] a&b"},
+        ],
+    }
+    _, _, prepared = server._prepare_chat_request(completed)
+    assert "_infinilm_direct_tool_call" not in prepared
+    finished = asyncio.run(server._chat("bash-done", completed, None))
+    assert finished["choices"][0]["finish_reason"] == "stop"
+    assert finished["choices"][0]["message"].get("tool_calls") is None
+
+
+def test_explicit_edit_reads_once_then_edits_once():
+    prompt = "编辑 sample.md，把 status=pending 改为 status=done。完成后立即停止。"
+    tools = [_tool("read_file"), _tool("edit_file"), _tool("bash")]
+    messages = [{"role": "user", "content": prompt}]
+    server = InferenceServer("/tmp/model", skip_load=True)
+    _, _, first = server._prepare_chat_request({"messages": messages, "tools": tools})
+    assert first["_infinilm_direct_tool_call"] == {
+        "name": "read_file", "arguments": {"file_path": "sample.md"}
+    }
+    messages += [
+        {"role": "assistant", "tool_calls": [{
+            "id": "read-1", "function": {"name": "read_file",
+            "arguments": '{"file_path":"sample.md"}'}
+        }]},
+        {"role": "tool", "tool_call_id": "read-1",
+         "content": "# Sample\nstatus=pending"},
+    ]
+    _, _, second = server._prepare_chat_request({"messages": messages, "tools": tools})
+    assert second["_infinilm_direct_tool_call"] == {
+        "name": "edit_file", "arguments": {
+            "file_path": "sample.md", "old_string": "status=pending",
+            "new_string": "status=done"
+        }
+    }
+    assert direct_edit_step(messages, [_tool("read_file"), _tool("edit_file")]) == (
+        second["_infinilm_direct_tool_call"]
+    )
+    messages += [
+        {"role": "assistant", "tool_calls": [{
+            "id": "edit-1", "function": {"name": "edit_file",
+            "arguments": '{"file_path":"sample.md","old_string":"status=pending","new_string":"status=done"}'}
+        }]},
+        {"role": "tool", "tool_call_id": "edit-1", "content": "Updated sample.md"},
+    ]
+    data = {"messages": messages, "tools": tools}
+    _, _, finished = server._prepare_chat_request(data)
+    assert finished["_infinilm_direct_edit_complete"] is True
+    assert "_infinilm_direct_tool_call" not in finished
+    response = asyncio.run(server._chat("edit-done", data, None))
+    assert response["choices"][0]["finish_reason"] == "stop"
+    assert response["choices"][0]["message"].get("tool_calls") is None
+
+
+def test_constrained_read_calls_only_read_file_and_stops():
+    prompt = "仅允许使用 read_file，禁止 bash。读取 sample.md。"
+    tools = [_tool("read_file"), _tool("bash")]
+    messages = [{"role": "user", "content": prompt}]
+    server = InferenceServer("/tmp/model", skip_load=True)
+    _, kwargs, first = server._prepare_chat_request(
+        {"messages": messages, "tools": tools}
+    )
+    assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["read_file"]
+    assert direct_read_arguments(messages, kwargs["tools"]) == {
+        "file_path": "sample.md"
+    }
+    assert first["_infinilm_direct_tool_call"] == {
+        "name": "read_file", "arguments": {"file_path": "sample.md"}
+    }
+    response = asyncio.run(server._chat(
+        "read-first", {"messages": messages, "tools": tools}, None
+    ))
+    assert response["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == (
+        "read_file"
+    )
+
+    messages += [
+        {"role": "assistant", "tool_calls": [{
+            "id": "read-1", "function": {"name": "read_file",
+            "arguments": '{"file_path":"sample.md"}'}
+        }]},
+        {"role": "tool", "tool_call_id": "read-1", "content": "# Sample"},
+    ]
+    data = {"messages": messages, "tools": tools}
+    _, _, finished = server._prepare_chat_request(data)
+    assert finished["_infinilm_direct_read_result"] == "# Sample"
+    assert "_infinilm_direct_tool_call" not in finished
+    response = asyncio.run(server._chat("read-done", data, None))
+    assert response["choices"][0]["finish_reason"] == "stop"
+    assert response["choices"][0]["message"].get("tool_calls") is None
 
 
 def test_prepared_request_carries_forced_tool_prefix():

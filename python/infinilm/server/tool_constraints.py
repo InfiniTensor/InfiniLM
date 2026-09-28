@@ -128,10 +128,13 @@ def _is_direct_write_then_stop(text: str) -> bool:
     return requests_file and requests_stop
 
 def _is_direct_read(text: str) -> bool:
+    candidate = text.strip()
+    while candidate.startswith(("仅", "只", "禁止", "不得", "不要使用")) and "。" in candidate:
+        candidate = candidate.split("。", 1)[1].strip()
     return bool(re.fullmatch(
         r"\s*(?:请\s*)?(?:(?:读取|查看|打开)\s*[^\s；;。\n]+\.[A-Za-z0-9]+|"
         r"read\s+[^\s.;\n]+\.[A-Za-z0-9]+)[。.]*\s*",
-        text, re.I,
+        candidate, re.I,
     ))
 
 
@@ -315,29 +318,37 @@ def forced_write_tool_prefix(messages: list, tools: list) -> Optional[str]:
 
 
 
-def forced_read_tool_prefix(messages: list, tools: list) -> Optional[str]:
+def direct_read_arguments(messages: list, tools: list) -> Optional[dict]:
     exposed = {
         tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
     }
     if exposed != {"read_file"}:
         return None
-
     text = _latest_user_text(messages)
     if not text or not _is_direct_read(text):
         return None
-
     match = _READ_FILE_TARGET_ZH_RE.search(text) or _READ_FILE_TARGET_EN_RE.search(text)
     if not match:
         return None
     target = match.group(1).strip()
     if not target:
         return None
+    signatures, _ = _tool_history(messages)
+    if any(name == "read_file" for name, _ in signatures):
+        return None
+    return {"file_path": target}
+
+
+def forced_read_tool_prefix(messages: list, tools: list) -> Optional[str]:
+    arguments = direct_read_arguments(messages, tools)
+    if arguments is None:
+        return None
 
     return chr(10).join([
         "<tool_call>",
         "<function=read_file>",
         "<parameter=file_path>",
-        target,
+        arguments["file_path"],
         "</parameter>",
         "</function>",
     ]) + chr(10)
@@ -421,6 +432,43 @@ def forced_read_for_edit_prefix(messages: list, tools: list) -> Optional[str]:
     ]) + chr(10)
 
 
+def direct_edit_step(messages: list, tools: list) -> Optional[dict]:
+    exposed = {
+        tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
+    }
+    if not {"read_file", "edit_file"}.issubset(exposed):
+        return None
+    text = _latest_user_text(messages)
+    if not text or not _is_direct_edit_then_stop(text):
+        return None
+    target_match = _EDIT_FILE_TARGET_ZH_RE.search(text) or _EDIT_FILE_TARGET_EN_RE.search(text)
+    change_match = _EDIT_CHANGE_ZH_RE.search(text) or _EDIT_CHANGE_EN_RE.search(text)
+    if not target_match or not change_match:
+        return None
+    target = target_match.group(1).strip()
+    old_string = change_match.group(1).strip().strip("'\"")
+    new_string = change_match.group(2).strip().strip("'\"")
+    if not target or not old_string or not new_string or old_string == new_string:
+        return None
+
+    signatures, names_by_id = _tool_history(messages)
+    attempted = {name for name, _ in signatures}
+    if "edit_file" in attempted:
+        return None
+    if _has_successful_tool(messages, names_by_id, "read_file"):
+        return {
+            "name": "edit_file",
+            "arguments": {
+                "file_path": target,
+                "old_string": old_string,
+                "new_string": new_string,
+            },
+        }
+    if "read_file" not in attempted:
+        return {"name": "read_file", "arguments": {"file_path": target}}
+    return None
+
+
 def forced_edit_tool_prefix(messages: list, tools: list) -> Optional[str]:
     exposed = {
         tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
@@ -430,7 +478,9 @@ def forced_edit_tool_prefix(messages: list, tools: list) -> Optional[str]:
     text = _latest_user_text(messages)
     if not text or not _is_direct_edit_then_stop(text):
         return None
-    _, names_by_id = _tool_history(messages)
+    signatures, names_by_id = _tool_history(messages)
+    if any(name == "edit_file" for name, _ in signatures):
+        return None
     if not _has_successful_tool(messages, names_by_id, "read_file"):
         return None
     if _has_successful_tool(messages, names_by_id, "edit_file"):

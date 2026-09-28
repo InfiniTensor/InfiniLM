@@ -29,7 +29,9 @@ from infinilm.server.tool_schema import compact_tool_descriptions
 from infinilm.server.tool_constraints import (
     constrain_tools,
     direct_literal_write_arguments,
+    direct_read_arguments,
     direct_bash_arguments,
+    direct_edit_step,
     direct_write_complete,
     forced_write_tool_prefix,
     forced_read_tool_prefix,
@@ -480,10 +482,12 @@ class InferenceServer:
         direct_call = None
         if literal_write is not None:
             direct_call = {"name": "write_file", "arguments": literal_write}
+        elif read_arguments := direct_read_arguments(action_messages, exposed_tools):
+            direct_call = {"name": "read_file", "arguments": read_arguments}
+        elif edit_step := direct_edit_step(action_messages, exposed_tools):
+            direct_call = edit_step
         elif bash_arguments is not None:
             direct_call = {"name": "bash", "arguments": bash_arguments}
-        if direct_call is not None:
-            request_data["_infinilm_direct_tool_call"] = direct_call
         read_result = direct_read_result(messages, original_tools)
         if read_result is not None:
             request_data["_infinilm_direct_read_result"] = read_result
@@ -492,6 +496,15 @@ class InferenceServer:
         bash_result = direct_bash_result(messages, original_tools)
         if bash_result is not None:
             request_data["_infinilm_direct_bash_result"] = bash_result
+        if (
+            request_data.get("_infinilm_direct_write_complete")
+            or read_result is not None
+            or request_data.get("_infinilm_direct_edit_complete")
+            or bash_result is not None
+        ):
+            direct_call = None
+        if direct_call is not None:
+            request_data["_infinilm_direct_tool_call"] = direct_call
         forced_prefix = None if direct_call is not None else (
             forced_write_tool_prefix(action_messages, exposed_tools)
             or forced_read_tool_prefix(action_messages, exposed_tools)
