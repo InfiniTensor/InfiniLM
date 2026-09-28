@@ -943,6 +943,12 @@ class AsyncLLMEngine:
             prompt_tokens=len(prompt_token_ids),
             output_tokens=sampling_params.max_tokens,
         )
+        logger.info(
+            "Admitted request %s: prompt_tokens=%s max_tokens=%s",
+            request_id,
+            len(prompt_token_ids),
+            sampling_params.max_tokens,
+        )
 
         request = InferenceRequest(
             request_id=request_id,
