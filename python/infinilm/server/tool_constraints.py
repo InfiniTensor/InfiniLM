@@ -35,6 +35,12 @@ _FAILED_TOOL_RESULT_MARKERS = (
     '"iserror":true',
     '"is_error":true',
 )
+_READ_FILE_ZH_RE = re.compile(r"(?:读取|查看|打开)\s*[^\s；;。\n]+\.[A-Za-z0-9]+", re.I)
+_READ_FILE_EN_RE = re.compile(r"\bread\b[^.\n]*\b(?:file|from)\b[^.\n]*\.[A-Za-z0-9]+", re.I)
+_EDIT_FILE_ZH_RE = re.compile(r"(?:编辑|修改)\s*[^\s；;。\n]+\.[A-Za-z0-9]+", re.I)
+_EDIT_FILE_EN_RE = re.compile(r"\bedit\b[^.\n]*\.[A-Za-z0-9]+", re.I)
+_RUN_COMMAND_ZH_RE = re.compile(r"(?:执行|运行)\s*(?:命令|shell|bash|脚本)", re.I)
+_RUN_COMMAND_EN_RE = re.compile(r"\b(?:run|execute)\b[^.\n]*\b(?:command|shell|bash|script)\b", re.I)
 
 
 def _normalize_tool_name(value: str) -> str:
@@ -188,6 +194,30 @@ def constrain_tools(messages: list, tools: list) -> list:
         ]
         if write_tools:
             return write_tools
+    if _READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text):
+        read_tools = [
+            tool for tool in constrained if tool["function"]["name"] == "read_file"
+        ]
+        if read_tools:
+            return read_tools
+
+    if _EDIT_FILE_ZH_RE.search(text) or _EDIT_FILE_EN_RE.search(text):
+        edit_tools = [
+            tool
+            for tool in constrained
+            if tool["function"]["name"] in {"edit_file", "read_file"}
+        ]
+        if edit_tools:
+            return edit_tools
+
+    if _RUN_COMMAND_ZH_RE.search(text) or _RUN_COMMAND_EN_RE.search(text):
+        command_tools = [
+            tool
+            for tool in constrained
+            if tool["function"]["name"] in {"bash", "write_file", "read_file"}
+        ]
+        if command_tools:
+            return command_tools
     return constrained
 
 

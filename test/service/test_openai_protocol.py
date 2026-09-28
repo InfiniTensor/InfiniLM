@@ -224,6 +224,37 @@ def test_direct_create_file_then_stop_filters_to_write_tool():
     assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
         "write_file"
     ]
+
+def test_read_file_request_filters_to_read_tool():
+    tools = [_tool("write_file"), _tool("read_file"), _tool("bash")]
+    messages = [{"role": "user", "content": "读取 outline.md，告诉我标题。"}]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "read_file"
+    ]
+
+
+def test_edit_file_request_filters_to_edit_and_read_tools():
+    tools = [_tool("write_file"), _tool("read_file"), _tool("edit_file"), _tool("bash")]
+    messages = [{"role": "user", "content": "编辑 outline.md，把 pending 改成 done。"}]
+
+    assert {tool["function"]["name"] for tool in constrain_tools(messages, tools)} == {
+        "edit_file",
+        "read_file",
+    }
+
+
+def test_run_command_request_filters_to_command_tools():
+    tools = [_tool("write_file"), _tool("read_file"), _tool("edit_file"), _tool("bash")]
+    messages = [{"role": "user", "content": "执行 bash 命令 printf ok。"}]
+
+    assert {tool["function"]["name"] for tool in constrain_tools(messages, tools)} == {
+        "bash",
+        "write_file",
+        "read_file",
+    }
+
+
 def test_direct_write_then_stop_removes_tools_after_success():
     tools = [_tool("write_file"), _tool("read_file")]
     messages = [
