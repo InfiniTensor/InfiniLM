@@ -2,6 +2,8 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
+from fastapi import FastAPI
 from infinilm.llm.llm import validate_request_capacity
 from infinilm.server.inference_server import InferenceServer
 from infinilm.server.openai_protocol import parse_tool_calls
@@ -116,3 +118,26 @@ def test_prompt_limit_rejects_before_forward(monkeypatch):
     with pytest.raises(ValueError, match="configured prompt limit is 6144"):
         validate_request_capacity(config, 6145, 512)
     validate_request_capacity(config, 6144, 512)
+
+
+def test_tokenized_prompt_limit_returns_client_error():
+    class Engine:
+        def add_chat_request(self, **kwargs):
+            raise ValueError("The configured prompt limit is 6144 tokens; received 8000")
+
+    server = InferenceServer.__new__(InferenceServer)
+    server.engine = Engine()
+    server.model_id = "GLM-5.2-W4A8"
+    server.max_tokens = 64
+    server.temperature = 0
+    server.top_p = 1
+    server.top_k = 1
+    server.ignore_eos = False
+    app = FastAPI()
+    server._register_routes(app)
+    client = TestClient(app)
+    response = client.post("/v1/chat/completions", json={
+        "messages": [{"role": "user", "content": "test"}], "max_tokens": 64
+    })
+    assert response.status_code == 400
+    assert "configured prompt limit" in response.json()["error"]["message"]

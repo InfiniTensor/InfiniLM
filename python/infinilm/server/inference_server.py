@@ -909,6 +909,11 @@ class InferenceServer:
             logger.info(f"Request {request_id} was cancelled")
             raise
 
+        except ValueError as exc:
+            logger.info("Invalid chat request %s: %s", request_id, exc)
+            _abort_reason = FinishReason.ERROR
+            return self._error_response(str(exc), status_code=400)
+
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)
             _abort_reason = FinishReason.ERROR
