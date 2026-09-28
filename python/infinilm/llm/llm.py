@@ -35,6 +35,15 @@ from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 logger = logging.getLogger(__name__)
 
 
+def available_output_tokens(config: EngineConfig, prompt_tokens: int) -> int:
+    """Return the largest generation reservation that fits the KV cache."""
+    if config.cache_type == "paged":
+        capacity = config.num_blocks * config.block_size
+    else:
+        capacity = config.max_cache_len
+    return max(capacity - prompt_tokens, 0)
+
+
 def validate_request_capacity(
     config: EngineConfig, prompt_tokens: int, output_tokens: int
 ) -> None:
@@ -903,6 +912,21 @@ class AsyncLLMEngine:
         elif sampling_params.max_tokens is None:
             sampling_params = sampling_params.clone()
             sampling_params.max_tokens = self.config.max_tokens
+
+        available_tokens = available_output_tokens(
+            self.config, prompt_tokens=len(prompt_token_ids)
+        )
+        if sampling_params.max_tokens > available_tokens:
+            requested_max_tokens = sampling_params.max_tokens
+            sampling_params = sampling_params.clone()
+            sampling_params.max_tokens = available_tokens
+            logger.warning(
+                "Clamped max_tokens from %s to %s after tokenization; "
+                "prompt_tokens=%s",
+                requested_max_tokens,
+                available_tokens,
+                len(prompt_token_ids),
+            )
 
         validate_request_capacity(
             self.config,

@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+from infinilm.llm.llm import available_output_tokens
 from infinilm.llm.llm import validate_request_capacity
 
 
@@ -38,3 +39,13 @@ def test_output_reservation_larger_than_remaining_capacity_is_rejected():
             prompt_tokens=8_000,
             output_tokens=512,
         )
+
+
+def test_output_reservation_can_be_clamped_before_validation():
+    assert (
+        available_output_tokens(
+            paged_config(num_blocks=128, block_size=64),
+            prompt_tokens=8_000,
+        )
+        == 192
+    )
