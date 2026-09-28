@@ -1,4 +1,5 @@
 import json
+import asyncio
 
 import pytest
 from infinilm.processors.processor import normalize_openai_messages
@@ -11,6 +12,8 @@ from infinilm.server.openai_protocol import (
 from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import (
     constrain_tools,
+    direct_literal_write_arguments,
+    direct_bash_arguments,
     forced_read_tool_prefix,
     direct_read_result,
     direct_edit_complete,
@@ -458,6 +461,80 @@ def test_forced_write_prefix_constrains_generation_to_write_file():
         "file_path": "outline.md",
         "content": "outline content",
     }
+
+
+def test_explicit_multiline_write_preserves_content_and_stream_protocol():
+    prompt = (
+        "创建 offline.md，内容为两行：# Offline PilotDeck\n"
+        "status=pending。写完后立即停止。"
+    )
+    data = {"messages": [{"role": "user", "content": prompt}],
+            "tools": [_tool("write_file"), _tool("read_file")]}
+    arguments = {"file_path": "offline.md",
+                 "content": "# Offline PilotDeck\nstatus=pending"}
+    assert direct_literal_write_arguments(data["messages"], [_tool("write_file")]) == arguments
+
+    server = InferenceServer("/tmp/model", skip_load=True)
+    _, kwargs, prepared = server._prepare_chat_request(data)
+    assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["write_file"]
+    assert prepared["_infinilm_direct_tool_call"] == {
+        "name": "write_file", "arguments": arguments
+    }
+    assert "_infinilm_forced_tool_prefix" not in prepared
+
+    response = asyncio.run(server._chat("write-test", data, None))
+    choice = response["choices"][0]
+    assert choice["finish_reason"] == "tool_calls"
+    assert json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"]) == arguments
+
+    async def stream():
+        return [chunk async for chunk in server._stream_chat("write-stream", data, None)]
+
+    chunks = asyncio.run(stream())
+    events = [json.loads(chunk[6:]) for chunk in chunks if chunk.startswith("data: {")]
+    call = events[1]["choices"][0]["delta"]["tool_calls"][0]
+    assert json.loads(call["function"]["arguments"]) == arguments
+    assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    assert chunks[-1] == "data: [DONE]\n\n"
+
+
+def test_explicit_bash_uses_exact_command_and_tool_output_cap(monkeypatch):
+    command = 'printf "a&b" > sample.txt; cat sample.txt'
+    data = {
+        "messages": [{"role": "user", "content":
+                      "执行 bash 命令 " + command + "。完成后立即停止。"}],
+        "tools": [_tool("bash"), _tool("write_file")],
+        "max_tokens": 4096,
+    }
+    monkeypatch.setenv("INFINILM_TOOL_MAX_NEW_TOKENS", "1024")
+    server = InferenceServer("/tmp/model", skip_load=True)
+    assert direct_bash_arguments(data["messages"], data["tools"]) == {
+        "command": command
+    }
+    assert server._build_sampling_params(data).max_tokens == 1024
+    assert server._build_sampling_params({"max_tokens": 4096}).max_tokens == 4096
+    _, _, prepared = server._prepare_chat_request(data)
+    assert prepared["_infinilm_direct_tool_call"] == {
+        "name": "bash", "arguments": {"command": command}
+    }
+    assert "_infinilm_forced_tool_prefix" not in prepared
+
+    response = asyncio.run(server._chat("bash-test", data, None))
+    choice = response["choices"][0]
+    assert choice["finish_reason"] == "tool_calls"
+    assert json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"]) == {
+        "command": command
+    }
+
+    async def stream():
+        return [chunk async for chunk in server._stream_chat("bash-stream", data, None)]
+
+    chunks = asyncio.run(stream())
+    events = [json.loads(chunk[6:]) for chunk in chunks if chunk.startswith("data: {")]
+    call = events[1]["choices"][0]["delta"]["tool_calls"][0]
+    assert call["function"]["name"] == "bash"
+    assert json.loads(call["function"]["arguments"]) == {"command": command}
+    assert events[-1]["choices"][0]["finish_reason"] == "tool_calls"
 
 
 def test_prepared_request_carries_forced_tool_prefix():

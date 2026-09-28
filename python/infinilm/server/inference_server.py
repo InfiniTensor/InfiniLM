@@ -28,6 +28,8 @@ from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_schema import compact_tool_descriptions
 from infinilm.server.tool_constraints import (
     constrain_tools,
+    direct_literal_write_arguments,
+    direct_bash_arguments,
     direct_write_complete,
     forced_write_tool_prefix,
     forced_read_tool_prefix,
@@ -473,6 +475,15 @@ class InferenceServer:
         request_data = dict(data)
         if direct_write_complete(messages, original_tools):
             request_data["_infinilm_direct_write_complete"] = True
+        literal_write = direct_literal_write_arguments(action_messages, exposed_tools)
+        bash_arguments = direct_bash_arguments(action_messages, exposed_tools)
+        direct_call = None
+        if literal_write is not None:
+            direct_call = {"name": "write_file", "arguments": literal_write}
+        elif bash_arguments is not None:
+            direct_call = {"name": "bash", "arguments": bash_arguments}
+        if direct_call is not None:
+            request_data["_infinilm_direct_tool_call"] = direct_call
         read_result = direct_read_result(messages, original_tools)
         if read_result is not None:
             request_data["_infinilm_direct_read_result"] = read_result
@@ -481,7 +492,7 @@ class InferenceServer:
         bash_result = direct_bash_result(messages, original_tools)
         if bash_result is not None:
             request_data["_infinilm_direct_bash_result"] = bash_result
-        forced_prefix = (
+        forced_prefix = None if direct_call is not None else (
             forced_write_tool_prefix(action_messages, exposed_tools)
             or forced_read_tool_prefix(action_messages, exposed_tools)
             or forced_read_for_edit_prefix(action_messages, exposed_tools)
@@ -519,6 +530,9 @@ class InferenceServer:
                 break
         if max_tokens is None:
             max_tokens = self.max_tokens
+        tool_limit = int(os.environ.get("INFINILM_TOOL_MAX_NEW_TOKENS", "0"))
+        if data.get("tools") and tool_limit > 0 and max_tokens is not None:
+            max_tokens = min(int(max_tokens), tool_limit)
 
         stop = pick("stop", None)
         if isinstance(stop, str):
@@ -543,6 +557,33 @@ class InferenceServer:
                 data
             )
             sampling_params = self._build_sampling_params(data)
+
+            direct_call = request_data.get("_infinilm_direct_tool_call")
+            if direct_call is not None:
+                tool_call = {
+                    "id": f"call_{uuid.uuid4().hex}",
+                    "type": "function",
+                    "function": {
+                        "name": direct_call["name"],
+                        "arguments": json.dumps(
+                            direct_call["arguments"], ensure_ascii=False
+                        ),
+                    },
+                }
+                for chunk in (
+                    chunk_json(request_id, role="assistant", model=self.model_id),
+                    chunk_json(
+                        request_id,
+                        tool_calls=[{"index": 0, **tool_call}],
+                        model=self.model_id,
+                    ),
+                    chunk_json(
+                        request_id, finish_reason="tool_calls", model=self.model_id
+                    ),
+                ):
+                    yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
 
             if request_data.get("_infinilm_direct_write_complete"):
                 role_chunk = chunk_json(
@@ -797,6 +838,25 @@ class InferenceServer:
                 data
             )
             sampling_params = self._build_sampling_params(data)
+
+            direct_call = request_data.get("_infinilm_direct_tool_call")
+            if direct_call is not None:
+                return completion_json(
+                    request_id,
+                    content=None,
+                    finish_reason="tool_calls",
+                    model=self.model_id,
+                    tool_calls=[{
+                        "id": f"call_{uuid.uuid4().hex}",
+                        "type": "function",
+                        "function": {
+                            "name": direct_call["name"],
+                            "arguments": json.dumps(
+                                direct_call["arguments"], ensure_ascii=False
+                            ),
+                        },
+                    }],
+                )
 
             if request_data.get("_infinilm_direct_write_complete"):
                 return completion_json(

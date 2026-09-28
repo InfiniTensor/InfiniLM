@@ -96,9 +96,7 @@ def test_bash_command_does_not_include_stop_instruction_or_contract():
         "tools": tools,
     }
     _, _, request = InferenceServer.__new__(InferenceServer)._prepare_chat_request(data)
-    prefix = request["_infinilm_forced_tool_prefix"]
-    _, calls = parse_tool_calls(prefix + "</tool_call>")
-    arguments = json.loads(calls[0]["function"]["arguments"])
+    arguments = request["_infinilm_direct_tool_call"]["arguments"]
     assert arguments == {"command": "printf bash-ok > sample.txt"}
 
 

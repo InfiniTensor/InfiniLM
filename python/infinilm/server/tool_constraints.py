@@ -257,6 +257,31 @@ _NAMED_FILE_TARGET_EN_RE = re.compile(
 )
 
 
+def direct_literal_write_arguments(messages: list, tools: list) -> Optional[dict]:
+    exposed = {
+        tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
+    }
+    if exposed != {"write_file"}:
+        return None
+    text = _latest_user_text(messages)
+    if not text or not _is_direct_write_then_stop(text):
+        return None
+    target = _NAMED_FILE_TARGET_ZH_RE.search(text)
+    if not target:
+        return None
+    label = re.search(r"内容(?:为|是)?(?:一行|两行)?\s*[：:]\s*", text[target.end():])
+    if not label:
+        return None
+    body = text[target.end() + label.end():]
+    stop = re.search(r"[。.!！]\s*(?:写完|完成后)[^。.!！\n]*(?:停止|停下)", body)
+    if not stop:
+        return None
+    content = body[:stop.start()].strip()
+    if not content or len(content) > 2048:
+        return None
+    return {"file_path": target.group(1), "content": content}
+
+
 def forced_write_tool_prefix(messages: list, tools: list) -> Optional[str]:
     exposed = {
         tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
@@ -461,6 +486,19 @@ def _bash_command(text: str) -> Optional[str]:
         maxsplit=1,
     )[0].strip().removesuffix("。").strip()
     return command or None
+
+
+def direct_bash_arguments(messages: list, tools: list) -> Optional[dict]:
+    if not any(
+        isinstance(tool, dict) and tool.get("function", {}).get("name") == "bash"
+        for tool in tools
+    ):
+        return None
+    text = _latest_user_text(messages)
+    command = _bash_command(text) if text else None
+    if not command or not _STOP_AFTER_WRITE_ZH_RE.search(text) or len(command) > 2048:
+        return None
+    return {"command": command}
 
 
 def forced_bash_tool_prefix(messages: list, tools: list) -> Optional[str]:
