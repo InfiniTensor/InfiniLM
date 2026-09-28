@@ -93,6 +93,7 @@ def _latest_user_text(messages: list) -> Optional[str]:
         if not isinstance(message, dict) or message.get("role") != "user":
             continue
         text = _message_text(message)
+        text = text.split("\n\n<InfiniLM tool contract>", 1)[0].strip()
         if text and not _SYNTHETIC_USER_RE.search(text):
             return text
     return None
@@ -437,7 +438,11 @@ def _bash_command(text: str) -> Optional[str]:
     match = _BASH_COMMAND_ZH_RE.search(text) or _BASH_COMMAND_EN_RE.search(text)
     if not match:
         return None
-    command = match.group(1).strip().rstrip("。.;；")
+    command = re.split(
+        r"[。；;]\s*(?:完成后|执行后|运行后)[^\n]*(?:停止|停下)[。.]?\s*$",
+        match.group(1),
+        maxsplit=1,
+    )[0].strip().removesuffix("。").strip()
     return command or None
 
 
@@ -455,7 +460,7 @@ def forced_bash_tool_prefix(messages: list, tools: list) -> Optional[str]:
         "<tool_call>",
         "<function=bash>",
         "<parameter=command>",
-        escape(command),
+        json.dumps(command, ensure_ascii=False),
         "</parameter>",
         "</function>",
     ]) + chr(10)

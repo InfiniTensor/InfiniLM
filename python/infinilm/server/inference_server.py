@@ -467,6 +467,7 @@ class InferenceServer:
         original_tools = data.get("tools") or []
         chat_template_kwargs = self._build_chat_template_kwargs(data)
         exposed_tools = chat_template_kwargs.get("tools") or []
+        action_messages = messages
         messages = apply_tool_contract(messages, original_tools, exposed_tools)
         request_data = dict(data)
         if direct_write_complete(messages, original_tools):
@@ -480,11 +481,11 @@ class InferenceServer:
         if bash_result is not None:
             request_data["_infinilm_direct_bash_result"] = bash_result
         forced_prefix = (
-            forced_write_tool_prefix(messages, exposed_tools)
-            or forced_read_tool_prefix(messages, exposed_tools)
-            or forced_read_for_edit_prefix(messages, exposed_tools)
-            or forced_edit_tool_prefix(messages, exposed_tools)
-            or forced_bash_tool_prefix(messages, exposed_tools)
+            forced_write_tool_prefix(action_messages, exposed_tools)
+            or forced_read_tool_prefix(action_messages, exposed_tools)
+            or forced_read_for_edit_prefix(action_messages, exposed_tools)
+            or forced_edit_tool_prefix(action_messages, exposed_tools)
+            or forced_bash_tool_prefix(action_messages, exposed_tools)
         )
         if forced_prefix is not None:
             request_data["_infinilm_forced_tool_prefix"] = forced_prefix

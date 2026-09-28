@@ -48,6 +48,13 @@ def validate_request_capacity(
     config: EngineConfig, prompt_tokens: int, output_tokens: int
 ) -> None:
     """Reject requests that can never fit in the configured KV cache."""
+    prompt_limit = int(os.environ.get("INFINILM_MAX_PROMPT_TOKENS", "0"))
+    if prompt_limit > 0 and prompt_tokens > prompt_limit:
+        raise ValueError(
+            f"The configured prompt limit is {prompt_limit} tokens; "
+            f"received {prompt_tokens} after applying the chat template. "
+            "Shorten the conversation, tool descriptions, or tool results."
+        )
     if config.cache_type == "paged":
         capacity = config.num_blocks * config.block_size
     else:
@@ -912,6 +919,9 @@ class AsyncLLMEngine:
         elif sampling_params.max_tokens is None:
             sampling_params = sampling_params.clone()
             sampling_params.max_tokens = self.config.max_tokens
+
+        if available_output_tokens(self.config, len(prompt_token_ids)) < 1:
+            raise ValueError("The prompt leaves no KV capacity for generation.")
 
         available_tokens = available_output_tokens(
             self.config, prompt_tokens=len(prompt_token_ids)
