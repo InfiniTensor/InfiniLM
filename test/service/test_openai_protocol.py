@@ -13,6 +13,11 @@ from infinilm.server.tool_constraints import (
     constrain_tools,
     forced_read_tool_prefix,
     direct_read_result,
+    direct_edit_complete,
+    forced_edit_tool_prefix,
+    forced_read_for_edit_prefix,
+    direct_bash_result,
+    forced_bash_tool_prefix,
     forced_write_tool_prefix,
 )
 
@@ -628,3 +633,76 @@ def test_successful_direct_read_marks_next_round_complete():
     ]
 
     assert direct_read_result(messages, tools) == "1|# Outline"
+
+
+def test_direct_edit_orchestration_forces_read_then_edit_and_stops():
+    tools = [_tool("read_file"), _tool("edit_file")]
+    messages = [
+        {
+            "role": "user",
+            "content": "编辑 outline.md，把 status=pending 改为 status=done。完成后立即停止。",
+        }
+    ]
+    read_prefix = forced_read_for_edit_prefix(messages, tools)
+    assert read_prefix is not None and "read_file" in read_prefix
+
+    messages += [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_read",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_read", "content": "status=pending"},
+    ]
+    edit_prefix = forced_edit_tool_prefix(messages, tools)
+    assert edit_prefix is not None
+    assert "edit_file" in edit_prefix
+    assert "status=pending" in edit_prefix
+    assert "status=done" in edit_prefix
+
+    messages += [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_edit",
+                    "type": "function",
+                    "function": {"name": "edit_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_edit", "content": "Updated outline.md"},
+    ]
+    assert direct_edit_complete(messages, tools) is True
+
+
+def test_direct_bash_command_forces_call_and_completes_with_result():
+    tools = [_tool("bash"), _tool("read_file")]
+    messages = [
+        {"role": "user", "content": "执行 bash 命令 printf bash-ok。完成后立即停止。"}
+    ]
+    prefix = forced_bash_tool_prefix(messages, tools)
+    assert prefix is not None and "printf bash-ok" in prefix
+
+    messages += [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_bash",
+                    "type": "function",
+                    "function": {"name": "bash", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "call_bash", "content": "BASH_RESULT[success] bash-ok"},
+    ]
+    assert direct_bash_result(messages, tools) == "BASH_RESULT[success] bash-ok"

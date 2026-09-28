@@ -31,6 +31,11 @@ from infinilm.server.tool_constraints import (
     forced_write_tool_prefix,
     forced_read_tool_prefix,
     direct_read_result,
+    direct_edit_complete,
+    forced_edit_tool_prefix,
+    forced_read_for_edit_prefix,
+    direct_bash_result,
+    forced_bash_tool_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -469,7 +474,18 @@ class InferenceServer:
         read_result = direct_read_result(messages, original_tools)
         if read_result is not None:
             request_data["_infinilm_direct_read_result"] = read_result
-        forced_prefix = forced_write_tool_prefix(messages, exposed_tools) or forced_read_tool_prefix(messages, exposed_tools)
+        if direct_edit_complete(messages, original_tools):
+            request_data["_infinilm_direct_edit_complete"] = True
+        bash_result = direct_bash_result(messages, original_tools)
+        if bash_result is not None:
+            request_data["_infinilm_direct_bash_result"] = bash_result
+        forced_prefix = (
+            forced_write_tool_prefix(messages, exposed_tools)
+            or forced_read_tool_prefix(messages, exposed_tools)
+            or forced_read_for_edit_prefix(messages, exposed_tools)
+            or forced_edit_tool_prefix(messages, exposed_tools)
+            or forced_bash_tool_prefix(messages, exposed_tools)
+        )
         if forced_prefix is not None:
             request_data["_infinilm_forced_tool_prefix"] = forced_prefix
         return messages, chat_template_kwargs, request_data
@@ -567,6 +583,47 @@ class InferenceServer:
                 yield "data: [DONE]\n\n"
                 return
 
+
+            if request_data.get("_infinilm_direct_edit_complete"):
+                role_chunk = chunk_json(
+                    request_id, role="assistant", model=self.model_id
+                )
+                yield f"data: {json.dumps(role_chunk)}\n\n"
+                complete_chunk = chunk_json(
+                    request_id,
+                    content="已修改文件，已按请求停止。",
+                    finish_reason="stop",
+                    model=self.model_id,
+                    usage={
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                yield f"data: {json.dumps(complete_chunk, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            direct_bash_content = request_data.get("_infinilm_direct_bash_result")
+            if direct_bash_content is not None:
+                role_chunk = chunk_json(
+                    request_id, role="assistant", model=self.model_id
+                )
+                yield f"data: {json.dumps(role_chunk)}\n\n"
+                complete_chunk = chunk_json(
+                    request_id,
+                    content="命令已执行，结果如下：\n" + direct_bash_content,
+                    finish_reason="stop",
+                    model=self.model_id,
+                    usage={
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                yield f"data: {json.dumps(complete_chunk, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
             req = self.engine.add_chat_request(
                 messages=messages,
                 sampling_params=sampling_params,
@@ -754,6 +811,25 @@ class InferenceServer:
                 return completion_json(
                     request_id,
                     content="已读取文件，内容如下：\n" + direct_read_content,
+                    role="assistant",
+                    finish_reason="stop",
+                    model=self.model_id,
+                )
+
+            if request_data.get("_infinilm_direct_edit_complete"):
+                return completion_json(
+                    request_id,
+                    content="已修改文件，已按请求停止。",
+                    role="assistant",
+                    finish_reason="stop",
+                    model=self.model_id,
+                )
+
+            direct_bash_content = request_data.get("_infinilm_direct_bash_result")
+            if direct_bash_content is not None:
+                return completion_json(
+                    request_id,
+                    content="命令已执行，结果如下：\n" + direct_bash_content,
                     role="assistant",
                     finish_reason="stop",
                     model=self.model_id,

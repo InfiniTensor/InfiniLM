@@ -4,6 +4,7 @@ import json
 import re
 from collections import Counter
 from typing import Optional
+from xml.sax.saxutils import escape
 
 _ALLOW_PATTERNS = (
     re.compile(r"(?:仅|只)(?:允许|能|可)?(?:使用|用)\s*([^；;。\n]+)", re.I),
@@ -43,6 +44,12 @@ _RUN_COMMAND_ZH_RE = re.compile(r"(?:执行|运行)\s*(?:命令|shell|bash|脚�
 _RUN_COMMAND_EN_RE = re.compile(r"\b(?:run|execute)\b[^.\n]*\b(?:command|shell|bash|script)\b", re.I)
 _READ_FILE_TARGET_ZH_RE = re.compile(r"(?:读取|查看|打开)\s*([^\s；;。\n]+\.[A-Za-z0-9]+)", re.I)
 _READ_FILE_TARGET_EN_RE = re.compile(r"\bread\s+([^\s.;\n]+\.[A-Za-z0-9]+)", re.I)
+_EDIT_FILE_TARGET_ZH_RE = re.compile(r"(?:编辑|修改)\s*([^\s；;。\n]+\.[A-Za-z0-9]+)", re.I)
+_EDIT_FILE_TARGET_EN_RE = re.compile(r"\bedit\s+([^\s.;\n]+\.[A-Za-z0-9]+)", re.I)
+_EDIT_CHANGE_ZH_RE = re.compile(r"把\s*([^，。；;\n]+?)\s*(?:改成|改为|替换为)\s*([^，。；;\n]+)", re.I)
+_EDIT_CHANGE_EN_RE = re.compile(r"\bchange\s+(.+?)\s+to\s+(.+?)(?:[.;\n]|$)", re.I)
+_BASH_COMMAND_ZH_RE = re.compile(r"(?:执行|运行)\s*(?:bash\s*)?命令\s*(.+)", re.I | re.S)
+_BASH_COMMAND_EN_RE = re.compile(r"\b(?:run|execute)\s+(?:the\s+)?(?:bash\s+)?command\s+(.+)", re.I | re.S)
 
 
 def _normalize_tool_name(value: str) -> str:
@@ -319,6 +326,165 @@ def direct_read_result(messages: list, tools: list) -> Optional[str]:
         if "fileunchangedsince" in normalized:
             continue
         return result
+    return None
+
+
+
+def _is_direct_edit_then_stop(text: str) -> bool:
+    target = _EDIT_FILE_TARGET_ZH_RE.search(text) or _EDIT_FILE_TARGET_EN_RE.search(text)
+    return bool(target and _STOP_AFTER_WRITE_ZH_RE.search(text))
+
+
+def _has_successful_tool(
+    messages: list, names_by_id: dict[str, str], tool_name: str
+) -> bool:
+    for message in messages:
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            continue
+        if names_by_id.get(message.get("tool_call_id")) != tool_name:
+            continue
+        result = _message_text(message).lower().replace(" ", "")
+        if not any(
+            marker.replace(" ", "") in result
+            for marker in _FAILED_TOOL_RESULT_MARKERS
+        ):
+            return True
+    return False
+
+
+def forced_read_for_edit_prefix(messages: list, tools: list) -> Optional[str]:
+    exposed = {
+        tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
+    }
+    if not {"edit_file", "read_file"}.issubset(exposed):
+        return None
+    text = _latest_user_text(messages)
+    if not text or not _is_direct_edit_then_stop(text):
+        return None
+    _, names_by_id = _tool_history(messages)
+    if _has_successful_tool(messages, names_by_id, "read_file"):
+        return None
+    match = _EDIT_FILE_TARGET_ZH_RE.search(text) or _EDIT_FILE_TARGET_EN_RE.search(text)
+    if not match:
+        return None
+    target = match.group(1).strip()
+    return chr(10).join([
+        "<tool_call>",
+        "<function=read_file>",
+        "<parameter=file_path>",
+        escape(target),
+        "</parameter>",
+        "</function>",
+    ]) + chr(10)
+
+
+def forced_edit_tool_prefix(messages: list, tools: list) -> Optional[str]:
+    exposed = {
+        tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
+    }
+    if "edit_file" not in exposed:
+        return None
+    text = _latest_user_text(messages)
+    if not text or not _is_direct_edit_then_stop(text):
+        return None
+    _, names_by_id = _tool_history(messages)
+    if not _has_successful_tool(messages, names_by_id, "read_file"):
+        return None
+    if _has_successful_tool(messages, names_by_id, "edit_file"):
+        return None
+
+    target_match = _EDIT_FILE_TARGET_ZH_RE.search(text) or _EDIT_FILE_TARGET_EN_RE.search(text)
+    change_match = _EDIT_CHANGE_ZH_RE.search(text) or _EDIT_CHANGE_EN_RE.search(text)
+    if not target_match or not change_match:
+        return None
+    target = target_match.group(1).strip()
+    old_string = change_match.group(1).strip().strip("'''")
+    new_string = change_match.group(2).strip().strip("'''")
+    if not target or not old_string or not new_string or old_string == new_string:
+        return None
+
+    return chr(10).join([
+        "<tool_call>",
+        "<function=edit_file>",
+        "<parameter=file_path>",
+        escape(target),
+        "</parameter>",
+        "<parameter=old_string>",
+        escape(old_string),
+        "</parameter>",
+        "<parameter=new_string>",
+        escape(new_string),
+        "</parameter>",
+        "</function>",
+    ]) + chr(10)
+
+
+def direct_edit_complete(messages: list, tools: list) -> bool:
+    if not any(
+        isinstance(tool, dict) and tool.get("function", {}).get("name") == "edit_file"
+        for tool in tools
+    ):
+        return False
+    text = _latest_user_text(messages)
+    if not text or not _is_direct_edit_then_stop(text):
+        return False
+    _, names_by_id = _tool_history(messages)
+    return _has_successful_tool(messages, names_by_id, "edit_file")
+
+
+
+def _bash_command(text: str) -> Optional[str]:
+    match = _BASH_COMMAND_ZH_RE.search(text) or _BASH_COMMAND_EN_RE.search(text)
+    if not match:
+        return None
+    command = match.group(1).strip().rstrip("。.;；")
+    return command or None
+
+
+def forced_bash_tool_prefix(messages: list, tools: list) -> Optional[str]:
+    if not any(
+        isinstance(tool, dict) and tool.get("function", {}).get("name") == "bash"
+        for tool in tools
+    ):
+        return None
+    text = _latest_user_text(messages)
+    command = _bash_command(text) if text else None
+    if not command:
+        return None
+    return chr(10).join([
+        "<tool_call>",
+        "<function=bash>",
+        "<parameter=command>",
+        escape(command),
+        "</parameter>",
+        "</function>",
+    ]) + chr(10)
+
+
+def direct_bash_result(messages: list, tools: list) -> Optional[str]:
+    if not any(
+        isinstance(tool, dict) and tool.get("function", {}).get("name") == "bash"
+        for tool in tools
+    ):
+        return None
+    text = _latest_user_text(messages)
+    if not text or not (_RUN_COMMAND_ZH_RE.search(text) or _RUN_COMMAND_EN_RE.search(text)):
+        return None
+    _, names_by_id = _tool_history(messages)
+    if not _has_successful_tool(messages, names_by_id, "bash"):
+        return None
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            continue
+        if names_by_id.get(message.get("tool_call_id")) != "bash":
+            continue
+        result = _message_text(message)
+        normalized = result.lower().replace(" ", "")
+        if not any(
+            marker.replace(" ", "") in normalized
+            for marker in _FAILED_TOOL_RESULT_MARKERS
+        ):
+            return result
     return None
 
 def direct_write_complete(messages: list, tools: list) -> bool:
