@@ -41,6 +41,8 @@ _EDIT_FILE_ZH_RE = re.compile(r"(?:编辑|修改)\s*[^\s；;。\n]+\.[A-Za-z0-9]
 _EDIT_FILE_EN_RE = re.compile(r"\bedit\b[^.\n]*\.[A-Za-z0-9]+", re.I)
 _RUN_COMMAND_ZH_RE = re.compile(r"(?:执行|运行)\s*(?:命令|shell|bash|脚本)", re.I)
 _RUN_COMMAND_EN_RE = re.compile(r"\b(?:run|execute)\b[^.\n]*\b(?:command|shell|bash|script)\b", re.I)
+_READ_FILE_TARGET_ZH_RE = re.compile(r"(?:读取|查看|打开)\s*([^\s；;。\n]+\.[A-Za-z0-9]+)", re.I)
+_READ_FILE_TARGET_EN_RE = re.compile(r"\bread\s+([^\s.;\n]+\.[A-Za-z0-9]+)", re.I)
 
 
 def _normalize_tool_name(value: str) -> str:
@@ -260,6 +262,35 @@ def forced_write_tool_prefix(messages: list, tools: list) -> Optional[str]:
     ]
     return chr(10).join(lines) + chr(10)
 
+
+
+
+def forced_read_tool_prefix(messages: list, tools: list) -> Optional[str]:
+    exposed = {
+        tool.get("function", {}).get("name") for tool in tools if isinstance(tool, dict)
+    }
+    if exposed != {"read_file"}:
+        return None
+
+    text = _latest_user_text(messages)
+    if not text or not (_READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text)):
+        return None
+
+    match = _READ_FILE_TARGET_ZH_RE.search(text) or _READ_FILE_TARGET_EN_RE.search(text)
+    if not match:
+        return None
+    target = match.group(1).strip()
+    if not target:
+        return None
+
+    return chr(10).join([
+        "<tool_call>",
+        "<function=read_file>",
+        "<parameter=file_path>",
+        target,
+        "</parameter>",
+        "</function>",
+    ]) + chr(10)
 
 def direct_write_complete(messages: list, tools: list) -> bool:
     if not tools:

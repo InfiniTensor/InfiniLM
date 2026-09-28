@@ -9,7 +9,11 @@ from infinilm.server.openai_protocol import (
     strip_reasoning_markers,
 )
 from infinilm.server.tool_contract import apply_tool_contract
-from infinilm.server.tool_constraints import constrain_tools, forced_write_tool_prefix
+from infinilm.server.tool_constraints import (
+    constrain_tools,
+    forced_read_tool_prefix,
+    forced_write_tool_prefix,
+)
 
 
 def test_parse_qwen_tool_call_xml():
@@ -232,6 +236,12 @@ def test_read_file_request_filters_to_read_tool():
     assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
         "read_file"
     ]
+
+
+    prefix = forced_read_tool_prefix(messages, [_tool("read_file")])
+    assert prefix is not None
+    assert "file_path" in prefix
+    assert "outline.md" in prefix
 
 
 def test_edit_file_request_filters_to_edit_and_read_tools():

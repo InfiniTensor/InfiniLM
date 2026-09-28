@@ -29,6 +29,7 @@ from infinilm.server.tool_constraints import (
     constrain_tools,
     direct_write_complete,
     forced_write_tool_prefix,
+    forced_read_tool_prefix,
 )
 
 logger = logging.getLogger(__name__)
@@ -464,7 +465,7 @@ class InferenceServer:
         request_data = dict(data)
         if direct_write_complete(messages, original_tools):
             request_data["_infinilm_direct_write_complete"] = True
-        forced_prefix = forced_write_tool_prefix(messages, exposed_tools)
+        forced_prefix = forced_write_tool_prefix(messages, exposed_tools) or forced_read_tool_prefix(messages, exposed_tools)
         if forced_prefix is not None:
             request_data["_infinilm_forced_tool_prefix"] = forced_prefix
         return messages, chat_template_kwargs, request_data
