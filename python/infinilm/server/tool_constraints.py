@@ -292,6 +292,35 @@ def forced_read_tool_prefix(messages: list, tools: list) -> Optional[str]:
         "</function>",
     ]) + chr(10)
 
+
+
+def direct_read_result(messages: list, tools: list) -> Optional[str]:
+    """Return a successful read_file result for a direct read request."""
+    if not any(
+        isinstance(tool, dict) and tool.get("function", {}).get("name") == "read_file"
+        for tool in tools
+    ):
+        return None
+
+    text = _latest_user_text(messages)
+    if not text or not (_READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text)):
+        return None
+
+    _, names_by_id = _tool_history(messages)
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "tool":
+            continue
+        if names_by_id.get(message.get("tool_call_id")) != "read_file":
+            continue
+        result = _message_text(message)
+        normalized = result.lower().replace(" ", "")
+        if any(marker.replace(" ", "") in normalized for marker in _FAILED_TOOL_RESULT_MARKERS):
+            continue
+        if "fileunchangedsince" in normalized:
+            continue
+        return result
+    return None
+
 def direct_write_complete(messages: list, tools: list) -> bool:
     if not tools:
         return False

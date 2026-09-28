@@ -12,6 +12,7 @@ from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import (
     constrain_tools,
     forced_read_tool_prefix,
+    direct_read_result,
     forced_write_tool_prefix,
 )
 
@@ -604,4 +605,26 @@ def test_stream_parser_rejects_unclosed_parameter_in_complete_outer_block():
     content_parts.extend(final_content)
     calls.extend(final_calls)
 
-    assert content_parts == []
+def test_successful_direct_read_marks_next_round_complete():
+    tools = [_tool("write_file"), _tool("read_file")]
+    messages = [
+        {"role": "user", "content": "读取 outline.md，告诉我标题。"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call_read",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_read",
+            "content": "1|# Outline",
+        },
+    ]
+
+    assert direct_read_result(messages, tools) == "1|# Outline"

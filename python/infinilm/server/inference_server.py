@@ -30,6 +30,7 @@ from infinilm.server.tool_constraints import (
     direct_write_complete,
     forced_write_tool_prefix,
     forced_read_tool_prefix,
+    direct_read_result,
 )
 
 logger = logging.getLogger(__name__)
@@ -465,6 +466,9 @@ class InferenceServer:
         request_data = dict(data)
         if direct_write_complete(messages, original_tools):
             request_data["_infinilm_direct_write_complete"] = True
+        read_result = direct_read_result(messages, original_tools)
+        if read_result is not None:
+            request_data["_infinilm_direct_read_result"] = read_result
         forced_prefix = forced_write_tool_prefix(messages, exposed_tools) or forced_read_tool_prefix(messages, exposed_tools)
         if forced_prefix is not None:
             request_data["_infinilm_forced_tool_prefix"] = forced_prefix
@@ -539,6 +543,27 @@ class InferenceServer:
                     },
                 )
                 yield f"data: {json.dumps(complete_chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+                return
+
+            direct_read_content = request_data.get("_infinilm_direct_read_result")
+            if direct_read_content is not None:
+                role_chunk = chunk_json(
+                    request_id, role="assistant", model=self.model_id
+                )
+                yield f"data: {json.dumps(role_chunk)}\n\n"
+                complete_chunk = chunk_json(
+                    request_id,
+                    content="已读取文件，内容如下：\n" + direct_read_content,
+                    finish_reason="stop",
+                    model=self.model_id,
+                    usage={
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                )
+                yield f"data: {json.dumps(complete_chunk, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
 
@@ -723,6 +748,16 @@ class InferenceServer:
                     model=self.model_id,
                 )
 
+
+            direct_read_content = request_data.get("_infinilm_direct_read_result")
+            if direct_read_content is not None:
+                return completion_json(
+                    request_id,
+                    content="已读取文件，内容如下：\n" + direct_read_content,
+                    role="assistant",
+                    finish_reason="stop",
+                    model=self.model_id,
+                )
             req = self.engine.add_chat_request(
                 messages=messages,
                 sampling_params=sampling_params,
