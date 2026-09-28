@@ -127,6 +127,23 @@ def _is_direct_write_then_stop(text: str) -> bool:
     )
     return requests_file and requests_stop
 
+def _is_direct_read(text: str) -> bool:
+    return bool(re.fullmatch(
+        r"\s*(?:请\s*)?(?:(?:读取|查看|打开)\s*[^\s；;。\n]+\.[A-Za-z0-9]+|"
+        r"read\s+[^\s.;\n]+\.[A-Za-z0-9]+)[。.]*\s*",
+        text, re.I,
+    ))
+
+
+def _current_turn_messages(messages: list) -> list:
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if isinstance(message, dict) and message.get("role") == "user":
+            text = _message_text(message).split("\n\n<InfiniLM tool contract>", 1)[0]
+            if text and not _SYNTHETIC_USER_RE.search(text):
+                return messages[index:]
+    return messages
+
 
 def _canonical_arguments(arguments) -> str:
     if isinstance(arguments, str):
@@ -142,7 +159,7 @@ def _canonical_arguments(arguments) -> str:
 def _tool_history(messages: list) -> tuple[Counter, dict[str, str]]:
     signatures = Counter()
     names_by_id = {}
-    for message in messages:
+    for message in _current_turn_messages(messages):
         if not isinstance(message, dict) or message.get("role") != "assistant":
             continue
         for call in message.get("tool_calls") or []:
@@ -204,14 +221,14 @@ def constrain_tools(messages: list, tools: list) -> list:
         ]
         if write_tools:
             return write_tools
-    if _READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text):
+    if _is_direct_read(text):
         read_tools = [
             tool for tool in constrained if tool["function"]["name"] == "read_file"
         ]
         if read_tools:
             return read_tools
 
-    if _EDIT_FILE_ZH_RE.search(text) or _EDIT_FILE_EN_RE.search(text):
+    if _is_direct_edit_then_stop(text):
         edit_tools = [
             tool
             for tool in constrained
@@ -220,7 +237,7 @@ def constrain_tools(messages: list, tools: list) -> list:
         if edit_tools:
             return edit_tools
 
-    if _RUN_COMMAND_ZH_RE.search(text) or _RUN_COMMAND_EN_RE.search(text):
+    if _bash_command(text) and _STOP_AFTER_WRITE_ZH_RE.search(text):
         command_tools = [
             tool
             for tool in constrained
@@ -281,7 +298,7 @@ def forced_read_tool_prefix(messages: list, tools: list) -> Optional[str]:
         return None
 
     text = _latest_user_text(messages)
-    if not text or not (_READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text)):
+    if not text or not _is_direct_read(text):
         return None
 
     match = _READ_FILE_TARGET_ZH_RE.search(text) or _READ_FILE_TARGET_EN_RE.search(text)
@@ -311,7 +328,7 @@ def direct_read_result(messages: list, tools: list) -> Optional[str]:
         return None
 
     text = _latest_user_text(messages)
-    if not text or not (_READ_FILE_ZH_RE.search(text) or _READ_FILE_EN_RE.search(text)):
+    if not text or not _is_direct_read(text):
         return None
 
     _, names_by_id = _tool_history(messages)
@@ -373,7 +390,7 @@ def forced_read_for_edit_prefix(messages: list, tools: list) -> Optional[str]:
         "<tool_call>",
         "<function=read_file>",
         "<parameter=file_path>",
-        escape(target),
+        json.dumps(target, ensure_ascii=False),
         "</parameter>",
         "</function>",
     ]) + chr(10)
@@ -408,13 +425,13 @@ def forced_edit_tool_prefix(messages: list, tools: list) -> Optional[str]:
         "<tool_call>",
         "<function=edit_file>",
         "<parameter=file_path>",
-        escape(target),
+        json.dumps(target, ensure_ascii=False),
         "</parameter>",
         "<parameter=old_string>",
-        escape(old_string),
+        json.dumps(old_string, ensure_ascii=False),
         "</parameter>",
         "<parameter=new_string>",
-        escape(new_string),
+        json.dumps(new_string, ensure_ascii=False),
         "</parameter>",
         "</function>",
     ]) + chr(10)
@@ -454,7 +471,7 @@ def forced_bash_tool_prefix(messages: list, tools: list) -> Optional[str]:
         return None
     text = _latest_user_text(messages)
     command = _bash_command(text) if text else None
-    if not command:
+    if not command or not _STOP_AFTER_WRITE_ZH_RE.search(text):
         return None
     return chr(10).join([
         "<tool_call>",
@@ -473,7 +490,7 @@ def direct_bash_result(messages: list, tools: list) -> Optional[str]:
     ):
         return None
     text = _latest_user_text(messages)
-    if not text or not (_RUN_COMMAND_ZH_RE.search(text) or _RUN_COMMAND_EN_RE.search(text)):
+    if not text or not (_bash_command(text) and _STOP_AFTER_WRITE_ZH_RE.search(text)):
         return None
     _, names_by_id = _tool_history(messages)
     if not _has_successful_tool(messages, names_by_id, "bash"):

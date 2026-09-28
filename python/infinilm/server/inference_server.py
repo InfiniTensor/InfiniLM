@@ -25,6 +25,7 @@ from infinilm.server.openai_protocol import (
     strip_reasoning_markers,
 )
 from infinilm.server.tool_contract import apply_tool_contract
+from infinilm.server.tool_schema import compact_tool_descriptions
 from infinilm.server.tool_constraints import (
     constrain_tools,
     direct_write_complete,
@@ -450,7 +451,7 @@ class InferenceServer:
                         raise ValueError(
                             f"tool_choice references unknown function {function_name!r}"
                         )
-            kwargs["tools"] = tools
+            kwargs["tools"] = compact_tool_descriptions(tools)
             kwargs["tool_choice"] = tool_choice or "auto"
 
         for key in ("enable_thinking", "reasoning_effort", "preserve_thinking"):
