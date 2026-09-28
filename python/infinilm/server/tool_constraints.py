@@ -15,7 +15,7 @@ _BLOCK_PATTERNS = (
 )
 _IDENTIFIER_RE = re.compile(r"[A-Za-z][A-Za-z0-9_-]*")
 _NAMED_FILE_ZH_RE = re.compile(
-    r"(?:写入|写到|保存到)\s*[^\s；;。\n]+\.[A-Za-z0-9]+", re.I
+    r"(?:写入|写到|保存到|创建|新建)\s*[^\s；;。\n]+\.[A-Za-z0-9]+", re.I
 )
 _NAMED_FILE_EN_RE = re.compile(
     r"\b(?:write|save)\b[^.\n]*\b(?:to|into)\s+[^\s.;\n]+\.[A-Za-z0-9]+",
@@ -192,7 +192,7 @@ def constrain_tools(messages: list, tools: list) -> list:
 
 
 _NAMED_FILE_TARGET_ZH_RE = re.compile(
-    r"(?:写入|写到|保存到)\s*([^\s；;。\n]+\.[A-Za-z0-9]+)", re.I
+    r"(?:写入|写到|保存到|创建|新建)\s*([^\s；;。\n]+\.[A-Za-z0-9]+)", re.I
 )
 _NAMED_FILE_TARGET_EN_RE = re.compile(
     r"\b(?:write|save)\b[^.\n]*\b(?:to|into)\s+([^\s.;\n]+\.[A-Za-z0-9]+)",

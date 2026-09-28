@@ -209,6 +209,21 @@ def test_pilotdeck_chinese_constraints_filter_tool_schemas():
     ]
 
 
+
+def test_direct_create_file_then_stop_filters_to_write_tool():
+    tools = [_tool("write_file"), _tool("read_file"), _tool("bash")]
+    messages = [
+        {
+            "role": "user",
+            "content": (
+                "创建 outline.md，内容为验收大纲。写完后立即停止。"
+            ),
+        }
+    ]
+
+    assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
+        "write_file"
+    ]
 def test_direct_write_then_stop_removes_tools_after_success():
     tools = [_tool("write_file"), _tool("read_file")]
     messages = [
