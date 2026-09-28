@@ -58,7 +58,8 @@ void RMSNorm::forward_inplace(Runtime &runtime, Tensor &x, Tensor &residual) con
             || device_.type() == Device::Type::kMetax
             || device_.type() == Device::Type::kMoore
             || device_.type() == Device::Type::kCambricon
-            || device_.type() == Device::Type::kHygon) {
+            || device_.type() == Device::Type::kHygon
+            || device_.type() == Device::Type::kAscend) {
             const Tensor weight = weight_.tensor();
             const float epsilon = static_cast<float>(eps_);
             infinilm::layers::check_add_rms_norm(runtime, x, residual, x, residual, weight);
