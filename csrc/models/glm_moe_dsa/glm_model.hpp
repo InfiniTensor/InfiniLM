@@ -55,6 +55,7 @@ private:
     infinicclComm_t pp_comm_{nullptr};
     std::vector<bool> stage_boundary_needs_topk_;
     mutable std::vector<infinicore::Tensor> pipeline_send_lifetimes_;
+    mutable std::vector<infinicore::Tensor> graph_pipeline_lifetimes_;
     infinicore::DataType dtype_;
 };
 class GlmForCausalLM final : public infinilm::InfinilmModel {

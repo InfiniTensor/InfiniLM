@@ -1,10 +1,13 @@
 #include "paged_compiler.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "infinicore/ops/distributed/allreduce.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace infinilm::engine {
@@ -58,6 +61,20 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
 
 void PagedCompiler::compile() {
     if (model_->get_cache_config() != nullptr && dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
+        const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+        const bool pp_graph = rank_info.pp_size > 1
+                           && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH") != nullptr;
+        auto sync_pp_stages = [&] {
+            if (!pp_graph) {
+                return;
+            }
+            auto marker = infinicore::Tensor::empty(
+                {1}, infinicore::DataType::I32, infinicore::context::getDevice());
+            set_zeros(marker);
+            infinicore::op::distributed::allreduce_(
+                marker, marker, INFINICCL_SUM, rank_info.world_comm);
+            infinicore::context::syncStream();
+        };
         size_t nblocks = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
         const bool has_mamba_state = has_mamba_cache(forward_context);
@@ -155,6 +172,7 @@ void PagedCompiler::compile() {
         {
             const size_t warmup_batch_size = std::min(max_batch_size, static_cast<size_t>(64));
             auto input = make_decode_input(warmup_batch_size);
+            sync_pp_stages();
             model_->forward(input);
             infinicore::context::syncStream();
             // Warmup runs the eager Marlin path and may leave per-layer lock
@@ -167,6 +185,7 @@ void PagedCompiler::compile() {
         for (size_t b : decode_batch_sizes_) {
             auto input = make_decode_input(b);
 
+            sync_pp_stages();
             barrier_->wait();
             (void)model_->forward(input);
             infinicore::context::syncStream();
@@ -176,16 +195,21 @@ void PagedCompiler::compile() {
             // before every graph replay in get_compiled().
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+            sync_pp_stages();
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
             barrier_->wait();
 
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+                new InfinilmModel::Output{
+                    output.logits
+                        ? infinicore::graph::GraphTensor(output.logits)
+                        : infinicore::Tensor()});
 
             compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
         }
+        sync_pp_stages();
     }
 }
 
@@ -224,6 +248,72 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(input.block_tables.value());
             graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
 
+            if (batch_size == 2
+                && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_VERIFY_TABLE") != nullptr) {
+                if (input.block_tables.value()->device().getType()
+                    != infinicore::Device::Type::CPU) {
+                    throw std::runtime_error("PagedCompiler table verification requires CPU input");
+                }
+                infinicore::context::syncStream();
+                std::vector<int32_t> observed(batch_size * compiled_block_per_req);
+                infinicore::context::memcpyD2H(
+                    observed.data(), graph_block_tables->data(),
+                    observed.size() * sizeof(int32_t));
+                const auto *expected = reinterpret_cast<const int32_t *>(
+                    input.block_tables.value()->data());
+                for (size_t row = 0; row < batch_size; ++row) {
+                    for (size_t col = 0; col < compiled_block_per_req; ++col) {
+                        const int32_t value = col < block_per_req
+                                                ? expected[row * block_per_req + col]
+                                                : -1;
+                        if (observed[row * compiled_block_per_req + col] != value) {
+                            throw std::runtime_error(
+                                "PagedCompiler graph block table mismatch at row "
+                                + std::to_string(row) + ", column "
+                                + std::to_string(col));
+                        }
+                    }
+                }
+                auto verify_i32 = [](const char *name,
+                                     const infinicore::Tensor &graph_tensor,
+                                     const infinicore::Tensor &runtime_tensor) {
+                    std::vector<int32_t> actual(graph_tensor->numel());
+                    infinicore::context::memcpyD2H(
+                        actual.data(), graph_tensor->data(),
+                        actual.size() * sizeof(int32_t));
+                    const auto *wanted = reinterpret_cast<const int32_t *>(runtime_tensor->data());
+                    for (size_t i = 0; i < actual.size(); ++i) {
+                        if (actual[i] != wanted[i]) {
+                            throw std::runtime_error(
+                                std::string("PagedCompiler graph ") + name
+                                + " mismatch at element " + std::to_string(i));
+                        }
+                    }
+                };
+                auto verify_i64 = [](const char *name,
+                                     const infinicore::Tensor &graph_tensor,
+                                     const infinicore::Tensor &runtime_tensor) {
+                    std::vector<int64_t> actual(graph_tensor->numel());
+                    infinicore::context::memcpyD2H(
+                        actual.data(), graph_tensor->data(),
+                        actual.size() * sizeof(int64_t));
+                    const auto *wanted = reinterpret_cast<const int64_t *>(runtime_tensor->data());
+                    for (size_t i = 0; i < actual.size(); ++i) {
+                        if (actual[i] != wanted[i]) {
+                            throw std::runtime_error(
+                                std::string("PagedCompiler graph ") + name
+                                + " mismatch at element " + std::to_string(i));
+                        }
+                    }
+                };
+                verify_i64("input_ids", graph_input.input_ids.value(), input.input_ids.value());
+                verify_i64("position_ids", graph_input.position_ids.value(), input.position_ids.value());
+                verify_i32("total_sequence_lengths", graph_input.total_sequence_lengths.value(), input.total_sequence_lengths.value());
+                verify_i32("input_offsets", graph_input.input_offsets.value(), input.input_offsets.value());
+                verify_i32("cu_seqlens", graph_input.cu_seqlens.value(), input.cu_seqlens.value());
+                verify_i64("slot_mapping", graph_input.slot_mapping.value(), input.slot_mapping.value());
+            }
+
             const bool graph_has_mamba_indices = graph_input.mamba_init_state_indices.has_value() && graph_input.mamba_final_state_indices.has_value();
             const bool input_has_mamba_indices = input.mamba_init_state_indices.has_value() && input.mamba_final_state_indices.has_value();
             if (graph_has_mamba_indices != input_has_mamba_indices) {
@@ -260,7 +350,11 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                         runtime_seq_lens->data()),
                     batch_size);
             }
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            const auto &compiled_logits = std::get<1>(result->second.compiled)->logits;
+            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
+                new InfinilmModel::Output{
+                    compiled_logits ? compiled_logits->resume_from_blob_()
+                                    : infinicore::Tensor()});
 
             return std::make_tuple(graph, shared_output);
         }

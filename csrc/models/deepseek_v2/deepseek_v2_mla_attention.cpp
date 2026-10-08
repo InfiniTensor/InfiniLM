@@ -20,6 +20,9 @@
 #include "infinicore/ops/mul.hpp"
 #include "infinicore/ops/paged_attention_mla.hpp"
 
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -261,9 +264,42 @@ infinicore::Tensor DeepseekV2MLAAttention::project_latent_to_value_(const infini
     const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     auto output = o_proj_->forward(value_flat);
     if (use_sparse_ && rank_info.tp_size > 1) {
+        static const bool defer_decode_sync = std::getenv("INFINILM_EXPERIMENTAL_DECODE_DEFER_GLM_SPARSE_TP_SYNC") != nullptr;
+        const auto &sequence_lengths = infinilm::global_state::get_forward_context()
+                                           .attn_metadata.total_sequence_lengths;
+        if (defer_decode_sync && sequence_lengths.has_value()
+            && seq_len == sequence_lengths.value()->numel()) {
+            return output;
+        }
         // Finish sparse attention and the TP output projection before the
         // decoder advances to the next layer.
-        infinicore::context::syncStream();
+        static const bool profile_sync = std::getenv("INFINILM_PROFILE_GLM_SPARSE_SYNC") != nullptr;
+        if (profile_sync && rank_info.tp_rank == 0) {
+            const auto start = std::chrono::steady_clock::now();
+            infinicore::context::syncStream();
+            const auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now() - start)
+                                        .count();
+            struct SyncStats {
+                size_t count = 0;
+                int64_t total_us = 0;
+            };
+            static thread_local SyncStats decode_stats, prefill_stats;
+            auto &stats = seq_len <= 8 ? decode_stats : prefill_stats;
+            stats.count++;
+            stats.total_us += elapsed_us;
+            const size_t interval = seq_len <= 8 ? 256 : 32;
+            if (stats.count == interval) {
+                std::fprintf(stderr,
+                             "[glm_sparse_sync] pp=%d phase=%s calls=%zu total_ms=%.3f avg_us=%.1f\n",
+                             rank_info.pp_stage, seq_len <= 8 ? "decode" : "prefill",
+                             stats.count, stats.total_us / 1000.0,
+                             static_cast<double>(stats.total_us) / stats.count);
+                stats = {};
+            }
+        } else {
+            infinicore::context::syncStream();
+        }
     }
     return output;
 }

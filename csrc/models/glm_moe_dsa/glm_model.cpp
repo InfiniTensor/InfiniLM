@@ -84,13 +84,18 @@ std::vector<size_t> make_pipeline_boundaries(
         const size_t min_layer = boundaries[static_cast<size_t>(stage) - 1] + 1;
         const size_t max_layer = num_layers
                                - static_cast<size_t>(pp_size - stage);
+        const bool balance_last_stage = stage == pp_size - 1
+                                     && std::getenv("INFINILM_EXPERIMENTAL_GLM_BALANCE_LAST_PP_STAGE") != nullptr;
         size_t best = ideal;
         size_t best_distance = std::numeric_limits<size_t>::max();
         for (size_t layer = min_layer; layer <= max_layer; ++layer) {
             const bool fresh_indexer = layer >= indexer_types.size()
                                     || indexer_types[layer] != "shared";
             const size_t distance = layer > ideal ? layer - ideal : ideal - layer;
-            if (fresh_indexer && distance < best_distance) {
+            if (fresh_indexer
+                && (distance < best_distance
+                    || (balance_last_stage && distance == best_distance
+                        && layer > best))) {
                 best = layer;
                 best_distance = distance;
             }
@@ -188,9 +193,14 @@ void GlmModel::transfer_pipeline_state_(
         auto &topk = forward_context.dsa_topk_indices.value();
         pipeline_state.push_back(topk);
     }
+    if (infinicore::context::isGraphRecording()
+        && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_RETAIN_PIPELINE") != nullptr) {
+        graph_pipeline_lifetimes_.insert(
+            graph_pipeline_lifetimes_.end(),
+            pipeline_state.begin(), pipeline_state.end());
+    }
 
-    const auto &rank =
-        infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const int source_rank = static_cast<int>(source_stage) * rank.tp_size
                           + rank.tp_rank;
     const int destination_rank = static_cast<int>(source_stage + 1) * rank.tp_size

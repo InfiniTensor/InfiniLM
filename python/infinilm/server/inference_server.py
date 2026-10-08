@@ -22,26 +22,27 @@ from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.server.openai_protocol import (
     ToolCallStreamParser,
     parse_tool_calls,
+    select_tool_calls,
     strip_reasoning_markers,
+)
+from infinilm.server.tool_constraints import (
+    constrain_tools,
+    direct_bash_arguments,
+    direct_bash_result,
+    direct_edit_complete,
+    direct_edit_step,
+    direct_literal_write_arguments,
+    direct_read_arguments,
+    direct_read_result,
+    direct_write_complete,
+    forced_bash_tool_prefix,
+    forced_edit_tool_prefix,
+    forced_read_for_edit_prefix,
+    forced_read_tool_prefix,
+    forced_write_tool_prefix,
 )
 from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_schema import compact_tool_descriptions
-from infinilm.server.tool_constraints import (
-    constrain_tools,
-    direct_literal_write_arguments,
-    direct_read_arguments,
-    direct_bash_arguments,
-    direct_edit_step,
-    direct_write_complete,
-    forced_write_tool_prefix,
-    forced_read_tool_prefix,
-    direct_read_result,
-    direct_edit_complete,
-    forced_edit_tool_prefix,
-    forced_read_for_edit_prefix,
-    direct_bash_result,
-    forced_bash_tool_prefix,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -432,6 +433,11 @@ class InferenceServer:
         elif tool_choice is not None and not isinstance(tool_choice, dict):
             raise ValueError("tool_choice must be a string or object")
 
+        if "parallel_tool_calls" in data and not isinstance(
+            data["parallel_tool_calls"], (bool, type(None))
+        ):
+            raise ValueError("parallel_tool_calls must be a boolean or null")
+
     @staticmethod
     def _build_chat_template_kwargs(data: dict) -> dict:
         raw_kwargs = data.get("chat_template_kwargs") or {}
@@ -505,12 +511,16 @@ class InferenceServer:
             direct_call = None
         if direct_call is not None:
             request_data["_infinilm_direct_tool_call"] = direct_call
-        forced_prefix = None if direct_call is not None else (
-            forced_write_tool_prefix(action_messages, exposed_tools)
-            or forced_read_tool_prefix(action_messages, exposed_tools)
-            or forced_read_for_edit_prefix(action_messages, exposed_tools)
-            or forced_edit_tool_prefix(action_messages, exposed_tools)
-            or forced_bash_tool_prefix(action_messages, exposed_tools)
+        forced_prefix = (
+            None
+            if direct_call is not None
+            else (
+                forced_write_tool_prefix(action_messages, exposed_tools)
+                or forced_read_tool_prefix(action_messages, exposed_tools)
+                or forced_read_for_edit_prefix(action_messages, exposed_tools)
+                or forced_edit_tool_prefix(action_messages, exposed_tools)
+                or forced_bash_tool_prefix(action_messages, exposed_tools)
+            )
         )
         if forced_prefix is not None:
             request_data["_infinilm_forced_tool_prefix"] = forced_prefix
@@ -557,7 +567,7 @@ class InferenceServer:
             top_k=int(pick("top_k", self.top_k)),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
-            ignore_eos=self.ignore_eos,
+            ignore_eos=pick("ignore_eos", self.ignore_eos),
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
@@ -638,7 +648,6 @@ class InferenceServer:
                 yield f"data: {json.dumps(complete_chunk, ensure_ascii=False)}\n\n"
                 yield "data: [DONE]\n\n"
                 return
-
 
             if request_data.get("_infinilm_direct_edit_complete"):
                 role_chunk = chunk_json(
@@ -757,7 +766,9 @@ class InferenceServer:
                             request_id, content=visible_content, model=self.model_id
                         )
                         yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                    for tool_call in tool_calls:
+                    for tool_call in select_tool_calls(
+                        tool_calls, tool_call_index, data.get("parallel_tool_calls")
+                    ):
                         delta_call = {"index": tool_call_index, **tool_call}
                         tool_call_index += 1
                         chunk = chunk_json(
@@ -778,7 +789,9 @@ class InferenceServer:
                                 request_id, content=visible_content, model=self.model_id
                             )
                             yield f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n"
-                        for tool_call in tool_calls:
+                        for tool_call in select_tool_calls(
+                            tool_calls, tool_call_index, data.get("parallel_tool_calls")
+                        ):
                             delta_call = {"index": tool_call_index, **tool_call}
                             tool_call_index += 1
                             chunk = chunk_json(
@@ -859,16 +872,18 @@ class InferenceServer:
                     content=None,
                     finish_reason="tool_calls",
                     model=self.model_id,
-                    tool_calls=[{
-                        "id": f"call_{uuid.uuid4().hex}",
-                        "type": "function",
-                        "function": {
-                            "name": direct_call["name"],
-                            "arguments": json.dumps(
-                                direct_call["arguments"], ensure_ascii=False
-                            ),
-                        },
-                    }],
+                    tool_calls=[
+                        {
+                            "id": f"call_{uuid.uuid4().hex}",
+                            "type": "function",
+                            "function": {
+                                "name": direct_call["name"],
+                                "arguments": json.dumps(
+                                    direct_call["arguments"], ensure_ascii=False
+                                ),
+                            },
+                        }
+                    ],
                 )
 
             if request_data.get("_infinilm_direct_write_complete"):
@@ -879,7 +894,6 @@ class InferenceServer:
                     finish_reason="stop",
                     model=self.model_id,
                 )
-
 
             direct_read_content = request_data.get("_infinilm_direct_read_result")
             if direct_read_content is not None:
@@ -962,6 +976,9 @@ class InferenceServer:
                 )
                 if output_text is not None:
                     output_text = strip_reasoning_markers(output_text)
+                tool_calls = select_tool_calls(
+                    tool_calls, 0, data.get("parallel_tool_calls")
+                )
                 if tool_calls:
                     finish_reason = "tool_calls"
 

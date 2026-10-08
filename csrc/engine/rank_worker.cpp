@@ -2,6 +2,7 @@
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <cstdlib>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -292,7 +293,9 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
-            if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
+            if (enable_graph_compiling_
+                && (rank_info_.pp_size == 1
+                    || std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH") != nullptr)) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
 
@@ -418,21 +421,42 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        bool ran_graph = false;
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
+                        const bool eager_mid_batch = rank_info_.pp_size > 1
+                                                  && local_args.input_offsets.has_value()
+                                                  && ((local_args.input_offsets.value()->size(0) == 3
+                                                       && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_EAGER_BATCH2") != nullptr)
+                                                      || (local_args.input_offsets.value()->size(0) == 4
+                                                          && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_EAGER_BATCH3") != nullptr));
+                        if (!local_args.sample_all_positions && compiler_ != nullptr
+                            && !eager_mid_batch) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
+                                if (rank_info_.pp_size > 1
+                                    && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_SYNC_INPUT") != nullptr) {
+                                    infinicore::context::syncStream();
+                                }
                                 graph->run();
+                                if (rank_info_.pp_size > 1
+                                    && std::getenv("INFINILM_EXPERIMENTAL_PP_GRAPH_SYNC") != nullptr) {
+                                    infinicore::context::syncStream();
+                                }
                                 logits = output->logits;
+                                ran_graph = true;
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
+                        if (!ran_graph) {
                             auto model_args = local_args.to_model_input(rank_info_.device);
                             auto model_output = model_->forward(model_args);
                             logits = model_output.logits;
                             hidden_states = model_output.hidden_states;
+                            if (rank_info_.tp_size > 1
+                                && std::getenv("INFINILM_EXPERIMENTAL_DECODE_DEFER_GLM_SPARSE_TP_SYNC") != nullptr) {
+                                infinicore::context::syncStream();
+                            }
                         }
 
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {

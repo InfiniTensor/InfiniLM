@@ -4,16 +4,19 @@
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding_factory.hpp"
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/broadcast_to.hpp"
 #include "infinicore/ops/cast.hpp"
 #include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/distributed/allreduce.hpp"
+#include "infinicore/ops/distributed/broadcast.hpp"
 #include "infinicore/ops/dsa.hpp"
 #include "infinicore/ops/fp8_indexer_logits.hpp"
 #include "infinicore/ops/fp8_indexer_quant.hpp"
 #include "infinicore/ops/mul.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -126,6 +129,11 @@ void DeepseekV32Indexer::sync_topk_indices_(infinicore::Tensor topk_indices) con
         throw std::runtime_error("DeepseekV32Indexer requires a TP communicator");
     }
 
+    if (std::getenv("INFINILM_EXPERIMENTAL_GLM_TOPK_BROADCAST") != nullptr) {
+        infinicore::op::distributed::broadcast_(
+            topk_indices, topk_indices, 0, communicator_);
+        return;
+    }
     if (tp_rank_ != 0) {
         set_zeros_device_async(topk_indices);
     }
@@ -159,16 +167,30 @@ void DeepseekV32Indexer::forward(
         throw std::runtime_error("DeepseekV32Indexer: incomplete paged attention metadata");
     }
     const size_t num_requests = metadata.total_sequence_lengths.value()->numel();
+    auto &k_cache = forward_context.indexer_cache_vec[layer_idx_];
+    const bool use_vendor_indexer = k_cache->dtype() == infinicore::DataType::BF16;
 
     // Rank-local indexer compute wins once larger batches amortize its fixed
     // GEMM cost. Batch two with long contexts is faster on rank 0 plus a
     // small top-k collective than repeating the indexer on all four TP ranks.
-    const bool use_replicated_indexer = num_requests > 2;
+    const bool replicate_bf16_all = use_vendor_indexer
+                                 && std::getenv("INFINILM_GLM_BF16_INDEXER_REPLICATE_ALL") != nullptr;
+    const bool use_replicated_indexer = replicate_bf16_all
+                                     || (num_requests > 2
+                                         && !(use_vendor_indexer
+                                              && std::getenv("INFINILM_GLM_BF16_INDEXER_RANK0") != nullptr));
     if (!use_replicated_indexer && tp_rank_ != 0) {
         sync_topk_indices_(topk_indices);
         debug_dump_indexer(topk_indices, "selected", layer_idx_);
         return;
     }
+
+    const bool profile_prefill = tp_rank_ == 0 && num_tokens != num_requests
+                              && std::getenv("INFINILM_PROFILE_GLM_INDEXER") != nullptr;
+    if (profile_prefill) {
+        infinicore::context::syncStream();
+    }
+    auto phase_start = std::chrono::steady_clock::now();
 
     auto hidden_mutable = hidden_states;
     auto q_lora_mutable = q_lora;
@@ -183,45 +205,75 @@ void DeepseekV32Indexer::forward(
     debug_dump_indexer(weights_raw, "weights_raw", layer_idx_);
     debug_dump_indexer(k_weights, "k_weights", layer_idx_);
 
-    auto &k_cache = forward_context.indexer_cache_vec[layer_idx_];
-    auto q_fp8 = infinicore::Tensor::empty(
-        q_raw->shape(), infinicore::DataType::F8, q_raw->device());
-    auto weights_fp32 = infinicore::Tensor::empty(
-        {num_tokens, num_heads_}, infinicore::DataType::F32, q_raw->device());
-    const bool use_fused_fp8 = std::getenv("INFINILM_GLM_DISABLE_FUSED_FP8_INDEXER") == nullptr;
-    if (use_fused_fp8) {
-        infinicore::op::fused_fp8_indexer_(
-            q_fp8, weights_fp32, k_cache, q_raw, k_weights,
-            k_norm_->weight(), k_norm_->bias(), positions, cos_sin_cache_,
-            metadata.slot_mapping.value(), rope_dim_, k_norm_->eps(),
-            weights_scale_);
-    } else {
-        auto q = infinicore::Tensor::empty(
+    infinicore::Tensor vendor_q, vendor_weights, q_fp8, weights_fp32;
+    if (use_vendor_indexer) {
+        vendor_q = infinicore::Tensor::empty(
             q_raw->shape(), q_raw->dtype(), q_raw->device());
-        auto k = infinicore::Tensor::empty(
-            {num_tokens, head_dim_}, q_raw->dtype(), q_raw->device());
-        auto weights = infinicore::Tensor::empty(
+        vendor_weights = infinicore::Tensor::empty(
             {num_tokens, num_heads_}, q_raw->dtype(), q_raw->device());
-        auto empty_cache = infinicore::Tensor::empty(
-            {0}, q_raw->dtype(), q_raw->device());
-        auto empty_slots = infinicore::Tensor::empty(
-            {0}, infinicore::DataType::I64, q_raw->device());
+        auto empty_k = infinicore::Tensor::empty(
+            {0, head_dim_}, q_raw->dtype(), q_raw->device());
         infinicore::op::fused_deepseek_v2_indexer_postprocess_(
-            q, k, weights, empty_cache, empty_slots, q_raw, k_weights,
+            vendor_q, empty_k, vendor_weights, k_cache,
+            metadata.slot_mapping.value(), q_raw, k_weights,
             k_norm_->weight(), k_norm_->bias(), positions, cos_sin_cache_,
-            0, false, k_norm_->eps(), weights_scale_);
-        debug_dump_indexer(q, "q", layer_idx_);
-        debug_dump_indexer(k, "k", layer_idx_);
-        infinicore::op::indexer_k_quant_and_cache_(
-            k, k_cache, metadata.slot_mapping.value(),
-            static_cast<int64_t>(head_dim_), "ue8m0");
-        debug_dump_indexer(weights, "weights", layer_idx_);
-        infinicore::op::fp8_indexer_quant_(
-            q_fp8, weights_fp32, q, weights);
+            static_cast<int64_t>(num_tokens), false, k_norm_->eps(),
+            weights_scale_);
+        debug_dump_indexer(vendor_q, "q", layer_idx_);
+        debug_dump_indexer(vendor_weights, "weights", layer_idx_);
+    } else if (k_cache->dtype() == infinicore::DataType::U8) {
+        q_fp8 = infinicore::Tensor::empty(
+            q_raw->shape(), infinicore::DataType::F8, q_raw->device());
+        weights_fp32 = infinicore::Tensor::empty(
+            {num_tokens, num_heads_}, infinicore::DataType::F32, q_raw->device());
+        const bool use_fused_fp8 = std::getenv("INFINILM_GLM_DISABLE_FUSED_FP8_INDEXER") == nullptr;
+        if (use_fused_fp8) {
+            infinicore::op::fused_fp8_indexer_(
+                q_fp8, weights_fp32, k_cache, q_raw, k_weights,
+                k_norm_->weight(), k_norm_->bias(), positions, cos_sin_cache_,
+                metadata.slot_mapping.value(), rope_dim_, k_norm_->eps(),
+                weights_scale_);
+        } else {
+            auto q = infinicore::Tensor::empty(
+                q_raw->shape(), q_raw->dtype(), q_raw->device());
+            auto k = infinicore::Tensor::empty(
+                {num_tokens, head_dim_}, q_raw->dtype(), q_raw->device());
+            auto weights = infinicore::Tensor::empty(
+                {num_tokens, num_heads_}, q_raw->dtype(), q_raw->device());
+            auto empty_cache = infinicore::Tensor::empty(
+                {0}, q_raw->dtype(), q_raw->device());
+            auto empty_slots = infinicore::Tensor::empty(
+                {0}, infinicore::DataType::I64, q_raw->device());
+            infinicore::op::fused_deepseek_v2_indexer_postprocess_(
+                q, k, weights, empty_cache, empty_slots, q_raw, k_weights,
+                k_norm_->weight(), k_norm_->bias(), positions, cos_sin_cache_,
+                0, false, k_norm_->eps(), weights_scale_);
+            debug_dump_indexer(q, "q", layer_idx_);
+            debug_dump_indexer(k, "k", layer_idx_);
+            infinicore::op::indexer_k_quant_and_cache_(
+                k, k_cache, metadata.slot_mapping.value(),
+                static_cast<int64_t>(head_dim_), "ue8m0");
+            debug_dump_indexer(weights, "weights", layer_idx_);
+            infinicore::op::fp8_indexer_quant_(
+                q_fp8, weights_fp32, q, weights);
+        }
+    } else {
+        throw std::runtime_error("DeepseekV32Indexer: unsupported indexer cache dtype");
     }
     debug_dump_indexer(k_cache, "k_cache", layer_idx_);
-    debug_dump_indexer(q_fp8, "q_fp8", layer_idx_);
-    debug_dump_indexer(weights_fp32, "weights_fp32", layer_idx_);
+    if (!use_vendor_indexer) {
+        debug_dump_indexer(q_fp8, "q_fp8", layer_idx_);
+        debug_dump_indexer(weights_fp32, "weights_fp32", layer_idx_);
+    }
+
+    double project_ms = 0;
+    if (profile_prefill) {
+        infinicore::context::syncStream();
+        project_ms = std::chrono::duration<double, std::milli>(
+                         std::chrono::steady_clock::now() - phase_start)
+                         .count();
+        phase_start = std::chrono::steady_clock::now();
+    }
 
     const int64_t max_context_len = metadata.max_context_len.value();
     auto logits = infinicore::Tensor::empty(
@@ -229,10 +281,27 @@ void DeepseekV32Indexer::forward(
         infinicore::DataType::F32,
         q_raw->device());
     const bool is_prefill = num_tokens != num_requests;
-    infinicore::op::fp8_indexer_logits_(
-        logits, q_fp8, k_cache, metadata.block_tables.value(), weights_fp32,
-        positions, metadata.request_ids.value());
+    if (use_vendor_indexer) {
+        infinicore::op::compute_block_sparse_mqa_logits_(
+            logits, vendor_q, k_cache, metadata.input_offsets.value(),
+            metadata.cu_seqlens.value(), metadata.block_tables.value(),
+            vendor_weights, is_prefill ? static_cast<int64_t>(num_tokens) : 1,
+            max_context_len, max_context_len);
+    } else {
+        infinicore::op::fp8_indexer_logits_(
+            logits, q_fp8, k_cache, metadata.block_tables.value(), weights_fp32,
+            positions, metadata.request_ids.value());
+    }
     debug_dump_indexer(logits, "logits", layer_idx_);
+
+    double logits_ms = 0;
+    if (profile_prefill) {
+        infinicore::context::syncStream();
+        logits_ms = std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - phase_start)
+                        .count();
+        phase_start = std::chrono::steady_clock::now();
+    }
 
     if (is_prefill) {
         auto cu_seqlen_ks = infinicore::Tensor::empty(
@@ -253,6 +322,16 @@ void DeepseekV32Indexer::forward(
     }
     if (!use_replicated_indexer) {
         sync_topk_indices_(topk_indices);
+    }
+    if (profile_prefill) {
+        infinicore::context::syncStream();
+        const double select_ms = std::chrono::duration<double, std::milli>(
+                                     std::chrono::steady_clock::now() - phase_start)
+                                     .count();
+        std::fprintf(stderr,
+                     "[glm_indexer_profile] layer=%zu tokens=%zu context=%lld project_ms=%.3f logits_ms=%.3f select_ms=%.3f\n",
+                     layer_idx_, num_tokens, static_cast<long long>(max_context_len),
+                     project_ms, logits_ms, select_ms);
     }
     debug_dump_indexer(topk_indices, "selected", layer_idx_);
 }

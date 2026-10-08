@@ -54,7 +54,10 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
     }
     const size_t kv_lora_rank = model_config->get<size_t>("kv_lora_rank");
     const size_t rope_dim = model_config->get<size_t>("qk_rope_head_dim");
-    const bool use_vendor_shadow = std::getenv("INFINILM_GLM_FP8_SPARSE_VENDOR") != nullptr;
+    const bool use_bf16_mla_cache = std::getenv("INFINILM_EXPERIMENTAL_GLM_BF16_MLA_CACHE") != nullptr;
+    const bool use_vendor_shadow = !use_bf16_mla_cache
+                                && std::getenv("INFINILM_GLM_FP8_SPARSE_VENDOR") != nullptr;
+    const bool use_bf16_indexer = std::getenv("INFINILM_GLM_BF16_INDEXER_VENDOR") != nullptr;
     const size_t vendor_cache_stride = kv_lora_rank + rope_dim;
     const size_t mla_cache_stride = kv_lora_rank + 4 * sizeof(float)
                                   + rope_dim * sizeof(uint16_t);
@@ -78,8 +81,10 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
             continue;
         }
         auto mla = infinicore::Tensor::empty(
-            {paged_config->num_blocks(), paged_config->block_size(), mla_cache_stride},
-            infinicore::DataType::U8,
+            {paged_config->num_blocks(), paged_config->block_size(),
+             use_bf16_mla_cache ? vendor_cache_stride : mla_cache_stride},
+            use_bf16_mla_cache ? infinicore::DataType::BF16
+                               : infinicore::DataType::U8,
             device);
         set_zeros(mla);
         caches.mla.push_back(std::move(mla));
@@ -97,8 +102,10 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
         infinicore::Tensor indexer;
         if (layer_uses_indexer_cache(model_config, layer)) {
             indexer = infinicore::Tensor::empty(
-                {paged_config->num_blocks(), paged_config->block_size(), index_dim + sizeof(float)},
-                infinicore::DataType::U8, device);
+                {paged_config->num_blocks(), paged_config->block_size(),
+                 use_bf16_indexer ? index_dim : index_dim + sizeof(float)},
+                use_bf16_indexer ? infinicore::DataType::BF16 : infinicore::DataType::U8,
+                device);
             set_zeros(indexer);
         }
         caches.indexer.push_back(std::move(indexer));
@@ -110,14 +117,18 @@ GlmDsaCacheTensors glm_dsa_allocate_cache_tensors(
         }
         spdlog::info(
             "GLM DSA paged cache: physical_blocks={}, kernel_block_size={}, "
-            "mla_layout=fp8_ds_mla({}+4xfp32+{}xbf16={}B), "
-            "index_dim={}+fp32_scale, layers=[{},{}), indexer_layers={}, "
+            "mla_layout={}({}B), "
+            "index_dim={}, indexer_layout={}, layers=[{},{}), indexer_layers={}, "
             "indexer_cache_tp_ranks={}, vendor_shadow={}, "
             "vendor_token_bytes={}",
             paged_config->num_blocks(),
             paged_config->block_size(),
-            kv_lora_rank, rope_dim, mla_cache_stride,
+            use_bf16_mla_cache ? "bf16" : "fp8_ds_mla",
+            use_bf16_mla_cache
+                ? vendor_cache_stride * sizeof(uint16_t)
+                : mla_cache_stride,
             index_dim,
+            use_bf16_indexer ? "bf16" : "fp8+fp32_scale",
             layer_start,
             layer_end,
             indexer_layers,

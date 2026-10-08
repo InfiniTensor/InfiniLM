@@ -1,5 +1,5 @@
-import json
 import asyncio
+import json
 
 import pytest
 from infinilm.processors.processor import normalize_openai_messages
@@ -7,24 +7,145 @@ from infinilm.server.inference_server import InferenceServer, completion_json
 from infinilm.server.openai_protocol import (
     ToolCallStreamParser,
     parse_tool_calls,
+    select_tool_calls,
     strip_reasoning_markers,
 )
-from infinilm.server.tool_contract import apply_tool_contract
 from infinilm.server.tool_constraints import (
     constrain_tools,
+    direct_bash_arguments,
+    direct_bash_result,
+    direct_edit_complete,
+    direct_edit_step,
     direct_literal_write_arguments,
     direct_read_arguments,
-    direct_bash_arguments,
-    direct_edit_step,
-    forced_read_tool_prefix,
     direct_read_result,
-    direct_edit_complete,
+    forced_bash_tool_prefix,
     forced_edit_tool_prefix,
     forced_read_for_edit_prefix,
-    direct_bash_result,
-    forced_bash_tool_prefix,
+    forced_read_tool_prefix,
     forced_write_tool_prefix,
 )
+from infinilm.server.tool_contract import apply_tool_contract
+
+
+def test_parse_glm_native_arguments_preserves_paths_and_values():
+    path = r"\\wsl.localhost\Ubuntu\home\wei\Projects\main\InfiniCore"
+    content, calls = parse_tool_calls(
+        "Inspecting.\n<tool_call>glob<arg_key>pattern</arg_key>"
+        "<arg_value>**/*.py</arg_value><arg_key>path</arg_key>"
+        f"<arg_value>{path}</arg_value><arg_key>limit</arg_key>"
+        "<arg_value>20</arg_value></tool_call>",
+        {"glob"},
+    )
+    assert content == "Inspecting."
+    assert calls[0]["function"]["name"] == "glob"
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "pattern": "**/*.py",
+        "path": path,
+        "limit": 20,
+    }
+
+
+def test_stream_glm_native_every_character_and_parallel_calls():
+    parser = ToolCallStreamParser({"read_file"})
+    source = (
+        "Checking. <tool_call>read_file<arg_key>file_path</arg_key>"
+        "<arg_value>a.py</arg_value></tool_call>"
+        "<tool_call>read_file<arg_key>file_path</arg_key>"
+        "<arg_value>b.py</arg_value></tool_call>"
+    )
+    content, calls = [], []
+    for char in source:
+        text, parsed = parser.feed(char)
+        content.extend(text)
+        calls.extend(parsed)
+    text, parsed = parser.finalize()
+    content.extend(text)
+    calls.extend(parsed)
+    assert "".join(content) == "Checking. "
+    assert parser.has_tool_calls
+    assert [
+        json.loads(call["function"]["arguments"])["file_path"] for call in calls
+    ] == ["a.py", "b.py"]
+
+
+def test_parallel_tool_calls_false_keeps_only_first_call_across_stream_chunks():
+    parser = ToolCallStreamParser({"read_file"})
+    emitted = []
+    for block in (
+        "<tool_call>read_file<arg_key>file_path</arg_key>"
+        "<arg_value>a.py</arg_value></tool_call>",
+        "<tool_call>read_file<arg_key>file_path</arg_key>"
+        "<arg_value>b.py</arg_value></tool_call>",
+    ):
+        _, calls = parser.feed(block)
+        emitted.extend(select_tool_calls(calls, len(emitted), False))
+    assert len(emitted) == 1
+    assert json.loads(emitted[0]["function"]["arguments"]) == {"file_path": "a.py"}
+    assert len(select_tool_calls([{}, {}], 0, False)) == 1
+    assert len(select_tool_calls([{}, {}], 0, True)) == 2
+    assert len(select_tool_calls([{}, {}], 0, None)) == 2
+    InferenceServer._validate_request({"parallel_tool_calls": None})
+    with pytest.raises(
+        ValueError, match="parallel_tool_calls must be a boolean or null"
+    ):
+        InferenceServer._validate_request({"parallel_tool_calls": "false"})
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "<tool_call>glob<arg_key>path</arg_key><arg_value>x</tool_call>",
+        "<tool_call>glob<arg_key>path</arg_key><arg_value>x</arg_value>",
+        "<tool_call>glob<arg_key>path</arg_key><arg_value>x</arg_value><arg_key>path</arg_key><arg_value>y</arg_value></tool_call>",
+        "<tool_call>glob<arg_key>path</arg_key><arg_value>x</arg_value>garbage</tool_call>",
+        "<tool_call>not_exposed<arg_key>path</arg_key><arg_value>x</arg_value></tool_call>",
+    ],
+)
+def test_glm_native_rejects_incomplete_duplicate_or_unexposed_calls(source):
+    parser = ToolCallStreamParser({"glob"})
+    content, calls = parser.feed(source)
+    final_content, final_calls = parser.finalize()
+    assert not content + final_content
+    assert not calls + final_calls
+
+
+@pytest.mark.parametrize(
+    "unfinished",
+    [
+        "<tool_call><function=write_file><parameter=file_path>outline.md",
+        "<tool_call>write_file<arg_key>file_path</arg_key><arg_value>outline.md",
+        "<tool_",
+    ],
+)
+def test_nonstream_parser_hides_truncated_tool_call(unfinished):
+    content, calls = parse_tool_calls("Visible. " + unfinished, {"write_file"})
+    assert content == "Visible."
+    assert calls == []
+
+
+def test_nonstream_parser_hides_truncated_tail_after_complete_call():
+    content, calls = parse_tool_calls(
+        "Before. <tool_call>read_file<arg_key>file_path</arg_key>"
+        "<arg_value>a.py</arg_value></tool_call> After. "
+        "<tool_call>write_file<arg_key>file_path</arg_key><arg_value>",
+        {"read_file", "write_file"},
+    )
+    assert content == "Before.  After."
+    assert [call["function"]["name"] for call in calls] == ["read_file"]
+
+
+def test_glm_native_preserves_multiline_content_and_json_values():
+    content = "  first line\nlast line  "
+    _, calls = parse_tool_calls(
+        "<tool_call>write_file<arg_key>content</arg_key>"
+        f"<arg_value>{content}</arg_value><arg_key>flags</arg_key>"
+        '<arg_value>{"ok":true,"n":null}</arg_value></tool_call>'
+    )
+    assert json.loads(calls[0]["function"]["arguments"]) == {
+        "content": content,
+        "flags": {"ok": True, "n": None},
+    }
 
 
 def test_parse_qwen_tool_call_xml():
@@ -192,6 +313,19 @@ def test_max_completion_tokens_alias():
     assert params.max_tokens == 17
 
 
+def test_ignore_eos_request_overrides_server_default():
+    server = InferenceServer("/tmp/model", ignore_eos=False)
+    assert not server._build_sampling_params({}).ignore_eos
+    assert server._build_sampling_params({"ignore_eos": True}).ignore_eos
+    assert server._build_sampling_params(
+        {"sampling_params": {"ignore_eos": True}}
+    ).ignore_eos
+
+    server = InferenceServer("/tmp/model", ignore_eos=True)
+    assert server._build_sampling_params({}).ignore_eos
+    assert not server._build_sampling_params({"ignore_eos": False}).ignore_eos
+
+
 def _tool(name):
     return {
         "type": "function",
@@ -224,21 +358,19 @@ def test_pilotdeck_chinese_constraints_filter_tool_schemas():
     ]
 
 
-
 def test_direct_create_file_then_stop_filters_to_write_tool():
     tools = [_tool("write_file"), _tool("read_file"), _tool("bash")]
     messages = [
         {
             "role": "user",
-            "content": (
-                "创建 outline.md，内容为验收大纲。写完后立即停止。"
-            ),
+            "content": ("创建 outline.md，内容为验收大纲。写完后立即停止。"),
         }
     ]
 
     assert [tool["function"]["name"] for tool in constrain_tools(messages, tools)] == [
         "write_file"
     ]
+
 
 def test_read_file_request_filters_to_read_tool():
     tools = [_tool("write_file"), _tool("read_file"), _tool("bash")]
@@ -248,7 +380,6 @@ def test_read_file_request_filters_to_read_tool():
         "read_file"
     ]
 
-
     prefix = forced_read_tool_prefix(messages, [_tool("read_file")])
     assert prefix is not None
     assert "file_path" in prefix
@@ -257,7 +388,12 @@ def test_read_file_request_filters_to_read_tool():
 
 def test_edit_file_request_filters_to_edit_and_read_tools():
     tools = [_tool("write_file"), _tool("read_file"), _tool("edit_file"), _tool("bash")]
-    messages = [{"role": "user", "content": "编辑 outline.md，把 pending 改成 done。完成后立即停止。"}]
+    messages = [
+        {
+            "role": "user",
+            "content": "编辑 outline.md，把 pending 改成 done。完成后立即停止。",
+        }
+    ]
 
     assert {tool["function"]["name"] for tool in constrain_tools(messages, tools)} == {
         "edit_file",
@@ -267,7 +403,9 @@ def test_edit_file_request_filters_to_edit_and_read_tools():
 
 def test_run_command_request_filters_to_command_tools():
     tools = [_tool("write_file"), _tool("read_file"), _tool("edit_file"), _tool("bash")]
-    messages = [{"role": "user", "content": "执行 bash 命令 printf ok。完成后立即停止。"}]
+    messages = [
+        {"role": "user", "content": "执行 bash 命令 printf ok。完成后立即停止。"}
+    ]
 
     assert {tool["function"]["name"] for tool in constrain_tools(messages, tools)} == {
         "bash",
@@ -470,27 +608,40 @@ def test_explicit_multiline_write_preserves_content_and_stream_protocol():
         "创建 offline.md，内容为两行：# Offline PilotDeck\n"
         "status=pending。写完后立即停止。"
     )
-    data = {"messages": [{"role": "user", "content": prompt}],
-            "tools": [_tool("write_file"), _tool("read_file")]}
-    arguments = {"file_path": "offline.md",
-                 "content": "# Offline PilotDeck\nstatus=pending"}
-    assert direct_literal_write_arguments(data["messages"], [_tool("write_file")]) == arguments
+    data = {
+        "messages": [{"role": "user", "content": prompt}],
+        "tools": [_tool("write_file"), _tool("read_file")],
+    }
+    arguments = {
+        "file_path": "offline.md",
+        "content": "# Offline PilotDeck\nstatus=pending",
+    }
+    assert (
+        direct_literal_write_arguments(data["messages"], [_tool("write_file")])
+        == arguments
+    )
 
     server = InferenceServer("/tmp/model", skip_load=True)
     _, kwargs, prepared = server._prepare_chat_request(data)
     assert [tool["function"]["name"] for tool in kwargs["tools"]] == ["write_file"]
     assert prepared["_infinilm_direct_tool_call"] == {
-        "name": "write_file", "arguments": arguments
+        "name": "write_file",
+        "arguments": arguments,
     }
     assert "_infinilm_forced_tool_prefix" not in prepared
 
     response = asyncio.run(server._chat("write-test", data, None))
     choice = response["choices"][0]
     assert choice["finish_reason"] == "tool_calls"
-    assert json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"]) == arguments
+    assert (
+        json.loads(choice["message"]["tool_calls"][0]["function"]["arguments"])
+        == arguments
+    )
 
     async def stream():
-        return [chunk async for chunk in server._stream_chat("write-stream", data, None)]
+        return [
+            chunk async for chunk in server._stream_chat("write-stream", data, None)
+        ]
 
     chunks = asyncio.run(stream())
     events = [json.loads(chunk[6:]) for chunk in chunks if chunk.startswith("data: {")]
@@ -503,8 +654,12 @@ def test_explicit_multiline_write_preserves_content_and_stream_protocol():
 def test_explicit_bash_uses_exact_command_and_tool_output_cap(monkeypatch):
     command = 'printf "a&b" > sample.txt; cat sample.txt'
     data = {
-        "messages": [{"role": "user", "content":
-                      "执行 bash 命令 " + command + "。完成后立即停止。"}],
+        "messages": [
+            {
+                "role": "user",
+                "content": "执行 bash 命令 " + command + "。完成后立即停止。",
+            }
+        ],
         "tools": [_tool("bash"), _tool("write_file")],
         "max_tokens": 4096,
     }
@@ -517,7 +672,8 @@ def test_explicit_bash_uses_exact_command_and_tool_output_cap(monkeypatch):
     assert server._build_sampling_params({"max_tokens": 4096}).max_tokens == 4096
     _, _, prepared = server._prepare_chat_request(data)
     assert prepared["_infinilm_direct_tool_call"] == {
-        "name": "bash", "arguments": {"command": command}
+        "name": "bash",
+        "arguments": {"command": command},
     }
     assert "_infinilm_forced_tool_prefix" not in prepared
 
@@ -540,14 +696,25 @@ def test_explicit_bash_uses_exact_command_and_tool_output_cap(monkeypatch):
 
     completed = {
         **data,
-        "messages": data["messages"] + [
-            {"role": "assistant", "tool_calls": [{
-                "id": "bash-1", "function": {
-                    "name": "bash", "arguments": json.dumps({"command": command})
-                }
-            }]},
-            {"role": "tool", "tool_call_id": "bash-1",
-             "content": "BASH_RESULT[success] a&b"},
+        "messages": data["messages"]
+        + [
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": "bash-1",
+                        "function": {
+                            "name": "bash",
+                            "arguments": json.dumps({"command": command}),
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "bash-1",
+                "content": "BASH_RESULT[success] a&b",
+            },
         ],
     }
     _, _, prepared = server._prepare_chat_request(completed)
@@ -564,31 +731,54 @@ def test_explicit_edit_reads_once_then_edits_once():
     server = InferenceServer("/tmp/model", skip_load=True)
     _, _, first = server._prepare_chat_request({"messages": messages, "tools": tools})
     assert first["_infinilm_direct_tool_call"] == {
-        "name": "read_file", "arguments": {"file_path": "sample.md"}
+        "name": "read_file",
+        "arguments": {"file_path": "sample.md"},
     }
     messages += [
-        {"role": "assistant", "tool_calls": [{
-            "id": "read-1", "function": {"name": "read_file",
-            "arguments": '{"file_path":"sample.md"}'}
-        }]},
-        {"role": "tool", "tool_call_id": "read-1",
-         "content": "# Sample\nstatus=pending"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "read-1",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"file_path":"sample.md"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "read-1",
+            "content": "# Sample\nstatus=pending",
+        },
     ]
     _, _, second = server._prepare_chat_request({"messages": messages, "tools": tools})
     assert second["_infinilm_direct_tool_call"] == {
-        "name": "edit_file", "arguments": {
-            "file_path": "sample.md", "old_string": "status=pending",
-            "new_string": "status=done"
-        }
+        "name": "edit_file",
+        "arguments": {
+            "file_path": "sample.md",
+            "old_string": "status=pending",
+            "new_string": "status=done",
+        },
     }
-    assert direct_edit_step(messages, [_tool("read_file"), _tool("edit_file")]) == (
-        second["_infinilm_direct_tool_call"]
+    assert (
+        direct_edit_step(messages, [_tool("read_file"), _tool("edit_file")])
+        == (second["_infinilm_direct_tool_call"])
     )
     messages += [
-        {"role": "assistant", "tool_calls": [{
-            "id": "edit-1", "function": {"name": "edit_file",
-            "arguments": '{"file_path":"sample.md","old_string":"status=pending","new_string":"status=done"}'}
-        }]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "edit-1",
+                    "function": {
+                        "name": "edit_file",
+                        "arguments": '{"file_path":"sample.md","old_string":"status=pending","new_string":"status=done"}',
+                    },
+                }
+            ],
+        },
         {"role": "tool", "tool_call_id": "edit-1", "content": "Updated sample.md"},
     ]
     data = {"messages": messages, "tools": tools}
@@ -613,20 +803,29 @@ def test_constrained_read_calls_only_read_file_and_stops():
         "file_path": "sample.md"
     }
     assert first["_infinilm_direct_tool_call"] == {
-        "name": "read_file", "arguments": {"file_path": "sample.md"}
+        "name": "read_file",
+        "arguments": {"file_path": "sample.md"},
     }
-    response = asyncio.run(server._chat(
-        "read-first", {"messages": messages, "tools": tools}, None
-    ))
+    response = asyncio.run(
+        server._chat("read-first", {"messages": messages, "tools": tools}, None)
+    )
     assert response["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == (
         "read_file"
     )
 
     messages += [
-        {"role": "assistant", "tool_calls": [{
-            "id": "read-1", "function": {"name": "read_file",
-            "arguments": '{"file_path":"sample.md"}'}
-        }]},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "read-1",
+                    "function": {
+                        "name": "read_file",
+                        "arguments": '{"file_path":"sample.md"}',
+                    },
+                }
+            ],
+        },
         {"role": "tool", "tool_call_id": "read-1", "content": "# Sample"},
     ]
     data = {"messages": messages, "tools": tools}
@@ -788,6 +987,7 @@ def test_stream_parser_rejects_unclosed_parameter_in_complete_outer_block():
     content_parts.extend(final_content)
     calls.extend(final_calls)
 
+
 def test_successful_direct_read_marks_next_round_complete():
     tools = [_tool("write_file"), _tool("read_file")]
     messages = [
@@ -881,6 +1081,10 @@ def test_direct_bash_command_forces_call_and_completes_with_result():
                 }
             ],
         },
-        {"role": "tool", "tool_call_id": "call_bash", "content": "BASH_RESULT[success] bash-ok"},
+        {
+            "role": "tool",
+            "tool_call_id": "call_bash",
+            "content": "BASH_RESULT[success] bash-ok",
+        },
     ]
     assert direct_bash_result(messages, tools) == "BASH_RESULT[success] bash-ok"

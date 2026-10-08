@@ -278,16 +278,24 @@ class LLMEngine:
                     if holds_back and not is_finished:
                         token_text = ""
                     else:
-                        if is_finished and req.finish_reason in (
-                            FinishReason.EOS_TOKEN,
-                            FinishReason.LENGTH,
-                            FinishReason.STOP_STRING,
-                        ):
-                            token_text = ""
-                        else:
-                            token_text = req.generated_text[req._text_output_offset :]
-                            if token_text:
-                                req._text_output_offset = len(req.generated_text)
+                        safe_end = len(req.generated_text)
+                        if is_finished and req.finish_reason == FinishReason.EOS_TOKEN:
+                            safe_end = len(last_committed_text)
+                        elif not is_finished:
+                            for stop_str in req.sampling_params.stop or []:
+                                for prefix_len in range(1, len(stop_str)):
+                                    if req.generated_text.endswith(
+                                        stop_str[:prefix_len]
+                                    ):
+                                        safe_end = min(
+                                            safe_end,
+                                            len(req.generated_text) - prefix_len,
+                                        )
+                        token_text = req.generated_text[
+                            req._text_output_offset : safe_end
+                        ]
+                        if token_text:
+                            req._text_output_offset = safe_end
 
                         if is_finished:
                             req.mark_finished(req.finish_reason)
@@ -701,6 +709,9 @@ class AsyncLLMEngine:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
         self._abort_queue: Optional[janus.Queue] = None
+        self._prefill_coalesce_s = max(
+            0.0, float(os.getenv("INFINILM_PREFILL_COALESCE_MS", "0")) / 1000.0
+        )
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -787,11 +798,27 @@ class AsyncLLMEngine:
                 except Exception:
                     pass
 
+    def _coalesce_prefill_if_idle(self):
+        if (
+            self._prefill_coalesce_s <= 0
+            or self.config.cache_type != "paged"
+            or self.config.max_batch_size <= 1
+        ):
+            return
+        scheduler = self.engine.scheduler
+        if (
+            scheduler.running_queue.sync_q.empty()
+            and not scheduler.waiting_queue.sync_q.empty()
+        ):
+            time.sleep(self._prefill_coalesce_s)
+            self._drain_abort_queue()
+
     def _step_loop(self):
         """Background loop that runs inference steps."""
         while self._running:
             try:
                 self._drain_abort_queue()
+                self._coalesce_prefill_if_idle()
                 did_work, pending = self.engine.step()
                 if not did_work:
                     time.sleep(0.003)
@@ -871,13 +898,13 @@ class AsyncLLMEngine:
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert (
-                messages is not None
-            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert messages is not None, (
+                "Either messages or prompt/prompt_token_ids must be provided"
+            )
 
-            assert (
-                apply_chat_template
-            ), "apply_chat_template needs to be true for multi-role conversation"
+            assert apply_chat_template, (
+                "apply_chat_template needs to be true for multi-role conversation"
+            )
 
             prompt = self.engine.apply_chat_template(
                 messages,
@@ -931,8 +958,7 @@ class AsyncLLMEngine:
             sampling_params = sampling_params.clone()
             sampling_params.max_tokens = available_tokens
             logger.warning(
-                "Clamped max_tokens from %s to %s after tokenization; "
-                "prompt_tokens=%s",
+                "Clamped max_tokens from %s to %s after tokenization; prompt_tokens=%s",
                 requested_max_tokens,
                 available_tokens,
                 len(prompt_token_ids),
