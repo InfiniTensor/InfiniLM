@@ -15,6 +15,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
@@ -125,6 +126,7 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        graph_capture_batch_sizes: Optional[list[int]] = None,
     ):
         """Initialize inference server.
 
@@ -148,6 +150,7 @@ class InferenceServer:
             host: Server host address.
             port: Server port number.
             enable_graph: Whether to enable graph compiling.
+            graph_capture_batch_sizes: Explicit decode batch sizes to capture.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             skip_load: Whether to skip loading model weights.
@@ -180,6 +183,7 @@ class InferenceServer:
         self.host = host
         self.port = port
         self.enable_graph = enable_graph
+        self.graph_capture_batch_sizes = graph_capture_batch_sizes or []
         self.attn_backend = attn_backend
         self.use_mla = use_mla
         self.skip_load = skip_load
@@ -225,6 +229,7 @@ class InferenceServer:
                 top_p=self.top_p,
                 top_k=self.top_k,
                 enable_graph=self.enable_graph,
+                graph_capture_batch_sizes=self.graph_capture_batch_sizes,
                 attn_backend=self.attn_backend,
                 use_mla=self.use_mla,
                 skip_load=self.skip_load,
@@ -659,6 +664,7 @@ def main():
         host=cfg.host,
         port=cfg.port,
         enable_graph=cfg.enable_graph,
+        graph_capture_batch_sizes=cfg.graph_capture_batch_sizes,
         attn_backend=cfg.attn,
         use_mla=cfg.use_mla,
         skip_load=cfg.skip_load,

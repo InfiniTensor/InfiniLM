@@ -80,7 +80,8 @@ inline void bind_infer_engine(py::module &m) {
                           std::optional<infinicore::DataType> kv_cache_dtype,
                           bool use_mla,
                           const std::string &weight_load_mode,
-                          bool pre_transpose) {
+                          bool pre_transpose,
+                          const std::vector<size_t> &graph_capture_batch_sizes) {
                  return std::make_shared<InferEngine>(
                      config_str,
                      dist,
@@ -91,7 +92,8 @@ inline void bind_infer_engine(py::module &m) {
                      kv_cache_dtype,
                      use_mla,
                      weight_load_mode,
-                     pre_transpose);
+                     pre_transpose,
+                     graph_capture_batch_sizes);
              }),
              py::arg("config_str"),
              py::arg("distributed_config"),
@@ -102,7 +104,8 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("kv_cache_dtype") = py::none(),
              py::arg("use_mla") = false,
              py::arg("weight_load_mode") = "async",
-             py::arg("pre_transpose") = false)
+             py::arg("pre_transpose") = false,
+             py::arg("graph_capture_batch_sizes") = std::vector<size_t>{})
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              "Load a parameter tensor into all workers (each worker picks its shard)")
@@ -122,18 +125,14 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def(
-            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 py::gil_scoped_release release;
-                return self.forward(input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
-        .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
+                return self.forward(input); }, "Run inference on all ranks with arbitrary arguments")
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
         .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             auto cfg = self.get_cache_config();

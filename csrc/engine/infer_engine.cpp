@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <future>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -72,6 +73,45 @@ std::optional<size_t> first_sequence_length(
     return static_cast<size_t>(value);
 }
 
+std::vector<size_t> normalize_graph_capture_batch_sizes(
+    std::vector<size_t> batch_sizes,
+    const cache::CacheConfig *cache_config) {
+    if (batch_sizes.empty()) {
+        return batch_sizes;
+    }
+
+    const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+    if (paged_config == nullptr) {
+        throw std::invalid_argument(
+            "graph_capture_batch_sizes requires a paged KV cache configuration");
+    }
+
+    std::sort(batch_sizes.begin(), batch_sizes.end());
+    batch_sizes.erase(
+        std::unique(batch_sizes.begin(), batch_sizes.end()),
+        batch_sizes.end());
+    if (batch_sizes.front() == 0) {
+        throw std::invalid_argument(
+            "graph_capture_batch_sizes must contain only positive values");
+    }
+    if (batch_sizes.back() > paged_config->max_batch_size()) {
+        throw std::invalid_argument(
+            "graph_capture_batch_sizes cannot exceed paged cache max_batch_size");
+    }
+    return batch_sizes;
+}
+
+std::string format_batch_sizes(const std::vector<size_t> &batch_sizes) {
+    std::ostringstream stream;
+    for (size_t i = 0; i < batch_sizes.size(); ++i) {
+        if (i != 0) {
+            stream << ',';
+        }
+        stream << batch_sizes[i];
+    }
+    return stream.str();
+}
+
 } // namespace
 
 //------------------------------------------------------
@@ -87,7 +127,8 @@ InferEngine::InferEngine(
     std::optional<infinicore::DataType> kv_cache_dtype,
     bool use_mla,
     const std::string &weight_load_mode,
-    bool pre_transpose)
+    bool pre_transpose,
+    std::vector<size_t> graph_capture_batch_sizes)
     : communication_group_(distributed_config, device_type),
       attention_backend_(attention_backend),
       weight_load_mode_(weight_load_mode),
@@ -126,6 +167,13 @@ InferEngine::InferEngine(
     if (cache_config != nullptr) {
         cache_config_ = cache_config->unique_copy();
     }
+    graph_capture_batch_sizes = normalize_graph_capture_batch_sizes(
+        std::move(graph_capture_batch_sizes), cache_config);
+    if (enable_graph_compiling && !graph_capture_batch_sizes.empty()) {
+        spdlog::info(
+            "Decode graph capture batch sizes: [{}]",
+            format_batch_sizes(graph_capture_batch_sizes));
+    }
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
@@ -160,7 +208,8 @@ InferEngine::InferEngine(
         use_mla,
         distributed_config.moe_ep_backend,
         distributed_config.moe_ep_size,
-        pre_transpose);
+        pre_transpose,
+        std::move(graph_capture_batch_sizes));
 
     // Only support offline int8 kv cache quantization in this version
     if (kv_cache_dtype.has_value()) {

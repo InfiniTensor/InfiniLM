@@ -293,7 +293,10 @@ void RankWorker::thread_loop() {
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
             if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
+                compiler_ = std::make_unique<GeneralCompiler>(
+                    model_,
+                    barrier_,
+                    infinilm_config_->graph_capture_batch_sizes);
             }
 
             init_done_ = true;

@@ -228,7 +228,16 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_size=1,
         use_legacy_moe=False,
         pre_transpose=False,
+        graph_capture_batch_sizes=None,
     ):
+        if isinstance(graph_capture_batch_sizes, int):
+            graph_capture_batch_sizes = [graph_capture_batch_sizes]
+        graph_capture_batch_sizes = list(graph_capture_batch_sizes or [])
+        if any(batch_size <= 0 for batch_size in graph_capture_batch_sizes):
+            raise ValueError(
+                "graph_capture_batch_sizes must contain only positive values"
+            )
+
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
@@ -274,6 +283,7 @@ class InferEngine(_infinilm.InferEngine):
             use_mla,
             weight_load_mode,
             pre_transpose,
+            graph_capture_batch_sizes,
         )
         self.use_cache = False
 

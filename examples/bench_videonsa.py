@@ -218,6 +218,7 @@ def main():
         top_k=cfg.top_k,
         attn_backend=cfg.attn,
         enable_graph=cfg.enable_graph,
+        graph_capture_batch_sizes=cfg.graph_capture_batch_sizes,
         weight_load_mode=cfg.weight_load_mode,
         enable_prefix_caching=cfg.enable_prefix_caching,
     )

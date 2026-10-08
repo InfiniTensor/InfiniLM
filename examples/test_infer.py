@@ -41,6 +41,7 @@ def test(
     use_legacy_moe=False,
     enable_prefix_caching=True,
     pre_transpose=False,
+    graph_capture_batch_sizes=None,
 ):
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
@@ -67,6 +68,7 @@ def test(
         top_k=top_k,
         top_p=top_p,
         enable_graph=enable_graph,
+        graph_capture_batch_sizes=graph_capture_batch_sizes,
         attn_backend=attn_backend,
         use_mla=use_mla,
         skip_load=skip_load,
@@ -167,6 +169,7 @@ if __name__ == "__main__":
         ep=ep,
         enable_paged_attn=enable_paged_attn,
         enable_graph=enable_graph,
+        graph_capture_batch_sizes=cfg.graph_capture_batch_sizes,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
         top_k=cfg.top_k,
