@@ -75,6 +75,13 @@ class BaseConfig:
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
+        graph_capture_batch_sizes = self.args.graph_capture_batch_sizes
+        if graph_capture_batch_sizes is None:
+            self.graph_capture_batch_sizes = []
+        elif isinstance(graph_capture_batch_sizes, int):
+            self.graph_capture_batch_sizes = [graph_capture_batch_sizes]
+        else:
+            self.graph_capture_batch_sizes = graph_capture_batch_sizes
         self.enable_paged_attn = self.args.enable_paged_attn
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
@@ -255,6 +262,12 @@ class BaseConfig:
             help="select attention; default follows the selected KV cache layout",
         )
         self.parser.add_argument("--enable-graph", action="store_true")
+        self.parser.add_argument(
+            "--graph-capture-batch-sizes",
+            type=parse_list,
+            default=None,
+            help="comma-separated decode batch sizes to capture; unset keeps the default policy",
+        )
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",

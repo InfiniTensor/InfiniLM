@@ -52,7 +52,10 @@ bool optional_tensors_compatible(
 
 } // namespace
 
-PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier)
+PagedCompiler::PagedCompiler(
+    const std::shared_ptr<InfinilmModel> &model,
+    RankBarrier *barrier,
+    const std::vector<size_t> &graph_capture_batch_sizes)
     : GraphCompiler(model, barrier) {
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
@@ -60,6 +63,10 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBa
         return;
     }
     const size_t max_batch_size = paged_config->max_batch_size();
+    if (!graph_capture_batch_sizes.empty()) {
+        decode_batch_sizes_ = graph_capture_batch_sizes;
+        return;
+    }
     auto append_batch_size = [&](size_t batch_size) {
         if (batch_size <= max_batch_size) {
             decode_batch_sizes_.push_back(batch_size);

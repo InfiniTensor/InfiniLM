@@ -366,6 +366,7 @@ class LLM:
         skip_load: bool = False,
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        graph_capture_batch_sizes: Optional[list[int]] = None,
     ):
         """Initialize LLM.
 
@@ -384,6 +385,7 @@ class LLM:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            graph_capture_batch_sizes: Explicit decode batch sizes to capture.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             use_mla: Whether to use DeepSeek V2 MLA attention when supported.
             weight_load_mode: Weight loading mode across tensor-parallel workers.
@@ -411,6 +413,7 @@ class LLM:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            graph_capture_batch_sizes=graph_capture_batch_sizes or [],
             attn_backend=attn_backend,
             use_mla=use_mla,
             pre_transpose=pre_transpose,
@@ -594,6 +597,7 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        graph_capture_batch_sizes: Optional[list[int]] = None,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -612,6 +616,7 @@ class AsyncLLMEngine:
             top_p: Default top-p sampling parameter.
             top_k: Default top-k sampling parameter.
             enable_graph: Whether to enable graph compiling.
+            graph_capture_batch_sizes: Explicit decode batch sizes to capture.
             attn_backend: Attention backend to use ('default', 'flash-attn').
             kv_connector: KV connector type ('MooncakeConnector').
             kv_role: Role in KV connector ('kv_producer' or 'kv_consumer').
@@ -643,6 +648,7 @@ class AsyncLLMEngine:
             top_p=top_p,
             top_k=top_k,
             enable_graph=enable_graph,
+            graph_capture_batch_sizes=graph_capture_batch_sizes or [],
             attn_backend=attn_backend,
             kv_transfer_config=kv_transfer_config,
             use_mla=use_mla,

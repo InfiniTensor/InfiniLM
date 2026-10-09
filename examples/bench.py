@@ -450,6 +450,7 @@ class TestModel:
         prompt_token_segments=None,
         processed_multimodal_inputs=None,
         prompt_text=None,
+        graph_capture_batch_sizes=None,
     ) -> None:
         model_path = os.path.expanduser(model_path)
         self.draft_model_path = draft_model_path
@@ -459,6 +460,7 @@ class TestModel:
         self.tp = tp
         self.cache_config = cache_config
         self.enable_graph = enable_graph
+        self.graph_capture_batch_sizes = graph_capture_batch_sizes or []
         self.attn_backend = attn_backend
         self.use_mla = use_mla
         self.weight_load_mode = weight_load_mode
@@ -512,6 +514,7 @@ class TestModel:
                 top_p=top_p,
                 top_k=top_k,
                 enable_graph=enable_graph,
+                graph_capture_batch_sizes=self.graph_capture_batch_sizes,
                 attn_backend=attn_backend,
                 use_mla=use_mla,
                 weight_load_mode=weight_load_mode,
@@ -542,6 +545,7 @@ class TestModel:
             ),
             cache_config=cache_config,
             enable_graph_compiling=enable_graph,
+            graph_capture_batch_sizes=self.graph_capture_batch_sizes,
             attention_backend=attn_backend,
             kv_cache_dtype=cfg.kv_cache_dtype,
             use_mla=use_mla,
@@ -679,6 +683,7 @@ class TestModel:
                     top_p=top_p,
                     top_k=top_k,
                     enable_graph=self.enable_graph,
+                    graph_capture_batch_sizes=self.graph_capture_batch_sizes,
                     attn_backend=self.attn_backend,
                     use_mla=self.use_mla,
                     weight_load_mode=self.weight_load_mode,
@@ -923,6 +928,7 @@ if __name__ == "__main__":
         skip_load=skip_load,
         cache_config=cache_config,
         enable_graph=enable_graph,
+        graph_capture_batch_sizes=cfg.graph_capture_batch_sizes,
         attn_backend=attn_backend,
         use_mla=cfg.use_mla,
         weight_load_mode=cfg.weight_load_mode,

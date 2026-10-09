@@ -7,7 +7,10 @@
 namespace infinilm::engine {
 class PagedCompiler : public GraphCompiler {
 public:
-    PagedCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
+    PagedCompiler(
+        const std::shared_ptr<InfinilmModel> &model,
+        RankBarrier *barrier,
+        const std::vector<size_t> &graph_capture_batch_sizes);
 
     void compile() override;
 
