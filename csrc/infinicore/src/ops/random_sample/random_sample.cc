@@ -25,13 +25,15 @@ bool tryGreedyWithInfiniOps(
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kAscend
-         && device_type != Device::Type::kHygon)
+         && device_type != Device::Type::kHygon
+         && device_type != Device::Type::kQy)
         || (random_value != 0.0f
             && top_p != 0.0f
             && top_k != 1
             && temperature != 0.0f)
         || (logits->ndim() != 1
-            && !(device_type == Device::Type::kNvidia && batched))
+            && !(device_type == Device::Type::kNvidia && batched)
+            && !(device_type == Device::Type::kQy && batched))
         || logits->numel() == 0
         || !logits->is_contiguous()
         || (dtype != DataType::kFloat16 && dtype != DataType::kBFloat16 && dtype != DataType::kFloat32)

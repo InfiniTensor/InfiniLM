@@ -116,15 +116,21 @@ private:
         return dispatcher_;                                                                \
     }
 
-#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)             \
-    do {                                                               \
-        const auto device_type = (__DEVICE_TYPE__);                    \
-        const auto plan = plan_dispatcher().lookup(device_type);       \
-        const auto runner = run_dispatcher().lookup(device_type);      \
-        const auto deleter = cleanup_dispatcher().lookup(device_type); \
-        planned_meta_ = plan(__VA_ARGS__);                             \
-        runner_ = runner;                                              \
-        deleter_ = deleter;                                            \
+#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)                    \
+    do {                                                                      \
+        const auto device_type = (__DEVICE_TYPE__);                           \
+        try {                                                                 \
+            const auto plan = plan_dispatcher().lookup(device_type);          \
+            const auto runner = run_dispatcher().lookup(device_type);         \
+            const auto deleter = cleanup_dispatcher().lookup(device_type);    \
+            planned_meta_ = plan(__VA_ARGS__);                                \
+            runner_ = runner;                                                 \
+            deleter_ = deleter;                                               \
+        } catch (const std::exception &e) {                                   \
+            throw std::runtime_error(std::string(e.what()) + " ["              \
+                                     + std::string(__PRETTY_FUNCTION__)       \
+                                     + "]");                                  \
+        }                                                                     \
     } while (0)
 
 #define INFINICORE_DETAIL_FIRST_ARG(__FIRST__, ...) __FIRST__

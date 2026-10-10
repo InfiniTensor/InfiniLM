@@ -784,6 +784,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         # For server use
         request_data: Optional[dict] = None,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         """Add a request to the engine.
 
@@ -838,7 +839,9 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs or {},
             )
 
             mm_inputs = resolve_multimodal_inputs(messages)
@@ -918,6 +921,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            chat_template_kwargs=kwargs.get("chat_template_kwargs") or {},
         )
 
     async def stream_request(

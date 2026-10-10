@@ -493,7 +493,8 @@ void RankWorker::thread_loop() {
 
                             const bool parameter_greedy = top_p == 0.0f || top_k == 1 || temperature == 0.0f;
                             const auto logits_dtype = logits->dtype();
-                            const bool batch_greedy = rank_info_.device.type() == infinicore::Device::Type::kNvidia
+                            const bool batch_greedy = (rank_info_.device.type() == infinicore::Device::Type::kNvidia
+                                                       || rank_info_.device.type() == infinicore::Device::Type::kQy)
                                                    && parameter_greedy
                                                    && n_out > 0
                                                    && logits_positions == n_out

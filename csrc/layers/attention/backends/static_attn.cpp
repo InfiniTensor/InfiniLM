@@ -5,6 +5,8 @@
 #include "infinicore/ops/per_tensor_dequant_i8.hpp"
 #include "infinicore/ops/per_tensor_quant_i8.hpp"
 
+#include <algorithm>
+
 namespace infinilm::layers::attention::backends {
 namespace {
 
@@ -100,14 +102,42 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
     auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, value_head_dim});
 
-    auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
+    // Denglin static-attn GEMM/softmax launch fails around ~600+ query tokens
+    // ("too many resources requested for launch"). Chunk Q along the sequence
+    // so each causal matmul stays small; FA/paged remains M2.
+    constexpr size_t kQyAttnChunkTokens = 128;
+    const bool chunk_qy = q_reshaped->device().type() == infinicore::Device::Type::kQy
+        && (seq_len > kQyAttnChunkTokens || total_seq_len > 512);
 
-    auto attn_weight = infinicore::op::matmul(Q, K_transposed, scale_); // [bs * n_kv_head, ng * seq_len, total_seq_len]
+    auto run_chunk = [&](size_t q_begin, size_t q_rows) -> infinicore::Tensor {
+        // Queries at absolute positions [cache_pos + q_begin, ...); keys needed
+        // are only [0, cache_pos + q_begin + q_rows) under causal masking.
+        const size_t abs_begin = cache_pos + q_begin;
+        const size_t kv_len = abs_begin + q_rows;
+        auto Q_chunk = Q->narrow({{1, ngroup * q_begin, ngroup * q_rows}});
+        auto K_chunk = K->narrow({{1, 0, kv_len}});
+        auto V_chunk = V->narrow({{1, 0, kv_len}});
+        auto K_T = K_chunk->permute({0, 2, 1});
+        auto attn_weight = infinicore::op::matmul(Q_chunk, K_T, scale_);
+        auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, q_rows, kv_len});
+        infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
+        return infinicore::op::matmul(attn_weight, V_chunk);
+    };
 
-    auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, seq_len, total_seq_len});
-    infinicore::op::causal_softmax_(attn_weight_softmax, attn_weight_softmax);
-
-    auto out = infinicore::op::matmul(attn_weight, V); // [bs * n_kv_head, ng * seq_len, value_head_dim]
+    infinicore::Tensor out;
+    if (!chunk_qy) {
+        out = run_chunk(/*q_begin=*/0, seq_len);
+    } else {
+        out = infinicore::Tensor::empty(
+            {batch_size * num_kv_heads_, ngroup * seq_len, value_head_dim},
+            Q->dtype(),
+            Q->device());
+        for (size_t begin = 0; begin < seq_len; begin += kQyAttnChunkTokens) {
+            const size_t rows = std::min(kQyAttnChunkTokens, seq_len - begin);
+            auto chunk_out = run_chunk(begin, rows);
+            out->narrow({{1, ngroup * begin, ngroup * rows}})->copy_from(chunk_out);
+        }
+    }
 
     return out->view({batch_size, num_heads_, seq_len, value_head_dim})
         ->permute({0, 2, 1, 3})

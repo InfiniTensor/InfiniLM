@@ -181,16 +181,20 @@ def from_torch(torch_tensor, *, device=None):
         )
 
     index = 0 if owner.device.index is None else owner.device.index
+    _cuda_compat = ("cuda", "qy", "metax", "iluvatar", "hygon", "thead")
 
     if device is None:
         if owner.device.type == "cuda":
             current = get_device()
-            if current.type not in ("cpu", "cuda"):
+            if current.type in ("qy", "thead", "hygon", "iluvatar", "metax"):
+                target = Device(current.type, index)
+            elif current.type in ("cpu", "cuda"):
+                target = Device("nvidia", index)
+            else:
                 raise ValueError(
                     "Torch reports a CUDA-compatible device without its vendor; "
                     "pass device= explicitly"
                 )
-            target = Device("nvidia", index)
         else:
             target = Device(owner.device.type, index)
     elif isinstance(device, str) and ":" not in device:
@@ -201,7 +205,7 @@ def from_torch(torch_tensor, *, device=None):
     if target.index != index:
         raise ValueError("device index must match the source Torch tensor")
     if owner.device.type == "cuda":
-        if target.type not in ("cuda", "metax", "iluvatar", "hygon", "thead"):
+        if target.type not in _cuda_compat:
             raise ValueError("device is not compatible with a Torch CUDA tensor")
     elif target.type != owner.device.type:
         raise ValueError("device type must match the source Torch tensor")
@@ -218,11 +222,11 @@ def from_torch(torch_tensor, *, device=None):
     )
     result = empty(list(owner.shape), dtype=dtype, device=target)
 
-    if owner.device.type == "cuda":
+    if owner.device.type == "cuda" or target.type == "qy":
         torch.cuda.synchronize(owner.device)
 
     result.copy_(borrowed)
-    if owner.device.type == "cuda":
+    if owner.device.type == "cuda" or target.type == "qy":
         sync_stream()
     return result
 

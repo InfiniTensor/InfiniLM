@@ -1,6 +1,8 @@
 #ifdef ENABLE_ATEN
 #include "infinicore/adaptor/aten_adaptor.hpp"
 
+#include <stdexcept>
+
 namespace infinicore::adaptor {
 
 at::Tensor to_aten_tensor(const infinicore::Tensor &t) {
@@ -50,6 +52,14 @@ c10::musa::MUSAStream get_musa_stream() {
         musaStream_t(infinicore::context::getStream()), infinicore::context::getDevice().index());
 }
 #endif
+
+void set_aten_stream_to_infinicore() {
+#if defined(ENABLE_NVIDIA_API) || defined(ENABLE_METAX_API) || defined(ENABLE_QY_API)
+    c10::cuda::setCurrentCUDAStream(get_cuda_stream());
+#else
+    throw std::runtime_error("ATen stream synchronization is unsupported on this device");
+#endif
+}
 
 } // namespace infinicore::adaptor
 
