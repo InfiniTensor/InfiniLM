@@ -102,6 +102,23 @@ private:
         static void execute(__VA_ARGS__);                                  \
     };
 
+// Same as INFINICORE_GRAPH_OP_CLASS, but keeps the op in eager segments during
+// CUDA-graph capture (host D2H/H2D, ATen temps, or non-capturable kernels).
+#define INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(__OP_NAME__, ...)         \
+    class __OP_NAME__ : public graph::DispatchableGraphOperator {          \
+    public:                                                                \
+        using schema = void (*)(__VA_ARGS__);                              \
+        using plan_schema = void *(*)(__VA_ARGS__);                        \
+        static common::OpDispatcher<plan_schema> &plan_dispatcher();       \
+        static common::OpDispatcher<run_schema> &run_dispatcher();         \
+        static common::OpDispatcher<cleanup_schema> &cleanup_dispatcher(); \
+        __OP_NAME__(__VA_ARGS__);                                          \
+        static void execute(__VA_ARGS__);                                  \
+        bool is_device_graph_capture_safe() const override {               \
+            return false;                                                  \
+        }                                                                  \
+    };
+
 #define INFINICORE_GRAPH_OP_DISPATCHERS_IMPL(__OP_NAME__)                                  \
     common::OpDispatcher<__OP_NAME__::plan_schema> &__OP_NAME__::plan_dispatcher() {       \
         static common::OpDispatcher<__OP_NAME__::plan_schema> dispatcher_;                 \

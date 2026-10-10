@@ -120,9 +120,11 @@ struct PlannedMeta {
 
 std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     PlannedMeta &planned) {
+    const auto device_type = planned.q.device.type();
+    const auto implementation_index = implementation_index_for_device(device_type);
     const auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(
-        infini::ops::Device::Type::kNvidia, 16);
+        device_type, implementation_index);
 
     const auto q = planned.q.tensor(planned.q_tensor);
     const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);

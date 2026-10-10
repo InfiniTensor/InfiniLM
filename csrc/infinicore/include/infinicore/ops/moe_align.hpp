@@ -9,8 +9,9 @@
 
 namespace infinicore::op {
 
-INFINICORE_GRAPH_OP_CLASS(MoeAlign, Tensor, Tensor, Tensor, const Tensor &, const size_t, const size_t, const bool);
-INFINICORE_GRAPH_OP_CLASS(MoeAlignWithExpertMap, Tensor, Tensor, Tensor, const Tensor &, const Tensor &, const size_t, const size_t, const bool);
+// QY uses the ATen host-path implementation (CPU round-trips); not capture-safe.
+INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(MoeAlign, Tensor, Tensor, Tensor, const Tensor &, const size_t, const size_t, const bool);
+INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(MoeAlignWithExpertMap, Tensor, Tensor, Tensor, const Tensor &, const Tensor &, const size_t, const size_t, const bool);
 
 std::tuple<Tensor, Tensor, Tensor> moe_align(
     const Tensor &topk_ids,
