@@ -1,4 +1,5 @@
-import infinicore
+from ... import _core as infinicore
+
 from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
@@ -56,7 +57,9 @@ class SpeculativeRunner:
         if not requests:
             return []
 
-        target_output = self.target_model_engine.forward_raw(**model_input)
+        target_model_input = dict(model_input)
+        target_model_input["sample_all_positions"] = scheduler_output.is_prefill
+        target_output = self.target_model_engine.forward_raw(**target_model_input)
         target_token_ids = target_output["output_ids"].to_numpy().tolist()
         if not target_token_ids:
             return target_token_ids
@@ -117,68 +120,61 @@ class SpeculativeRunner:
                 output_tokens_by_req[req_idx] = [target_token]
                 continue
 
-            base_len = req.get_total_length()
-            verify_block_table, verify_slots = cache_ops.append_verify_slots(
-                list(req.block_table),
-                base_len + 1,
-                len(draft_tokens),
-            )
-            req.block_table = verify_block_table
-            req.num_blocks = len(req.block_table)
             verify_candidates.append(
                 {
                     "req_idx": req_idx,
                     "req": req,
-                    "base_len": base_len,
+                    "base_len": req.get_total_length(),
                     "remaining": job["remaining"],
                     "draft_tokens": draft_tokens,
-                    "slot_mapping": verify_slots,
                 }
             )
 
         if verify_candidates:
-            verify_output = self.target_model_engine.forward_raw(
-                **self._build_paged_verify_batch_input(verify_candidates)
-            )
-            verify_token_ids = verify_output["output_ids"].to_numpy().tolist()
-            verify_offsets = [0]
-            for candidate in verify_candidates:
-                verify_offsets.append(
-                    verify_offsets[-1] + len(candidate["draft_tokens"])
-                )
-
-            for idx, candidate in enumerate(verify_candidates):
-                req = candidate["req"]
-                req_idx = candidate["req_idx"]
-                draft_tokens = candidate["draft_tokens"]
-                segment = verify_token_ids[
-                    verify_offsets[idx] : verify_offsets[idx + 1]
-                ]
-                accepted = 1
-                correction = None
-                for draft_idx in range(1, len(draft_tokens)):
-                    expected = int(segment[draft_idx - 1])
-                    if draft_tokens[draft_idx] != expected:
-                        correction = expected
-                        break
-                    accepted += 1
-
-                if correction is None:
-                    correction = int(segment[len(draft_tokens) - 1])
-
-                self.eagle_accept_count += accepted
-                keep_tokens = candidate["base_len"] + accepted
-                req.block_table = cache_ops.rollback_to_length(
-                    req.block_table, keep_tokens
-                )
-                req.num_blocks = len(req.block_table)
-                req.slot_mapping = []
-
-                output_tokens = draft_tokens[:accepted] + [correction]
-                remaining = candidate["remaining"]
-                if remaining is not None:
-                    output_tokens = output_tokens[:remaining]
-                output_tokens_by_req[req_idx] = output_tokens
+            with cache_ops.verify_batch(verify_candidates) as reservation:
+                verify_input = self._build_paged_verify_batch_input(verify_candidates)
+                reservation.mark_submitted()
+                verify_output = self.target_model_engine.forward_raw(**verify_input)
+                verify_token_ids = verify_output["output_ids"].to_numpy().tolist()
+                reservation.mark_completed()
+                expected_count = sum(len(row["draft_tokens"]) for row in verify_candidates)
+                if len(verify_token_ids) != expected_count:
+                    raise RuntimeError("verification output count does not match the batch")
+                if any(type(token) is not int or token < 0 for token in verify_token_ids):
+                    raise RuntimeError("verification output requires non-negative integer token IDs")
+                keep_lengths = []
+                accepted_total = 0
+                offset = 0
+                for candidate in verify_candidates:
+                    req = candidate["req"]
+                    draft_tokens = candidate["draft_tokens"]
+                    segment = verify_token_ids[offset : offset + len(draft_tokens)]
+                    offset += len(draft_tokens)
+                    accepted = 1
+                    correction = None
+                    for draft_idx in range(1, len(draft_tokens)):
+                        expected = segment[draft_idx - 1]
+                        if draft_tokens[draft_idx] != expected:
+                            correction = expected
+                            break
+                        accepted += 1
+                    if correction is None:
+                        correction = segment[-1]
+                    output_tokens = draft_tokens[:accepted] + [correction]
+                    remaining = candidate["remaining"]
+                    if remaining is not None:
+                        output_tokens = output_tokens[:remaining]
+                    if not req.sampling_params.ignore_eos:
+                        for index, token in enumerate(output_tokens):
+                            if token in req.eos_token_ids:
+                                output_tokens = output_tokens[:index + 1]
+                                break
+                    accepted = min(accepted, len(output_tokens))
+                    accepted_total += accepted
+                    keep_lengths.append(candidate["base_len"] + accepted)
+                    output_tokens_by_req[candidate["req_idx"]] = output_tokens
+                reservation.commit(keep_lengths)
+                self.eagle_accept_count += accepted_total
 
         return output_tokens_by_req
 
@@ -253,6 +249,7 @@ class SpeculativeRunner:
                 temperature=1.0,
                 top_k=1,
                 top_p=1.0,
+                sample_all_positions=False,
             )
             token_ids = draft_output["output_ids"].to_numpy().tolist()
             draft_hidden = draft_output["hidden_states"]
@@ -275,11 +272,16 @@ class SpeculativeRunner:
         slot_mapping = []
         block_tables = []
         max_block_table_len = max(
-            len(candidate["req"].block_table) for candidate in candidates
+            len(candidate["block_table"]) for candidate in candidates
+        )
+        # A one-token candidate only needs its correction token. Selecting the
+        # last position keeps that case eligible for the compiled decode graph;
+        # longer candidates still need every intermediate prediction.
+        sample_all_positions = any(
+            len(candidate["draft_tokens"]) != 1 for candidate in candidates
         )
 
         for candidate in candidates:
-            req = candidate["req"]
             base_len = candidate["base_len"]
             draft_tokens = candidate["draft_tokens"]
             tokens.extend(draft_tokens)
@@ -290,7 +292,8 @@ class SpeculativeRunner:
             cu_seqlens.append(cu_seqlens[-1] + base_len + len(draft_tokens))
             slot_mapping.extend(candidate["slot_mapping"])
             block_tables.append(
-                req.block_table + [-1] * (max_block_table_len - len(req.block_table))
+                candidate["block_table"]
+                + [-1] * (max_block_table_len - len(candidate["block_table"]))
             )
 
         return {
@@ -307,4 +310,5 @@ class SpeculativeRunner:
             "temperature": 1.0,
             "top_k": 1,
             "top_p": 1.0,
+            "sample_all_positions": sample_all_positions,
         }

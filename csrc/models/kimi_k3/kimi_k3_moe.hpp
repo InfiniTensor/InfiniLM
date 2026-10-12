@@ -1,49 +1,57 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../backends/attention_backends.hpp"
+#include "../../layers/moe/common/moe_types.hpp"
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/moe/router/topk_router.hpp"
 
-#include <infiniccl.h>
-#include <infinicore/nn/module.hpp>
-#include <infinicore/nn/rmsnorm.hpp>
-#include <infinicore/tensor.hpp>
+#include <infiniccl/infiniccl.h>
+#include "../../weights/weights.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include <runtime/tensor.hpp>
 
 #include <memory>
 
 namespace infinilm::models::kimi_k3 {
 
 struct KimiK3Mxfp4MoeWeights {
-    infinicore::Tensor packed_w13;
-    infinicore::Tensor w13_scale;
-    infinicore::Tensor packed_w2;
-    infinicore::Tensor w2_scale;
+    infinilm::runtime::Tensor packed_w13;
+    infinilm::runtime::Tensor w13_scale;
+    infinilm::runtime::Tensor packed_w2;
+    infinilm::runtime::Tensor w2_scale;
 };
 
-class KimiK3MLP : public infinicore::nn::Module {
+class KimiK3MLP : public infinilm::weights::ModelWeights {
 public:
-    KimiK3MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    KimiK3MLP(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
               size_t intermediate_size,
-              const infinicore::Device &device);
+    const engine::distributed::RankInfo &rank_info);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
 private:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, down_proj);
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
     float situ_beta_{4.0f};
     float situ_linear_beta_{25.0f};
+    bool postload_attempted_{false};
 };
 
-class KimiK3Experts : public infinicore::nn::Module {
+class KimiK3Experts : public infinilm::weights::ModelWeights {
 public:
-    KimiK3Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                  const infinicore::Device &device);
+    KimiK3Experts(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    const engine::distributed::RankInfo &rank_info);
 
     const KimiK3Mxfp4MoeWeights &mxfp4_weights() const;
 
 private:
-    void register_mxfp4_experts();
+    void register_mxfp4_experts(infinilm::runtime::Runtime &runtime);
 
     KimiK3Mxfp4MoeWeights mxfp4_weights_;
     size_t num_experts_{0};
@@ -51,24 +59,28 @@ private:
     size_t local_intermediate_size_{0};
     size_t tp_rank_{0};
     size_t tp_size_{1};
-    infinicore::Device device_;
+    infinilm::runtime::Device device_;
 };
 
-class KimiK3MoE : public infinicore::nn::Module {
+class KimiK3MoE : public infinilm::weights::ModelWeights {
 public:
-    KimiK3MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    KimiK3MoE(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
               size_t layer_idx,
-              const infinicore::Device &device);
+    const engine::distributed::RankInfo &rank_info,
+    backends::AttentionBackend attention_backend,
+    const layers::moe::EPConfig &ep_config);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
-    INFINICORE_NN_MODULE(infinilm::layers::moe::TopKRouter, gate);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, routed_expert_down_proj);
-    INFINICORE_NN_MODULE(KimiK3Experts, experts);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, routed_expert_norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, routed_expert_up_proj);
-    INFINICORE_NN_MODULE(KimiK3MLP, shared_experts);
+    std::shared_ptr<infinilm::layers::moe::TopKRouter> gate_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> routed_expert_down_proj_;
+    std::shared_ptr<KimiK3Experts> experts_;
+    std::shared_ptr<infinilm::layers::RMSNorm> routed_expert_norm_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> routed_expert_up_proj_;
+    std::shared_ptr<KimiK3MLP> shared_experts_;
     int tp_size_{1};
     infinicclComm_t communicator_{nullptr};
 };

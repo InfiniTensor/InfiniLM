@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <string>
 
 namespace infinilm::layers::moe {
 
@@ -41,7 +42,8 @@ struct ExpertPlacement {
 
 const char *ep_backend_name(EPBackend backend);
 
-EPConfig make_ep_config();
+EPConfig make_ep_config(const std::string &backend, size_t configured_ep_size,
+                        size_t tp_size, size_t tp_rank);
 
 ExpertPlacement make_expert_placement(const EPConfig &config,
                                       size_t global_num_experts);

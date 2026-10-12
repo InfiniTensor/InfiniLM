@@ -13,19 +13,27 @@ using KimiK3LanguageModel = infinilm::layers::causal_lm_templates::TextCausalLM<
 class KimiK3ForConditionalGeneration : public infinilm::InfinilmModel {
 public:
     KimiK3ForConditionalGeneration(
+    infinilm::runtime::Runtime &runtime,
         std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const infinicore::Device &device);
+    const engine::distributed::RankInfo &rank_info,
+    backends::AttentionBackend attention_backend,
+    const layers::moe::EPConfig &ep_config);
 
-    Output forward(const Input &input) const override;
-    void reset_cache(const cache::CacheConfig *cache_config) override;
+    Output forward(const Input &input, global_state::ForwardContext &forward_context) const override;
+    void reset_cache(const cache::CacheConfig *cache_config,
+                     global_state::ForwardContext &forward_context,
+                     backends::AttentionBackend attention_backend,
+                     const engine::distributed::RankInfo &rank_info) override;
 
 private:
-    void replace_image_embeddings(infinicore::Tensor &inputs_embeds,
-                                  const Input &input) const;
+    size_t owner_tp_size_{1}, owner_pp_size_{1}, owner_pp_stage_{0};
+    void replace_image_embeddings(infinilm::runtime::Tensor &inputs_embeds,
+                                  const Input &input,
+                                  global_state::ForwardContext &forward_context) const;
 
-    INFINICORE_NN_MODULE(KimiK3VisionTower, vision_tower);
-    INFINICORE_NN_MODULE(KimiK3Projector, mm_projector);
-    INFINICORE_NN_MODULE(KimiK3LanguageModel, language_model);
+    std::shared_ptr<KimiK3VisionTower> vision_tower_;
+    std::shared_ptr<KimiK3Projector> mm_projector_;
+    std::shared_ptr<KimiK3LanguageModel> language_model_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig>

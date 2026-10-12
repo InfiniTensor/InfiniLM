@@ -24,7 +24,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_internlm3_model_config(
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     internlm3,
     infinilm::models::internlm3::InternLM3ForCausalLM,
     infinilm::models::internlm3::create_internlm3_model_config);

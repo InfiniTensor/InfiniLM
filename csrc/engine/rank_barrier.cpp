@@ -1,11 +1,26 @@
 #include "rank_barrier.hpp"
 
+#include <stdexcept>
+
 namespace infinilm::engine {
-RankBarrier::RankBarrier(size_t num_ranks) : thread_count_(num_ranks), generation_(0), arrived_(0) {}
+RankBarrier::RankBarrier(size_t num_ranks) : thread_count_(num_ranks) {
+    if (num_ranks == 0) {
+        throw std::invalid_argument("RankBarrier requires at least one rank");
+    }
+}
 
 void RankBarrier::wait() {
     std::unique_lock<std::mutex> lock(mutex_);
-    int gen = generation_;
+    if (broken_) {
+        auto error = first_error_;
+        lock.unlock();
+        if (error) {
+            std::rethrow_exception(error);
+        }
+        throw std::runtime_error("rank barrier aborted");
+    }
+
+    const size_t generation = generation_;
 
     if (++arrived_ == thread_count_) {
         // last thread
@@ -13,7 +28,44 @@ void RankBarrier::wait() {
         arrived_ = 0;
         cv_.notify_all();
     } else {
-        cv_.wait(lock, [&] { return gen != generation_; });
+        cv_.wait(lock, [&] { return broken_ || generation != generation_; });
     }
+
+    if (broken_) {
+        auto error = first_error_;
+        lock.unlock();
+        if (error) {
+            std::rethrow_exception(error);
+        }
+        throw std::runtime_error("rank barrier aborted");
+    }
+}
+
+void RankBarrier::abort(std::exception_ptr error) noexcept {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!broken_) {
+            broken_ = true;
+            first_error_ = error;
+        }
+        arrived_ = 0;
+        ++generation_;
+    }
+    cv_.notify_all();
+}
+
+void RankBarrier::rethrow_if_broken() const {
+    std::exception_ptr error;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!broken_) {
+            return;
+        }
+        error = first_error_;
+    }
+    if (error) {
+        std::rethrow_exception(error);
+    }
+    throw std::runtime_error("rank barrier aborted");
 }
 } // namespace infinilm::engine

@@ -37,7 +37,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_baichuan_model_config(
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     baichuan,
     infinilm::models::baichuan::BaichuanForCausalLM,
     infinilm::models::baichuan::create_baichuan_model_config);

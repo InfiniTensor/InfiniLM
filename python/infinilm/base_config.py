@@ -70,7 +70,6 @@ class BaseConfig:
         self.dp = self.args.dp
         self.ep = self.args.ep
         self.moe_ep_backend = self.args.moe_ep_backend
-        self.use_legacy_moe = self.args.use_legacy_moe
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
@@ -102,6 +101,7 @@ class BaseConfig:
         # Evaluation parameters
         self.bench = self.args.bench
         self.backend = self.args.backend
+        self._auto_detected_device = None
         self.subject = self.args.subject
         self.split = self.args.split
         self.num_samples = self.args.num_samples
@@ -171,7 +171,8 @@ class BaseConfig:
 
         # Check if auto-detected device is Metax
         if self.device.lower() == "auto":
-            detected_device = self.detect_device()
+            self._auto_detected_device = self.detect_device()
+            detected_device = self._auto_detected_device
             if detected_device.lower() == "metax":
                 self.weight_load_mode = "sync"
                 warnings.warn(
@@ -199,8 +200,8 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
-                "ali, cambricon, ascend, kunlun, hygon, or backend name "
+                "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
+                "cambricon, ascend, hygon, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
         )
@@ -238,11 +239,6 @@ class BaseConfig:
             default="auto",
             help=MOE_EP_BACKEND_HELP,
         )
-        self.parser.add_argument(
-            "--use-legacy-moe",
-            action="store_true",
-            help="use the legacy Qwen3 MoE MLP instead of the EP MoE backend",
-        )
 
         # --- Infer backend optimization ---
         self.parser.add_argument(
@@ -255,7 +251,7 @@ class BaseConfig:
         self.parser.add_argument(
             "--pre-transpose",
             action="store_true",
-            help="enable weight pre-transposition optimization (Ascend)",
+            help="enable one-time weight pre-transposition for packed GEMM",
         )
         self.parser.add_argument(
             "--use-mla",
@@ -294,7 +290,7 @@ class BaseConfig:
             "--skip-load", action="store_true", help="skip loading model weights"
         )
         self.parser.add_argument(
-            "--weight-load",
+            "--weight-load-mode",
             dest="weight_load_mode",
             type=str,
             default="async",
@@ -509,6 +505,19 @@ class BaseConfig:
 
     def detect_device(self):
         """Detect the local accelerator platform, falling back to CPU."""
+        if self.backend in {"cpp", "infinilm", "python"}:
+            # The native backend must not infer availability from a vendor CLI
+            # or require an optional Torch provider to be installed.
+            infinicore = importlib.import_module("infinilm._core")
+            for device_name in (
+                "cambricon", "ascend", "moore", "metax", "hygon",
+                "iluvatar", "nvidia",
+            ):
+                if infinicore.get_device_count(device_name) > 0:
+                    return device_name
+            return "cpu"
+
+        # Reference backends retain their original Torch/provider detection.
         torch_checks = [
             ("cambricon", "mlu"),
             ("ascend", "npu"),
@@ -532,7 +541,6 @@ class BaseConfig:
             ("moore", ["mthreads-gmi"]),
             ("metax", ["mx-smi", "ht-smi"]),
             ("hygon", ["hy-smi"]),
-            ("ali", ["ppu-smi"]),
             ("iluvatar", ["ixsmi"]),
             ("nvidia", ["nvidia-smi"]),
         ]
@@ -554,21 +562,26 @@ class BaseConfig:
             "musa": "musa",
             "npu": "npu",
             "nvidia": "cuda",
-            "qy": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
-            "metax": "cuda",
+            "metax": "metax",
             "moore": "musa",
-            "iluvatar": "cuda",
-            "kunlun": "cuda",
-            "hygon": "cuda",
-            "ali": "cuda",
+            "iluvatar": "iluvatar",
+            "hygon": "hygon",
         }
         device = device.lower()
         if device == "auto":
-            device = self.detect_device()
+            if self._auto_detected_device is None:
+                self._auto_detected_device = self.detect_device()
+            device = self._auto_detected_device
             print(f"Auto-detected device platform: {device}")
-        return DEVICE_STR_MAP.get(device, "cpu")
+        try:
+            return DEVICE_STR_MAP[device]
+        except KeyError:
+            supported = ", ".join(sorted(DEVICE_STR_MAP))
+            raise ValueError(
+                f"unsupported device platform {device!r}; expected one of: {supported}"
+            ) from None
 
     def __repr__(self):
         """String representation of configuration"""

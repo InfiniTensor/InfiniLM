@@ -3,7 +3,6 @@ from typing import List, Optional, Union
 from transformers.models.llama import LlamaTokenizerFast
 
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
 class DeepseekTokenizerFast(LlamaTokenizerFast):
@@ -33,7 +32,6 @@ class DeepseekTokenizerFast(LlamaTokenizerFast):
         return token if token is not None else ""
 
 
-@register_processor("deepseek")
 class DeepSeekProcessor(BasicLLMProcessor):
     """Processor for DeepSeek MoE V1 models (model_type=deepseek)."""
 

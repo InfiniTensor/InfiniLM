@@ -1,6 +1,6 @@
 #pragma once
 
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <numeric>
@@ -12,7 +12,7 @@ namespace infinilm::models::debug_utils {
 // Helper function to log tensor statistics and sample values
 // This is useful for debugging intermediate values in model forward passes
 // NOTE: This is a debug utility. Do not use in production code.
-inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string &name,
+inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std::string &name,
                              bool log_samples = true, size_t max_samples = 10) {
     auto shape = tensor->shape();
     auto dtype = tensor->dtype();
@@ -21,24 +21,24 @@ inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string
     // Log basic info
     std::string shape_str = "[";
     for (size_t i = 0; i < shape.size(); ++i) {
-        if (i > 0) shape_str += ", ";
+        if (i > 0) {
+            shape_str += ", ";
+        }
         shape_str += std::to_string(shape[i]);
     }
     shape_str += "]";
 
-    SPDLOG_INFO("  {}: shape={}, dtype={}, device={}", name, shape_str, static_cast<int>(dtype), device.toString());
+    SPDLOG_INFO("  {}: shape={}, dtype={}, device={}", name, shape_str, static_cast<int>(dtype), device.ToString());
 
     // For F32, F16, and BF16 tensors, compute and log statistics
-    if (dtype == infinicore::DataType::F32 ||
-        dtype == infinicore::DataType::F16 ||
-        dtype == infinicore::DataType::BF16) {
+    if (dtype == infinilm::runtime::DataType::kFloat32 || dtype == infinilm::runtime::DataType::kFloat16 || dtype == infinilm::runtime::DataType::kBFloat16) {
         // Copy to CPU if needed and compute stats
-        auto cpu_tensor = tensor->to(infinicore::Device(infinicore::Device::Type::CPU, 0));
+        auto cpu_tensor = tensor->to(infinilm::runtime::Device(infinilm::runtime::Device::Type::kCpu, 0));
         std::byte *raw_data = cpu_tensor->data();
         size_t numel = cpu_tensor->numel();
 
         if (numel > 0) {
-            if (dtype == infinicore::DataType::F32) {
+            if (dtype == infinilm::runtime::DataType::kFloat32) {
                 float *data = reinterpret_cast<float*>(raw_data);
                 float min_val = *std::min_element(data, data + numel);
                 float max_val = *std::max_element(data, data + numel);
@@ -56,7 +56,7 @@ inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string
                         SPDLOG_INFO("      [{}] = {:.6e}", i, data[i]);
                     }
                 }
-            } else if (dtype == infinicore::DataType::F16) {
+            } else if (dtype == infinilm::runtime::DataType::kFloat16) {
                 // F16 is typically uint16_t, need to convert to float for logging
                 uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
                 std::vector<float> float_data(numel);
@@ -84,7 +84,7 @@ inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string
                         SPDLOG_INFO("      [{}] = {:.6e}", i, float_data[i]);
                     }
                 }
-            } else if (dtype == infinicore::DataType::BF16) {
+            } else if (dtype == infinilm::runtime::DataType::kBFloat16) {
                 // BF16 is typically uint16_t, need to convert to float for logging
                 uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
                 std::vector<float> float_data(numel);
@@ -127,14 +127,14 @@ inline void log_tensor_stats(const infinicore::Tensor &tensor, const std::string
 
 // Helper function to log specific tensor positions (for debugging)
 // NOTE: This is a debug utility. Do not use in production code.
-inline void log_tensor_positions(const infinicore::Tensor &tensor, const std::string &name,
+inline void log_tensor_positions(const infinilm::runtime::Tensor &tensor, const std::string &name,
                                  const std::vector<std::vector<size_t>> &positions) {
     auto shape = tensor->shape();
     auto dtype = tensor->dtype();
 
     // Only log for F32 tensors (or copy to CPU)
-    if (dtype == infinicore::DataType::F32) {
-        auto cpu_tensor = tensor->to(infinicore::Device(infinicore::Device::Type::CPU, 0));
+    if (dtype == infinilm::runtime::DataType::kFloat32) {
+        auto cpu_tensor = tensor->to(infinilm::runtime::Device(infinilm::runtime::Device::Type::kCpu, 0));
         std::byte *raw_data = cpu_tensor->data();
         float *data = reinterpret_cast<float*>(raw_data);
 
@@ -162,7 +162,9 @@ inline void log_tensor_positions(const infinicore::Tensor &tensor, const std::st
             if (valid && idx < cpu_tensor->numel()) {
                 std::string pos_str = "[";
                 for (size_t i = 0; i < pos.size(); ++i) {
-                    if (i > 0) pos_str += ", ";
+                    if (i > 0) {
+                        pos_str += ", ";
+                    }
                     pos_str += std::to_string(pos[i]);
                 }
                 pos_str += "]";
@@ -170,7 +172,9 @@ inline void log_tensor_positions(const infinicore::Tensor &tensor, const std::st
             } else {
                 std::string pos_str = "[";
                 for (size_t i = 0; i < pos.size(); ++i) {
-                    if (i > 0) pos_str += ", ";
+                    if (i > 0) {
+                        pos_str += ", ";
+                    }
                     pos_str += std::to_string(pos[i]);
                 }
                 pos_str += "]";

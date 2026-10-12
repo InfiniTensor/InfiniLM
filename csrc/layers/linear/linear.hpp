@@ -2,79 +2,70 @@
 
 #include "../quantization/quantization.hpp"
 #include "base_linear.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/ops.hpp"
-#include <infiniccl.h>
+#include "../../weights/weights.hpp"
+#include <infiniccl/infiniccl.h>
 #include <optional>
 
 namespace infinilm::nn {
 
 class Linear : public BaseLinear {
 public:
-    // Without quantization (backward compat)
-    Linear(size_t in_features, size_t out_features, bool bias,
-           const infinicore::DataType &dtype = infinicore::DataType::F32,
-           const infinicore::Device &device = infinicore::Device());
+    // Runtime-first supply; output dtype defaults to the parameter dtype.
+    Linear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features, bool bias,
+           const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32,
+           std::optional<infinilm::runtime::DataType> output_dtype = std::nullopt);
 
-    // With quantization
-    Linear(size_t in_features, size_t out_features,
+    Linear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features,
            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
            bool bias = true,
-           const infinicore::DataType &dtype = infinicore::DataType::F32,
-           const infinicore::Device &device = infinicore::Device());
+           const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32);
 
-    infinicore::Tensor forward(infinicore::Tensor &input) const;
     std::string extra_repr() const;
 };
 
 class ColumnParallelLinear : public BaseLinear {
 public:
-    // Without quantization (backward compat)
-    ColumnParallelLinear(size_t in_features, size_t out_features, bool bias,
-                         const infinicore::DataType &dtype, const infinicore::Device &device,
-                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+    // Runtime-first supply.
+    ColumnParallelLinear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features, bool bias,
+                         const infinilm::runtime::DataType &dtype,
+                         infinilm::runtime::Size tp_rank = 0, infinilm::runtime::Size tp_size = 1,
                          int tp_num_heads = -1);
 
-    // With quantization
-    ColumnParallelLinear(size_t in_features, size_t out_features,
+    ColumnParallelLinear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features,
                          std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                          bool bias = true,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
-                         const infinicore::Device &device = infinicore::Device(),
-                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                         const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32,
+                         infinilm::runtime::Size tp_rank = 0, infinilm::runtime::Size tp_size = 1,
                          int tp_num_heads = -1);
 
-    infinicore::Tensor forward(infinicore::Tensor &input) const;
     std::string extra_repr() const;
 
 protected:
-    infinicore::Size tp_rank_ = 0;
-    infinicore::Size tp_size_ = 1;
+    infinilm::runtime::Size tp_rank_ = 0;
+    infinilm::runtime::Size tp_size_ = 1;
 };
 
 class RowParallelLinear : public BaseLinear {
 public:
-    // Without quantization (backward compat)
-    RowParallelLinear(size_t in_features, size_t out_features, bool bias,
-                      const infinicore::DataType &dtype, const infinicore::Device &device,
-                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+    // Runtime-first supply.
+    RowParallelLinear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features, bool bias,
+                      const infinilm::runtime::DataType &dtype,
+                      infinilm::runtime::Size tp_rank = 0, infinilm::runtime::Size tp_size = 1,
                       infinicclComm_t communicator = nullptr);
 
-    // With quantization
-    RowParallelLinear(size_t in_features, size_t out_features,
+    RowParallelLinear(infinilm::runtime::Runtime &runtime, size_t in_features, size_t out_features,
                       std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                       bool bias = true,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
-                      const infinicore::Device &device = infinicore::Device(),
-                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                      const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32,
+                      infinilm::runtime::Size tp_rank = 0, infinilm::runtime::Size tp_size = 1,
                       infinicclComm_t communicator = nullptr);
 
-    infinicore::Tensor forward(infinicore::Tensor &input) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const;
     std::string extra_repr() const;
 
 protected:
-    infinicore::Size tp_rank_ = 0;
-    infinicore::Size tp_size_ = 1;
+    infinilm::runtime::Size tp_rank_ = 0;
+    infinilm::runtime::Size tp_size_ = 1;
     infinicclComm_t communicator_;
 };
 
@@ -83,6 +74,12 @@ protected:
 #include "fused_linear.hpp"
 
 namespace infinilm::layers::linear {
+
+// Pure metadata preparation for an explicit final dense-head request.
+// Absence preserves the existing platform/dtype behavior; no provider is selected here.
+std::optional<infinilm::runtime::DataType> prepare_lm_head_output_dtype(
+    const infinilm::runtime::Device &device, infinilm::runtime::DataType weight_dtype,
+    std::optional<infinilm::runtime::DataType> requested_output_dtype);
 
 using ReplicatedLinear = infinilm::nn::Linear;
 using ColumnParallelLinear = infinilm::nn::ColumnParallelLinear;

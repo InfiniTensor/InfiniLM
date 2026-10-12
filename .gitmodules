@@ -4,3 +4,6 @@
 [submodule "third_party/json"]
 	path = third_party/json
 	url = https://github.com/nlohmann/json.git
+[submodule "third_party/InfiniCore"]
+	path = third_party/InfiniCore
+	url = https://github.com/InfiniTensor/InfiniCore.git

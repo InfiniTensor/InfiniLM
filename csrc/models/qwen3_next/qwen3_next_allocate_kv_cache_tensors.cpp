@@ -2,8 +2,9 @@
 
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
-#include "infinicore/context/context.hpp"
+#include "runtime/runtime.hpp"
 #include <algorithm>
+#include <exception>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -11,12 +12,15 @@
 namespace infinilm::models::qwen3_next {
 
 AllocatedHybridCache qwen3_next_allocate_cache_tensors(
+    infinilm::runtime::Runtime &runtime,
+    const engine::distributed::RankInfo &rank_info,
     const cache::CacheConfig *cache_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
     const backends::AttentionBackend &attention_backend) {
     if (nullptr == cache_config) {
         return {};
     }
+    cache::validate_cache_runtime(runtime, rank_info);
     if (nullptr == text_config) {
         throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: text_config is null");
     }
@@ -35,16 +39,27 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     const auto &dtype{text_config->get_dtype()};
     const auto &kv_cache_dtype{text_config->get_kv_cache_dtype()};
     const std::vector<std::string> layer_types = text_config->get<std::vector<std::string>>("layer_types");
+    if (layer_types.size() < num_hidden_layers) {
+        throw std::invalid_argument("hybrid cache layer_types is shorter than num_hidden_layers");
+    }
+    for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        if (layer_types[layer_idx] != "linear_attention" && layer_types[layer_idx] != "full_attention") {
+            throw std::runtime_error(
+                "infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_types[layer_idx] + "' for layer " + std::to_string(layer_idx));
+        }
+    }
 
-    std::vector<infinicore::Tensor> kv_cache_vec;
-    std::vector<infinicore::Tensor> conv_state_vec;
-    std::vector<infinicore::Tensor> ssm_state_vec;
+    std::vector<infinilm::runtime::Tensor> kv_cache_vec;
+    std::vector<infinilm::runtime::Tensor> conv_state_vec;
+    std::vector<infinilm::runtime::Tensor> ssm_state_vec;
     kv_cache_vec.reserve(num_hidden_layers);
     conv_state_vec.reserve(num_hidden_layers);
     ssm_state_vec.reserve(num_hidden_layers);
 
+    infinilm::runtime::Tensor pending_conv_state, pending_ssm_state, pending_kv_cache;
     auto allocate_linear_attention_cache = [&](size_t layer_idx, size_t pool_size) {
-        auto conv_state = cache::MambaCache::create_layer_conv_state(
+        pending_conv_state = cache::MambaCache::create_layer_conv_state(
+            runtime, rank_info,
             linear_key_head_dim,
             linear_value_head_dim,
             linear_num_key_heads,
@@ -52,7 +67,8 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             linear_conv_kernel_dim,
             dtype,
             pool_size);
-        auto ssm_state = cache::MambaCache::create_layer_ssm_state(
+        pending_ssm_state = cache::MambaCache::create_layer_ssm_state(
+            runtime, rank_info,
             linear_key_head_dim,
             linear_value_head_dim,
             linear_num_key_heads,
@@ -61,12 +77,13 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             pool_size);
 
         kv_cache_vec.emplace_back();
-        conv_state_vec.push_back(std::move(conv_state));
-        ssm_state_vec.push_back(std::move(ssm_state));
+        conv_state_vec.push_back(std::move(pending_conv_state));
+        ssm_state_vec.push_back(std::move(pending_ssm_state));
     };
 
     auto allocate_static_full_attention_cache = [&](size_t layer_idx, const cache::StaticKVCacheConfig &config) {
-        auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
+        pending_kv_cache = cache::StaticKVCache::create_layer_kv_cache(
+            runtime, rank_info,
             head_dim,
             head_dim,
             num_key_value_heads,
@@ -75,13 +92,14 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             kv_cache_dtype,
             config);
 
-        kv_cache_vec.push_back(std::move(kv_cache));
+        kv_cache_vec.push_back(std::move(pending_kv_cache));
         conv_state_vec.emplace_back();
         ssm_state_vec.emplace_back();
     };
 
     auto allocate_paged_full_attention_cache = [&](size_t layer_idx, const cache::PagedKVCacheConfig &config) {
-        auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
+        pending_kv_cache = cache::PagedKVCache::create_layer_kv_cache(
+            runtime, rank_info,
             head_dim,
             head_dim,
             num_key_value_heads,
@@ -89,11 +107,12 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             kv_cache_dtype,
             config);
 
-        kv_cache_vec.push_back(std::move(kv_cache));
+        kv_cache_vec.push_back(std::move(pending_kv_cache));
         conv_state_vec.emplace_back();
         ssm_state_vec.emplace_back();
     };
 
+    try {
     switch (attention_backend) {
     case backends::AttentionBackend::STATIC_ATTN: {
         auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
@@ -137,6 +156,12 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     }
     default:
         throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
+    }
+    } catch (...) {
+        // Earlier layers and the current pending destination outlive the owner drain.
+        const auto failure = std::current_exception();
+        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        std::rethrow_exception(failure);
     }
     return AllocatedHybridCache{
         std::move(kv_cache_vec),

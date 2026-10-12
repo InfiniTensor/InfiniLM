@@ -1,6 +1,6 @@
 #pragma once
 #include "../engine/distributed/distributed.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 
 namespace infinilm::cache {
 class Cache {

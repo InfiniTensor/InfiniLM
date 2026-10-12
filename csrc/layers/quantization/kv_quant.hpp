@@ -1,8 +1,10 @@
 #pragma once
 
 #include "quantization_scheme.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 #include <utility>
+
+namespace infinilm::runtime { class Runtime; }
 
 namespace infinilm {
 
@@ -17,11 +19,10 @@ public:
      * @param v_scale Scale for V
      */
     static void quantize(
-        infinicore::Tensor &k,
-        infinicore::Tensor &v,
+        infinilm::runtime::Runtime &runtime,
+        infinilm::runtime::Tensor &k, infinilm::runtime::Tensor &v,
         infinilm::quantization::KVQuantAlgo algo,
-        const infinicore::Tensor &k_scale,
-        const infinicore::Tensor &v_scale);
+        const infinilm::runtime::Tensor &k_scale, const infinilm::runtime::Tensor &v_scale);
 
     /**
      * @brief Dequantize K/V (after reading from cache) - modifies k and v in-place
@@ -33,12 +34,11 @@ public:
      * @param reference Reference tensor (used to obtain dtype/device)
      */
     static void dequantize(
-        infinicore::Tensor &k,
-        infinicore::Tensor &v,
+        infinilm::runtime::Runtime &runtime,
+        infinilm::runtime::Tensor &k, infinilm::runtime::Tensor &v,
         infinilm::quantization::KVQuantAlgo algo,
-        const infinicore::Tensor &k_scale,
-        const infinicore::Tensor &v_scale,
-        const infinicore::Tensor &reference);
+        const infinilm::runtime::Tensor &k_scale, const infinilm::runtime::Tensor &v_scale,
+        const infinilm::runtime::Tensor &reference);
 };
 
 } // namespace infinilm

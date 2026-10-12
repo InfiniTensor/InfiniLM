@@ -1,8 +1,5 @@
 #include "ep_config.hpp"
 
-#include "../../../global_state/global_state.hpp"
-#include "../../../global_state/parallel_state.hpp"
-
 #include <algorithm>
 #include <cctype>
 #include <stdexcept>
@@ -51,12 +48,12 @@ const char *ep_backend_name(EPBackend backend) {
     return "unknown";
 }
 
-EPConfig make_ep_config() {
+EPConfig make_ep_config(const std::string &backend_name, size_t configured_ep_size,
+                        size_t tp_size, size_t tp_rank) {
     EPConfig config;
-    const auto &infinilm_config = infinilm::global_state::get_infinilm_config();
-    std::string backend = lower_string(infinilm_config.moe_ep_backend);
+    std::string backend = lower_string(backend_name);
     if (backend == "auto") {
-        backend = infinilm_config.moe_ep_size > 1 ? "local_allreduce" : "disabled";
+        backend = configured_ep_size > 1 ? "local_allreduce" : "disabled";
     }
     config.backend = parse_backend(backend);
 
@@ -68,9 +65,7 @@ EPConfig make_ep_config() {
         config.deepep_mode = DeepEPMode::Auto;
     }
 
-    const size_t tp_size = infinilm::global_state::get_tensor_model_parallel_world_size();
-    const size_t tp_rank = infinilm::global_state::get_tensor_model_parallel_rank();
-    config.ep_size = infinilm_config.moe_ep_size == 0 ? tp_size : infinilm_config.moe_ep_size;
+    config.ep_size = configured_ep_size == 0 ? tp_size : configured_ep_size;
     config.ep_rank = tp_rank;
 
     if (config.ep_size == 0) {

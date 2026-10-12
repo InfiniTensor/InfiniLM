@@ -10,7 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import httpx
-import infinicore
+from ... import _core as infinicore
 import numpy as np
 import msgspec
 import zmq

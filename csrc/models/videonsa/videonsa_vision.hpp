@@ -1,9 +1,9 @@
 #pragma once
 
 #include "../../layers/linear/linear.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../weights/weights.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "runtime/tensor.hpp"
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <unordered_set>
@@ -11,27 +11,27 @@
 
 namespace infinilm::models::videonsa {
 
-class VideoNSAPatchEmbed : public infinicore::nn::Module {
+class VideoNSAPatchEmbed : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAPatchEmbed(const nlohmann::json &config,
-                       const infinicore::DataType &dtype,
-                       const infinicore::Device &device);
+    VideoNSAPatchEmbed(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                       const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &pixel_values) const;
 
 private:
     size_t out_hidden_size_;
     size_t patch_dim_;
-    INFINICORE_NN_PARAMETER(proj_weight);
+    infinilm::weights::Weight proj_weight_;
 };
 
-class VideoNSAVisionAttention : public infinicore::nn::Module {
+class VideoNSAVisionAttention : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAVisionAttention(const nlohmann::json &config,
-                            const infinicore::DataType &dtype,
-                            const infinicore::Device &device);
+    VideoNSAVisionAttention(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                            const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states,
                                const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
 
 private:
@@ -40,66 +40,66 @@ private:
     size_t head_dim_;
     float scale_;
 
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, qkv);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, proj);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> qkv_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> proj_;
 };
 
-class VideoNSAVisionMLP : public infinicore::nn::Module {
+class VideoNSAVisionMLP : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAVisionMLP(const nlohmann::json &config,
-                      const infinicore::DataType &dtype,
-                      const infinicore::Device &device);
+    VideoNSAVisionMLP(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                      const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, gate_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, up_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, down_proj);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> gate_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> up_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> down_proj_;
 };
 
-class VideoNSAVisionBlock : public infinicore::nn::Module {
+class VideoNSAVisionBlock : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAVisionBlock(const nlohmann::json &config,
-                        const infinicore::DataType &dtype,
-                        const infinicore::Device &device);
+    VideoNSAVisionBlock(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                        const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states,
                                const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm1);
-    INFINICORE_NN_MODULE(VideoNSAVisionAttention, attn);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm2);
-    INFINICORE_NN_MODULE(VideoNSAVisionMLP, mlp);
+    std::shared_ptr<infinilm::layers::RMSNorm> norm1_;
+    std::shared_ptr<VideoNSAVisionAttention> attn_;
+    std::shared_ptr<infinilm::layers::RMSNorm> norm2_;
+    std::shared_ptr<VideoNSAVisionMLP> mlp_;
 };
 
-class VideoNSAPatchMerger : public infinicore::nn::Module {
+class VideoNSAPatchMerger : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAPatchMerger(const nlohmann::json &config,
-                        const infinicore::DataType &dtype,
-                        const infinicore::Device &device);
+    VideoNSAPatchMerger(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                        const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     size_t hidden_size_;
     size_t spatial_merge_unit_;
     size_t merged_size_;
 
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, ln_q);
+    std::shared_ptr<infinilm::layers::RMSNorm> ln_q_;
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> mlp_0_;
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> mlp_2_;
 };
 
-class VideoNSAVisionModel : public infinicore::nn::Module {
+class VideoNSAVisionModel : public infinilm::weights::ModelWeights {
 public:
-    VideoNSAVisionModel(const nlohmann::json &config,
-                        const infinicore::DataType &dtype,
-                        const infinicore::Device &device);
+    VideoNSAVisionModel(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                        const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &grid_thw) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &pixel_values,
+                               const infinilm::runtime::Tensor &grid_thw) const;
 
 private:
     struct WindowMetadata {
@@ -109,8 +109,10 @@ private:
         std::vector<int64_t> cu_full_seqlens;
     };
 
-    WindowMetadata build_window_metadata_(const infinicore::Tensor &grid_thw) const;
-    infinicore::Tensor gather_rows_(const infinicore::Tensor &hidden_states,
+    WindowMetadata build_window_metadata_(infinilm::runtime::Runtime &runtime,
+                                          const infinilm::runtime::Tensor &grid_thw) const;
+    infinilm::runtime::Tensor gather_rows_(infinilm::runtime::Runtime &runtime,
+                                    const infinilm::runtime::Tensor &hidden_states,
                                     const std::vector<int64_t> &row_order) const;
 
     size_t depth_;
@@ -121,9 +123,9 @@ private:
     size_t window_size_;
     std::unordered_set<size_t> fullatt_block_indexes_;
 
-    INFINICORE_NN_MODULE(VideoNSAPatchEmbed, patch_embed);
-    INFINICORE_NN_MODULE_VEC(VideoNSAVisionBlock, blocks);
-    INFINICORE_NN_MODULE(VideoNSAPatchMerger, merger);
+    std::shared_ptr<VideoNSAPatchEmbed> patch_embed_;
+    std::vector<std::shared_ptr<VideoNSAVisionBlock>> blocks_;
+    std::shared_ptr<VideoNSAPatchMerger> merger_;
 };
 
 } // namespace infinilm::models::videonsa

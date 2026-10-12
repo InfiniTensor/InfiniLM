@@ -1,18 +1,16 @@
 import json
 import os
 
-import infinicore
+from .. import _core as infinicore
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
-@register_processor("kimi_k3")
 class KimiK3Processor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         with open(os.path.join(model_dir_path, "config.json"), "r") as file:
@@ -20,8 +18,6 @@ class KimiK3Processor(BasicLLMProcessor):
         self.media_token_id = int(config["media_placeholder_token_id"])
         dtype_name = config.get("dtype", "bfloat16")
         self.pixel_values_dtype = getattr(torch, str(dtype_name))
-        from transformers import AutoProcessor
-
         self.processor = AutoProcessor.from_pretrained(
             model_dir_path, trust_remote_code=True
         )

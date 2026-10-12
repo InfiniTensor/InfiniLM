@@ -1,15 +1,21 @@
-import gc
+from __future__ import annotations
+
 import glob
 import json
+import math
 import os
 import re
 import time
-from typing import Dict, List, Optional, Tuple, Union
+import zipfile
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
-import infinicore
-import torch
-from safetensors import safe_open
+from . import _core as infinicore
 from tqdm import tqdm
+
+from ._safetensors_mmap import SafeTensorsMmap
+
+if TYPE_CHECKING:
+    from .infer_engine import InferEngine
 
 
 def _get_scale_emb(model_path: str) -> float:
@@ -40,75 +46,80 @@ def parse_dtype(dtype_str: str):
         raise ValueError(f"Unknown dtype string: {dtype_str}")
 
 
-str_to_torch_dtype = {
-    "BOOL": torch.bool,
-    "U8": torch.uint8,
-    "I8": torch.int8,
-    "I16": torch.int16,
-    "F16": torch.float16,
-    "BF16": torch.bfloat16,
-    "I32": torch.int32,
-    "F32": torch.float32,
-    "F64": torch.float64,
-    "I64": torch.int64,
-    "F8_E4M3": torch.float8_e4m3fn,
-    "F8_E5M2": torch.float8_e5m2,
-}
+def _require_torch_checkpoint(operation):
+    """Describe the optional bridge without hiding a broken Torch installation."""
+    import importlib
+
+    try:
+        return importlib.import_module("torch")
+    except ModuleNotFoundError as exc:
+        if exc.name != "torch":
+            raise
+        raise ImportError(
+            f"{operation} requires the optional Torch checkpoint compatibility path; "
+            "install InfiniLM[torch-compat]. This path is not Torch-free."
+        ) from exc
 
 
-def _is_internal_moe_packed_weight(key: str) -> bool:
-    # InfiniLM registers packed MoE parameters internally. HF checkpoints
-    # provide per-expert gate/up/down weights instead, so these packed tensors
-    # are expected missing keys during non-strict checkpoint loading.
-    return (
-        key.endswith(".mlp.experts.w13_weight")
-        or key.endswith(".mlp.experts.w2_weight")
-        or key.endswith(".mlp.experts.w1")
-        or key.endswith(".mlp.experts.w2")
+def _load_pytorch_bin(file_path: str) -> Dict[str, torch.Tensor]:
+    torch = _require_torch_checkpoint(".bin checkpoint loading")
+
+    load_kwargs = {
+        "weights_only": True,
+        "map_location": "cpu",
+    }
+    if zipfile.is_zipfile(file_path):
+        load_kwargs["mmap"] = True
+    return torch.load(file_path, **load_kwargs)
+
+
+def _declares_tied_embeddings(config: dict | None) -> bool:
+    if not config:
+        return False
+    if config.get("model_type") == "gpt2":
+        tied = config.get("tie_word_embeddings", True)
+        if not isinstance(tied, bool):
+            raise ValueError("GPT2 tie_word_embeddings must be a boolean")
+        return tied
+    if "tie_word_embeddings" in config:
+        return bool(config["tie_word_embeddings"])
+    text_config = config.get("text_config")
+    return isinstance(text_config, dict) and bool(
+        text_config.get("tie_word_embeddings", False)
     )
 
 
-def check_parameters(model_keys: list, already_loaded_keys: list):
-    model_keys = set(model_keys)
-    already_loaded_keys = set(already_loaded_keys)
-    intersection = model_keys & already_loaded_keys
-
-    missing_keys = {
-        key
-        for key in model_keys - intersection
-        if not _is_internal_moe_packed_weight(key)
-    }
-    unexpected_keys = already_loaded_keys - intersection
-    error_msgs: list[str] = []
-
-    if len(unexpected_keys) > 0:
-        error_msgs.append(
-            "Unexpected key(s) in state_dict: {}. ".format(
-                ", ".join('"{}"'.format(k) for k in unexpected_keys)
-            )
-        )
-    if len(missing_keys) > 0:
-        error_msgs.append(
-            "Missing key(s) in state_dict: {}. ".format(
-                ", ".join('"{}"'.format(k) for k in missing_keys)
-            )
-        )
-
-    if len(error_msgs) > 0:
-        raise RuntimeError(
-            "Error(s) in loading state_dict\n\t{}".format("\n\t".join(error_msgs))
-        )
+def _borrow_checkpoint_tensor(tensor) -> infinicore.Tensor:
+    """Borrow a CPU checkpoint tensor until the rank-local copy has completed."""
+    if isinstance(tensor, infinicore.Tensor):
+        if tensor.device.type != "cpu":
+            raise ValueError("checkpoint tensor borrowing requires CPU storage")
+        return tensor
+    if tensor.device.type != "cpu":
+        raise ValueError("checkpoint tensor borrowing requires CPU storage")
+    owner = tensor.detach().contiguous()
+    return infinicore.from_blob(
+        owner.data_ptr(), list(owner.shape),
+        dtype=infinicore.utils.to_infinicore_dtype(owner.dtype),
+        device="cpu", owner=owner,
+    )
 
 
 def load_state_dict(
     checkpoint_file: Union[str, os.PathLike],
     device="cpu",
-    dtype=torch.bfloat16,
+    dtype=None,
     preserve_fp32_suffixes: Tuple[str, ...] = (".e_score_correction_bias",),
+    keys=None,
 ) -> Dict[str, torch.Tensor]:
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
     """
+    torch = _require_torch_checkpoint("legacy safetensors framework=pt loading")
+    from safetensors import safe_open
+
+    if dtype is None:
+        dtype = torch.bfloat16
 
     if not checkpoint_file.endswith(".safetensors"):
         return {}
@@ -126,7 +137,10 @@ def load_state_dict(
                 f"The safetensors archive passed at {checkpoint_file} does not contain the valid metadata."
             )
 
-        for k in f.keys():
+        names = list(f.keys()) if keys is None else list(keys)
+        if not set(names).issubset(f.keys()):
+            raise KeyError("Selected checkpoint keys are absent from the shard")
+        for k in names:
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
             if tensor.is_floating_point() and not preserve_fp32:
@@ -138,298 +152,318 @@ def load_state_dict(
     return state_dict
 
 
-def get_model_state_dict(
-    model_path: str,
-    device: infinicore.device,
-    dtype=infinicore.dtype,
-) -> Dict[str, infinicore.Tensor]:
-    """
-    Load the model weights.
-    """
+def _cast_checkpoint_tensor(tensor, dtype):
+    """Keep the optional Torch bridge; native CPU storage uses the existing Cast."""
+    if not isinstance(tensor, infinicore.Tensor):
+        return tensor.to(dtype=infinicore.utils.to_torch_dtype(dtype))
+    if tensor.device.type != "cpu":
+        raise ValueError("checkpoint conversion requires CPU storage")
+    if tensor.dtype == dtype:
+        return tensor
+    from .lib import _infinilm
 
-    print(" read weights ......")
-    t1 = time.time()
+    converted = infinicore.empty(tensor.shape, dtype=dtype, device="cpu")
+    _infinilm._cast_checkpoint_tensor_(tensor._underlying, converted._underlying)
+    return converted
 
-    torch_device = device.type
-    torch_dtype = infinicore.utils.to_torch_dtype(dtype)
 
-    # --------------------------------------------------------- #
-    #          Load weights from  all *.safetensors files
-    # --------------------------------------------------------- #
-    model_param = {}
-    for file_path in glob.glob(os.path.join(model_path, "*.safetensors")):
-        model_param.update(
-            load_state_dict(file_path, device=torch_device, dtype=torch_dtype)
-        )
+def _scale_checkpoint_tensor(tensor, alpha):
+    """Preserve the Torch bridge; native CPU scaling is owned by Ops."""
+    if not isinstance(tensor, infinicore.Tensor):
+        return tensor * alpha
+    from .lib import _infinilm
 
-    # Apply scale_emb for fm9g models (embed_tokens uses lookup, not GEMM)
-    scale_emb = _get_scale_emb(model_path)
-    embed_tokens_unscaled = None
-    if "model.embed_tokens.weight" in model_param:
-        embed_tokens_unscaled = model_param["model.embed_tokens.weight"]
-        if scale_emb != 1.0:
-            model_param["model.embed_tokens.weight"] = embed_tokens_unscaled * float(
-                scale_emb
-            )
+    scaled = infinicore.empty(tensor.shape, dtype=tensor.dtype, device="cpu")
+    _infinilm._scale_checkpoint_tensor_(
+        tensor._underlying, alpha, scaled._underlying)
+    return scaled
 
-    if model_param.get("lm_head.weight", None) is None:
-        # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
-        if embed_tokens_unscaled is not None:
-            model_param["lm_head.weight"] = embed_tokens_unscaled
 
-    # --------------------------------------------------------- #
-    #         model_param_infini references torch.Tensor
-    # --------------------------------------------------------- #
-    model_param_infini = {}
-    for key in model_param.keys():
-        model_param_infini[key] = infinicore.from_torch(model_param[key])
+def _normalize_checkpoint_tensor(tensor, eps=1e-12):
+    """Keep the optional Torch bridge; native row L2 arithmetic belongs to Ops."""
+    if not isinstance(tensor, infinicore.Tensor):
+        import torch.nn.functional as F
 
-    t2 = time.time()
-    print(f" read weights over! {(t2 - t1) * 1000} ms \n")
-    return model_param_infini
+        return F.normalize(tensor, p=2, dim=-1, eps=eps)
+    from .lib import _infinilm
+
+    normalized = infinicore.empty(tensor.shape, dtype=tensor.dtype, device="cpu")
+    _infinilm._normalize_checkpoint_tensor_(
+        tensor._underlying, eps, normalized._underlying)
+    return normalized
+
+
+def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, keys=None):
+    """Borrow dense storage, using Ops for qualified CPU float conversions."""
+    if raw:
+        types = {"U8": infinicore.uint8, "I8": infinicore.int8,
+                 "I16": infinicore.int16, "I32": infinicore.int32,
+                 "I64": infinicore.int64, "F16": infinicore.float16,
+                 "BF16": infinicore.bfloat16, "F32": infinicore.float32,
+                 "F64": infinicore.float64}
+        cast_types = (infinicore.float32, infinicore.float16, infinicore.bfloat16)
+        with SafeTensorsMmap(file_path) as shard:
+            if shard.metadata is not None and shard.metadata.get("format") not in ("pt", "tf", "flax", "mlx"):
+                raise OSError(f"Invalid safetensors metadata at {file_path}")
+            names = list(shard.tensors) if keys is None else list(keys)
+            if not set(names).issubset(shard.tensors):
+                raise KeyError("Selected checkpoint keys are absent from the shard")
+            # Default None retains the whole-shard contract; selected reads only
+            # expose requested keys and keep unrelated tensors out of host memory.
+            compatible = all(
+                info.dtype in types and (
+                    not info.dtype.startswith(("F", "BF"))
+                    or name.endswith(preserve_fp32_suffixes)
+                    or types[info.dtype] == dtype
+                    or (types[info.dtype] in cast_types and dtype in cast_types))
+                for name, info in ((name, shard.tensors[name]) for name in names))
+            if compatible:
+                tensors = {}
+                for name in names:
+                    info = shard.tensors[name]
+                    owner = shard.tensor_bytes(name)
+                    tensor = infinicore.from_blob(
+                        owner.ctypes.data, list(info.shape), dtype=types[info.dtype],
+                        device="cpu", owner=owner)
+                    if (types[info.dtype] in cast_types and types[info.dtype] != dtype
+                            and not name.endswith(preserve_fp32_suffixes)):
+                        tensor = _cast_checkpoint_tensor(tensor, dtype)
+                    tensors[name] = tensor
+                    del tensor, owner
+                return tensors
+    _require_torch_checkpoint("unqualified safetensors checkpoint fallback")
+    selection = {} if keys is None else {"keys": keys}
+    return load_state_dict(
+        file_path, device="cpu", dtype=infinicore.utils.to_torch_dtype(dtype),
+        preserve_fp32_suffixes=preserve_fp32_suffixes, **selection)
 
 
 def load_model_state_dict_by_file(
-    model: infinicore.nn.Module,
+    model: InferEngine,
     model_path: str,
     dtype=infinicore.dtype,
 ) -> Dict[str, infinicore.Tensor]:
-    """
-    Load the model weights from file.
-    """
+    """Load through one publication/tie/finalization transaction."""
     print(" load weights ......")
     t1 = time.time()
 
     model_type = model.hf_config.get("model_type", "")
+    is_ernie = model_type == "ernie4_5_moe_vl"
+    tie_word_embeddings = _declares_tied_embeddings(model.hf_config)
     preserve_fp32_suffixes = (".e_score_correction_bias",)
     if model_type == "kimi_k3":
         preserve_fp32_suffixes += (".A_log", ".dt_bias")
+    elif model_type == "ernie4_5_moe_vl":
+        preserve_fp32_suffixes += (".mlp.gate.weight", ".mlp.gate.weight_1")
 
-    torch_device = "cpu"
-    torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     model_keys = model.state_dict_keyname()
     model_key_set = set(model_keys)
     dist_config = getattr(model, "distributed_config", None)
     is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
     scale_emb = _get_scale_emb(model_path)
-
     already_loaded_keys = []
     embed_tokens_torch_unscaled = None
-    weights_processed = False
-
     remapper = _WEIGHT_REMAPPER.get(model_type)
+    is_qwen35 = remapper in (_remap_qwen3_5, _remap_qwen3_5_moe)
+    is_baichuan2 = remapper is _remap_baichuan and _is_baichuan2(model.hf_config)
+    tie_embedding_key = (
+        "backbone.embeddings.weight" if remapper is _remap_mamba
+        else "model.language_model.embed_tokens.weight" if is_qwen35
+        else "model.embed_tokens.weight"
+    )
+    quantization_config = model.hf_config.get("quantization_config")
+    raw_w4 = (model_type == "qwen3" and remapper is None
+              and isinstance(quantization_config, dict)
+              and quantization_config.get("quant_method") in ("awq", "gptq"))
+    # Ernie uses selected native reads through its single group iterator below.
+    raw_checkpoint = (not is_ernie
+                      and (remapper in (None, _remap_mamba, _remap_glm4,
+                                        _remap_chatglm, _remap_videonsa, _remap_gpt2,
+                                        _remap_qwen3_next, _remap_qwen3_5,
+                                        _remap_qwen3_5_moe, _remap_kimi_k3)
+                           or (remapper is _remap_baichuan
+                               and (not is_baichuan2 or dtype in (
+                                   infinicore.float32, infinicore.float16,
+                                   infinicore.bfloat16))))
+                      and (scale_emb == 1.0 or dtype in (
+                          infinicore.float32, infinicore.float16, infinicore.bfloat16))
+                      and (not quantization_config or raw_w4))
 
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
+    weight_map = None
     if os.path.exists(index_file_path):
-        # Priority 1: If the index file exists, strictly load exactly what it maps to.
-        # This handles all standard sharded models perfectly, regardless of their actual prefix.
         print(f"Found index file: {index_file_path}. Loading shards by index.")
         with open(index_file_path, "r") as f:
-            index_data = json.load(f)
+            index_data = (json.load(f, object_pairs_hook=_ernie_unique_index)
+                          if is_ernie else json.load(f))
         weight_map = index_data.get("weight_map", {})
-        unique_filenames = set(weight_map.values())
-        file_list = [os.path.join(model_path, fname) for fname in unique_filenames]
+        if is_ernie:
+            if not isinstance(weight_map, dict) or not weight_map or any(
+                not isinstance(name, str) or not isinstance(filename, str)
+                for name, filename in weight_map.items()
+            ):
+                raise ValueError("ERNIE checkpoint index requires a nonempty string weight_map")
+            root = os.path.realpath(model_path)
+            resolved = {}
+            for name, filename in weight_map.items():
+                file_path = os.path.realpath(os.path.join(root, filename))
+                if (os.path.isabs(filename) or
+                        os.path.commonpath((root, file_path)) != root):
+                    raise ValueError("ERNIE checkpoint shard must stay within the model directory")
+                resolved[name] = file_path
+            weight_map = resolved
+            file_list = sorted(set(weight_map.values()))
+        else:
+            unique_filenames = sorted(set(weight_map.values()))
+            file_list = [os.path.join(model_path, fname) for fname in unique_filenames]
     else:
-        # Priority 2: If no index file, scan all safetensors files.
         print("No index file found. Scanning all safetensors files...")
         file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
+    is_bin = not file_list
 
-    if len(file_list) > 0:
-        for file_path in tqdm(file_list, desc="Processing files"):
-            tqdm.write(f"Processing: {os.path.basename(file_path)}")
+    def checkpoint_batches():
+        if is_ernie:
+            if file_list:
+                catalog = _ernie_checkpoint_catalog(file_list, weight_map)
 
-            # --------------------------------------------------------- #
-            #          Load weights from *.safetensors file
-            # --------------------------------------------------------- #
-            model_param = load_state_dict(
-                file_path,
-                device=torch_device,
-                dtype=torch_dtype,
-                preserve_fp32_suffixes=preserve_fp32_suffixes,
-            )
+                def read_keys(file_path, names):
+                    raw = True
+                    if names and all(re.fullmatch(
+                        r"model\.layers\.\d+\.mlp\.experts\.\d+\."
+                        r"(?:gate_proj|up_proj|down_proj)\.(?:weight|bias)", name
+                    ) for name in names):
+                        with SafeTensorsMmap(file_path) as shard:
+                            raw = all(shard.tensors[name].dtype in ("F16", "BF16", "F32")
+                                      for name in names)
+                    return _load_checkpoint_shard(
+                        file_path, dtype, preserve_fp32_suffixes, raw=raw, keys=names)
+            else:
+                file_path = os.path.join(model_path, "pytorch_model.bin")
+                if not os.path.exists(file_path):
+                    raise KeyError("Weight file not found.")
+                source = _load_pytorch_bin(file_path)
+                catalog = {name: (None, tuple(tensor.shape)) for name, tensor in source.items()}
 
-            # Apply model-specific weight remapping
+                def read_keys(_file_path, names):
+                    return {name: source.pop(name) for name in names}
+
+            for label, params in _iter_ernie_checkpoint_batches(
+                catalog, read_keys, model.hf_config, dtype
+            ):
+                try:
+                    yield label, params, False
+                finally:
+                    del params
+            return
+        if file_list:
+            for file_path in file_list:
+                shard_raw = raw_checkpoint
+                selection = {}
+                if shard_raw and (scale_emb != 1.0 or is_baichuan2 or remapper in (
+                    _remap_qwen3_next, _remap_qwen3_5, _remap_qwen3_5_moe
+                )):
+                    with SafeTensorsMmap(file_path) as shard:
+                        if is_qwen35:
+                            selection["keys"] = sorted(shard.tensors)
+                        if is_baichuan2:
+                            head = shard.tensors.get("lm_head.weight")
+                            if head is not None and (
+                                head.dtype not in ("F16", "BF16", "F32")
+                                or len(head.shape) != 2
+                            ):
+                                shard_raw = False
+                        if scale_emb != 1.0:
+                            embedding = shard.tensors.get("model.embed_tokens.weight")
+                            if embedding is not None and embedding.dtype not in ("F16", "BF16", "F32"):
+                                shard_raw = False
+                        shard_raw = shard_raw and all(
+                            info.dtype in ("F16", "BF16", "F32")
+                            for name, info in shard.tensors.items()
+                            if _is_qwen_offset_norm(name))
+                params = _load_checkpoint_shard(
+                    file_path, dtype, preserve_fp32_suffixes, raw=shard_raw, **selection)
+                if remapper is not None:
+                    if remapper in (
+                        _remap_mamba, _remap_gpt2, _remap_qwen3_5, _remap_qwen3_5_moe
+                    ):
+                        params = remapper(params, config=model.hf_config, defer_tie=True)
+                    else:
+                        params = remapper(params, config=model.hf_config)
+                try:
+                    yield os.path.basename(file_path), params, False
+                finally:
+                    params.clear()
+                    del params
+        elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
+            params = _load_pytorch_bin(os.path.join(model_path, "pytorch_model.bin"))
             if remapper is not None:
-                model_param = remapper(model_param, config=model.hf_config)
+                if is_qwen35:
+                    params = remapper(params, config=model.hf_config, defer_tie=True)
+                else:
+                    params = remapper(params, config=model.hf_config)
+            try:
+                yield "pytorch_model.bin", params, True
+            finally:
+                params.clear()
+                del params
+        else:
+            raise KeyError("Weight file not found.")
 
-            # --------------------------------------------------------- #
-            #         Scale embed_tokens on torch side before converting
-            # --------------------------------------------------------- #
-            if "model.embed_tokens.weight" in model_param:
-                embed_tokens_torch_unscaled = model_param["model.embed_tokens.weight"]
-                if scale_emb != 1.0:
-                    model_param["model.embed_tokens.weight"] = (
-                        embed_tokens_torch_unscaled * float(scale_emb)
-                    )
-
-            if is_pipeline_parallel:
-                model_param = {
-                    key: tensor
-                    for key, tensor in model_param.items()
-                    if key in model_key_set
-                }
-
-            already_loaded_keys.extend(model_param.keys())
-
-            # --------------------------------------------------------- #
-            #         model_param_infini references torch.Tensor
-            # --------------------------------------------------------- #
-            model_param_infini = {}
-            for key in model_param.keys():
-                model_param_infini[key] = infinicore.from_torch(model_param[key])
-            model.load_state_dict(model_param_infini, strict=False)
-            infinicore.sync_device()
-            del model_param_infini
-            del model_param
-            gc.collect()
-        if not (
-            "lm_head.weight" in model_keys
-            and "lm_head.weight" not in already_loaded_keys
-            and embed_tokens_torch_unscaled is not None
-        ):
-            embed_tokens_torch_unscaled = None
-            gc.collect()
-
-        model.process_weights_after_loading()
-        weights_processed = True
-
-    elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
-        file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
-
-        # Apply model-specific weight remapping
-        remapper = _WEIGHT_REMAPPER.get(model_type)
-        if remapper is not None:
-            model_params = remapper(model_params, config=model.hf_config)
-
-        # Scale embed_tokens on torch side before converting
-        if "model.embed_tokens.weight" in model_params:
-            embed_tokens_torch_unscaled = model_params["model.embed_tokens.weight"].to(
-                dtype=torch_dtype
-            )
-            if scale_emb != 1.0:
-                model_params["model.embed_tokens.weight"] = (
-                    embed_tokens_torch_unscaled * float(scale_emb)
-                )
-
+    torch_dtype = None
+    if is_bin:
+        if not os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
+            raise KeyError("Weight file not found.")
+        _require_torch_checkpoint(".bin checkpoint loading")
+        torch_dtype = infinicore.utils.to_torch_dtype(dtype)
+    for label, model_param, strict in tqdm(checkpoint_batches(), desc="Processing files"):
+        tqdm.write(f"Processing: {label}")
+        # .bin retains its existing dtype bridge; safetensors readers already cast.
+        embedding_key = ("model.embed_tokens.weight"
+                         if is_bin and not is_qwen35 else tie_embedding_key)
+        if embedding_key in model_param:
+            embed_tokens_torch_unscaled = model_param[embedding_key]
+            if is_bin:
+                embed_tokens_torch_unscaled = _cast_checkpoint_tensor(
+                    embed_tokens_torch_unscaled, dtype)
+            if scale_emb != 1.0 and embedding_key == "model.embed_tokens.weight":
+                model_param[embedding_key] = _scale_checkpoint_tensor(
+                    embed_tokens_torch_unscaled, float(scale_emb))
         if is_pipeline_parallel:
-            model_params = {
-                key: tensor
-                for key, tensor in model_params.items()
-                if key in model_key_set
-            }
-
+            model_param = {key: tensor for key, tensor in model_param.items()
+                           if key in model_key_set}
+        already_loaded_keys.extend(model_param.keys())
         model_param_infini = {}
-        for key in model_params.keys():
-            target_dtype = (
-                model_params[key].dtype
-                if key.endswith(preserve_fp32_suffixes)
-                else torch_dtype
-            )
-            model_param_infini[key] = infinicore.from_torch(
-                model_params[key].to(dtype=target_dtype)
-            )
-            already_loaded_keys.append(key)
-
-        model.load_state_dict(model_param_infini, strict=True)
-        infinicore.sync_device()
+        for key in model_param:
+            tensor = model_param[key]
+            if is_bin:
+                if isinstance(tensor, infinicore.Tensor):
+                    if not key.endswith(preserve_fp32_suffixes):
+                        tensor = _cast_checkpoint_tensor(tensor, dtype)
+                else:
+                    target_dtype = tensor.dtype if key.endswith(preserve_fp32_suffixes) else torch_dtype
+                    tensor = tensor.to(dtype=target_dtype)
+            model_param_infini[key] = _borrow_checkpoint_tensor(tensor)
+        if model_param:
+            del tensor
+        model.load_state_dict(model_param_infini, strict=strict)
+        # Native load joins each rank's copy before these acyclic owners are released.
         del model_param_infini
-        del model_params
-        gc.collect()
-    else:
-        raise KeyError("Weight file not found.")
+        del model_param
+        if not (tie_word_embeddings and "lm_head.weight" in model_keys
+                and "lm_head.weight" not in already_loaded_keys):
+            embed_tokens_torch_unscaled = None
 
-    # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
-    # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
-    if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
+    if (tie_word_embeddings and "lm_head.weight" in model_keys
+            and "lm_head.weight" not in already_loaded_keys):
         if embed_tokens_torch_unscaled is not None:
-            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
+            lm_head_tensor = _borrow_checkpoint_tensor(embed_tokens_torch_unscaled)
             model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
             already_loaded_keys.append("lm_head.weight")
             del lm_head_tensor
             embed_tokens_torch_unscaled = None
-            gc.collect()
 
-    check_parameters(model_keys, already_loaded_keys)
-
-    if not weights_processed:
-        model.process_weights_after_loading()
-
-    t2 = time.time()
-    print(f" load weights over! {(t2 - t1) * 1000} ms \n")
-
-
-def load_model_state_dict_by_tensor(
-    model: infinicore.nn.Module,
-    model_path: str,
-    dtype=infinicore.dtype,
-):
-    """
-    Load the model weights by tensor.
-    """
-
-    print(" load weights ......")
-    t1 = time.time()
-
-    torch_dtype = infinicore.utils.to_torch_dtype(dtype)
-    model_keys = model.state_dict_keyname()
-    model_key_set = set(model_keys)
-    dist_config = getattr(model, "distributed_config", None)
-    is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
-    scale_emb = _get_scale_emb(model_path)
-    already_loaded_keys = []
-    embed_tokens_torch_unscaled = None
-
-    file_list = glob.glob(os.path.join(model_path, "*.safetensors"))
-    if len(file_list) > 0:
-        for file_path in tqdm(file_list, desc="Processing files"):
-            tqdm.write(f"Processing: {os.path.basename(file_path)}")
-
-            with safe_open(file_path, "pt", "cpu") as f:
-                for name in f.keys():
-                    tensor = f.get_tensor(name).to(dtype=torch_dtype)
-
-                    if name == "model.embed_tokens.weight":
-                        embed_tokens_torch_unscaled = tensor
-                        if scale_emb != 1.0:
-                            tensor = tensor * float(scale_emb)
-
-                    if is_pipeline_parallel and name not in model_key_set:
-                        continue
-
-                    weight_infini = infinicore.from_torch(tensor)
-                    model.load_param(name, weight_infini)
-                    already_loaded_keys.append(name)
-                    infinicore.sync_stream()
-
-    elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
-        file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
-
-        for key in model_params.keys():
-            tensor = model_params[key].to(dtype=torch_dtype)
-            if key == "model.embed_tokens.weight":
-                embed_tokens_torch_unscaled = tensor
-                if scale_emb != 1.0:
-                    tensor = tensor * float(scale_emb)
-            if is_pipeline_parallel and key not in model_key_set:
-                continue
-            weight_infini = infinicore.from_torch(tensor)
-            model.load_param(key, weight_infini)
-            already_loaded_keys.append(key)
-    else:
-        raise KeyError("Weight file not found.")
-
-    # Handle tied weights: if lm_head.weight is missing, share embed_tokens.weight
-    # Use unscaled weight for lm_head (C++ alpha handles dim_model_base scaling)
-    if "lm_head.weight" in model_keys and "lm_head.weight" not in already_loaded_keys:
-        if embed_tokens_torch_unscaled is not None:
-            lm_head_tensor = infinicore.from_torch(embed_tokens_torch_unscaled)
-            model.load_param("lm_head.weight", lm_head_tensor)
-            already_loaded_keys.append("lm_head.weight")
-
-    check_parameters(model_keys, already_loaded_keys)
-
+    # Native finalization remains the sole required-name/Ready boundary.
+    model.process_weights_after_loading()
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 
@@ -452,6 +486,8 @@ def drop_keys(
 def rename_keys(
     state_dict: Dict[str, torch.Tensor],
     mapping: Dict[str, str],
+    *,
+    reject_collision: bool = False,
 ) -> Dict[str, torch.Tensor]:
     """Rename weight keys according to a substring mapping."""
     result = {}
@@ -459,6 +495,8 @@ def rename_keys(
         new_key = key
         for old_str, new_str in mapping.items():
             new_key = new_key.replace(old_str, new_str)
+        if reject_collision and new_key in result:
+            raise ValueError(f"weight remap collision: {new_key}")
         result[new_key] = tensor
     return result
 
@@ -501,70 +539,41 @@ def split_fused_weight(
 
         # Extract base_key and suffix (handles both .weight and .bias)
         base_key, suffix = key.split(marker, 1)
-        dim_size = tensor.shape[split_dim]
+        ndim = len(tensor.shape)
+        dim = split_dim if split_dim >= 0 else split_dim + ndim
+        if dim < 0 or dim >= ndim:
+            raise IndexError(f"split dimension {split_dim} is out of range")
+        dim_size = tensor.shape[dim]
 
         # Calculate split sizes
+        if not output_names:
+            raise ValueError("fused split requires output names")
         if split_sizes is not None:
-            sizes = []
-            remainder = dim_size
-            for s in split_sizes:
-                if s == -1:
-                    sizes.append(0)  # placeholder
-                else:
-                    sizes.append(s)
-                    remainder -= s
-            # Fill -1 placeholders with remainder
-            sizes = [remainder if s == 0 else s for s in sizes]
+            if len(split_sizes) != len(output_names) or split_sizes.count(-1) > 1:
+                raise ValueError("split sizes must match output names with at most one remainder")
+            remainder = dim_size - sum(size for size in split_sizes if size != -1)
+            sizes = [remainder if size == -1 else size for size in split_sizes]
         else:
             num_splits = len(output_names)
             chunk = dim_size // num_splits
             sizes = [chunk] * (num_splits - 1)
             sizes.append(dim_size - chunk * (num_splits - 1))
 
-        splits = torch.split(tensor, sizes, dim=split_dim)
+        if any(size < 0 for size in sizes) or sum(sizes) != dim_size:
+            raise ValueError(f"invalid fused split sizes for {key}: {sizes}")
+        if isinstance(tensor, infinicore.Tensor):
+            start = 0
+            splits = []
+            for size in sizes:
+                splits.append(tensor.narrow(dim, start, size))
+                start += size
+        else:
+            splits = tensor.split(sizes, dim=split_dim)
         for name, split_tensor in zip(output_names, splits):
-            result[f"{base_key}.{name}.{suffix}"] = split_tensor
-
-    return result
-
-
-def split_fused_weight_with_sizes(
-    state_dict: Dict[str, torch.Tensor],
-    fused_key: str,
-    output_names: List[str],
-    split_sizes: List[int],
-    split_dim: int = 0,
-) -> Dict[str, torch.Tensor]:
-    """Split fused weight tensors into separate weights with explicit sizes.
-    Supports -1 in split_sizes to mean "the remaining size".
-    Handles both .weight and .bias suffixes (unlike split_fused_weight
-    which only handles .weight).
-    """
-    result = {}
-    marker = f".{fused_key}."
-
-    for key, tensor in state_dict.items():
-        if marker not in key:
-            result[key] = tensor
-            continue
-
-        base_key, suffix = key.split(marker, 1)
-        dim_size = tensor.shape[split_dim]
-
-        # Resolve -1 (remainder)
-        sizes = []
-        remainder = dim_size
-        for s in split_sizes:
-            if s == -1:
-                sizes.append(0)  # placeholder
-            else:
-                sizes.append(s)
-                remainder -= s
-        sizes = [remainder if s == 0 else s for s in sizes]
-
-        splits = torch.split(tensor, sizes, dim=split_dim)
-        for name, split_tensor in zip(output_names, splits):
-            result[f"{base_key}.{name}.{suffix}"] = split_tensor
+            output_key = f"{base_key}.{name}.{suffix}"
+            if output_key in result or output_key in state_dict:
+                raise ValueError(f"fused weight remap collision: {output_key}")
+            result[output_key] = split_tensor
 
     return result
 
@@ -599,7 +608,7 @@ def _remap_chatglm(state_dict, config=None):
     state_dict = drop_keys(state_dict, ["rotary_pos_emb"])
 
     # 2. Split QKV
-    state_dict = split_fused_weight_with_sizes(
+    state_dict = split_fused_weight(
         state_dict,
         fused_key="query_key_value",
         output_names=["q_proj", "k_proj", "v_proj"],
@@ -607,7 +616,7 @@ def _remap_chatglm(state_dict, config=None):
     )
 
     # 3. Split gate_up
-    state_dict = split_fused_weight_with_sizes(
+    state_dict = split_fused_weight(
         state_dict,
         fused_key="dense_h_to_4h",
         output_names=["gate_proj", "up_proj"],
@@ -626,6 +635,7 @@ def _remap_chatglm(state_dict, config=None):
             "self_attn.dense": "self_attn.o_proj",
             "mlp.dense_4h_to_h": "mlp.down_proj",
         },
+        reject_collision=True,
     )
 
     return state_dict
@@ -647,8 +657,6 @@ def _is_baichuan2(config):
 def _remap_baichuan(state_dict, config=None):
     """Split Baichuan fused W_pack into q_proj, k_proj, v_proj
     and apply Baichuan2-specific fixes."""
-    import torch.nn.functional as F
-
     hf_config = config or {}
     hidden_size = hf_config.get("hidden_size", 4096)
     num_heads = hf_config.get("num_attention_heads", 32)
@@ -668,14 +676,14 @@ def _remap_baichuan(state_dict, config=None):
     #    repetitive output especially under greedy decoding.
     #    (See _is_baichuan2 for how we distinguish Baichuan1 vs Baichuan2)
     if _is_baichuan2(hf_config) and "lm_head.weight" in state_dict:
-        state_dict["lm_head.weight"] = F.normalize(
-            state_dict["lm_head.weight"], p=2, dim=-1
+        state_dict["lm_head.weight"] = _normalize_checkpoint_tensor(
+            state_dict["lm_head.weight"]
         )
 
     return state_dict
 
 
-def _remap_gpt2(state_dict, config=None):
+def _remap_gpt2(state_dict, config=None, *, defer_tie=False):
     """Remap HuggingFace GPT-2 weights to InfiniLM GPT-2 module names.
 
     HuggingFace GPT-2 uses Conv1D modules whose weights are stored as
@@ -683,7 +691,13 @@ def _remap_gpt2(state_dict, config=None):
     in_features], so projection weights must be transposed.
     """
     remapped = {}
+    def publish(name, tensor):
+        if name in remapped:
+            raise ValueError(f"GPT2 weight remap collision: {name}")
+        remapped[name] = tensor
+
     for key, tensor in state_dict.items():
+        key = key.removeprefix("transformer.")
         if key.endswith((".attn.bias", ".attn.masked_bias")):
             continue
 
@@ -698,8 +712,11 @@ def _remap_gpt2(state_dict, config=None):
         elif new_key.startswith("ln_f."):
             new_key = new_key.replace("ln_f.", "model.norm.", 1)
 
-        if key.endswith(("attn.c_proj.weight", "mlp.c_fc.weight", "mlp.c_proj.weight")):
-            tensor = tensor.t().contiguous()
+        if key.endswith(("attn.c_proj.weight", "mlp.c_fc.weight", "mlp.c_proj.weight",
+                         "attn.c_attn.weight")):
+            if len(tensor.shape) != 2 or any(size <= 0 for size in tensor.shape):
+                raise ValueError(f"GPT2 Conv1D requires a positive 2D weight: {new_key}")
+            tensor = tensor.permute([1, 0])
 
         new_key = new_key.replace(".attn.c_proj.", ".attn.o_proj.")
         if new_key.endswith(".attn.o_proj.bias"):
@@ -707,36 +724,48 @@ def _remap_gpt2(state_dict, config=None):
         elif new_key.endswith(".mlp.c_proj.bias"):
             new_key = new_key.removesuffix(".mlp.c_proj.bias") + ".mlp.c_proj_bias"
 
-        if new_key.endswith(".attn.c_attn.weight"):
-            q, k, v = tensor.t().contiguous().chunk(3, dim=0)
-            prefix = new_key.removesuffix(".attn.c_attn.weight")
-            remapped[f"{prefix}.attn.q_proj.weight"] = q
-            remapped[f"{prefix}.attn.k_proj.weight"] = k
-            remapped[f"{prefix}.attn.v_proj.weight"] = v
-        elif new_key.endswith(".attn.c_attn.bias"):
-            q, k, v = tensor.chunk(3, dim=0)
-            prefix = new_key.removesuffix(".attn.c_attn.bias")
-            remapped[f"{prefix}.attn.q_proj.bias"] = q
-            remapped[f"{prefix}.attn.k_proj.bias"] = k
-            remapped[f"{prefix}.attn.v_proj.bias"] = v
+        if new_key.endswith((".attn.c_attn.weight", ".attn.c_attn.bias")):
+            is_weight = new_key.endswith(".weight")
+            shape = tensor.shape
+            if (len(shape) != (2 if is_weight else 1)
+                    or shape[0] <= 0 or shape[0] % 3
+                    or (is_weight and shape[0] != 3 * shape[1])):
+                raise ValueError(f"GPT2 fused QKV requires 3H storage: {new_key}")
+            splits = split_fused_weight(
+                {new_key: tensor}, "c_attn", ["q_proj", "k_proj", "v_proj"])
+            for name, part in splits.items():
+                publish(name, part)
         else:
-            remapped[new_key] = tensor
+            publish(new_key, tensor)
 
-    if "lm_head.weight" not in remapped and "model.embed_tokens.weight" in remapped:
+    if (
+        not defer_tie
+        and _declares_tied_embeddings(config or {"model_type": "gpt2"})
+        and "lm_head.weight" not in remapped
+        and "model.embed_tokens.weight" in remapped
+    ):
         remapped["lm_head.weight"] = remapped["model.embed_tokens.weight"]
 
     return remapped
 
 
-def _remap_mamba(state_dict, config=None):
+def _remap_mamba(state_dict, config=None, *, defer_tie=False):
     """Remap HuggingFace Mamba weights to InfiniLM native names."""
     remapped = {}
     for key, tensor in state_dict.items():
         new_key = key
         new_key = new_key.replace(".mixer.conv1d.weight", ".mixer.conv1d_weight")
         new_key = new_key.replace(".mixer.conv1d.bias", ".mixer.conv1d_bias")
+        if defer_tie and new_key in remapped:
+            raise ValueError(f"Mamba weight remap collision: {new_key}")
         remapped[new_key] = tensor
-    if "lm_head.weight" not in remapped and "backbone.embeddings.weight" in remapped:
+    if (
+        not defer_tie
+        and
+        _declares_tied_embeddings(config)
+        and "lm_head.weight" not in remapped
+        and "backbone.embeddings.weight" in remapped
+    ):
         remapped["lm_head.weight"] = remapped["backbone.embeddings.weight"]
     return remapped
 
@@ -747,43 +776,37 @@ def _remap_videonsa(state_dict, config=None):
     if key in state_dict:
         state_dict = dict(state_dict)
         if state_dict[key].ndim == 5:
-            state_dict[key] = (
-                state_dict[key].reshape(state_dict[key].shape[0], -1).contiguous()
-            )
+            tensor = state_dict[key]
+            if tensor.shape[0] == 0:
+                raise ValueError("VideoNSA patch weight cannot infer a zero output dimension")
+            state_dict[key] = tensor.contiguous().view(
+                [tensor.shape[0], math.prod(tensor.shape[1:])])
         state_dict["visual.patch_embed.proj_weight"] = state_dict[key]
     return state_dict
 
 
 # Model type → remap function mapping
-def _remap_qwen3_5(state_dict, config):
+def _remap_qwen3_5(state_dict, config, *, defer_tie=False):
     """Apply Qwen3.5-specific load-time weight fixes."""
     state_dict = drop_keys(state_dict, ["mtp."])
     llm_config = config["text_config"]
     key_dim = llm_config["linear_key_head_dim"] * llm_config["linear_num_key_heads"]
 
-    norm_weight_suffixes = (
-        "input_layernorm.weight",
-        "post_attention_layernorm.weight",
-        "self_attn.q_norm.weight",
-        "self_attn.k_norm.weight",
-    )
-
     to_drop = []
     to_add = {}
     for key, tensor in state_dict.items():
-        if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
-            state_dict[key] = tensor + torch.ones_like(tensor)
+        if _is_qwen_offset_norm(key):
+            state_dict[key] = _offset_qwen_norm_weight(tensor)
         elif key.endswith("linear_attn.in_proj_qkv.weight"):
             prefix = key[: -len("in_proj_qkv.weight")]
-            to_add[prefix + "in_proj_q.weight"] = state_dict[key][
-                :key_dim, :
-            ].contiguous()
-            to_add[prefix + "in_proj_k.weight"] = state_dict[key][
-                key_dim : key_dim * 2, :
-            ].contiguous()
-            to_add[prefix + "in_proj_v.weight"] = state_dict[key][
-                key_dim * 2 :, :
-            ].contiguous()
+            if tensor.ndim < 2:
+                raise IndexError(f"too many indices for tensor of dimension {tensor.ndim}")
+            for name, bounds in (("q", (None, key_dim)),
+                                 ("k", (key_dim, key_dim * 2)),
+                                 ("v", (key_dim * 2, None))):
+                start, stop, _ = slice(*bounds).indices(tensor.shape[0])
+                to_add[prefix + f"in_proj_{name}.weight"] = tensor.narrow(
+                    0, start, max(stop - start, 0)).contiguous()
             to_drop.append(key)
 
     state_dict = drop_keys(state_dict, to_drop)
@@ -791,7 +814,8 @@ def _remap_qwen3_5(state_dict, config):
 
     embed_tokens_key = "model.language_model.embed_tokens.weight"
     if (
-        config.get("tie_word_embeddings", False)
+        not defer_tie
+        and _declares_tied_embeddings(config)
         and embed_tokens_key in state_dict
         and "lm_head.weight" not in state_dict
     ):
@@ -800,135 +824,183 @@ def _remap_qwen3_5(state_dict, config):
     return state_dict
 
 
-def _remap_ernie4_5_moe_vl(state_dict, config=None):
-    """Apply ERNIE 4.5 VL load-time weight fixes.
+def _ernie_unique_index(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate ERNIE checkpoint index key: {key}")
+        result[key] = value
+    return result
 
-    ERNIE checkpoints store router gate weights in fp32. They also store each
-    expert as separate gate/up/down projections; InfiniLM uses InfiniCore's
-    fused MoE op, so fuse the text expert weights before loading.
-    """
-    target_dtype = torch.bfloat16
-    hf_config = config or {}
+
+def _ernie_checkpoint_catalog(file_list, weight_map=None):
+    """Keep only source names and shapes, never shard tensor owners."""
+    catalog = {}
+    for file_path in file_list:
+        with SafeTensorsMmap(file_path) as shard:
+            if shard.metadata is not None and shard.metadata.get("format") not in (
+                "pt", "tf", "flax", "mlx"):
+                raise OSError(f"Invalid safetensors metadata at {file_path}")
+            for name, info in shard.tensors.items():
+                if name in catalog:
+                    raise ValueError(f"Duplicate ERNIE checkpoint source: {name}")
+                catalog[name] = (file_path, info.shape)
+    if weight_map is not None:
+        if set(catalog) != set(weight_map):
+            raise ValueError("ERNIE checkpoint index and shard keys differ")
+        for name, file_path in weight_map.items():
+            if catalog[name][0] != file_path:
+                raise ValueError(f"ERNIE checkpoint index maps {name} to the wrong shard")
+    return catalog
+
+
+def _iter_ernie_checkpoint_batches(catalog, read_keys, config, dtype):
+    """Assemble one owning expert group, then release it after publication."""
+    config = config or {}
+    target_dtype = infinicore.bfloat16
     for key in ("torch_dtype", "dtype"):
-        dtype_name = hf_config.get(key)
-        if dtype_name in ("float16", "float32", "bfloat16"):
-            target_dtype = {
-                "float16": torch.float16,
-                "float32": torch.float32,
-                "bfloat16": torch.bfloat16,
-            }[dtype_name]
+        if config.get(key) in ("float16", "float32", "bfloat16"):
+            target_dtype = parse_dtype(config[key])
             break
-
-    text_expert_count = hf_config.get("num_experts")
-    moe_num_experts = hf_config.get("moe_num_experts")
-    if isinstance(moe_num_experts, list) and len(moe_num_experts) > 0:
-        text_expert_count = int(moe_num_experts[0])
-    elif text_expert_count is not None:
-        text_expert_count = int(text_expert_count)
-
+    counts = config.get("moe_num_experts", config.get("num_experts"))
+    counts = counts if isinstance(counts, list) else [counts]
+    if not 1 <= len(counts) <= 2 or any(type(e) is not int or e <= 0 for e in counts):
+        raise ValueError("ERNIE checkpoint packing requires one or two expert counts")
+    total_experts = sum(counts)
     expert_re = re.compile(
         r"^(?P<prefix>model\.layers\.\d+\.mlp\.experts)\."
-        r"(?P<expert>\d+)\."
-        r"(?P<proj>gate_proj|up_proj|down_proj)\."
-        r"(?P<kind>weight|bias)$"
-    )
-    expert_parts = {}
-    remapped = {}
-
-    for key, tensor in state_dict.items():
-        match = expert_re.match(key)
-        if match is not None:
-            prefix = match.group("prefix")
-            expert = int(match.group("expert"))
-            proj = match.group("proj")
-            kind = match.group("kind")
-            expert_parts.setdefault(prefix, {}).setdefault(expert, {})[(proj, kind)] = (
-                tensor
-            )
+        r"(?P<expert>\d+)\.(?P<proj>gate_proj|up_proj|down_proj)\."
+        r"(?P<kind>weight|bias)$")
+    groups, ordinary = {}, {}
+    for name, (file_path, shape) in catalog.items():
+        match = expert_re.match(name)
+        if match is None:
+            ordinary.setdefault(file_path, []).append(name)
             continue
+        expert = int(match["expert"])
+        if expert >= total_experts:
+            raise ValueError(f"ERNIE checkpoint expert ID is out of range: {name}")
+        group = int(expert >= counts[0])
+        slot = expert - (counts[0] if group else 0)
+        parts = groups.setdefault((match["prefix"], group), {})
+        part = (slot, match["proj"], match["kind"])
+        if part in parts:
+            raise ValueError(f"Duplicate ERNIE checkpoint expert part: {name}")
+        parts[part] = name
 
-        if (
-            key.endswith((".mlp.gate.weight", ".mlp.gate.weight_1"))
-            and tensor.is_floating_point()
-        ):
-            remapped[key] = tensor.to(dtype=target_dtype).contiguous()
-        else:
-            remapped[key] = tensor
+    # Preflight every group before publishing any tensor; no partial-bias dropping.
+    plans = []
+    use_bias = config.get("mlp_bias", config.get("use_bias", False))
+    for (prefix, group), parts in sorted(groups.items()):
+        suffix = "_1" if group else ""
+        for kind in ("w1", "w2", "b1", "b2"):
+            if f"{prefix}.{kind}{suffix}" in catalog:
+                raise ValueError(f"ERNIE individual and packed weights collide: {prefix}")
+        expected = {(i, proj, "weight") for i in range(counts[group])
+                    for proj in ("gate_proj", "up_proj", "down_proj")}
+        if not expected.issubset(parts):
+            raise ValueError(f"Missing ERNIE expert projections: {prefix}, group {group}")
+        gate_shape = catalog[parts[(0, "gate_proj", "weight")]][1]
+        if len(gate_shape) != 2 or not all(gate_shape):
+            raise ValueError(f"Invalid ERNIE expert weight shape: {prefix}")
+        intermediate, hidden = gate_shape
+        if config.get("hidden_size", hidden) != hidden:
+            raise ValueError(f"ERNIE expert hidden size differs from configuration: {prefix}")
+        configured = config.get("moe_intermediate_size")
+        if configured is not None:
+            configured = configured if isinstance(configured, list) else [configured]
+            if configured[group if len(configured) > 1 else 0] != intermediate:
+                raise ValueError(f"ERNIE expert intermediate size differs from configuration: {prefix}")
+        biases = {(i, proj, "bias") for i in range(counts[group])
+                  for proj in ("gate_proj", "up_proj", "down_proj")}
+        present = set(parts) & biases
+        if present and present != biases:
+            raise ValueError(f"Partial ERNIE expert biases: {prefix}, group {group}")
+        if bool(present) != bool(use_bias):
+            raise ValueError(f"ERNIE expert bias presence differs from configuration: {prefix}")
+        for (slot, proj, kind), name in parts.items():
+            expected_shape = ((hidden, intermediate) if proj == "down_proj"
+                              else (intermediate, hidden))
+            if kind == "bias":
+                expected_shape = (expected_shape[0],)
+            if tuple(catalog[name][1]) != expected_shape:
+                raise ValueError(f"Invalid ERNIE expert projection shape: {name}")
+        plans.append((prefix, group, parts, intermediate, hidden, bool(present)))
+    # A standard individual-expert prefix must contain all configured groups.
+    for prefix in {prefix for prefix, _ in groups}:
+        if any((prefix, group) not in groups for group in range(len(counts))):
+            raise ValueError(f"Missing ERNIE expert group: {prefix}")
 
-    for prefix, experts in expert_parts.items():
-        text_ids = sorted(
-            expert_id
-            for expert_id in experts
-            if text_expert_count is None or expert_id < text_expert_count
-        )
-        vision_ids = []
-        if text_expert_count is not None:
-            vision_ids = sorted(
-                expert_id for expert_id in experts if expert_id >= text_expert_count
-            )
-        if not text_ids:
-            continue
+    for file_path, names in ordinary.items():
+        batch = read_keys(file_path, names)
+        try:
+            yield str(file_path), batch
+        finally:
+            batch.clear()
+            del batch
 
-        def fuse_expert_group(expert_ids):
-            w1_tensors = []
-            w2_tensors = []
-            b1_tensors = []
-            b2_tensors = []
-            has_all_bias = True
-            for expert_id in expert_ids:
-                parts = experts[expert_id]
-                gate = parts.get(("gate_proj", "weight"))
-                up = parts.get(("up_proj", "weight"))
-                down = parts.get(("down_proj", "weight"))
-                if gate is None or up is None or down is None:
-                    raise KeyError(
-                        f"Incomplete ERNIE MoE expert weights for {prefix}.{expert_id}"
-                    )
-                w1_tensors.append(torch.cat([gate, up], dim=0))
-                w2_tensors.append(down)
+    for prefix, group, parts, intermediate, hidden, has_bias in plans:
+        suffix = "_1" if group else ""
+        packed = {
+            f"{prefix}.w1{suffix}": infinicore.empty(
+                (counts[group], 2 * intermediate, hidden), dtype=target_dtype, device="cpu"),
+            f"{prefix}.w2{suffix}": infinicore.empty(
+                (counts[group], hidden, intermediate), dtype=target_dtype, device="cpu"),
+        }
+        if has_bias:
+            packed[f"{prefix}.b1{suffix}"] = infinicore.empty(
+                (counts[group], 2 * intermediate), dtype=target_dtype, device="cpu")
+            packed[f"{prefix}.b2{suffix}"] = infinicore.empty(
+                (counts[group], hidden), dtype=target_dtype, device="cpu")
+        try:
+            files = dict.fromkeys(catalog[name][0] for name in parts.values())
+            for file_path in files:
+                names = [name for name in parts.values() if catalog[name][0] == file_path]
+                selected = read_keys(file_path, names)
+                try:
+                    for (slot, proj, kind), name in parts.items():
+                        if name not in selected:
+                            continue
+                        source = selected[name]
+                        converted = borrowed = target_view = None
+                        try:
+                            converted = _cast_checkpoint_tensor(source, target_dtype)
+                            borrowed = _borrow_checkpoint_tensor(converted)
+                            if proj == "down_proj":
+                                target = f"{prefix}.{'w2' if kind == 'weight' else 'b2'}{suffix}"
+                                target_view = packed[target].narrow(0, slot, 1).squeeze(0)
+                            else:
+                                target = f"{prefix}.{'w1' if kind == 'weight' else 'b1'}{suffix}"
+                                start = intermediate if proj == "up_proj" else 0
+                                target_view = packed[target].narrow(0, slot, 1).squeeze(0).narrow(
+                                    0, start, intermediate)
+                            target_view.copy_(borrowed)
+                        finally:
+                            del target_view, borrowed, converted, source
+                finally:
+                    selected.clear()
+                    del selected
+            yield f"{prefix}, group {group}", packed
+        finally:
+            packed.clear()
+            del packed
 
-                gate_bias = parts.get(("gate_proj", "bias"))
-                up_bias = parts.get(("up_proj", "bias"))
-                down_bias = parts.get(("down_proj", "bias"))
-                if gate_bias is None or up_bias is None or down_bias is None:
-                    has_all_bias = False
-                else:
-                    b1_tensors.append(torch.cat([gate_bias, up_bias], dim=0))
-                    b2_tensors.append(down_bias)
 
-            fused = {
-                "w1": torch.stack(w1_tensors, dim=0)
-                .to(dtype=target_dtype)
-                .contiguous(),
-                "w2": torch.stack(w2_tensors, dim=0)
-                .to(dtype=target_dtype)
-                .contiguous(),
-            }
-            if has_all_bias:
-                fused["b1"] = (
-                    torch.stack(b1_tensors, dim=0).to(dtype=target_dtype).contiguous()
-                )
-                fused["b2"] = (
-                    torch.stack(b2_tensors, dim=0).to(dtype=target_dtype).contiguous()
-                )
-            return fused
+def _is_qwen_offset_norm(key):
+    return "mtp." not in key and (
+        key == "model.norm.weight" or key.endswith((
+            "input_layernorm.weight",
+            "post_attention_layernorm.weight",
+            "self_attn.q_norm.weight",
+            "self_attn.k_norm.weight",
+        )))
 
-        text_fused = fuse_expert_group(text_ids)
-        remapped[f"{prefix}.w1"] = text_fused["w1"]
-        remapped[f"{prefix}.w2"] = text_fused["w2"]
-        if "b1" in text_fused:
-            remapped[f"{prefix}.b1"] = text_fused["b1"]
-            remapped[f"{prefix}.b2"] = text_fused["b2"]
 
-        if vision_ids:
-            vision_fused = fuse_expert_group(vision_ids)
-            remapped[f"{prefix}.w1_1"] = vision_fused["w1"]
-            remapped[f"{prefix}.w2_1"] = vision_fused["w2"]
-            if "b1" in vision_fused:
-                remapped[f"{prefix}.b1_1"] = vision_fused["b1"]
-                remapped[f"{prefix}.b2_1"] = vision_fused["b2"]
-
-    return remapped
+def _offset_qwen_norm_weight(tensor):
+    one = (infinicore.ones(tensor.shape, dtype=tensor.dtype, device="cpu")
+           if isinstance(tensor, infinicore.Tensor)
+           else tensor.new_ones(tensor.shape))
+    return tensor + one
 
 
 def _remap_qwen3_next(state_dict, config):
@@ -938,59 +1010,60 @@ def _remap_qwen3_next(state_dict, config):
     num_value_heads = config["linear_num_value_heads"]
     key_head_dim = config["linear_key_head_dim"]
     value_head_dim = config["linear_value_head_dim"]
+    if any(type(value) is not int or value <= 0 for value in (
+        num_key_heads, num_value_heads, key_head_dim, value_head_dim
+    )):
+        raise ValueError("Qwen3Next linear-attention geometry must contain positive integers")
+    if num_value_heads % num_key_heads:
+        raise ValueError("Qwen3Next value heads must be divisible by key heads")
     values_per_key = num_value_heads // num_key_heads
     value_group_dim = values_per_key * value_head_dim
-    norm_weight_suffixes = (
-        "input_layernorm.weight",
-        "post_attention_layernorm.weight",
-        "self_attn.q_norm.weight",
-        "self_attn.k_norm.weight",
-    )
+
+    def pack_grouped_rows(tensor, widths, key):
+        group_rows = sum(widths)
+        shape = tensor.shape
+        if (len(shape) != 2 or shape[0] != num_key_heads * group_rows
+                or shape[1] <= 0):
+            raise ValueError(
+                f"Qwen3Next {key} requires {num_key_heads * group_rows} rows "
+                f"and positive input width, got shape {tuple(shape)}")
+        outputs = []
+        for width in widths:
+            output_shape = [num_key_heads * width, shape[1]]
+            output = (infinicore.empty(output_shape, dtype=tensor.dtype, device="cpu")
+                      if isinstance(tensor, infinicore.Tensor)
+                      else tensor.new_empty(output_shape))
+            outputs.append(output)
+        # Each full row span is contiguous for mmap input; no strided gather.
+        for head in range(num_key_heads):
+            offset = 0
+            for width, output in zip(widths, outputs):
+                source_rows = tensor.narrow(0, head * group_rows + offset, width)
+                output_rows = output.narrow(0, head * width, width)
+                output_rows.copy_(source_rows)
+                del source_rows, output_rows
+                offset += width
+        return outputs
 
     to_drop = []
     to_add = {}
     for key, tensor in state_dict.items():
-        if key == "model.norm.weight" or key.endswith(norm_weight_suffixes):
-            state_dict[key] = tensor + torch.ones_like(tensor)
+        if _is_qwen_offset_norm(key):
+            state_dict[key] = _offset_qwen_norm_weight(tensor)
         elif key.endswith("linear_attn.in_proj_qkvz.weight"):
             prefix = key[: -len("in_proj_qkvz.weight")]
-            grouped = tensor.view(
-                num_key_heads,
-                2 * key_head_dim + 2 * value_group_dim,
-                tensor.shape[1],
-            )
-            q, k, v, z = torch.split(
-                grouped,
-                [key_head_dim, key_head_dim, value_group_dim, value_group_dim],
-                dim=1,
-            )
-            to_add[prefix + "in_proj_q.weight"] = q.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
-            to_add[prefix + "in_proj_k.weight"] = k.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
-            to_add[prefix + "in_proj_v.weight"] = v.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
-            to_add[prefix + "in_proj_z.weight"] = z.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
+            q, k, v, z = pack_grouped_rows(
+                tensor, (key_head_dim, key_head_dim, value_group_dim, value_group_dim), key)
+            to_add[prefix + "in_proj_q.weight"] = q
+            to_add[prefix + "in_proj_k.weight"] = k
+            to_add[prefix + "in_proj_v.weight"] = v
+            to_add[prefix + "in_proj_z.weight"] = z
             to_drop.append(key)
         elif key.endswith("linear_attn.in_proj_ba.weight"):
             prefix = key[: -len("in_proj_ba.weight")]
-            grouped = tensor.view(
-                num_key_heads,
-                2 * values_per_key,
-                tensor.shape[1],
-            )
-            b, a = torch.split(grouped, [values_per_key, values_per_key], dim=1)
-            to_add[prefix + "in_proj_b.weight"] = b.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
-            to_add[prefix + "in_proj_a.weight"] = a.reshape(
-                -1, tensor.shape[1]
-            ).contiguous()
+            b, a = pack_grouped_rows(tensor, (values_per_key, values_per_key), key)
+            to_add[prefix + "in_proj_b.weight"] = b
+            to_add[prefix + "in_proj_a.weight"] = a
             to_drop.append(key)
 
     state_dict = drop_keys(state_dict, to_drop)
@@ -998,9 +1071,9 @@ def _remap_qwen3_next(state_dict, config):
     return state_dict
 
 
-def _remap_qwen3_5_moe(state_dict, config):
+def _remap_qwen3_5_moe(state_dict, config, *, defer_tie=False):
     """Adapt packed Qwen3.5-MoE experts to InfiniLM expert parameter names."""
-    state_dict = _remap_qwen3_5(state_dict, config)
+    state_dict = _remap_qwen3_5(state_dict, config, defer_tie=defer_tie)
     text_config = config.get("text_config", config)
     expected_num_experts = text_config["num_experts"]
     expected_intermediate_size = text_config["moe_intermediate_size"]
@@ -1023,8 +1096,13 @@ def _remap_qwen3_5_moe(state_dict, config):
                 )
 
             prefix = key[: -len("gate_up_proj")]
-            for expert_idx, expert_gate_up in enumerate(tensor.unbind(0)):
-                gate, up = expert_gate_up.chunk(2, dim=0)
+            for expert_idx in range(tensor.shape[0]):
+                expert_gate_up = tensor.narrow(0, expert_idx, 1).squeeze(0)
+                if tensor.shape[1] == 1:
+                    raise ValueError("not enough values to unpack (expected 2, got 1)")
+                width = (tensor.shape[1] + 1) // 2
+                gate = expert_gate_up.narrow(0, 0, width)
+                up = expert_gate_up.narrow(0, width, tensor.shape[1] - width)
                 expert_prefix = f"{prefix}{expert_idx}."
                 remapped[f"{expert_prefix}gate_proj.weight"] = gate
                 remapped[f"{expert_prefix}up_proj.weight"] = up
@@ -1044,7 +1122,8 @@ def _remap_qwen3_5_moe(state_dict, config):
                 )
 
             prefix = key[: -len("down_proj")]
-            for expert_idx, expert_down in enumerate(tensor.unbind(0)):
+            for expert_idx in range(tensor.shape[0]):
+                expert_down = tensor.narrow(0, expert_idx, 1).squeeze(0)
                 remapped[f"{prefix}{expert_idx}.down_proj.weight"] = expert_down
         else:
             remapped[key] = tensor
@@ -1058,7 +1137,7 @@ def _remap_kimi_k3(state_dict, config):
     num_heads = text_config["linear_attn_config"]["num_heads"]
 
     for key, tensor in state_dict.items():
-        if key.endswith(".self_attn.A_log") and tensor.shape != (num_heads,):
+        if key.endswith(".self_attn.A_log") and tuple(tensor.shape) != (num_heads,):
             if tensor.ndim != 1 or tensor.shape[0] < num_heads:
                 raise ValueError(
                     f"Kimi-K3 A_log must contain at least {num_heads} values, "
@@ -1066,7 +1145,8 @@ def _remap_kimi_k3(state_dict, config):
                 )
             # Released Kimi-K3 checkpoints contain head_dim entries although
             # the bundled reference module and KDA ABI consume one per head.
-            state_dict[key] = tensor[:num_heads].contiguous()
+            stop = slice(None, num_heads).indices(tensor.shape[0])[1]
+            state_dict[key] = tensor.narrow(0, 0, stop).contiguous()
 
     return state_dict
 
@@ -1079,7 +1159,6 @@ _WEIGHT_REMAPPER = {
     "mamba": _remap_mamba,
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
-    "ernie4_5_moe_vl": _remap_ernie4_5_moe_vl,
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,

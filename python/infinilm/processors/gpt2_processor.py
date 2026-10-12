@@ -1,8 +1,6 @@
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
-@register_processor("gpt2")
 class GPT2Processor(BasicLLMProcessor):
     def apply_chat_template(
         self,

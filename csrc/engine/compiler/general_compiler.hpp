@@ -6,13 +6,18 @@
 namespace infinilm::engine {
 class GeneralCompiler : public GraphCompiler {
 public:
-    GeneralCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
+    GeneralCompiler(const std::shared_ptr<InfinilmModel> &model,
+                    RankBarrier *barrier,
+                    infinilm::runtime::Runtime &runtime,
+                    infinilm::global_state::ForwardContext &forward_context,
+                    PagedGraphConfig graph_config);
 
     void compile() override;
 
     Compiled get_compiled(const InfinilmModel::Input &input) override;
 
 private:
+    const PagedGraphConfig graph_config_;
     std::unique_ptr<StaticBatchingCompiler> static_batching_compiler_;
     std::unique_ptr<PagedCompiler> paged_compiler_;
 };

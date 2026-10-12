@@ -1,17 +1,14 @@
 import json
 import os
 
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
-@register_processor("qwen3_5_moe")
-@register_processor("qwen3_5")
 class Qwen35Processor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         self.pixel_values_dtype = None
@@ -35,8 +32,6 @@ class Qwen35Processor(BasicLLMProcessor):
         else:
             self.spatial_merge_size = 2
         try:
-            from transformers import AutoProcessor
-
             self.processor = AutoProcessor.from_pretrained(
                 model_dir_path, trust_remote_code=True
             )
@@ -210,7 +205,7 @@ class Qwen35Processor(BasicLLMProcessor):
                 init_indices.append(req.mamba_cache_index)
             final_indices.append(req.mamba_cache_index)
 
-        import infinicore
+        from .. import _core as infinicore
 
         model_inputs["mamba_init_state_indices"] = infinicore.from_list(
             init_indices, dtype=infinicore.int32
@@ -393,7 +388,7 @@ class Qwen35Processor(BasicLLMProcessor):
         req.mrope_position_delta = self._compute_mrope_delta(req)
 
     def _append_qwen35_position_ids(self, model_inputs: dict, scheduler_output) -> None:
-        import infinicore
+        from .. import _core as infinicore
         import torch
 
         position_chunks = []
@@ -418,7 +413,7 @@ class Qwen35Processor(BasicLLMProcessor):
     def _append_qwen35_mm_inputs(
         self, model_inputs: dict, scheduler_output: SchedulerOutput
     ) -> None:
-        import infinicore
+        from .. import _core as infinicore
         import torch
 
         pixel_values = []

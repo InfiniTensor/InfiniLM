@@ -1,10 +1,8 @@
 from typing_extensions import override
 
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
-@register_processor("mamba")
 class MambaProcessor(BasicLLMProcessor):
     @override
     def apply_chat_template(

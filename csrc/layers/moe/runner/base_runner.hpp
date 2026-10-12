@@ -8,7 +8,8 @@ class MoeRunnerCore {
 public:
     virtual ~MoeRunnerCore() = default;
 
-    virtual CombineInput run(const DispatchOutput &dispatch_output,
+    virtual CombineInput run(infinilm::runtime::Runtime &runtime,
+                             const DispatchOutput &dispatch_output,
                              const MoeWeights &weights,
                              MoeWorkspace &workspace) const
         = 0;

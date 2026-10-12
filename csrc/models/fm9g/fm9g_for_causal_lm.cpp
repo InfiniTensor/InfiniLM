@@ -16,17 +16,17 @@ std::shared_ptr<infinilm::config::ModelConfig> create_fm9g_model_config(std::sha
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     fm9g,
     infinilm::models::fm9g::FM9GForCausalLM,
     infinilm::models::fm9g::create_fm9g_model_config);
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     fm9g7b,
     infinilm::models::fm9g::FM9GForCausalLM,
     infinilm::models::fm9g::create_fm9g_model_config);
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     minicpm,
     infinilm::models::fm9g::FM9GForCausalLM,
     infinilm::models::fm9g::create_fm9g_model_config);

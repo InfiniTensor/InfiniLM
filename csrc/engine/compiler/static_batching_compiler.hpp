@@ -1,13 +1,17 @@
 #pragma once
 
 #include "graph_compiler.hpp"
+#include "../static_decode_metadata.hpp"
 
 #include <unordered_map>
 
 namespace infinilm::engine {
 class StaticBatchingCompiler : public GraphCompiler {
 public:
-    StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model, RankBarrier *barrier);
+    StaticBatchingCompiler(const std::shared_ptr<InfinilmModel> &model,
+                           RankBarrier *barrier,
+                           infinilm::runtime::Runtime &runtime,
+                           infinilm::global_state::ForwardContext &forward_context);
 
     void compile() override;
 
@@ -25,6 +29,7 @@ private:
     struct CompiledResult {
         InfinilmModel::Input input;
         Compiled compiled;
+        StaticDecodeMetadata metadata;
     };
 
     std::unordered_map<

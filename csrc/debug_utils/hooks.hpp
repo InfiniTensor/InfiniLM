@@ -1,6 +1,6 @@
 #pragma once
 
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 #include <functional>
 #include <string>
 #include <memory>
@@ -20,7 +20,7 @@ namespace infinilm::models::debug_utils {
  *
  * NOTE: This is a debug utility. Do not use in production code.
  */
-using HookCallback = std::function<void(const std::string &name, const infinicore::Tensor &tensor, int layer_idx)>;
+using HookCallback = std::function<void(const std::string &name, const infinilm::runtime::Tensor &tensor, int layer_idx)>;
 
 /**
  * @brief Hook registry for managing hooks (DEBUG ONLY)
@@ -45,7 +45,7 @@ public:
      * @param tensor Tensor to pass to hook
      * @param layer_idx Layer index (-1 if not applicable)
      */
-    void call_hook(const std::string &name, const infinicore::Tensor &tensor, int layer_idx = -1) const;
+    void call_hook(const std::string &name, const infinilm::runtime::Tensor &tensor, int layer_idx = -1) const;
 
     /**
      * @brief Clear all hooks

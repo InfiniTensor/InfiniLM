@@ -3,10 +3,10 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../layers/linear/fused_linear.hpp"
-#include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/tensor.hpp"
 #include <nlohmann/json.hpp>
 
 #include <optional>
@@ -14,120 +14,116 @@
 
 namespace infinilm::models::minicpmv {
 
-class SiglipPatchEmbedding : public infinicore::nn::Module {
+class SiglipPatchEmbedding : public infinilm::weights::ModelWeights {
 public:
-    SiglipPatchEmbedding(size_t in_channels,
+    SiglipPatchEmbedding(infinilm::runtime::Runtime &runtime, size_t in_channels,
                          size_t out_channels,
                          size_t patch_size,
-                         const infinicore::DataType &dtype,
-                         const infinicore::Device &device);
+                         const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values) const;
 
 private:
     size_t patch_size_;
-    INFINICORE_NN_PARAMETER(weight);
-    INFINICORE_NN_PARAMETER(bias);
+    infinilm::weights::Weight weight_;
+    infinilm::weights::Weight bias_;
 };
 
-class SiglipVisionEmbeddings : public infinicore::nn::Module {
+class SiglipVisionEmbeddings : public infinilm::weights::ModelWeights {
 public:
-    SiglipVisionEmbeddings(const nlohmann::json &config,
-                           const infinicore::DataType &dtype,
-                           const infinicore::Device &device);
+    SiglipVisionEmbeddings(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                           const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &tgt_sizes) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
+                               const infinilm::runtime::Tensor &tgt_sizes) const;
 
 private:
     size_t hidden_size_;
     size_t patch_size_;
     size_t num_positions_;
 
-    INFINICORE_NN_MODULE(SiglipPatchEmbedding, patch_embedding);
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, position_embedding);
+    std::shared_ptr<SiglipPatchEmbedding> patch_embedding_;
+    std::shared_ptr<infinilm::layers::Embedding> position_embedding_;
 };
 
-class SiglipAttention : public infinicore::nn::Module {
+class SiglipAttention : public infinilm::weights::ModelWeights {
 public:
-    SiglipAttention(const nlohmann::json &config,
-                    const infinicore::DataType &dtype,
-                    const infinicore::Device &device);
+    SiglipAttention(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                    const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const std::optional<infinicore::Tensor> &attention_mask) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
+                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                               backends::AttentionBackend attention_backend) const;
 
 private:
     size_t embed_dim_;
     size_t num_heads_;
     size_t head_dim_;
     float scale_;
-    infinilm::backends::AttentionBackend attention_backend_;
 
-    INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
+    std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
 };
 
-class SiglipMLP : public infinicore::nn::Module {
+class SiglipMLP : public infinilm::weights::ModelWeights {
 public:
-    SiglipMLP(const nlohmann::json &config,
-              const infinicore::DataType &dtype,
-              const infinicore::Device &device);
+    SiglipMLP(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+              const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::string activation_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc1);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc2);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc1_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc2_;
 };
 
-class SiglipEncoderLayer : public infinicore::nn::Module {
+class SiglipEncoderLayer : public infinilm::weights::ModelWeights {
 public:
-    SiglipEncoderLayer(const nlohmann::json &config,
-                       const infinicore::DataType &dtype,
-                       const infinicore::Device &device);
+    SiglipEncoderLayer(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                       const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const std::optional<infinicore::Tensor> &attention_mask) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
+                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                               backends::AttentionBackend attention_backend) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, layer_norm1);
-    INFINICORE_NN_MODULE(SiglipAttention, self_attn);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, layer_norm2);
-    INFINICORE_NN_MODULE(SiglipMLP, mlp);
+    std::shared_ptr<infinilm::layers::LayerNorm> layer_norm1_;
+    std::shared_ptr<SiglipAttention> self_attn_;
+    std::shared_ptr<infinilm::layers::LayerNorm> layer_norm2_;
+    std::shared_ptr<SiglipMLP> mlp_;
 };
 
-class SiglipEncoder : public infinicore::nn::Module {
+class SiglipEncoder : public infinilm::weights::ModelWeights {
 public:
-    SiglipEncoder(const nlohmann::json &config,
-                  const infinicore::DataType &dtype,
-                  const infinicore::Device &device);
+    SiglipEncoder(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                  const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const std::optional<infinicore::Tensor> &attention_mask) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
+                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                               backends::AttentionBackend attention_backend) const;
 
 private:
-    INFINICORE_NN_MODULE_VEC(SiglipEncoderLayer, layers);
+    std::vector<std::shared_ptr<SiglipEncoderLayer>> layers_;
 };
 
-class SiglipVisionModel : public infinicore::nn::Module {
+class SiglipVisionModel : public infinilm::weights::ModelWeights {
 public:
-    SiglipVisionModel(const nlohmann::json &config,
-                      const infinicore::DataType &dtype,
-                      const infinicore::Device &device,
+    SiglipVisionModel(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                      const infinilm::runtime::DataType &dtype,
                       bool drop_last_layer);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &tgt_sizes) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
+                               const infinilm::runtime::Tensor &tgt_sizes,
+                               backends::AttentionBackend attention_backend) const;
 
 private:
     nlohmann::json config_;
     bool drop_last_layer_{false};
 
-    INFINICORE_NN_MODULE(SiglipVisionEmbeddings, embeddings);
-    INFINICORE_NN_MODULE(SiglipEncoder, encoder);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, post_layernorm);
+    std::shared_ptr<SiglipVisionEmbeddings> embeddings_;
+    std::shared_ptr<SiglipEncoder> encoder_;
+    std::shared_ptr<infinilm::layers::LayerNorm> post_layernorm_;
 };
 
 } // namespace infinilm::models::minicpmv

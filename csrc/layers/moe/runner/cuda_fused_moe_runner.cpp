@@ -1,8 +1,16 @@
 #include "cuda_fused_moe_runner.hpp"
 
-#include "infinicore/context/context.hpp"
-#include "infinicore/ops/moe_align.hpp"
-#include "infinicore/ops/moe_fused_dense.hpp"
+#include "../../../execution/submit.hpp"
+#include "runtime/runtime.hpp"
+
+#include "cuda_fused_moe_runner_fail_stop.hpp"
+#include <cstdint>
+#include <cstdio>
+#include <exception>
+#include <optional>
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+#include "cuda_fused_moe_runner_drain_test.hpp"
+#endif
 
 #include <sstream>
 #include <stdexcept>
@@ -22,23 +30,28 @@ CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
 
 namespace {
 
-bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
+bool same_device(const infinilm::runtime::Tensor &tensor, const infinilm::runtime::Device &device) {
+    return tensor && tensor->device().type() == device.type() && tensor->device().index() == device.index();
 }
 
-void ensure_tensor(infinicore::Tensor &tensor,
-                   const infinicore::Shape &shape,
-                   infinicore::DataType dtype,
-                   const infinicore::Device &device) {
+void ensure_tensor(infinilm::runtime::Runtime &runtime,
+                   infinilm::runtime::Tensor &tensor,
+                   const infinilm::runtime::Shape &shape,
+                   infinilm::runtime::DataType dtype,
+                   const infinilm::runtime::Device &device) {
+    if (runtime.device().type() != device.type() ||
+        runtime.device().index() != device.index()) {
+        throw std::invalid_argument("MoE workspace device differs from Runtime device");
+    }
     if (!same_device(tensor, device) || tensor->dtype() != dtype || tensor->shape() != shape) {
-        if (infinicore::context::isGraphRecording()) {
+        if (runtime.isGraphRecording()) {
             throw std::runtime_error("MoE runner workspace tensor was not initialized before graph capture");
         }
-        tensor = infinicore::Tensor::empty(shape, dtype, device);
+        tensor = infinilm::runtime::Tensor::empty(runtime, shape, dtype);
     }
 }
 
-std::string shape_to_string(const infinicore::Shape &shape) {
+std::string shape_to_string(const infinilm::runtime::Shape &shape) {
     std::ostringstream oss;
     oss << "[";
     for (size_t i = 0; i < shape.size(); ++i) {
@@ -51,15 +64,15 @@ std::string shape_to_string(const infinicore::Shape &shape) {
     return oss.str();
 }
 
-void check_packed_weight_tensor(const infinicore::Tensor &tensor,
+void check_packed_weight_tensor(const infinilm::runtime::Tensor &tensor,
                                 const std::string &name,
-                                const infinicore::Device &device,
-                                const infinicore::DataType dtype,
-                                const infinicore::Shape &shape) {
+                                const infinilm::runtime::Device &device,
+                                const infinilm::runtime::DataType dtype,
+                                const infinilm::runtime::Shape &shape) {
     if (!tensor) {
         throw std::runtime_error("MoE fused dense core requires " + name);
     }
-    if (tensor->device().getType() != device.getType() || tensor->device().getIndex() != device.getIndex()) {
+    if (tensor->device().type() != device.type() || tensor->device().index() != device.index()) {
         throw std::runtime_error("MoE fused dense core requires packed weights on the hidden_states device");
     }
     if (tensor->dtype() != dtype) {
@@ -73,24 +86,88 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
 
 } // namespace
 
-CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
+CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &runtime,
+                                     const DispatchOutput &dispatch_output,
                                      const MoeWeights &weights,
                                      MoeWorkspace &workspace) const {
-    auto runner_input = prepare_runner_input(
-        dispatch_output,
-        workspace);
-
-    auto runner_output = run_fused_core(runner_input, weights, workspace);
-
+    runtime.assertOwnerThread();
+    if (!same_device(dispatch_output.hidden_states, runtime.device()) ||
+        !same_device(dispatch_output.topk_output.topk_ids, runtime.device())) {
+        throw std::invalid_argument("MoE runner inputs must belong to Runtime device");
+    }
+    if (weights.packed_b13) {
+        check_packed_weight_tensor(weights.packed_b13, "bias1", runtime.device(),
+            dispatch_output.hidden_states->dtype(), {num_local_experts_, intermediate_size_per_partition_ * 2});
+        if (!weights.packed_b13->is_contiguous())
+            throw std::invalid_argument("MoE fused dense runner requires contiguous bias1");
+    }
+    if (weights.packed_b2) {
+        check_packed_weight_tensor(weights.packed_b2, "bias2", runtime.device(),
+            dispatch_output.hidden_states->dtype(), {num_local_experts_, hidden_size_});
+        if (!weights.packed_b2->is_contiguous())
+            throw std::invalid_argument("MoE fused dense runner requires contiguous bias2");
+    }
+    // Keep the routing/input owners alive throughout exception cleanup.
+    // Owner/device prechecks above deliberately remain outside this catch.
+    CudaFusedMoeRunnerInput runner_input;
+    const bool recording = runtime.isGraphRecording();
+    try {
+        runner_input = prepare_runner_input(runtime, dispatch_output, workspace);
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+        drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::Aligned);
+#endif
+        auto runner_output = run_fused_core(runtime, runner_input, weights, workspace);
     return CombineInput{
         CombineInputFormat::Standard,
         runner_output.hidden_states,
         runner_input.topk_output,
         runner_input.routing_metadata,
     };
+    } catch (...) {
+        const auto first_error = std::current_exception();
+        bool drained = false;
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+        drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainStarted);
+#endif
+        try {
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::before_sync_fault();
+#endif
+            runtime.syncStream();
+            drained = true;
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::after_sync_fault();
+            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainSucceeded);
+#endif
+        } catch (const std::exception &cleanup_error) {
+            if (!drained) detail::fail_stop_unknown_runner_drain();
+            std::fprintf(stderr, "MoE runner stream drain failed: %s\n", cleanup_error.what());
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainFailed);
+#endif
+        } catch (...) {
+            if (!drained) detail::fail_stop_unknown_runner_drain();
+            std::fprintf(stderr, "MoE runner stream drain failed: unknown error\n");
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainFailed);
+#endif
+}
+        // Only successful real synchronization can reach cancel/rethrow.
+        if (recording) {
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::CancelStarted);
+#endif
+            runtime.cancelGraphRecording();
+#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
+            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::CancelFinished);
+#endif
+        }
+        std::rethrow_exception(first_error);
+    }
 }
 
-CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchOutput &dispatch_output,
+CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(infinilm::runtime::Runtime &runtime,
+                                                                 const DispatchOutput &dispatch_output,
                                                                  MoeWorkspace &workspace) const {
     const auto &topk_ids = dispatch_output.topk_output.topk_ids;
     const auto &topk_shape = topk_ids->shape();
@@ -105,52 +182,48 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
                                            : num_pairs + align_num_experts * (block_size - 1);
     const size_t sorted_token_ids_capacity = ((max_num_tokens_padded + 3) / 4) * 4;
     const size_t max_num_blocks = (max_num_tokens_padded + block_size - 1) / block_size;
-    const auto device = topk_ids->device();
-
     if (!workspace.sorted_token_ids || workspace.sorted_token_ids_capacity < sorted_token_ids_capacity) {
-        if (infinicore::context::isGraphRecording()) {
+        if (runtime.isGraphRecording()) {
             throw std::runtime_error("MoE sorted_token_ids workspace was not initialized before graph capture");
         }
-        workspace.sorted_token_ids = infinicore::Tensor::empty(
-            {sorted_token_ids_capacity}, infinicore::DataType::I32, device);
+        workspace.sorted_token_ids = infinilm::runtime::Tensor::empty(
+            runtime, {sorted_token_ids_capacity}, infinilm::runtime::DataType::kInt32);
         workspace.sorted_token_ids_capacity = sorted_token_ids_capacity;
     }
     if (!workspace.expert_ids || workspace.expert_ids_capacity < max_num_blocks) {
-        if (infinicore::context::isGraphRecording()) {
+        if (runtime.isGraphRecording()) {
             throw std::runtime_error("MoE expert_ids workspace was not initialized before graph capture");
         }
-        workspace.expert_ids = infinicore::Tensor::empty(
-            {max_num_blocks}, infinicore::DataType::I32, device);
+        workspace.expert_ids = infinilm::runtime::Tensor::empty(
+            runtime, {max_num_blocks}, infinilm::runtime::DataType::kInt32);
         workspace.expert_ids_capacity = max_num_blocks;
     }
     if (!workspace.num_tokens_post_padded) {
-        if (infinicore::context::isGraphRecording()) {
+        if (runtime.isGraphRecording()) {
             throw std::runtime_error("MoE num_tokens_post_padded workspace was not initialized before graph capture");
         }
-        workspace.num_tokens_post_padded = infinicore::Tensor::empty(
-            {1}, infinicore::DataType::I32, device);
+        workspace.num_tokens_post_padded = infinilm::runtime::Tensor::empty(
+            runtime, {1}, infinilm::runtime::DataType::kInt32);
     }
 
-    if (dispatch_output.expert_map) {
-        infinicore::op::moe_align_with_expert_map_(
-            workspace.sorted_token_ids,
-            workspace.expert_ids,
-            workspace.num_tokens_post_padded,
-            topk_ids,
-            dispatch_output.expert_map,
-            num_local_experts_,
-            block_size,
-            true);
+#ifdef INFINICORE_MOE_ALIGN_OPS_UNAVAILABLE
+    throw std::runtime_error("moe_align UNAVAILABLE: requires InfiniOps MoeAlignBlockSize");
+#else
+    const auto expert_map = dispatch_output.expert_map
+        ? std::optional<infinilm::runtime::Tensor>{dispatch_output.expert_map}
+        : std::nullopt;
+    infinilm::execution::submit<infini::ops::MoeAlignBlockSize>(
+        runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+        infini::ops::MoeAlignBlockSize::DefaultConfig(topk_ids->device().type()),
+        topk_ids, expert_map, static_cast<int64_t>(num_local_experts_),
+        static_cast<int64_t>(block_size), workspace.sorted_token_ids,
+        workspace.expert_ids, workspace.num_tokens_post_padded);
+    if (expert_map) {
+        INFINILM_TRACE_OP(MoeAlignWithExpertMap, workspace.sorted_token_ids);
     } else {
-        infinicore::op::moe_align_(
-            workspace.sorted_token_ids,
-            workspace.expert_ids,
-            workspace.num_tokens_post_padded,
-            topk_ids,
-            num_local_experts_,
-            block_size,
-            true);
+        INFINILM_TRACE_OP(MoeAlign, workspace.sorted_token_ids);
     }
+#endif
     return CudaFusedMoeRunnerInput{
         dispatch_output.hidden_states,
         dispatch_output.topk_output,
@@ -162,7 +235,8 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     };
 }
 
-CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRunnerInput &runner_input,
+CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(infinilm::runtime::Runtime &runtime,
+                                                            const CudaFusedMoeRunnerInput &runner_input,
                                                             const MoeWeights &weights,
                                                             MoeWorkspace &workspace) const {
     if (!weights.has_packed_dense_weights()) {
@@ -181,12 +255,19 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
         runner_input.hidden_states->dtype(),
         {num_local_experts_, hidden_size_, intermediate_size_per_partition_});
     ensure_tensor(
+        runtime,
         workspace.fused_moe_output,
         runner_input.hidden_states->shape(),
         runner_input.hidden_states->dtype(),
         runner_input.hidden_states->device());
     workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
-    infinicore::op::moe_fused_dense_(
+    const auto bias1 = weights.packed_b13
+        ? std::optional<infinilm::runtime::Tensor>{weights.packed_b13} : std::nullopt;
+    const auto bias2 = weights.packed_b2
+        ? std::optional<infinilm::runtime::Tensor>{weights.packed_b2} : std::nullopt;
+    infinilm::execution::submit<infini::ops::MoeFusedDense>(
+        runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+        infini::ops::MoeFusedDense::DefaultConfig(workspace.fused_moe_output->device().type()),
         workspace.fused_moe_output,
         runner_input.hidden_states,
         weights.packed_w13,
@@ -195,7 +276,11 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(const CudaFusedMoeRu
         runner_input.topk_output.topk_ids,
         runner_input.routing_metadata.sorted_token_ids,
         runner_input.routing_metadata.expert_ids,
-        runner_input.routing_metadata.num_tokens_post_padded);
+        runner_input.routing_metadata.num_tokens_post_padded,
+        align_block_size_,
+        bias1,
+        bias2);
+    INFINILM_TRACE_OP(MoeFusedDense, workspace.fused_moe_output);
     return CudaFusedMoeRunnerOutput{
         workspace.fused_moe_output,
     };

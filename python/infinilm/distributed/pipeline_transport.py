@@ -21,22 +21,32 @@ import time
 import traceback
 from typing import Any
 
-import infinicore
+from .. import _core as infinicore
 import numpy as np
-from infinicore.utils import infinicore_to_numpy_dtype
+from .._core.utils import infinicore_to_numpy_dtype
 
 _FRAME_HEADER = struct.Struct("!Q")
+_MAX_CONTROL_FRAME_BYTES = 512 * 1024 * 1024
+_STARTUP_TIMEOUT_S = 180.0
+_FORWARD_TIMEOUT_S = 300.0
 _TENSOR_MARKER = "__infinicore_tensor__"
 _TUPLE_MARKER = "__tuple__"
 
 logger = logging.getLogger(__name__)
 
 
-def _recv_exact(sock: socket.socket, size: int) -> bytearray:
+def _recv_exact(
+    sock: socket.socket, size: int, deadline: float | None = None
+) -> bytearray:
     payload = bytearray(size)
     view = memoryview(payload)
     received = 0
     while received < size:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("pipeline control receive timed out")
+            sock.settimeout(remaining)
         count = sock.recv_into(view[received:])
         if count == 0:
             raise ConnectionError("pipeline control connection closed")
@@ -44,16 +54,30 @@ def _recv_exact(sock: socket.socket, size: int) -> bytearray:
     return payload
 
 
-def _send_payload(sock: socket.socket, payload: bytes) -> None:
+def _send_payload(
+    sock: socket.socket, payload: bytes, deadline: float | None = None
+) -> None:
+    if len(payload) > _MAX_CONTROL_FRAME_BYTES:
+        raise ValueError("pipeline control message exceeds the maximum frame size")
     segments = [memoryview(_FRAME_HEADER.pack(len(payload))), memoryview(payload)]
     if not hasattr(sock, "sendmsg"):
         for segment in segments:
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("pipeline control send timed out")
+                sock.settimeout(remaining)
             sock.sendall(segment)
         return
 
     # Keep the length prefix and payload in one syscall without concatenating
     # and copying the complete control message into another bytes object.
     while segments:
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("pipeline control send timed out")
+            sock.settimeout(remaining)
         sent = sock.sendmsg(segments)
         if sent == 0:
             raise ConnectionError("pipeline control connection closed")
@@ -64,17 +88,23 @@ def _send_payload(sock: socket.socket, payload: bytes) -> None:
             segments[0] = segments[0][sent:]
 
 
-def _recv_payload(sock: socket.socket) -> bytearray:
-    (size,) = _FRAME_HEADER.unpack(_recv_exact(sock, _FRAME_HEADER.size))
-    return _recv_exact(sock, size)
+def _recv_payload(
+    sock: socket.socket, deadline: float | None = None
+) -> bytearray:
+    (size,) = _FRAME_HEADER.unpack(_recv_exact(sock, _FRAME_HEADER.size, deadline))
+    if size > _MAX_CONTROL_FRAME_BYTES:
+        raise ValueError("pipeline control message exceeds the maximum frame size")
+    return _recv_exact(sock, size, deadline)
 
 
-def _send_message(sock: socket.socket, message: Any) -> None:
-    _send_payload(sock, pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL))
+def _send_message(
+    sock: socket.socket, message: Any, deadline: float | None = None
+) -> None:
+    _send_payload(sock, pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL), deadline)
 
 
-def _recv_message(sock: socket.socket) -> Any:
-    return pickle.loads(_recv_payload(sock))
+def _recv_message(sock: socket.socket, deadline: float | None = None) -> Any:
+    return pickle.loads(_recv_payload(sock, deadline))
 
 
 _FORWARD_OK_PAYLOAD = pickle.dumps({"ok": True}, protocol=pickle.HIGHEST_PROTOCOL)
@@ -139,56 +169,97 @@ def _parse_endpoint(endpoint: str) -> tuple[str, int]:
     return host, int(port)
 
 
-def _connect_with_retry(endpoint: str) -> socket.socket:
+def _connect_with_retry(
+    endpoint: str, timeout_s: float = _STARTUP_TIMEOUT_S
+) -> socket.socket:
     host, port = _parse_endpoint(endpoint)
+    if timeout_s <= 0:
+        raise ValueError("pipeline startup timeout must be positive")
+    deadline = time.monotonic() + timeout_s
+    last_error = None
     while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"pipeline control connection to {endpoint} timed out"
+            ) from last_error
         try:
-            sock = socket.create_connection((host, port), timeout=5.0)
-            sock.settimeout(None)
-            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock = socket.create_connection((host, port), timeout=min(5.0, remaining))
+            try:
+                sock.settimeout(None)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except BaseException:
+                sock.close()
+                raise
             return sock
-        except OSError:
-            time.sleep(0.1)
+        except OSError as error:
+            last_error = error
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"pipeline control connection to {endpoint} timed out"
+                ) from last_error
+            time.sleep(min(0.1, remaining))
 
 
 class PipelineControlServer:
     """Stage-0 control plane for persistent PP worker processes."""
 
-    def __init__(self, pp_size: int, master_port: int):
+    def __init__(
+        self, pp_size: int, master_port: int, *,
+        bind_addr: str = "0.0.0.0",
+        startup_timeout_s: float = _STARTUP_TIMEOUT_S,
+        forward_timeout_s: float = _FORWARD_TIMEOUT_S,
+    ):
+        if startup_timeout_s <= 0 or forward_timeout_s <= 0:
+            raise ValueError("pipeline control timeouts must be positive")
+        self._forward_timeout_s = forward_timeout_s
+        self._forward_deadline: float | None = None
         connections_by_stage: dict[int, socket.socket] = {}
         self._connections: list[socket.socket] = []
+        deadline = time.monotonic() + startup_timeout_s
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
                 server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                server.bind(("0.0.0.0", master_port))
+                server.bind((bind_addr, master_port))
                 server.listen(pp_size - 1)
                 logger.info(
                     "Pipeline control server listening: role=coordinator, "
-                    "stage=0, endpoint=0.0.0.0:%s, workers=%s",
+                    "stage=0, endpoint=%s:%s, workers=%s",
+                    bind_addr,
                     master_port,
                     pp_size - 1,
                 )
 
                 while len(connections_by_stage) < pp_size - 1:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("pipeline worker registration timed out")
+                    server.settimeout(remaining)
                     connection, peer = server.accept()
-                    connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    ready = _recv_message(connection)
-                    stage = ready.get("pp_stage")
-                    if (
-                        ready.get("status") != "ready"
-                        or not isinstance(stage, int)
-                        or not 1 <= stage < pp_size
-                        or stage in connections_by_stage
-                    ):
-                        connection.close()
-                        raise RuntimeError(
-                            f"invalid pipeline worker registration: {ready!r}"
+                    try:
+                        connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                        ready = _recv_message(connection, deadline)
+                        stage = ready.get("pp_stage") if isinstance(ready, dict) else None
+                        if (
+                            not isinstance(ready, dict)
+                            or ready.get("status") != "ready"
+                            or not isinstance(stage, int)
+                            or not 1 <= stage < pp_size
+                            or stage in connections_by_stage
+                        ):
+                            raise RuntimeError(
+                                f"invalid pipeline worker registration: {ready!r}"
+                            )
+                        _send_message(
+                            connection, {"status": "registered", "pp_stage": stage},
+                            deadline,
                         )
+                        connection.settimeout(None)
+                    except BaseException:
+                        connection.close()
+                        raise
                     connections_by_stage[stage] = connection
-                    _send_message(
-                        connection,
-                        {"status": "registered", "pp_stage": stage},
-                    )
                     logger.info(
                         "Pipeline control connection established: "
                         "role=coordinator, stage=0, peer_stage=%s, peer=%s:%s",
@@ -210,21 +281,45 @@ class PipelineControlServer:
             raise
 
     def dispatch_forward(self, model_input: dict[str, Any]) -> None:
+        if not self._connections:
+            raise RuntimeError("pipeline control plane is closed")
+        if self._forward_deadline is not None:
+            raise RuntimeError("previous pipeline forward has not completed")
         payload = pickle.dumps(
             {"command": "forward", "model_input": _encode(model_input)},
             protocol=pickle.HIGHEST_PROTOCOL,
         )
-        for connection in self._connections:
-            _send_payload(connection, payload)
+        deadline = time.monotonic() + self._forward_timeout_s
+        try:
+            for connection in self._connections:
+                _send_payload(connection, payload, deadline)
+        except BaseException:
+            self.abort()
+            raise
+        finally:
+            for connection in self._connections:
+                connection.settimeout(None)
+        self._forward_deadline = deadline
 
     def wait_forward(self) -> None:
-        for connection in self._connections:
-            response = _recv_message(connection)
-            if not response.get("ok", False):
-                raise RuntimeError(
-                    "pipeline worker forward failed:\n"
-                    + response.get("error", "unknown error")
-                )
+        if self._forward_deadline is None:
+            raise RuntimeError("no pipeline forward is in progress")
+        try:
+            for connection in self._connections:
+                response = _recv_message(connection, self._forward_deadline)
+                if not isinstance(response, dict) or not response.get("ok", False):
+                    detail = (
+                        response.get("error", "unknown error")
+                        if isinstance(response, dict) else repr(response)
+                    )
+                    raise RuntimeError("pipeline worker forward failed:\n" + str(detail))
+        except BaseException:
+            self.abort()
+            raise
+        finally:
+            self._forward_deadline = None
+            for connection in self._connections:
+                connection.settimeout(None)
 
     def abort(self) -> None:
         """Close the control plane immediately after an unrecoverable failure."""
@@ -236,17 +331,20 @@ class PipelineControlServer:
             finally:
                 connection.close()
         self._connections.clear()
+        self._forward_deadline = None
 
     def close(self) -> None:
+        deadline = time.monotonic() + self._forward_timeout_s
         for connection in self._connections:
             try:
-                _send_message(connection, {"command": "shutdown"})
-                _recv_message(connection)
+                _send_message(connection, {"command": "shutdown"}, deadline)
+                _recv_message(connection, deadline)
             except (ConnectionError, OSError):
                 pass
             finally:
                 connection.close()
         self._connections.clear()
+        self._forward_deadline = None
 
 
 class PipelineWorkerClient:
@@ -261,9 +359,18 @@ class PipelineWorkerClient:
             self._pp_stage,
             endpoint,
         )
+        deadline = time.monotonic() + _STARTUP_TIMEOUT_S
         self._connection = _connect_with_retry(endpoint)
-        _send_message(self._connection, {"status": "ready", "pp_stage": self._pp_stage})
-        response = _recv_message(self._connection)
+        try:
+            _send_message(
+                self._connection, {"status": "ready", "pp_stage": self._pp_stage},
+                deadline,
+            )
+            response = _recv_message(self._connection, deadline)
+        except BaseException:
+            self._connection.close()
+            raise
+        self._connection.settimeout(None)
         if response != {"status": "registered", "pp_stage": self._pp_stage}:
             self._connection.close()
             raise RuntimeError(
@@ -280,6 +387,11 @@ class PipelineWorkerClient:
         with self._connection as connection:
             while True:
                 message = _recv_message(connection)
+                if not isinstance(message, dict):
+                    _send_message(
+                        connection, {"ok": False, "error": "invalid pipeline command"}
+                    )
+                    return
                 command = message.get("command")
                 if command == "shutdown":
                     _send_message(connection, {"ok": True})
@@ -289,7 +401,7 @@ class PipelineWorkerClient:
                         connection,
                         {"ok": False, "error": f"unknown command: {command}"},
                     )
-                    continue
+                    return
                 try:
                     model_input = _decode(message["model_input"])
                     self._model_runner.model_engine.forward(**model_input)

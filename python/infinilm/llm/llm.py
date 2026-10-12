@@ -9,6 +9,7 @@ This module provides:
 import asyncio
 import logging
 import os
+import queue
 import threading
 import time
 import uuid
@@ -31,8 +32,61 @@ from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
+from infinilm.processors.basic_llm_processor import BasicLLMProcessor
 
 logger = logging.getLogger(__name__)
+
+
+def _chat_tensor_mode(processor, has_multimodal_inputs: bool) -> str:
+    """Use NumPy only for the built-in text processor's media-free inputs."""
+    if not has_multimodal_inputs and type(processor) is BasicLLMProcessor:
+        return "np"
+    return "pt"
+
+
+def _resolve_sampling_params(sampling_params, config):
+    if sampling_params is None:
+        return SamplingParams(
+            temperature=config.temperature,
+            top_p=config.top_p,
+            top_k=config.top_k,
+            max_tokens=config.max_tokens,
+        )
+    if sampling_params.max_tokens is None:
+        sampling_params = sampling_params.clone()
+        sampling_params.max_tokens = config.max_tokens
+    return sampling_params
+
+
+def _finalize_aborted_request(
+    req: InferenceRequest, reason: FinishReason, notification_errors=None
+) -> bool:
+    """Commit an abort reason and its final notification exactly once."""
+    with req._terminal_lock:
+        if req.is_finished():
+            return False
+        if reason == FinishReason.CANCELED:
+            req.mark_canceled()
+        elif reason == FinishReason.TIMEOUT:
+            req.mark_timeout()
+        else:
+            req.mark_failed(reason)
+        if req._output_queue is not None:
+            final = TokenOutput(
+                request_id=req.request_id, token_id=-1, token_text="",
+                finished=True, finish_reason=req.finish_reason,
+                generated_text=req.generated_text,
+            )
+            try:
+                req.output_queue.sync_q.put_nowait(final)
+            except Exception as error:
+                if notification_errors is not None:
+                    if len(notification_errors) < 4:
+                        notification_errors.append((req.request_id, error))
+                else:
+                    logger.warning("Final abort output could not be delivered for %s: %s",
+                                   req.request_id, error)
+    return True
 
 
 class LLMEngine:
@@ -40,6 +94,7 @@ class LLMEngine:
 
     def __init__(self, config: EngineConfig):
         self.config = config
+        self._async_abort_owner = False
         hf_config = read_hf_config(config.model_path)
         has_mamba_cache = model_uses_mamba_cache(hf_config)
         if has_mamba_cache and config.enable_prefix_caching:
@@ -70,6 +125,8 @@ class LLMEngine:
             self.scheduler = StaticScheduler(
                 max_cache_len=config.max_cache_len,
                 enable_prefix_caching=config.enable_prefix_caching,
+                cache_capacity=config.static_cache_capacity,
+                on_aborted_request=self._on_static_scheduler_abort,
             )
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
@@ -110,7 +167,11 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                nsa_owner_pool_epoch=(model_engine.get_nsa_pool_epoch()
+                                      if model_engine.model_type == "videonsa" else None),
             )
+            if model_engine.model_type == "videonsa":
+                self.model_runner.bind_nsa_scheduler(self.scheduler)
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
                 logger.info(
@@ -140,27 +201,52 @@ class LLMEngine:
     def close(self):
         self.model_runner.close()
 
-    def step(self) -> tuple[bool, list[tuple]]:
+    def _on_static_scheduler_abort(self, req: InferenceRequest) -> None:
+        # The async queue owns both the terminal reason and final output.
+        # A standalone synchronous engine has no such queue.
+        if not self._async_abort_owner:
+            _finalize_aborted_request(req, FinishReason.CANCELED)
+
+    def step(self) -> bool:
         """Run one inference step.
 
         Returns:
-            A tuple of:
-            - did_work
-            - pending: Pending streaming outputs as (async_queue, TokenOutput) pairs.
+            Whether work was scheduled or a KV transfer completed. Token
+            outputs are published to request queues before step() returns.
         """
         # Schedule the next unit of work, which may be model execution,
         # connector control metadata, or both.
         scheduler_output = self.scheduler.schedule()
         if scheduler_output is None:
-            return False, []
+            return False
 
+        requests = tuple(scheduler_output.scheduled_requests)
+        request_ids = tuple(req.request_id for req in requests)
+        computed_lengths = tuple(req.get_total_length() for req in requests)
+        generations = tuple(req._static_cache_lease_generation for req in requests)
+        physical_rows = (tuple(scheduler_output.physical_rows)
+                         if hasattr(scheduler_output, "physical_rows") else None)
+        if (len({id(req) for req in requests}) != len(requests)
+                or len(set(request_ids)) != len(request_ids)
+                or scheduler_output.num_requests != len(requests)):
+            raise RuntimeError("scheduled batch has conflicting request identity")
         runner_output = self.model_runner.execute_model(scheduler_output)
-        sampled_token_ids = runner_output.sampled_token_ids
+        # Validate the entire returned batch before connector, KV, token or queue
+        # consumption. Native writes/SPEC reservation commits already happened.
+        if (tuple(runner_output.req_ids) != request_ids
+                or (tuple(scheduler_output.physical_rows)
+                    if hasattr(scheduler_output, "physical_rows") else None) != physical_rows
+                or len(scheduler_output.scheduled_requests) != len(requests)
+                or any(actual is not expected for actual, expected in
+                       zip(scheduler_output.scheduled_requests, requests))
+                or any(req.request_id != rid or req.get_total_length() != length
+                       for req, rid, length in zip(requests, request_ids, computed_lengths))):
+            raise RuntimeError("model output does not match its scheduled request snapshot")
+        sampled_token_ids = self._validate_sampled_token_ids(
+            requests, runner_output.sampled_token_ids)
+        self.scheduler.accept_model_output(requests, generations, physical_rows)
         self.scheduler.update_from_output(runner_output)
-        pending = self._update_requests(
-            scheduler_output.scheduled_requests,
-            sampled_token_ids,
-        )
+        self._update_requests(requests, sampled_token_ids)
 
         # Return False (no immediate work) only when no requests were scheduled
         # and no KV transfers completed in this step.
@@ -171,22 +257,41 @@ class LLMEngine:
                     runner_output.kv_connector_output, "finished_recving", None
                 )
             ):
-                return False, pending
+                return False
 
-        return True, pending
+        return True
 
-    def _update_requests(
-        self,
-        requests: List[InferenceRequest],
-        sampled_token_ids: list[int | list[int]],
-    ) -> List[tuple]:
-        """Apply sampled tokens and publish their target-model KV boundary."""
+    @staticmethod
+    def _validate_sampled_token_ids(requests, sampled_token_ids):
+        """Freeze all rows before any returned-output consumer mutation."""
+        if not isinstance(sampled_token_ids, (list, tuple)):
+            raise RuntimeError("model output requires a token row sequence")
         if len(requests) != len(sampled_token_ids):
             raise RuntimeError(
                 "model output count does not match the scheduled request count: "
                 f"requests={len(requests)}, outputs={len(sampled_token_ids)}"
             )
-        pending = []
+        rows = []
+        for row in sampled_token_ids:
+            if isinstance(row, (list, tuple)):
+                # Empty rows are legal on the existing speculative remaining path.
+                frozen = tuple(row)
+                if any(type(token) is not int or token < 0 for token in frozen):
+                    raise RuntimeError("model output requires non-negative integer token IDs")
+                rows.append(frozen)
+            elif type(row) is int and row >= 0:
+                rows.append(row)
+            else:
+                raise RuntimeError("model output requires non-negative integer token IDs")
+        return tuple(rows)
+
+    def _update_requests(
+        self,
+        requests: List[InferenceRequest],
+        sampled_token_ids: list[int | list[int]],
+    ) -> None:
+        """Apply sampled tokens and publish their target-model KV boundary."""
+        sampled_token_ids = self._validate_sampled_token_ids(requests, sampled_token_ids)
         for req, token_ids in zip(requests, sampled_token_ids):
             # The model successfully consumed the request's current logical tokens.
             # Commit this boundary before observing a concurrent client abort.
@@ -197,13 +302,11 @@ class LLMEngine:
                 logger.info(
                     f"Request {req.request_id} aborted by client, skipping update"
                 )
-                # close() may have set _aborted=True without setting a terminal status
-                # (status still RUNNING).
-                if not req.is_finished():
-                    req.mark_canceled()
+                if not self._async_abort_owner:
+                    _finalize_aborted_request(req, FinishReason.CANCELED)
                 continue
 
-            if isinstance(token_ids, list):
+            if isinstance(token_ids, (list, tuple)):
                 num_computed_output_tokens = max(len(token_ids) - 1, 0)
             else:
                 num_computed_output_tokens = 0
@@ -211,33 +314,42 @@ class LLMEngine:
 
             num_appended_tokens = 0
             for token_id in token_ids:
-                if req.is_finished():
-                    break
-                req.append_generated_token_id(token_id)
-                num_appended_tokens += 1
-                pending_tokens = req.generated_token_ids[req._token_decode_offset :]
+                # Decode a prospective token without changing request state.
+                # Abort finalization may run while tokenizer.decode executes.
+                with req._terminal_lock:
+                    if req.is_finished() or req.is_aborted():
+                        break
+                    pending_tokens = list(
+                        req.generated_token_ids[req._token_decode_offset :]
+                    ) + [token_id]
                 delta = self.tokenizer.decode(pending_tokens)
                 holds_back = bool(delta) and delta.endswith("\ufffd")
 
-                last_committed_text = req.generated_text
-
-                if not holds_back:
-                    req.generated_text = last_committed_text + delta
-                    req._token_decode_offset = len(req.generated_token_ids)
-
-                is_finished = self._check_request_finished(req, token_id)
-
-                # vLLM-style replacement character handling is primarily relevant for streaming.
-                # For offline generation (no output queue), keep the fast incremental path.
-                if req._output_queue is None:
-                    if is_finished:
-                        req.mark_finished(req.finish_reason)
-
-                else:
-                    if holds_back and not is_finished:
-                        token_text = ""
+                # Token, text, finish reason, and output form one commit.
+                # A concurrent abort wins if registered before this lock;
+                # otherwise the normal final output wins.
+                with req._terminal_lock:
+                    if req.is_finished() or req.is_aborted():
+                        logger.info(
+                            "Request %s aborted before publishing token", req.request_id
+                        )
+                        break
+                    req.append_generated_token_id(token_id)
+                    num_appended_tokens += 1
+                    last_committed_text = req.generated_text
+                    if not holds_back:
+                        req.generated_text = last_committed_text + delta
+                        req._token_decode_offset = len(req.generated_token_ids)
+                    is_finished = self._check_request_finished(req, token_id)
+                    # vLLM-style replacement character handling is primarily
+                    # relevant for streaming. Offline requests have no queue.
+                    if req._output_queue is None:
+                        if is_finished:
+                            req.mark_finished(req.finish_reason)
                     else:
-                        if is_finished and req.finish_reason in (
+                        if holds_back and not is_finished:
+                            token_text = ""
+                        elif is_finished and req.finish_reason in (
                             FinishReason.EOS_TOKEN,
                             FinishReason.LENGTH,
                             FinishReason.STOP_STRING,
@@ -248,23 +360,20 @@ class LLMEngine:
                             if token_text:
                                 req._text_output_offset = len(req.generated_text)
 
+                        output = TokenOutput(
+                            request_id=req.request_id,
+                            token_id=token_id,
+                            token_text=token_text,
+                            finished=is_finished,
+                            finish_reason=req.finish_reason if is_finished else None,
+                            generated_text=req.generated_text,
+                        )
+                        # Queue delivery and terminal state share one commit
+                        # boundary. A failed put must stop this step, not leave
+                        # a FINISHED request without its final notification.
+                        req.output_queue.sync_q.put_nowait(output)
                         if is_finished:
                             req.mark_finished(req.finish_reason)
-
-                    output = TokenOutput(
-                        request_id=req.request_id,
-                        token_id=token_id,
-                        token_text=token_text,
-                        finished=is_finished,
-                        finish_reason=req.finish_reason if is_finished else None,
-                        generated_text=req.generated_text,
-                    )
-                    if req.is_aborted():
-                        logger.info(
-                            f"Request {req.request_id} aborted before putting token"
-                        )
-                        continue
-                    pending.append((req.output_queue.async_q, output))
 
             post_output_computed_tokens = pre_output_computed_tokens + min(
                 num_appended_tokens,
@@ -274,7 +383,6 @@ class LLMEngine:
                 self.scheduler.commit_computed_tokens(req, post_output_computed_tokens)
 
         self.scheduler.complete_requests(requests)
-        return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
         """Check if request generation is finished."""
@@ -364,8 +472,8 @@ class LLM:
         pre_transpose: bool = False,
         weight_load_mode: str = "async",
         skip_load: bool = False,
-        use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        static_cache_capacity: int = 1,
     ):
         """Initialize LLM.
 
@@ -376,6 +484,7 @@ class LLM:
             tensor_parallel_size: Number of devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
+            static_cache_capacity: Static KV rows (1 or 2), still one request per forward.
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
@@ -403,6 +512,7 @@ class LLM:
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
+            static_cache_capacity=static_cache_capacity,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -416,7 +526,6 @@ class LLM:
             pre_transpose=pre_transpose,
             weight_load_mode=weight_load_mode,
             skip_load=skip_load,
-            use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
         )
         self.engine = LLMEngine(config)
@@ -453,11 +562,7 @@ class LLM:
             contents = messages
             apply_chat_template = True
 
-        if sampling_params is None:
-            sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
-        elif sampling_params.max_tokens is None:
-            sampling_params = sampling_params.clone()
-            sampling_params.max_tokens = self.config.max_tokens
+        sampling_params = _resolve_sampling_params(sampling_params, self.config)
 
         requests = []
         for content in contents:
@@ -480,7 +585,9 @@ class LLM:
                     mm_inputs["images"],
                     mm_inputs["videos"],
                     mm_inputs["audios"],
-                    return_tensors="pt",
+                    return_tensors=_chat_tensor_mode(
+                        self.engine.processor, has_multimodal_inputs
+                    ),
                 )
 
                 prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
@@ -592,8 +699,8 @@ class AsyncLLMEngine:
         pre_transpose: bool = False,
         skip_load: bool = False,
         weight_load_mode: str = "async",
-        use_legacy_moe: bool = False,
         enable_prefix_caching: bool = True,
+        static_cache_capacity: int = 1,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -604,6 +711,7 @@ class AsyncLLMEngine:
             tensor_parallel_size: Number of devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
+            static_cache_capacity: Static KV rows (1 or 2), still one request per forward.
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
@@ -635,6 +743,7 @@ class AsyncLLMEngine:
             moe_ep_size=moe_ep_size,
             cache_type=cache_type,
             max_batch_size=max_batch_size,
+            static_cache_capacity=static_cache_capacity,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -649,10 +758,10 @@ class AsyncLLMEngine:
             pre_transpose=pre_transpose,
             skip_load=skip_load,
             weight_load_mode=weight_load_mode,
-            use_legacy_moe=use_legacy_moe,
             enable_prefix_caching=enable_prefix_caching,
         )
         self.engine = LLMEngine(config)
+        self.engine._async_abort_owner = True
         self.config = config
 
         self._running = False
@@ -660,36 +769,85 @@ class AsyncLLMEngine:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
         self._abort_queue: Optional[janus.Queue] = None
+        self._stopped = False
+        self._stop_lock = threading.Lock()
+        self._stop_requested = False
+        self._stop_drain_complete = False
+        self._stop_drain_error: Optional[str] = None
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
 
     def start(self):
         """Start the background inference loop."""
-        if self._running:
-            logger.warning("AsyncLLMEngine is already running")
-            return
+        with self._stop_lock:
+            if self._stop_requested or self._stopped:
+                raise RuntimeError("AsyncLLMEngine cannot restart after stop or during a pending stop")
+            if self._running:
+                logger.warning("AsyncLLMEngine is already running")
+                return
+            if self._step_thread is not None:
+                raise RuntimeError("AsyncLLMEngine cannot restart after stop or during a pending stop")
 
-        self._loop = asyncio.get_running_loop()
-        self._abort_queue = janus.Queue()
-        self._running = True
-        self._step_thread = threading.Thread(
-            target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
-        )
-        self._step_thread.start()
+            self._loop = asyncio.get_running_loop()
+            self._abort_queue = janus.Queue()
+            self._running = True
+            self._step_thread = threading.Thread(
+                target=self._step_loop, daemon=True, name="AsyncLLMEngineStepThread"
+            )
+            self._step_thread.start()
         logger.info("AsyncLLMEngine started")
 
     def stop(self):
         """Stop the background inference loop."""
-        if not self._running:
-            logger.warning("AsyncLLMEngine is not running")
-            return
+        with self._stop_lock:
+            if self._stopped:
+                return
+            if not self._running and self._step_thread is None:
+                # Before start there cannot be accepted requests. Closing is
+                # safe without a consumer thread and must still release native.
+                self._stop_requested = True
+                self.engine.close()
+                self._stopped = True
+                logger.info("AsyncLLMEngine stopped before start")
+                return
+            # The step thread owns scheduler resources. Keep it running until
+            # it drains requests; stop() only requests that transition.
+            self._stop_requested = True
+            step_thread = self._step_thread
 
-        self._running = False
-        if self._step_thread:
-            self._step_thread.join(timeout=5)
-        self.engine.close()
+        if step_thread:
+            if step_thread is threading.current_thread():
+                raise RuntimeError(
+                    "AsyncLLMEngine stop cannot join its own step thread; "
+                    "native engine remains owned"
+                )
+            step_thread.join(timeout=5)
+            if step_thread.is_alive():
+                raise RuntimeError(
+                    "AsyncLLMEngine step thread is still running; native engine "
+                    "remains owned and stop() may be retried"
+                )
+        with self._stop_lock:
+            if self._stopped:
+                return
+            if not self._stop_drain_complete:
+                raise RuntimeError(
+                    "AsyncLLMEngine shutdown drain did not complete; native engine "
+                    f"remains owned: {self._stop_drain_error or 'step thread exited early'}"
+                )
+            self.engine.close()
+            self._step_thread = None
+            self._stopped = True
         logger.info("AsyncLLMEngine stopped")
+
+    def _submit_request(self, request: InferenceRequest) -> None:
+        """Linearize queue submission with stop, including tokenizer races."""
+        with self._stop_lock:
+            if (not self._running or self._step_thread is None
+                    or self._stop_requested or self._stopped or not self._healthy):
+                raise RuntimeError("AsyncLLMEngine is not running or stopping; request not submitted")
+            self.engine.add_request(request)
 
     def add_aborted_req(
         self,
@@ -700,8 +858,22 @@ class AsyncLLMEngine:
 
         The step thread processes this in _drain_abort_queue() before each schedule().
         """
-        if self._abort_queue is not None:
-            self._abort_queue.sync_q.put((req, reason))
+        with self._stop_lock:
+            if self._abort_queue is None:
+                return
+            with req._terminal_lock:
+                if req.is_finished() or getattr(req, "_abort_enqueued", False):
+                    return
+                if not self._healthy:
+                    # No consumer remains after failure. Notification does not
+                    # retire any scheduler/native resource owned by this request.
+                    _finalize_aborted_request(req, FinishReason.ERROR)
+                    return
+                # close() may have set _aborted already. Only a successful queue
+                # insertion owns the terminal reason; the first insertion wins.
+                req.abort()
+                self._abort_queue.sync_q.put_nowait((req, reason))
+                req._abort_enqueued = True
 
     def _drain_abort_queue(self):
         """Process all pending abort requests before each schedule() call.
@@ -719,59 +891,70 @@ class AsyncLLMEngine:
             except Exception:
                 break
 
-            if req.is_finished():
-                continue
-
-            if reason == FinishReason.CANCELED:
-                req.mark_canceled()
-            elif reason == FinishReason.TIMEOUT:
-                req.mark_timeout()
-            else:
-                req.mark_failed(reason)
-
-            # Put a final token to unblock stream_request.
-            # If Starlette already cancelled _stream_chat, aclose() may have closed
-            # the queue; put_nowait will raise and we silently ignore it.
-            if req._output_queue is not None:
-                final = TokenOutput(
-                    request_id=req.request_id,
-                    token_id=-1,
-                    token_text="",
-                    finished=True,
-                    finish_reason=req.finish_reason,
-                    generated_text=req.generated_text,
-                )
-                try:
-                    req.output_queue.sync_q.put_nowait(final)
-                except Exception:
-                    pass
+            _finalize_aborted_request(req, reason)
 
     def _step_loop(self):
         """Background loop that runs inference steps."""
         while self._running:
             try:
                 self._drain_abort_queue()
-                did_work, pending = self.engine.step()
+                if self._stop_requested:
+                    self.engine.scheduler.shutdown_drain(
+                        lambda req: _finalize_aborted_request(
+                            req, FinishReason.CANCELED))
+                    self._stop_drain_complete = True
+                    self._running = False
+                    break
+                did_work = self.engine.step()
                 if not did_work:
                     time.sleep(0.003)
-                elif pending:
-                    self._loop.call_soon_threadsafe(self._batch_put, pending)
             except Exception as e:
-                logger.error(f"Error in step loop: {e}", exc_info=True)
-                self._healthy = False
-                self._running = False
-                break
+                notification_errors = []
+                with self._stop_lock:
+                    self._healthy = False
+                    self._running = False
+                    if self._stop_drain_error is None:
+                        self._stop_drain_error = repr(e)
+                    seen = set()
 
-    @staticmethod
-    def _batch_put(pending):
-        for async_q, output in pending:
-            try:
-                async_q.put_nowait(output)
-            except Exception as e:
-                logger.warning(
-                    f"Failed to put token for request {output.request_id}: {e}. "
-                    f"Likely due to client disconnecting or request cancelation."
-                )
+                    def notify(req, reason=FinishReason.ERROR):
+                        if id(req) in seen:
+                            return
+                        seen.add(id(req))
+                        try:
+                            _finalize_aborted_request(
+                                req, reason, notification_errors=notification_errors)
+                        except Exception as notification_error:
+                            if len(notification_errors) < 4:
+                                notification_errors.append((req.request_id, notification_error))
+
+                    # An abort accepted before failure owns its reason. Hold
+                    # stop -> terminal locks so late aborts cannot race this.
+                    try:
+                        if self._abort_queue is not None:
+                            while True:
+                                try:
+                                    req, reason = self._abort_queue.sync_q.get_nowait()
+                                except queue.Empty:
+                                    break
+                                notify(req, reason)
+                    except Exception as notification_error:
+                        if len(notification_errors) < 4:
+                            notification_errors.append(("abort queue", notification_error))
+                    try:
+                        self.engine.scheduler.notify_failed_requests(notify)
+                    except Exception as notification_error:
+                        if len(notification_errors) < 4:
+                            notification_errors.append(("scheduler enumeration", notification_error))
+                    # Unknown native completion remains owned: no drain, retry,
+                    # cache retirement, close, or successful-drain declaration.
+                try:
+                    logger.error("Error in step loop: %s; notification errors (first four): %s",
+                                 e, notification_errors, exc_info=True)
+                except Exception:
+                    # Logging cannot undo the fault latch or request notifications.
+                    pass
+                break
 
     def add_request(
         self,
@@ -817,6 +1000,13 @@ class AsyncLLMEngine:
         Returns:
             The created InferenceRequest object.
         """
+        # Reject the common pre-start/stopping case before constructing an
+        # output queue. _submit_request repeats this under the same lock after
+        # tokenization, closing a concurrent stop race.
+        with self._stop_lock:
+            if (not self._running or self._step_thread is None
+                    or self._stop_requested or self._stopped or not self._healthy):
+                raise RuntimeError("AsyncLLMEngine is not running or stopping; request not submitted")
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
@@ -851,7 +1041,9 @@ class AsyncLLMEngine:
                 mm_inputs["images"],
                 mm_inputs["videos"],
                 mm_inputs["audios"],
-                return_tensors="pt",
+                return_tensors=_chat_tensor_mode(
+                    self.engine.processor, has_multimodal_inputs
+                ),
             )
 
             prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
@@ -862,11 +1054,7 @@ class AsyncLLMEngine:
                 audio_ids=mm_inputs["audio_urls"],
             )
 
-        if sampling_params is None:
-            sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
-        elif sampling_params.max_tokens is None:
-            sampling_params = sampling_params.clone()
-            sampling_params.max_tokens = self.config.max_tokens
+        sampling_params = _resolve_sampling_params(sampling_params, self.config)
 
         request = InferenceRequest(
             request_id=request_id,
@@ -887,7 +1075,13 @@ class AsyncLLMEngine:
         # Initialize output queue for streaming
         _ = request.output_queue
 
-        self.engine.add_request(request)
+        try:
+            self._submit_request(request)
+        except BaseException:
+            # A stop that wins during tokenization must not leave this newly
+            # constructed, never-submitted janus queue alive.
+            request.output_queue.close()
+            raise
         return request
 
     def add_chat_request(
@@ -938,14 +1132,18 @@ class AsyncLLMEngine:
         import asyncio
 
         start = time.time()
+        timeout_submitted = False
+        exit_reason = FinishReason.CANCELED
         try:
             while True:
                 try:
-                    if request_timeout and time.time() - start > float(request_timeout):
+                    if (request_timeout and not timeout_submitted
+                            and time.time() - start > float(request_timeout)):
                         logger.warning(
                             f"Request {request.request_id} exceeded request timeout of {request_timeout} seconds"
                         )
                         self.add_aborted_req(request, FinishReason.TIMEOUT)
+                        timeout_submitted = True
 
                     token_output = await asyncio.wait_for(
                         request.output_queue.async_q.get(), timeout=timeout
@@ -961,31 +1159,50 @@ class AsyncLLMEngine:
                     logger.warning(
                         f"Timeout while waiting for token from request {request.request_id}"
                     )
+                    if (request_timeout and not timeout_submitted
+                            and time.time() - start > float(request_timeout)):
+                        self.add_aborted_req(request, FinishReason.TIMEOUT)
+                        timeout_submitted = True
+                    if not self._healthy or not self._running:
+                        # The step thread may have committed a final item to
+                        # Janus immediately before this timed get was canceled.
+                        # Consume that item directly before treating its exit
+                        # as a missing finalization; close() would discard it.
+                        try:
+                            pending = request.output_queue.async_q.get_nowait()
+                        except asyncio.QueueEmpty:
+                            _finalize_aborted_request(
+                                request,
+                                FinishReason.TIMEOUT if timeout_submitted else FinishReason.ERROR,
+                            )
+                            raise RuntimeError(
+                                "abort finalization unavailable: step thread stopped"
+                            )
+                        request.output_queue.async_q.task_done()
+                        yield pending
+                        if pending.finished:
+                            break
+                        continue
                     if request.is_aborted():
-                        while not request.output_queue.async_q.empty():
-                            try:
-                                token_output = request.output_queue.async_q.get_nowait()
-                                request.output_queue.async_q.task_done()
-                                yield token_output
-                            except asyncio.QueueEmpty:
-                                break
-
-                        yield TokenOutput(
-                            request_id=request.request_id,
-                            token_id=-1,
-                            token_text="",
-                            finished=True,
-                            finish_reason=request.finish_reason,
-                            generated_text=request.generated_text,
-                        )
-                        break
+                        # The step thread still owns the terminal reason and
+                        # final output. It may be inside a long native forward;
+                        # do not invent a final token with finish_reason=None.
+                        continue
                     continue
                 except Exception as e:
                     logger.error(
                         f"Error while streaming request {request.request_id}: {e}"
                     )
-                    break
+                    raise
+        except (GeneratorExit, asyncio.CancelledError):
+            raise
+        except BaseException:
+            exit_reason = FinishReason.ERROR
+            raise
         finally:
             # Unified cleanup point: runs whether the loop exits normally,
             # via exception, or via aclose() (GeneratorExit from Starlette).
+            # A direct API iterator has no HTTP wrapper to submit its abort.
+            if not request.is_finished() and not timeout_submitted:
+                self.add_aborted_req(request, exit_reason)
             await request.close()

@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from infinilm.llm.request import InferenceRequest
 from infinilm.config.kv_transfer import KVTransferConfig
-import infinicore
+from .. import _core as infinicore
 
 logger = logging.getLogger(__name__)
 
@@ -251,9 +251,8 @@ class KVConnectorBase(ABC):
         """
         return None
 
-    def get_finished(
-        self, finished_req_ids: set[str]
-    ) -> tuple[set[str] | None, set[str] | None, set[str] | None]:
+    def get_finished(self) -> tuple[set[str] | None, set[str] | None, set[str] | None]:
+        """Poll finished sends, failed receives, and finished receives."""
         return None, None, None
 
     def shutdown(self):

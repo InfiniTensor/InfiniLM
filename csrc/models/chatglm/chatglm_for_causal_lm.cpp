@@ -1,3 +1,4 @@
+#include "../../layers/rotary_embedding/rope.hpp"
 #include "chatglm_for_causal_lm.hpp"
 #include "../models_registry.hpp"
 
@@ -38,7 +39,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_chatglm_model_config(
     }
 
     // Use GPT-J style RoPE (interleaved dimensions) for chatglm, chatglm/GLM4 share same attention layer
-    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+    model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
 
     return model_config;
 }
@@ -47,7 +48,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_chatglm_model_config(
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     chatglm,
     infinilm::models::chatglm::ChatglmForCausalLM,
     infinilm::models::chatglm::create_chatglm_model_config);

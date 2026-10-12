@@ -5,10 +5,10 @@
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/mlp/mlp.hpp"
 #include "../../layers/moe/legacy/moe_mlp.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
-#include <infiniccl.h>
+#include "runtime/device.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/tensor.hpp"
+#include <infiniccl/infiniccl.h>
 
 #include <memory>
 #include <tuple>
@@ -19,38 +19,42 @@ namespace infinilm::models::deepseek_v2 {
 using DeepseekV2MLP = infinilm::layers::mlp::MLP;
 using DeepseekV2ExpertMLP = infinilm::layers::moe::legacy::MoeMLP;
 
-class DeepseekV2TopKRouter : public infinicore::nn::Module {
+class DeepseekV2TopKRouter : public infinilm::weights::ModelWeights {
 public:
-    DeepseekV2TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                         const infinicore::Device &device);
+    DeepseekV2TopKRouter(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states) const;
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
+        infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_PARAMETER(weight);
+    infinilm::weights::Weight weight_;
     size_t num_experts_per_tok_{0};
     size_t num_experts_{0};
     bool norm_topk_prob_{false};
 };
 
-class DeepseekV2Experts : public infinicore::nn::Module {
+class DeepseekV2Experts : public infinilm::weights::ModelWeights {
 public:
-    DeepseekV2Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                      const infinicore::Device &device);
+    DeepseekV2Experts(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &top_k_index,
-                               const infinicore::Tensor &top_k_weights) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states,
+                               const infinilm::runtime::Tensor &top_k_index,
+                               const infinilm::runtime::Tensor &top_k_weights) const;
 
 protected:
-    infinicore::Tensor forward_cpu_routed_(const infinicore::Tensor &hidden_states,
-                                           const infinicore::Tensor &top_k_index,
-                                           const infinicore::Tensor &top_k_weights) const;
+    infinilm::runtime::Tensor forward_cpu_routed_(infinilm::runtime::Runtime &runtime,
+                                           const infinilm::runtime::Tensor &hidden_states,
+                                           const infinilm::runtime::Tensor &top_k_index,
+                                           const infinilm::runtime::Tensor &top_k_weights) const;
 
-    INFINICORE_NN_MODULE_VEC(DeepseekV2ExpertMLP, experts);
-    std::vector<infinicore::Tensor> gate_weights_;
-    std::vector<infinicore::Tensor> up_weights_;
-    std::vector<infinicore::Tensor> down_weights_;
+    std::vector<std::shared_ptr<DeepseekV2ExpertMLP>> experts_;
+    std::vector<infinilm::runtime::Tensor> gate_weights_;
+    std::vector<infinilm::runtime::Tensor> up_weights_;
+    std::vector<infinilm::runtime::Tensor> down_weights_;
     size_t hidden_size_{0};
     size_t moe_intermediate_size_{0};
     size_t local_moe_intermediate_size_{0};
@@ -60,17 +64,21 @@ protected:
     infinicclComm_t communicator_{nullptr};
 };
 
-class DeepseekV2MoE : public infinicore::nn::Module {
+class DeepseekV2MoE : public infinilm::weights::ModelWeights {
 public:
-    DeepseekV2MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                  const infinicore::Device &device);
+    DeepseekV2MoE(infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    size_t layer_idx,
+    const engine::distributed::RankInfo &rank_info,
+    backends::AttentionBackend attention_backend,
+    const layers::moe::EPConfig &ep_config);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_MODULE(DeepseekV2TopKRouter, gate);
-    INFINICORE_NN_MODULE(DeepseekV2Experts, experts);
-    INFINICORE_NN_MODULE(DeepseekV2MLP, shared_experts);
+    std::shared_ptr<DeepseekV2TopKRouter> gate_;
+    std::shared_ptr<DeepseekV2Experts> experts_;
+    std::shared_ptr<DeepseekV2MLP> shared_experts_;
     bool has_shared_experts_{false};
 };
 

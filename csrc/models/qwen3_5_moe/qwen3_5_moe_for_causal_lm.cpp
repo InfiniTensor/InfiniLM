@@ -27,7 +27,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_moe_model_config(
 } // namespace infinilm::models::qwen3_5_moe
 
 namespace {
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     qwen3_5_moe,
     infinilm::models::qwen3_5_moe::Qwen35MoeForConditionalGeneration,
     infinilm::models::qwen3_5_moe::create_qwen3_5_moe_model_config);

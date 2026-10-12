@@ -1,6 +1,7 @@
 #pragma once
+#include "rope_scaling_configs.hpp"
 
-#include "infinicore/nn/rope.hpp"
+#include "rope.hpp"
 #include <memory>
 #include <optional>
 #include <string>
@@ -12,15 +13,16 @@ class ModelConfig; // Forward declaration
 
 namespace infinilm::layers::rotary_embedding {
 
-std::shared_ptr<infinicore::nn::RoPE>
-get_rope(size_t head_dim,
+std::shared_ptr<infinilm::layers::RoPE>
+get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+         size_t head_dim,
          size_t rotary_dim,
          size_t max_position_embeddings,
          double rope_theta,
-         infinicore::nn::RoPE::Algo algo,
-         const infinicore::DataType &dtype,
-         const infinicore::Device &device,
-         std::shared_ptr<infinicore::nn::RopeScalingConfig> scaling = nullptr,
+         infinilm::layers::RoPE::Algo algo,
+         const infinilm::runtime::DataType &dtype,
+         const infinilm::runtime::Device &device,
+         std::shared_ptr<infinilm::layers::RopeScalingConfig> scaling = nullptr,
          std::optional<std::vector<int>> mrope_section = std::nullopt,
          bool mrope_interleaved = false);
 
@@ -32,8 +34,9 @@ get_rope(size_t head_dim,
  * @todo Not Supported Yet: reading mrope params from config
  *
  */
-std::shared_ptr<infinicore::nn::RoPE>
-get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
-         const infinicore::Device &device);
+std::shared_ptr<infinilm::layers::RoPE>
+get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
+         const infinilm::runtime::Device &device);
+
 
 } // namespace infinilm::layers::rotary_embedding

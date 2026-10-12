@@ -1,19 +1,62 @@
 #pragma once
 
 #include "dist_config.hpp"
+#include "../../parallel/topology.hpp"
 
-#include <infiniccl.h>
-#include <infinicore/context/context.hpp>
+#include <infiniccl/infiniccl.h>
+#include <runtime/device.hpp>
+#include <runtime/tensor.hpp>
 
 #include <sstream>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace infinilm::engine::distributed {
 
+// LM submission boundary: caller allocates the output and owns the topology.
+// Communicators are borrowed from CommunicationGroup. Models and all recorded
+// calls must be drained/destroyed before their group (InferEngine enforces this).
+// SDK51 exposes capture eligibility only for AllReduce; other calls remain
+// explicit host replay in the existing graph plan, never capture-qualified.
+void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+                const infinilm::runtime::Tensor &input, infinicclRedOp_t op,
+                infinicclComm_t communicator);
+void allgather_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+                const infinilm::runtime::Tensor &input, infinicclComm_t communicator);
+void reduce_scatter_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+                     const infinilm::runtime::Tensor &input, infinicclRedOp_t op,
+                     infinicclComm_t communicator);
+void send(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input,
+          int peer, infinicclComm_t communicator);
+void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+           int peer, infinicclComm_t communicator);
+
+// EP split metadata stays in LM. SDK51 only supports uniform counts; unequal
+// splits fail before any submission and never trigger a CPU fallback.
+void allgatherv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+                 const infinilm::runtime::Tensor &input,
+                 const std::vector<size_t> &split_sizes,
+                 infinicclComm_t communicator);
+void allgatherv_many_(infinilm::runtime::Runtime &runtime,
+                      const std::vector<infinilm::runtime::Tensor> &outputs,
+                      const std::vector<infinilm::runtime::Tensor> &inputs,
+                      const std::vector<size_t> &split_sizes,
+                      infinicclComm_t communicator);
+void reduce_scatterv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
+                      const infinilm::runtime::Tensor &input,
+                      const std::vector<size_t> &split_sizes,
+                      infinicclRedOp_t op, infinicclComm_t communicator);
+void reduce_scatterv_many_(infinilm::runtime::Runtime &runtime,
+                           const std::vector<infinilm::runtime::Tensor> &outputs,
+                           const std::vector<infinilm::runtime::Tensor> &inputs,
+                           const std::vector<size_t> &split_sizes,
+                           infinicclRedOp_t op, infinicclComm_t communicator);
+
 // Communicator each rank will hold
 struct RankInfo {
     // Device Type and ID assigned to this rank
-    infinicore::Device device;
+    infinilm::runtime::Device device;
     // Local tensor parallelism size
     int tp_size;
     // Local tensor parallelism rank number of this rank
@@ -31,8 +74,8 @@ struct RankInfo {
     // Inter-node communicator
     infinicclComm_t world_comm;
 
-    RankInfo(infinicore::Device _device = infinicore::context::getDevice())
-        : device(_device),
+    explicit RankInfo(infinilm::runtime::Device device)
+        : device(std::move(device)),
           tp_size(1),
           tp_rank(0),
           comm(nullptr),
@@ -40,11 +83,11 @@ struct RankInfo {
           pp_stage(0),
           world_size(1),
           world_rank(0),
-          world_comm(nullptr){};
+          world_comm(nullptr) {}
 
     std::string to_string() const {
         std::stringstream ss;
-        ss << "RankInfo: device=" << device.toString()
+        ss << "RankInfo: device=" << device.ToString()
            << ", tp_size=" << tp_size
            << ", tp_rank=" << tp_rank
            << ", pp_size=" << pp_size
@@ -58,19 +101,24 @@ struct RankInfo {
 // The communication group managed by model infer engine
 class CommunicationGroup {
 public:
-    explicit CommunicationGroup(const DistConfig &dist_config, infinicore::Device::Type device_type);
+    explicit CommunicationGroup(const DistConfig &dist_config, infinilm::runtime::Device::Type device_type);
+    CommunicationGroup(const CommunicationGroup &) = delete;
+    CommunicationGroup &operator=(const CommunicationGroup &) = delete;
+    CommunicationGroup(CommunicationGroup &&) = delete;
+    CommunicationGroup &operator=(CommunicationGroup &&) = delete;
 
     const DistConfig &get_dist_config() const;
 
     RankInfo get_rank_info(int rank) const;
 
-    int get_world_size() const;
+    int tp_size() const;
 
     ~CommunicationGroup();
 
 protected:
     DistConfig dist_config_;
-    infinicore::Device::Type device_type_;
+    infinilm::runtime::Device::Type device_type_;
+    parallel::Topology topology_;
     std::vector<infinicclComm_t> communicators_;
     std::vector<infinicclComm_t> world_communicators_;
 };
