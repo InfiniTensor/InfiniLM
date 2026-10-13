@@ -157,26 +157,7 @@ infinilm::runtime::Tensor Qwen3NextAttention::forward_static_(const infinilm::ru
     rotary_emb_->forward(runtime, k_reshaped, pos_ids_for_rope, true);
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, forward_context);
-    {
-        const auto ops_other = [&]() {
-            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate->shape(), gate->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-            infinilm::execution::submit<infini::ops::Sigmoid>(
-                runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gate, ops_output);
-            INFINILM_TRACE_OP(Sigmoid, ops_output);
-            return ops_output;
-        }();
-        auto ops_output = infinilm::runtime::Tensor::empty(runtime, attn_output->shape(), attn_output->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-        infinilm::execution::submit<infini::ops::Mul>(
-            runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), attn_output, ops_other, ops_output);
-        INFINILM_TRACE_OP(Mul, ops_output);
-        attn_output = std::move(ops_output);
-    }
+    infinilm::layers::attention::detail::apply_output_gate(runtime, attn_output, gate, false);
     return o_proj_->forward(runtime, attn_output);
 }
 
@@ -224,26 +205,7 @@ infinilm::runtime::Tensor Qwen3NextAttention::forward_paged_(const infinilm::run
     rotary_emb_->forward(runtime, k_reshaped, pos_ids_for_rope, true);
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, forward_context);
-    {
-        const auto ops_other = [&]() {
-            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate->shape(), gate->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-            infinilm::execution::submit<infini::ops::Sigmoid>(
-                runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gate, ops_output);
-            INFINILM_TRACE_OP(Sigmoid, ops_output);
-            return ops_output;
-        }()->view(attn_output->shape());
-        auto ops_output = infinilm::runtime::Tensor::empty(runtime, attn_output->shape(), attn_output->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-        infinilm::execution::submit<infini::ops::Mul>(
-            runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), attn_output, ops_other, ops_output);
-        INFINILM_TRACE_OP(Mul, ops_output);
-        attn_output = std::move(ops_output);
-    }
+    infinilm::layers::attention::detail::apply_output_gate(runtime, attn_output, gate, true);
     return o_proj_->forward(runtime, attn_output);
 }
 

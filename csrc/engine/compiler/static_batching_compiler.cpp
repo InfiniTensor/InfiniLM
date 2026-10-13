@@ -146,20 +146,7 @@ void StaticBatchingCompiler::compile() {
         auto graph = recording.finish();
         barrier_->wait();
 
-        infinilm::runtime::Tensor graph_hidden_states;
-        if (output.hidden_states) {
-            graph_hidden_states = infinilm::execution::graph::GraphTensor(
-                runtime_,
-                output.hidden_states,
-                infinilm::execution::graph::GraphTensor::SnapshotPolicy::kBlob);
-        }
-        auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-            new InfinilmModel::Output{
-                infinilm::execution::graph::GraphTensor(
-                    runtime_,
-                    output.logits,
-                    infinilm::execution::graph::GraphTensor::SnapshotPolicy::kBlob),
-                graph_hidden_states});
+        auto shared_output = snapshot_output(output);
 
         prepare_state.restore();
         candidate[std::make_tuple(b, 1)] = CompiledResult{
@@ -243,14 +230,7 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
 
             auto graph = std::get<0>(result->second.compiled);
             const auto &compiled_output = std::get<1>(result->second.compiled);
-            infinilm::runtime::Tensor hidden_states;
-            if (compiled_output->hidden_states) {
-                hidden_states = compiled_output->hidden_states->resume_from_blob_(runtime_);
-            }
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{
-                    compiled_output->logits->resume_from_blob_(runtime_),
-                    hidden_states});
+            auto shared_output = resume_output(*compiled_output);
             return std::make_tuple(graph, shared_output);
         }
     } else {

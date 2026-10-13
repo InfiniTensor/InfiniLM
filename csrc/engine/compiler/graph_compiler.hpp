@@ -2,6 +2,7 @@
 
 #include "../../models/infinilm_model.hpp"
 #include "../../global_state/forward_context.hpp"
+#include "../../execution/graph/graph.hpp"
 #include "runtime/runtime.hpp"
 #include "../rank_barrier.hpp"
 
@@ -77,6 +78,34 @@ public:
     virtual Compiled get_compiled(const InfinilmModel::Input &input) = 0;
 
 protected:
+    std::shared_ptr<InfinilmModel::Output> snapshot_output(const InfinilmModel::Output &output) {
+        infinilm::runtime::Tensor graph_hidden_states;
+        if (output.hidden_states) {
+            graph_hidden_states = infinilm::execution::graph::GraphTensor(
+                runtime_,
+                output.hidden_states,
+                infinilm::execution::graph::GraphTensor::SnapshotPolicy::kBlob);
+        }
+        return std::shared_ptr<InfinilmModel::Output>(
+            new InfinilmModel::Output{
+                infinilm::execution::graph::GraphTensor(
+                    runtime_,
+                    output.logits,
+                    infinilm::execution::graph::GraphTensor::SnapshotPolicy::kBlob),
+                graph_hidden_states});
+    }
+
+    std::shared_ptr<InfinilmModel::Output> resume_output(const InfinilmModel::Output &output) {
+        infinilm::runtime::Tensor hidden_states;
+        if (output.hidden_states) {
+            hidden_states = output.hidden_states->resume_from_blob_(runtime_);
+        }
+        return std::shared_ptr<InfinilmModel::Output>(
+            new InfinilmModel::Output{
+                output.logits->resume_from_blob_(runtime_),
+                hidden_states});
+    }
+
     std::shared_ptr<InfinilmModel> model_;
     RankBarrier *barrier_;
     infinilm::runtime::Runtime &runtime_;

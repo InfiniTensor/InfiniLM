@@ -1,3 +1,5 @@
+#include "../../execution/submit.hpp"
+#include "runtime/utils.hpp"
 #include "../../weights/weights.hpp"
 #include "../../global_state/forward_context.hpp"
 #include "attention.hpp"
@@ -8,6 +10,29 @@
 #include <exception>
 
 namespace infinilm::layers::attention {
+
+void detail::apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &output,
+                              const infinilm::runtime::Tensor &gate, bool view_sigmoid_output) {
+    const auto sigmoid = [&]() {
+        auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate->shape(), gate->dtype());
+        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
+            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
+            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
+        infinilm::execution::submit<infini::ops::Sigmoid>(
+            runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gate, ops_output);
+        INFINILM_TRACE_OP(Sigmoid, ops_output);
+        return ops_output;
+    };
+    const auto ops_other = view_sigmoid_output ? sigmoid()->view(output->shape()) : sigmoid();
+    auto ops_output = infinilm::runtime::Tensor::empty(runtime, output->shape(), output->dtype());
+    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
+        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
+        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
+    infinilm::execution::submit<infini::ops::Mul>(
+        runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), output, ops_other, ops_output);
+    INFINILM_TRACE_OP(Mul, ops_output);
+    output = std::move(ops_output);
+}
 
 Attention::Attention(infinilm::runtime::Runtime &runtime,
                      std::shared_ptr<infinilm::config::ModelConfig> model_config,

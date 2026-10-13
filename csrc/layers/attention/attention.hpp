@@ -68,4 +68,8 @@ void init_kv_cache_quant_params(infinilm::runtime::Runtime &runtime,
                                 infinilm::weights::Weight &kv_cache_k_scale,
                                 infinilm::weights::Weight &kv_cache_v_scale,
                                 infinilm::quantization::KVQuantAlgo kv_quant_scheme);
+namespace detail {
+void apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &output,
+                       const infinilm::runtime::Tensor &gate, bool view_sigmoid_output);
+}
 } // namespace infinilm::layers::attention
