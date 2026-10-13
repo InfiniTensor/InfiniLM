@@ -34,6 +34,13 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
     return cudaStreamSynchronize(stream);
 }
 
+cudaError_t sync_device_unless_capturing(cudaStream_t stream) {
+    if (stream_is_capturing(stream)) {
+        return cudaGetLastError();
+    }
+    return sync_device_unless_capturing(stream);
+}
+
 
 bool host_timer_enabled() {
     static int cached = -1;
@@ -151,7 +158,7 @@ void run(void *planned_meta) {
             topk, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        auto err = cudaDeviceSynchronize();
+        auto err = sync_device_unless_capturing(stream);
         if (err != cudaSuccess) {
             throw std::runtime_error(
                 std::string("QY moe_fused_dense stage1 (w13) OOR/sync: ")
@@ -191,7 +198,7 @@ void run(void *planned_meta) {
             /*top_k=*/1, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        auto err = cudaDeviceSynchronize();
+        auto err = sync_device_unless_capturing(stream);
         if (err != cudaSuccess) {
             throw std::runtime_error(
                 std::string("QY moe_fused_dense stage2 (w2) OOR/sync: ")
