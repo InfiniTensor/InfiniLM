@@ -8,7 +8,9 @@
 
 namespace infinicore::op {
 
-INFINICORE_GRAPH_OP_CLASS(RoPE, Tensor, const Tensor &, const Tensor &, const Tensor &, const Tensor &, infinicore::nn::RoPE::Algo);
+// QY longctx RoPE packs via cudaMemcpy*/host sync; keep eager during graph capture
+// so FA/gemm can still capture around it (same pattern as MoE ATen/_dl_C).
+INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(RoPE, Tensor, const Tensor &, const Tensor &, const Tensor &, const Tensor &, infinicore::nn::RoPE::Algo);
 
 // Internal
 void rope_(Tensor x_out,
