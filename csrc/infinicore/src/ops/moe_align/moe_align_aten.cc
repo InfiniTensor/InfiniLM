@@ -22,6 +22,20 @@
 namespace infinicore::op::moe_align_impl::aten {
 namespace {
 
+bool stream_is_capturing(cudaStream_t stream) {
+    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
+    auto st = cudaStreamIsCapturing(stream, &status);
+    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
+}
+
+cudaError_t sync_unless_capturing(cudaStream_t stream) {
+    if (stream_is_capturing(stream)) {
+        return cudaGetLastError();
+    }
+    return sync_unless_capturing(stream);
+}
+
+
 bool host_timer_enabled() {
     static int cached = -1;
     if (cached < 0) {
@@ -116,7 +130,7 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
         static_cast<size_t>(sorted_token_ids.numel()),
         static_cast<size_t>(expert_ids.numel()), pad_sorted_token_ids,
         workspace.data_ptr(), reinterpret_cast<void *>(stream));
-    auto err = cudaStreamSynchronize(stream);
+    auto err = sync_unless_capturing(stream);
     if (err != cudaSuccess) {
         throw std::runtime_error(std::string("QY moe_align sync: ") +
                                  cudaGetErrorString(err));

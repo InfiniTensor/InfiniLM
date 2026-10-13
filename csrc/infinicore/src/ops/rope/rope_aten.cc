@@ -20,6 +20,20 @@
 namespace infinicore::op::rope_impl::aten {
 namespace {
 
+bool stream_is_capturing(cudaStream_t stream) {
+    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
+    auto st = cudaStreamIsCapturing(stream, &status);
+    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
+}
+
+cudaError_t sync_unless_capturing(cudaStream_t stream) {
+    if (stream_is_capturing(stream)) {
+        return cudaGetLastError();
+    }
+    return sync_unless_capturing(stream);
+}
+
+
 // QY FA+paged long-prefill RoPE: Denglin ATen index_select/gather and strided
 // copy_/mul on gated as_strided Q/K hit LaunchOutOfResources. Pack/unpack with
 // cudaMemcpyAsync (contiguous head vectors), rotate on a compact workspace,
@@ -287,7 +301,7 @@ void run(void *planned_meta) {
     if (!x.is_contiguous()) {
         HostTimer pack_timer("rope_pack", seq_len);
         pack_head_vectors(x, x_contig, stream);
-        cudaStreamSynchronize(stream);
+        sync_unless_capturing(stream);
     }
 
     // Prefer full-table + pos lookup in the kernel to avoid per-chunk gather.
@@ -318,7 +332,7 @@ void run(void *planned_meta) {
         {
             HostTimer unpack_timer("rope_unpack", seq_len);
             unpack_head_vectors(rotated, out, stream);
-            cudaStreamSynchronize(stream);
+            sync_unless_capturing(stream);
         }
     }
 

@@ -20,6 +20,20 @@
 namespace infinicore::op::moe_topk_sigmoid_impl::aten {
 namespace {
 
+bool stream_is_capturing(cudaStream_t stream) {
+    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
+    auto st = cudaStreamIsCapturing(stream, &status);
+    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
+}
+
+cudaError_t sync_unless_capturing(cudaStream_t stream) {
+    if (stream_is_capturing(stream)) {
+        return cudaGetLastError();
+    }
+    return sync_unless_capturing(stream);
+}
+
+
 bool host_timer_enabled() {
     static int cached = -1;
     if (cached < 0) {
@@ -126,7 +140,7 @@ void run(void *planned_meta) {
         static_cast<int>(planned->topk_weights->dtype()),
         static_cast<int>(planned->topk_indices->dtype()), bias_dtype_tag,
         reinterpret_cast<void *>(stream));
-    auto err = cudaStreamSynchronize(stream);
+    auto err = sync_unless_capturing(stream);
     if (err != cudaSuccess) {
         throw std::runtime_error(std::string("QY moe_topk_sigmoid sync: ") +
                                  cudaGetErrorString(err));
