@@ -20,7 +20,6 @@ public:
            bool bias = true,
            const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32);
 
-    std::string extra_repr() const;
 };
 
 class ColumnParallelLinear : public BaseLinear {
@@ -37,8 +36,6 @@ public:
                          const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32,
                          infinilm::runtime::Size tp_rank = 0, infinilm::runtime::Size tp_size = 1,
                          int tp_num_heads = -1);
-
-    std::string extra_repr() const;
 
 protected:
     infinilm::runtime::Size tp_rank_ = 0;
@@ -61,7 +58,6 @@ public:
                       infinicclComm_t communicator = nullptr);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const;
-    std::string extra_repr() const;
 
 protected:
     infinilm::runtime::Size tp_rank_ = 0;

@@ -42,12 +42,6 @@ public:
     // Accessors for parameters (backward compatible)
     infinilm::runtime::Tensor weight() const;
     infinilm::runtime::Tensor bias() const;
-    infinilm::runtime::Tensor weight_scale() const;
-    infinilm::runtime::Tensor weight_zeros() const;
-    infinilm::runtime::Tensor gidx() const;
-
-    // Get parameter by name
-    infinilm::runtime::Tensor get_param(const std::string &name) const;
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization() const { return quantization_; }
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;

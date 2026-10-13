@@ -3,7 +3,7 @@
 
 #include "common/moe_types.hpp"
 #include "dispatcher/base_dispatcher.hpp"
-#include "runner/base_runner.hpp"
+#include "runner/cuda_fused_moe_runner.hpp"
 
 #include "../../config/model_config.hpp"
 #include "../../weights/weights.hpp"
@@ -25,7 +25,7 @@ public:
 private:
     infinilm::runtime::Runtime *runtime_borrowed_{nullptr}; // Borrowed; dispatcher retains legitimate shared owner.
     std::shared_ptr<BaseDispatcher> dispatcher_;
-    std::shared_ptr<MoeRunnerCore> runner_;
+    std::shared_ptr<CudaFusedMoeRunner> runner_;
     mutable MoeWorkspace workspace_;
 };
 

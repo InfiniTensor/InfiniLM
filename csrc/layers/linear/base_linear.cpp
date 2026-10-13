@@ -258,46 +258,6 @@ infinilm::runtime::Tensor BaseLinear::bias() const {
     return infinilm::runtime::Tensor();
 }
 
-infinilm::runtime::Tensor BaseLinear::weight_scale() const {
-    auto it = local_weights_.find("weight_scale");
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    it = local_weights_.find("scales");
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    return infinilm::runtime::Tensor();
-}
-
-infinilm::runtime::Tensor BaseLinear::weight_zeros() const {
-    auto it = local_weights_.find("weight_zeros");
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    it = local_weights_.find("qzeros");
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    return infinilm::runtime::Tensor();
-}
-
-infinilm::runtime::Tensor BaseLinear::gidx() const {
-    auto it = local_weights_.find("g_idx");
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    return infinilm::runtime::Tensor();
-}
-
-infinilm::runtime::Tensor BaseLinear::get_param(const std::string &name) const {
-    auto it = local_weights_.find(name);
-    if (it != local_weights_.end()) {
-        return it->second;
-    }
-    return infinilm::runtime::Tensor();
-}
-
 const infinilm::weights::Weight &BaseLinear::get_parameter_ref(const std::string &name) const {
     return local_weights_.at(name);
 }

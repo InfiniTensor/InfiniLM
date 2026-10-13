@@ -72,18 +72,6 @@ RowParallelLinear::RowParallelLinear(infinilm::runtime::Runtime &runtime, size_t
       tp_size_(tp_size), communicator_(communicator) {
 }
 
-// ---- Linear ----
-
-std::string Linear::extra_repr() const {
-    return "Linear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
-}
-
-// ---- ColumnParallelLinear ----
-
-std::string ColumnParallelLinear::extra_repr() const {
-    return "ColumnParallelLinear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
-}
-
 // ---- RowParallelLinear ----
 
 infinilm::runtime::Tensor RowParallelLinear::forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const {
@@ -91,10 +79,6 @@ infinilm::runtime::Tensor RowParallelLinear::forward(infinilm::runtime::Runtime 
         return compute_linear_allreduce(runtime, input, communicator_);
 }
     return BaseLinear::forward(runtime, input);
-}
-
-std::string RowParallelLinear::extra_repr() const {
-    return "RowParallelLinear(in_features=" + std::to_string(in_features_) + ", out_features=" + std::to_string(out_features_) + ", bias=" + (has_bias_ ? "true" : "false") + ", dtype=" + std::to_string(static_cast<int>(dtype_)) + ")";
 }
 
 } // namespace infinilm::nn

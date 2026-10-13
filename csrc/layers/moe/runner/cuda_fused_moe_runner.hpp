@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base_runner.hpp"
+#include "../common/moe_types.hpp"
 
 namespace infinilm::layers::moe {
 
@@ -14,7 +14,7 @@ struct CudaFusedMoeRunnerOutput {
     infinilm::runtime::Tensor hidden_states;
 };
 
-class CudaFusedMoeRunner final : public MoeRunnerCore {
+class CudaFusedMoeRunner final {
 public:
     CudaFusedMoeRunner(size_t num_local_experts,
                        size_t hidden_size,
@@ -24,7 +24,7 @@ public:
     CombineInput run(infinilm::runtime::Runtime &runtime,
                      const DispatchOutput &dispatch_output,
                      const MoeWeights &weights,
-                     MoeWorkspace &workspace) const override;
+                     MoeWorkspace &workspace) const;
 
 private:
     CudaFusedMoeRunnerInput prepare_runner_input(infinilm::runtime::Runtime &runtime,

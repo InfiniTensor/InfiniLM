@@ -8,9 +8,6 @@
 #include <cstdio>
 #include <exception>
 #include <optional>
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-#include "cuda_fused_moe_runner_drain_test.hpp"
-#endif
 
 #include <sstream>
 #include <stdexcept>
@@ -113,9 +110,6 @@ CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &runtime,
     const bool recording = runtime.isGraphRecording();
     try {
         runner_input = prepare_runner_input(runtime, dispatch_output, workspace);
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-        drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::Aligned);
-#endif
         auto runner_output = run_fused_core(runtime, runner_input, weights, workspace);
     return CombineInput{
         CombineInputFormat::Standard,
@@ -125,42 +119,14 @@ CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &runtime,
     };
     } catch (...) {
         const auto first_error = std::current_exception();
-        bool drained = false;
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-        drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainStarted);
-#endif
         try {
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::before_sync_fault();
-#endif
             runtime.syncStream();
-            drained = true;
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::after_sync_fault();
-            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainSucceeded);
-#endif
-        } catch (const std::exception &cleanup_error) {
-            if (!drained) detail::fail_stop_unknown_runner_drain();
-            std::fprintf(stderr, "MoE runner stream drain failed: %s\n", cleanup_error.what());
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainFailed);
-#endif
         } catch (...) {
-            if (!drained) detail::fail_stop_unknown_runner_drain();
-            std::fprintf(stderr, "MoE runner stream drain failed: unknown error\n");
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::DrainFailed);
-#endif
-}
+            detail::fail_stop_unknown_runner_drain();
+        }
         // Only successful real synchronization can reach cancel/rethrow.
         if (recording) {
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::CancelStarted);
-#endif
             runtime.cancelGraphRecording();
-#ifdef INFINILM_TEST_MOE_RUNNER_DRAIN
-            drain_test::probe(runtime, dispatch_output, workspace, drain_test::Stage::CancelFinished);
-#endif
         }
         std::rethrow_exception(first_error);
     }
