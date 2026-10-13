@@ -7,14 +7,24 @@ on:
       - "**.md"
       - "LICENSE"
   workflow_dispatch:
-    inputs:
-      infinicore_branch:
-        description: "InfiniCore Branch Name"
-        required: false
-        default: "main"
-        type: string
 
 jobs:
+  host-checks:
+    name: Host behavior
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install host test dependency
+        run: python -m pip install numpy==2.3.5
+      - name: Run selected host checks
+        run: |
+          python -m unittest discover -s test/scripts -p "test_base_config_device_detection.py" -v
+
   check-format:
     name: Check Format
     runs-on: ubuntu-latest
@@ -38,12 +48,30 @@ jobs:
             python3 scripts/format.py --ref origin/main --check
           fi
 
+  dependency-identity:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      infinicore_sha: ${{ steps.core.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: core
+        shell: bash
+        run: |
+          expected=$(git ls-tree HEAD third_party/InfiniCore | awk '$1==160000 {print $3}')
+          actual=$(git -C third_party/InfiniCore rev-parse HEAD)
+          test -n "$expected" && test "$actual" = "$expected"
+          git submodule status --recursive | awk '/^[+-U]/ {bad=1} END {exit bad}'
+          printf 'sha=%s\n' "$actual" >> "$GITHUB_OUTPUT"
+
   ci:
     if: github.event_name == 'workflow_dispatch'
-    needs: check-format
-    uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@infiniCore_ci
+    needs: [check-format, dependency-identity]
+    uses: InfiniTensor/ci/.github/workflows/infinilm-ci.yml@refactor/adopt-modern-infini-stack
     with:
-      config_path: .github/ci_config.yaml
-      ci_ref: infiniCore_ci
-      infinicore_branch: ${{ github.event.inputs.infinicore_branch || 'main' }}
+      config_path: .github/ci_config_nvidia.yaml
+      ci_ref: refactor/adopt-modern-infini-stack
+      infinicore_branch: ${{ needs.dependency-identity.outputs.infinicore_sha }}
     secrets: inherit

@@ -1,18 +1,16 @@
 import json
 import os
 
-from transformers import AutoTokenizer
+from transformers import AutoProcessor, AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 DEFAULT_VIDEO_NUM_FRAMES = 8
 
 
-@register_processor("ernie4_5_moe_vl")
 class Ernie45VLProcessor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         self.pixel_values_dtype = None
@@ -45,8 +43,6 @@ class Ernie45VLProcessor(BasicLLMProcessor):
                 self.pixel_values_dtype = getattr(torch, str(dtype_name))
 
         try:
-            from transformers import AutoProcessor
-
             self.processor = AutoProcessor.from_pretrained(
                 model_dir_path, trust_remote_code=True
             )
@@ -267,7 +263,7 @@ class Ernie45VLProcessor(BasicLLMProcessor):
         raise RuntimeError("ERNIE 4.5 VL position_ids must have shape [1, seq, 3]")
 
     def _append_ernie_position_ids(self, model_inputs: dict, scheduler_output) -> None:
-        import infinicore
+        from .. import _core as infinicore
         import torch
 
         position_chunks = []
@@ -326,7 +322,7 @@ class Ernie45VLProcessor(BasicLLMProcessor):
         model_inputs: dict,
         scheduler_output: SchedulerOutput | StaticSchedulerOutput,
     ) -> None:
-        import infinicore
+        from .. import _core as infinicore
         import torch
 
         pixel_values = []

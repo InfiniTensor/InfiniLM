@@ -1,11 +1,14 @@
+#include "execution/submit.hpp"
+#include "../../weights/weights.hpp"
 #include "kimi_k3_moe.hpp"
 
 #include "../../global_state/global_state.hpp"
+#include "runtime/runtime.hpp"
 
-#include <infinicore/ops/add.hpp>
-#include <infinicore/ops/distributed/allreduce.hpp>
-#include <infinicore/ops/fused_moe_mxfp4.hpp>
-#include <infinicore/ops/situ_and_mul.hpp>
+#include "../../engine/distributed/communication_group.hpp"
+#include <infinilm::runtime/ops/fused_moe_mxfp4.hpp>
+#include <infinilm::runtime/ops/situ_and_mul.hpp>
+#include <exception>
 #include <stdexcept>
 #include <string>
 
@@ -21,19 +24,28 @@ make_kimi_k3_subconfig(const std::shared_ptr<infinilm::config::ModelConfig> &mod
     return std::make_shared<infinilm::config::ModelConfig>(std::move(json));
 }
 
-KimiK3MLP::KimiK3MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+KimiK3MLP::KimiK3MLP(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t intermediate_size,
-                     const infinicore::Device &device) {
+    const engine::distributed::RankInfo &rank_info) {
+    runtime.assertOwnerThread();
+    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3MLP construction requires eager Runtime");
+    if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
+        || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
+        || (rank_info.tp_size > 1 && !rank_info.comm))
+        throw std::invalid_argument("Invalid explicit KimiK3MLP construction resources");
+    try {
+        device_ = runtime.device();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const auto &dtype = model_config->get_dtype();
-    const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
     situ_beta_ = model_config->get_or<float>("activation_situ_beta", 4.0f);
     situ_linear_beta_ = model_config->get_or<float>("activation_situ_linear_beta", 25.0f);
-    auto register_fn = [this](const std::string &name, infinicore::nn::Parameter parameter) {
-        this->register_parameter(name, std::move(parameter));
+        auto register_fn = [this](const std::string &name, infinilm::weights::Weight parameter) {
+            this->bind_weight(name, std::move(parameter));
     };
     gate_up_proj_ = std::make_shared<infinilm::layers::linear::GateUpParallelLinear>(
-        hidden_size,
+            runtime, hidden_size,
         intermediate_size,
         "gate_proj",
         "up_proj",
@@ -41,34 +53,60 @@ KimiK3MLP::KimiK3MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config
         model_config->get_quantization_method(),
         false,
         dtype,
-        device,
         rank_info);
-    down_proj_ = this->register_module<infinilm::layers::linear::RowParallelLinear>(
-        "down_proj",
-        intermediate_size,
-        hidden_size,
-        model_config->get_quantization_method(),
-        false,
-        dtype,
-        device,
-        rank_info.tp_rank,
-        rank_info.tp_size,
-        rank_info.comm);
+        down_proj_ = std::make_shared<infinilm::layers::linear::RowParallelLinear>(
+            runtime, intermediate_size, hidden_size, model_config->get_quantization_method(), false, dtype, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
+        this->bind_child("down_proj", down_proj_);
+    } catch (...) {
+        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        throw;
+    }
 }
 
-infinicore::Tensor KimiK3MLP::forward(const infinicore::Tensor &hidden_states) const {
+void KimiK3MLP::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
+    runtime.assertOwnerThread();
+    if (runtime.device() != device_)
+        throw std::invalid_argument("KimiK3MLP: postload Runtime device differs");
+    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+        throw std::logic_error("KimiK3MLP: postload requires inactive graph state");
+    if (postload_attempted_)
+        throw std::logic_error("KimiK3MLP: postload is single-use after mutation attempt");
+    auto old_parameters = gate_up_proj_->state_dict();
+    auto old_quantization = gate_up_proj_->get_quantization();
+    postload_attempted_ = true;
+    try {
+        // Dense decoder MLP and MoE shared_experts both reach this hidden owner.
+        // down_proj is registered and remains exclusively traversal-owned.
+        gate_up_proj_->process_weights_after_loading(runtime, pre_transpose);
+        runtime.syncStream();
+    } catch (...) {
+        const auto failure = std::current_exception();
+        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        std::rethrow_exception(failure);
+    }
+}
+
+infinilm::runtime::Tensor KimiK3MLP::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     auto input = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(input);
-    auto activated = infinicore::op::situ_and_mul(gate, up, situ_beta_, situ_linear_beta_);
-    return down_proj_->forward(activated);
+    auto [gate, up] = gate_up_proj_->forward_split(runtime, input);
+    auto activated = infinilm::runtime::op::situ_and_mul(gate, up, situ_beta_, situ_linear_beta_);
+    return down_proj_->forward(runtime, activated);
 }
 
-KimiK3Experts::KimiK3Experts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                             const infinicore::Device &device)
-    : num_experts_(model_config->get<size_t>("num_experts")),
-      hidden_size_(model_config->get<size_t>("hidden_size")),
-      device_(device) {
-    const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
+KimiK3Experts::KimiK3Experts(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    const engine::distributed::RankInfo &rank_info) {
+    runtime.assertOwnerThread();
+    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3Experts construction requires eager Runtime");
+    if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
+        || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
+        || (rank_info.tp_size > 1 && !rank_info.comm))
+        throw std::invalid_argument("Invalid explicit KimiK3Experts construction resources");
+    try {
+        num_experts_ = model_config->get<size_t>("num_experts");
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        device_ = runtime.device();
     tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
     tp_size_ = static_cast<size_t>(rank_info.tp_size);
     const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
@@ -76,28 +114,32 @@ KimiK3Experts::KimiK3Experts(std::shared_ptr<infinilm::config::ModelConfig> mode
         throw std::runtime_error("KimiK3Experts: moe_intermediate_size must be divisible by tp_size");
     }
     local_intermediate_size_ = intermediate_size / tp_size_;
-    register_mxfp4_experts();
+        register_mxfp4_experts(runtime);
+    } catch (...) {
+        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        throw;
+    }
 }
 
-void KimiK3Experts::register_mxfp4_experts() {
+void KimiK3Experts::register_mxfp4_experts(infinilm::runtime::Runtime &runtime) {
     if (hidden_size_ % 32 != 0 || local_intermediate_size_ % 32 != 0) {
         throw std::runtime_error("KimiK3Experts: MXFP4 dimensions must be divisible by 32");
     }
-    auto w13 = infinicore::Tensor::empty(
-        {num_experts_, 2 * local_intermediate_size_, hidden_size_ / 2},
-        infinicore::DataType::U8, device_);
-    auto w13_scale = infinicore::Tensor::empty(
-        {num_experts_, 2 * local_intermediate_size_, hidden_size_ / 32},
-        infinicore::DataType::U8, device_);
-    auto w2 = infinicore::Tensor::empty(
-        {num_experts_, hidden_size_, local_intermediate_size_ / 2},
-        infinicore::DataType::U8, device_);
-    auto w2_scale = infinicore::Tensor::empty(
-        {num_experts_, hidden_size_, local_intermediate_size_ / 32},
-        infinicore::DataType::U8, device_);
+    auto w13 = infinilm::runtime::Tensor::empty(
+        runtime, {num_experts_, 2 * local_intermediate_size_, hidden_size_ / 2},
+        infinilm::runtime::DataType::kUInt8);
+    auto w13_scale = infinilm::runtime::Tensor::empty(
+        runtime, {num_experts_, 2 * local_intermediate_size_, hidden_size_ / 32},
+        infinilm::runtime::DataType::kUInt8);
+    auto w2 = infinilm::runtime::Tensor::empty(
+        runtime, {num_experts_, hidden_size_, local_intermediate_size_ / 2},
+        infinilm::runtime::DataType::kUInt8);
+    auto w2_scale = infinilm::runtime::Tensor::empty(
+        runtime, {num_experts_, hidden_size_, local_intermediate_size_ / 32},
+        infinilm::runtime::DataType::kUInt8);
 
     auto register_packed = [&](const std::string &name,
-                               const infinicore::Tensor &storage,
+                               const infinilm::runtime::Tensor &storage,
                                size_t expert,
                                size_t row_start,
                                size_t row_count,
@@ -105,9 +147,9 @@ void KimiK3Experts::register_mxfp4_experts() {
         auto expert_view = storage
                                ->narrow({{0, expert, 1}, {1, row_start, row_count}})
                                ->squeeze(0);
-        this->register_parameter(
+        this->bind_weight(
             name,
-            infinicore::nn::Parameter(expert_view, tp_dim, tp_rank_, tp_size_));
+            infinilm::weights::Weight(expert_view, tp_dim, tp_rank_, tp_size_));
     };
     for (size_t expert = 0; expert < num_experts_; ++expert) {
         const std::string prefix = std::to_string(expert) + ".";
@@ -135,10 +177,23 @@ const KimiK3Mxfp4MoeWeights &KimiK3Experts::mxfp4_weights() const {
     return mxfp4_weights_;
 }
 
-KimiK3MoE::KimiK3MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+KimiK3MoE::KimiK3MoE(
+    infinilm::runtime::Runtime &runtime,
+    std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
-                     const infinicore::Device &device) {
+    const engine::distributed::RankInfo &rank_info,
+    backends::AttentionBackend attention_backend,
+    const layers::moe::EPConfig &ep_config) {
+    runtime.assertOwnerThread();
+    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3MoE construction requires eager Runtime");
+    if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
+        || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
+        || (rank_info.tp_size > 1 && !rank_info.comm))
+        throw std::invalid_argument("Invalid explicit KimiK3MoE construction resources");
+    try {
     (void)layer_idx;
+        (void)attention_backend;
+        (void)ep_config; // Preserve the existing custom TP expert path; no new EP policy.
     const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t routed_hidden_size = model_config->get<size_t>("routed_expert_hidden_size");
@@ -146,29 +201,42 @@ KimiK3MoE::KimiK3MoE(std::shared_ptr<infinilm::config::ModelConfig> model_config
     const size_t shared_intermediate_size = expert_intermediate_size
                                           * model_config->get<size_t>("num_shared_experts");
     const double eps = model_config->get<double>("rms_norm_eps");
-    const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
     tp_size_ = rank_info.tp_size;
     communicator_ = rank_info.comm;
 
-    INFINICORE_NN_MODULE_INIT(gate, model_config, device);
-    INFINICORE_NN_MODULE_INIT(routed_expert_down_proj,
-                              hidden_size, routed_hidden_size, false, dtype, device);
+        gate_ = std::make_shared<std::remove_reference_t<decltype(*gate_)>>(
+            runtime, model_config);
+        this->bind_child("gate", gate_);
+        routed_expert_down_proj_ = std::make_shared<std::remove_reference_t<decltype(*routed_expert_down_proj_)>>(
+            runtime, hidden_size, routed_hidden_size, false, dtype);
+        this->bind_child("routed_expert_down_proj", routed_expert_down_proj_);
     auto expert_config = make_kimi_k3_subconfig(
         model_config, routed_hidden_size, expert_intermediate_size);
-    INFINICORE_NN_MODULE_INIT(experts, expert_config, device);
-    INFINICORE_NN_MODULE_INIT(routed_expert_norm, routed_hidden_size, eps, dtype, device);
-    INFINICORE_NN_MODULE_INIT(routed_expert_up_proj,
-                              routed_hidden_size, hidden_size, false, dtype, device);
-    INFINICORE_NN_MODULE_INIT(shared_experts, model_config, shared_intermediate_size, device);
+        experts_ = std::make_shared<std::remove_reference_t<decltype(*experts_)>>(
+            runtime, expert_config, rank_info);
+        this->bind_child("experts", experts_);
+        routed_expert_norm_ = std::make_shared<std::remove_reference_t<decltype(*routed_expert_norm_)>>(
+            runtime, routed_hidden_size, eps, dtype);
+        this->bind_child("routed_expert_norm", routed_expert_norm_);
+        routed_expert_up_proj_ = std::make_shared<std::remove_reference_t<decltype(*routed_expert_up_proj_)>>(
+            runtime, routed_hidden_size, hidden_size, false, dtype);
+        this->bind_child("routed_expert_up_proj", routed_expert_up_proj_);
+        shared_experts_ = std::make_shared<std::remove_reference_t<decltype(*shared_experts_)>>(
+            runtime, model_config, shared_intermediate_size, rank_info);
+        this->bind_child("shared_experts", shared_experts_);
+    } catch (...) {
+        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        throw;
+    }
 }
 
-infinicore::Tensor KimiK3MoE::forward(const infinicore::Tensor &hidden_states) const {
+infinilm::runtime::Tensor KimiK3MoE::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     const auto shape = hidden_states->shape();
     auto flattened = hidden_states->view({shape[0] * shape[1], shape[2]});
-    auto [routing_weights, selected_experts] = gate_->forward(flattened);
-    auto routed_input = routed_expert_down_proj_->forward(flattened);
+    auto [routing_weights, selected_experts] = gate_->forward(runtime, flattened);
+    auto routed_input = routed_expert_down_proj_->forward(runtime, flattened);
     const auto &weights = experts_->mxfp4_weights();
-    auto routed = infinicore::op::fused_moe_mxfp4(
+    auto routed = infinilm::runtime::op::fused_moe_mxfp4(
         routed_input,
         selected_experts,
         routing_weights,
@@ -176,15 +244,19 @@ infinicore::Tensor KimiK3MoE::forward(const infinicore::Tensor &hidden_states) c
         weights.w13_scale,
         weights.packed_w2,
         weights.w2_scale,
-        infinicore::op::FusedMoeActivation::Situglu);
+        infinilm::runtime::op::FusedMoeActivation::Situglu);
     if (tp_size_ > 1 && communicator_ != nullptr) {
-        infinicore::op::distributed::allreduce_(
+        infinilm::engine::distributed::allreduce_(runtime,
             routed, routed, INFINICCL_SUM, communicator_);
     }
-    routed = routed_expert_norm_->forward(routed);
-    routed = routed_expert_up_proj_->forward(routed)->view(shape);
-    auto shared = shared_experts_->forward(hidden_states);
-    return infinicore::op::add(routed, shared);
+    routed = routed_expert_norm_->forward(runtime, routed);
+    routed = routed_expert_up_proj_->forward(runtime, routed)->view(shape);
+    auto shared = shared_experts_->forward(runtime, hidden_states);
+    auto ops_output = infinilm::runtime::Tensor::empty(runtime, routed->shape(), routed->dtype());
+    infinilm::execution::submit<infini::ops::Add>(
+        runtime, infini::ops::Add::DefaultConfig(runtime.device().type()), routed, shared, ops_output);
+    INFINILM_TRACE_OP(Add, ops_output);
+    return ops_output;
 }
 
 } // namespace infinilm::models::kimi_k3

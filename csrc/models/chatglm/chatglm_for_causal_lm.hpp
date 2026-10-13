@@ -11,7 +11,7 @@ using ChatglmAttention = infinilm::layers::attention::Attention;
 
 using ChatglmDecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<ChatglmAttention, ChatglmMLP>;
 
-using ChatglmModel = infinilm::layers::causal_lm_templates::TextModel<ChatglmDecoderLayer>;
+using ChatglmModel = infinilm::layers::causal_lm_templates::TextModel<ChatglmDecoderLayer, true>;
 
 using ChatglmForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<ChatglmModel>;
 

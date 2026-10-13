@@ -3,29 +3,32 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/attention/backends/attention_layer.hpp"
+#include "../../layers/moe/ep/ep_config.hpp"
 #include "../../config/model_config.hpp"
-#include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/parameter.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../weights/weights.hpp"
 
 namespace infinilm::models::gpt2 {
 
-class GPT2Attention : public infinicore::nn::Module {
+class GPT2Attention : public infinilm::weights::ModelWeights {
 public:
-    GPT2Attention(std::shared_ptr<infinilm::config::ModelConfig> config,
-                  size_t layer_idx,
-                  const infinicore::Device &device);
+    GPT2Attention(infinilm::runtime::Runtime &runtime,
+                  std::shared_ptr<infinilm::config::ModelConfig> config,
+                  size_t layer_idx, const engine::distributed::RankInfo &rank,
+                  backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
+                               const infinilm::runtime::Tensor &hidden_states,
+                               infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
-    INFINICORE_NN_PARAMETER(o_proj_bias);
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
+    infinilm::weights::Weight o_proj_bias_;
+    infinilm::weights::Weight kv_cache_k_scale_;
+    infinilm::weights::Weight kv_cache_v_scale_;
 
     size_t layer_idx_;
     size_t hidden_size_;
@@ -35,60 +38,70 @@ private:
     infinilm::backends::AttentionBackend attention_backend_;
 };
 
-class GPT2MLP : public infinicore::nn::Module {
+class GPT2MLP : public infinilm::weights::ModelWeights {
 public:
-    GPT2MLP(std::shared_ptr<infinilm::config::ModelConfig> config,
-            const infinicore::Device &device);
+    GPT2MLP(infinilm::runtime::Runtime &runtime,
+            std::shared_ptr<infinilm::config::ModelConfig> config,
+            const engine::distributed::RankInfo &rank);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                               const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, c_fc);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, c_proj);
-    INFINICORE_NN_PARAMETER(c_proj_bias);
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> c_fc_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> c_proj_;
+    infinilm::weights::Weight c_proj_bias_;
     std::string activation_;
 };
 
-class GPT2Block : public infinicore::nn::Module {
+class GPT2Block : public infinilm::weights::ModelWeights {
 public:
-    GPT2Block(std::shared_ptr<infinilm::config::ModelConfig> config,
-              size_t layer_idx,
-              const infinicore::Device &device);
+    GPT2Block(infinilm::runtime::Runtime &runtime,
+              std::shared_ptr<infinilm::config::ModelConfig> config,
+              size_t layer_idx, const engine::distributed::RankInfo &rank,
+              backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
+                               const infinilm::runtime::Tensor &hidden_states,
+                               infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_1);
-    INFINICORE_NN_MODULE(GPT2Attention, attn);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_2);
-    INFINICORE_NN_MODULE(GPT2MLP, mlp);
+    std::shared_ptr<infinilm::layers::LayerNorm> ln_1_;
+    std::shared_ptr<GPT2Attention> attn_;
+    std::shared_ptr<infinilm::layers::LayerNorm> ln_2_;
+    std::shared_ptr<GPT2MLP> mlp_;
 };
 
-class GPT2Model : public infinicore::nn::Module {
+class GPT2Model : public infinilm::weights::ModelWeights {
 public:
-    GPT2Model(std::shared_ptr<infinilm::config::ModelConfig> config,
-              const infinicore::Device &device);
+    GPT2Model(infinilm::runtime::Runtime &runtime,
+              std::shared_ptr<infinilm::config::ModelConfig> config,
+              const engine::distributed::RankInfo &rank,
+              backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
-    infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const;
+    infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
+                               infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_positions);
-    INFINICORE_NN_MODULE_VEC(GPT2Block, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm);
+    std::shared_ptr<infinilm::layers::Embedding> embed_tokens_;
+    std::shared_ptr<infinilm::layers::Embedding> embed_positions_;
+    std::vector<std::shared_ptr<GPT2Block>> layers_;
+    std::shared_ptr<infinilm::layers::LayerNorm> norm_;
 };
 
 class GPT2ForCausalLM : public infinilm::InfinilmModel {
 public:
-    GPT2ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> config,
-                    const infinicore::Device &device);
+    GPT2ForCausalLM(infinilm::runtime::Runtime &runtime,
+                    std::shared_ptr<infinilm::config::ModelConfig> config,
+                    const engine::distributed::RankInfo &rank,
+                    backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
-    Output forward(const Input &input) const override;
+    Output forward(const Input &input,
+                   infinilm::global_state::ForwardContext &forward_context) const override;
 
 private:
-    INFINICORE_NN_MODULE(GPT2Model, model);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+    std::shared_ptr<GPT2Model> model_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig>

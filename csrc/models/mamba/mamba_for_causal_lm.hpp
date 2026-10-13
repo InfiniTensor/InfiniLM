@@ -1,24 +1,34 @@
 #pragma once
+#include "../../weights/weights.hpp"
 
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../layers/linear/linear.hpp"
+#include "../../layers/moe/ep/ep_config.hpp"
 #include "../infinilm_model.hpp"
-#include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/ops.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 #include <memory>
+#include "mamba_state_routing.hpp"
 #include <vector>
 
 namespace infinilm::models::mamba {
 
-class MambaMixer : public infinicore::nn::Module {
+class MambaMixer : public infinilm::weights::ModelWeights {
 public:
-    MambaMixer(std::shared_ptr<infinilm::config::ModelConfig> config,
-               size_t layer_idx,
-               const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    MambaMixer(infinilm::runtime::Runtime &runtime,
+               std::shared_ptr<infinilm::config::ModelConfig> config,
+               size_t layer_idx, const engine::distributed::RankInfo &rank_info,
+               backends::AttentionBackend attention_backend,
+               const layers::moe::EPConfig &ep_config);
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
+                              const global_state::ForwardContext &forward_context,
+                              const state_routing::Plan *route = nullptr) const;
+    void process_weights_after_loading(infinilm::runtime::Runtime &, bool pre_transpose) override {
+        // The model traversal has already processed dt_proj and its other children.
+        dt_projection_prepacked_ = pre_transpose;
+    }
 
 private:
     size_t layer_idx_;
@@ -26,51 +36,69 @@ private:
     size_t state_size_;
     size_t time_step_rank_;
     size_t conv_kernel_;
-    infinicore::Tensor dt_bias_zero_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, in_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, x_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, dt_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
-    INFINICORE_NN_PARAMETER(conv1d_weight);
-    INFINICORE_NN_PARAMETER(conv1d_bias);
-    INFINICORE_NN_PARAMETER(A_log);
-    INFINICORE_NN_PARAMETER(D);
+    bool dt_projection_prepacked_ = false;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> in_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> x_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> dt_proj_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
+    infinilm::weights::Weight conv1d_weight_;
+    infinilm::weights::Weight conv1d_bias_;
+    infinilm::weights::Weight A_log_;
+    infinilm::weights::Weight D_;
 };
 
-class MambaBlock : public infinicore::nn::Module {
+class MambaBlock : public infinilm::weights::ModelWeights {
 public:
-    MambaBlock(std::shared_ptr<infinilm::config::ModelConfig> config,
-               size_t layer_idx,
-               const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    MambaBlock(infinilm::runtime::Runtime &runtime,
+               std::shared_ptr<infinilm::config::ModelConfig> config,
+               size_t layer_idx, const engine::distributed::RankInfo &rank_info,
+               backends::AttentionBackend attention_backend,
+               const layers::moe::EPConfig &ep_config);
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
+                              const global_state::ForwardContext &forward_context,
+                              const state_routing::Plan *route = nullptr) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
-    INFINICORE_NN_MODULE(MambaMixer, mixer);
+    std::shared_ptr<infinilm::layers::RMSNorm> norm_;
+    std::shared_ptr<MambaMixer> mixer_;
 };
 
-class MambaModel : public infinicore::nn::Module {
+class MambaModel : public infinilm::weights::ModelWeights {
 public:
-    MambaModel(std::shared_ptr<infinilm::config::ModelConfig> config,
-               const infinicore::Device &device);
-    infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const;
+    MambaModel(infinilm::runtime::Runtime &runtime,
+               std::shared_ptr<infinilm::config::ModelConfig> config,
+               const engine::distributed::RankInfo &rank_info,
+               backends::AttentionBackend attention_backend,
+               const layers::moe::EPConfig &ep_config);
+    infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
+                              const global_state::ForwardContext &forward_context) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embeddings);
-    INFINICORE_NN_MODULE_VEC(MambaBlock, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm_f);
+    size_t routing_channels_;
+    size_t routing_states_;
+    size_t routing_history_;
+    infinilm::runtime::DataType routing_dtype_;
+    std::shared_ptr<infinilm::layers::Embedding> embeddings_;
+    std::vector<std::shared_ptr<MambaBlock>> layers_;
+    std::shared_ptr<infinilm::layers::RMSNorm> norm_f_;
 };
 
 class MambaForCausalLM : public infinilm::InfinilmModel {
 public:
-    MambaForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> config,
-                     const infinicore::Device &device);
-    Output forward(const Input &input) const override;
-    void reset_cache(const cache::CacheConfig *cache_config) override;
+    MambaForCausalLM(infinilm::runtime::Runtime &runtime,
+                     std::shared_ptr<infinilm::config::ModelConfig> config,
+                     const engine::distributed::RankInfo &rank_info,
+                     backends::AttentionBackend attention_backend,
+                     const layers::moe::EPConfig &ep_config);
+    Output forward(const Input &input, global_state::ForwardContext &forward_context) const override;
+    void reset_cache(const cache::CacheConfig *cache_config,
+                     global_state::ForwardContext &forward_context,
+                     backends::AttentionBackend attention_backend,
+                     const engine::distributed::RankInfo &rank_info) override;
 
 private:
-    INFINICORE_NN_MODULE(MambaModel, backbone);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+    std::shared_ptr<MambaModel> backbone_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig>

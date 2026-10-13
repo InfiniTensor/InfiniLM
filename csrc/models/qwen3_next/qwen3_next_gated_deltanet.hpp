@@ -1,20 +1,32 @@
 #pragma once
+#include "../../weights/weights.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 
 #include "../../layers/common_modules.hpp"
 
+namespace infinilm::global_state { struct ForwardContext; }
+
 namespace infinilm::models::qwen3_next {
-class Qwen3NextCausalConv1D : public infinicore::nn::Module {
+class Qwen3NextCausalConv1D : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
+
 public:
-    Qwen3NextCausalConv1D(
+    Qwen3NextCausalConv1D(infinilm::runtime::Runtime &runtime,
         std::shared_ptr<infinilm::config::ModelConfig> model_config,
         size_t layer_idx,
-        const infinicore::Device &device);
+                      const engine::distributed::RankInfo &rank_info,
+                      backends::AttentionBackend attention_backend,
+                      const layers::moe::EPConfig &ep_config);
 
-    infinicore::Tensor forward(const infinicore::Tensor &qkv) const;
-    void process_weights_after_loading() override;
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &qkv,
+                              const infinilm::global_state::ForwardContext &forward_context) const;
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
 private:
-    infinicore::nn::Parameter weight_;
+    infinilm::weights::Weight weight_;
+    infinilm::runtime::DataType weight_dtype_;
+    bool postload_failed_ = false;
 
     size_t layer_idx_;
     size_t local_conv_dim_;
@@ -27,13 +39,21 @@ private:
     size_t tp_size_;
 };
 
-class Qwen3NextGatedDeltaNet : public infinicore::nn::Module {
-public:
-    Qwen3NextGatedDeltaNet(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                           size_t layer_idx,
-                           const infinicore::Device &device);
+class Qwen3NextGatedDeltaNet : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+public:
+    Qwen3NextGatedDeltaNet(infinilm::runtime::Runtime &runtime,
+                       std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                           size_t layer_idx,
+                       const engine::distributed::RankInfo &rank_info,
+                       backends::AttentionBackend attention_backend,
+                       const layers::moe::EPConfig &ep_config);
+
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
+                              const infinilm::global_state::ForwardContext &forward_context) const;
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
 private:
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
@@ -42,9 +62,9 @@ private:
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_b_;
     std::shared_ptr<Qwen3NextCausalConv1D> conv1d_;
 
-    INFINICORE_NN_PARAMETER(dt_bias);
-    INFINICORE_NN_PARAMETER(A_log);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    infinilm::weights::Weight dt_bias_;
+    infinilm::weights::Weight A_log_;
+    std::shared_ptr<infinilm::layers::RMSNorm> norm_;
     std::shared_ptr<layers::linear::RowParallelLinear> out_proj_;
 
     size_t layer_idx_;

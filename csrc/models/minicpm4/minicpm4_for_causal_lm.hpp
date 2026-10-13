@@ -1,9 +1,10 @@
 #pragma once
+#include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
 #include "../../models/infinilm_model.hpp"
-#include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 
 #include <memory>
 #include <vector>
@@ -12,76 +13,81 @@ namespace infinilm::models::minicpm4 {
 
 class MiniCPM4Attention : public infinilm::layers::attention::Attention {
 public:
-    MiniCPM4Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    MiniCPM4Attention(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
                       size_t layer_idx,
-                      const infinicore::Device &device);
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 };
 
 class MiniCPM4MLP : public infinilm::layers::mlp::MLP {
 public:
-    MiniCPM4MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                const infinicore::Device &device);
+    MiniCPM4MLP(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 };
 
-class MiniCPM4DecoderLayer : public infinicore::nn::Module {
+class MiniCPM4DecoderLayer : public infinilm::weights::ModelWeights {
 public:
-    MiniCPM4DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    MiniCPM4DecoderLayer(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
                          size_t layer_idx,
-                         const infinicore::Device &device);
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
-                                                               infinicore::Tensor &hidden_states,
-                                                               infinicore::Tensor &residual);
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(const infinilm::runtime::Tensor &positions,
+                                                               infinilm::runtime::Tensor &hidden_states,
+                                                               infinilm::runtime::Tensor &residual,
+                                                               global_state::ForwardContext &forward_context);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               infinicore::Tensor &hidden_states);
-
-    void process_weights_after_loading() override {
-        self_attn_->process_weights_after_loading();
-        mlp_->process_weights_after_loading();
-    }
-
-    void reset_runtime_state() const override {
-        self_attn_->reset_runtime_state();
-        mlp_->reset_runtime_state();
-    }
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
+                               infinilm::runtime::Tensor &hidden_states,
+                               global_state::ForwardContext &forward_context);
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(MiniCPM4Attention, self_attn);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(MiniCPM4MLP, mlp);
+    std::shared_ptr<infinilm::layers::RMSNorm> input_layernorm_;
+    std::shared_ptr<MiniCPM4Attention> self_attn_;
+    std::shared_ptr<infinilm::layers::RMSNorm> post_attention_layernorm_;
+    std::shared_ptr<MiniCPM4MLP> mlp_;
 };
 
-class MiniCPM4Model : public infinicore::nn::Module {
+class MiniCPM4Model : public infinilm::weights::ModelWeights {
 public:
-    MiniCPM4Model(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                  const infinicore::Device &device);
+    MiniCPM4Model(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
-    infinicore::Tensor forward(const infinilm::InfinilmModel::Input &input) const;
-
-    infinicore::Tensor embed_tokens(const infinicore::Tensor &input_ids) const;
+    infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
+                              global_state::ForwardContext &forward_context) const;
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
-    INFINICORE_NN_MODULE_VEC(MiniCPM4DecoderLayer, layers);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, norm);
+    std::shared_ptr<infinilm::layers::Embedding> embed_tokens_;
+    std::vector<std::shared_ptr<MiniCPM4DecoderLayer>> layers_;
+    std::shared_ptr<infinilm::layers::RMSNorm> norm_;
 };
 
 class MiniCPM4ForCausalLM : public InfinilmModel {
 public:
-    MiniCPM4ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                        const infinicore::Device &device);
+    MiniCPM4ForCausalLM(infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
-    Output forward(const Input &input) const override;
 
-    infinicore::Tensor forward_hidden(const Input &input) const;
-
-    infinicore::Tensor logits_from_hidden(const infinicore::Tensor &hidden_states) const;
+    Output forward(const Input &input,
+                   global_state::ForwardContext &forward_context) const override;
 
 protected:
-    INFINICORE_NN_MODULE(MiniCPM4Model, model);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+    std::shared_ptr<MiniCPM4Model> model_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> create_minicpm4_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);

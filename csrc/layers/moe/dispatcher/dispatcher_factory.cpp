@@ -10,14 +10,15 @@
 namespace infinilm::layers::moe {
 
 std::shared_ptr<BaseDispatcher> make_dispatcher(const EPConfig &ep_config,
-                                                size_t num_experts) {
+                                                size_t num_experts,
+                                                const engine::distributed::RankInfo &rank_info) {
     switch (ep_config.backend) {
     case EPBackend::Disabled:
-        return std::make_shared<StandardDispatcher>();
+        return std::make_shared<StandardDispatcher>(rank_info);
     case EPBackend::AllGatherReduceScatter:
-        return std::make_shared<AllGatherReduceScatterDispatcher>(ep_config, num_experts);
+        return std::make_shared<AllGatherReduceScatterDispatcher>(ep_config, num_experts, rank_info);
     case EPBackend::LocalAllReduce:
-        return std::make_shared<LocalAllReduceDispatcher>(ep_config, num_experts);
+        return std::make_shared<LocalAllReduceDispatcher>(ep_config, num_experts, rank_info);
     case EPBackend::DeepEP:
         return std::make_shared<DeepEPDispatcher>(ep_config);
     default:

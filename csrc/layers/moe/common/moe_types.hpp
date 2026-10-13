@@ -2,7 +2,7 @@
 
 #include "topk_output.hpp"
 
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 
 #include <cstddef>
 
@@ -22,37 +22,39 @@ enum class CombineInputFormat {
 
 struct DispatchOutput {
     DispatchOutputFormat format = DispatchOutputFormat::Standard;
-    infinicore::Tensor hidden_states;
-    infinicore::Tensor hidden_states_scale;
+    infinilm::runtime::Tensor hidden_states;
+    infinilm::runtime::Tensor hidden_states_scale;
     TopKOutput topk_output;
-    infinicore::Tensor expert_map;
+    infinilm::runtime::Tensor expert_map;
 };
 
 struct MoeRoutingMetadata {
-    infinicore::Tensor sorted_token_ids;
-    infinicore::Tensor expert_ids;
-    infinicore::Tensor num_tokens_post_padded;
+    infinilm::runtime::Tensor sorted_token_ids;
+    infinilm::runtime::Tensor expert_ids;
+    infinilm::runtime::Tensor num_tokens_post_padded;
 
-    infinicore::Tensor expert_offsets;
-    infinicore::Tensor blockscale_offsets;
-    infinicore::Tensor problem_sizes1;
-    infinicore::Tensor problem_sizes2;
-    infinicore::Tensor input_permutation;
-    infinicore::Tensor output_permutation;
+    infinilm::runtime::Tensor expert_offsets;
+    infinilm::runtime::Tensor blockscale_offsets;
+    infinilm::runtime::Tensor problem_sizes1;
+    infinilm::runtime::Tensor problem_sizes2;
+    infinilm::runtime::Tensor input_permutation;
+    infinilm::runtime::Tensor output_permutation;
 
     bool has_grouped_gemm_metadata = false;
 };
 
 struct CombineInput {
     CombineInputFormat format = CombineInputFormat::Standard;
-    infinicore::Tensor hidden_states;
+    infinilm::runtime::Tensor hidden_states;
     TopKOutput topk_output;
     MoeRoutingMetadata routing_metadata;
 };
 
 struct MoeWeights {
-    infinicore::Tensor packed_w13;
-    infinicore::Tensor packed_w2;
+    infinilm::runtime::Tensor packed_w13;
+    infinilm::runtime::Tensor packed_w2;
+    infinilm::runtime::Tensor packed_b13{};
+    infinilm::runtime::Tensor packed_b2{};
 
     bool empty() const {
         return !packed_w13 && !packed_w2;
@@ -64,21 +66,21 @@ struct MoeWeights {
 };
 
 struct MoeWorkspace {
-    infinicore::Tensor ep_gathered_hidden_states;
-    infinicore::Tensor ep_gathered_topk_weights;
-    infinicore::Tensor ep_gathered_topk_ids;
-    infinicore::Tensor ep_reduced_hidden_states;
-    infinicore::Tensor fused_moe_output;
+    infinilm::runtime::Tensor ep_gathered_hidden_states;
+    infinilm::runtime::Tensor ep_gathered_topk_weights;
+    infinilm::runtime::Tensor ep_gathered_topk_ids;
+    infinilm::runtime::Tensor ep_reduced_hidden_states;
+    infinilm::runtime::Tensor fused_moe_output;
 
-    infinicore::Tensor sorted_token_ids;
-    infinicore::Tensor expert_ids;
-    infinicore::Tensor num_tokens_post_padded;
-    infinicore::Tensor expert_offsets;
-    infinicore::Tensor blockscale_offsets;
-    infinicore::Tensor problem_sizes1;
-    infinicore::Tensor problem_sizes2;
-    infinicore::Tensor input_permutation;
-    infinicore::Tensor output_permutation;
+    infinilm::runtime::Tensor sorted_token_ids;
+    infinilm::runtime::Tensor expert_ids;
+    infinilm::runtime::Tensor num_tokens_post_padded;
+    infinilm::runtime::Tensor expert_offsets;
+    infinilm::runtime::Tensor blockscale_offsets;
+    infinilm::runtime::Tensor problem_sizes1;
+    infinilm::runtime::Tensor problem_sizes2;
+    infinilm::runtime::Tensor input_permutation;
+    infinilm::runtime::Tensor output_permutation;
 
     size_t sorted_token_ids_capacity = 0;
     size_t expert_ids_capacity = 0;

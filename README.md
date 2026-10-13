@@ -4,18 +4,18 @@
 
 本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
 
-当前版本依赖[`InfiniCore v0.2.9`](https://github.com/InfiniTensor/InfiniCore/releases/tag/v0.2.9)版本。
+当前版本依赖 `third_party/InfiniCore` 固定的 InfiniRT/InfiniOps/InfiniCCL 子模块。
+
+InfiniLM 的 `csrc/runtime` 管理 owning Tensor/Memory 和 worker Runtime；
+`csrc/execution` 管理 graph/trace，并直接调用公共 InfiniOps API。
+旧 Core runtime/ops 框架和独立 `_infinicore` 扩展已移除。
 
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
-编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
-
-- 注意根据提示设置好 `INFINI_ROOT` 环境变量（默认为 `$HOME/.infini`）
-- 根据硬件平台，选择 xmake 构建配置
-- 编译安装InfiniCore
-- 安装 C++ 库
-- 安装 Python 包
-
+按固定子模块的 [README](third_party/InfiniCore/README.md) 使用原生构建入口，
+先安装 InfiniRT/InfiniOps/InfiniCCL，再设置 `INFINI_ROOT` 为同一安装前缀。
+LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
+算子选择与 provider profile 由 InfiniOps 管理。
 
 #### 二、编译并安装  `InfiniLM`
   - 克隆项目
@@ -34,16 +34,26 @@
 
   - 安装 InfiniLM Python 包
     ```bash
-      pip install -e .
+      export INFINI_ROOT=/absolute/path/to/coherent-prefix
+      xmake f -y -m release --cxx11-abi=0 --capability-profile=release
+      pip install -e . --no-build-isolation
     ```
 
     使用 CoreX PyTorch 时，需要让 InfiniLM 与 PyTorch/InfiniCore
-    使用相同的 libstdc++ ABI：
+    使用相同的 libstdc++ ABI（以下为 ABI 0 示例；ABI 1 前缀需对应改为 1）：
 
     ```bash
     export INFINILM_CXX11_ABI=0
-    pip install -e .
+    xmake f -y -m release --cxx11-abi=0 --capability-profile=release
+    pip install -e . --no-build-isolation
     ```
+
+    release profile 要求实际生成的公共 Ops API；bootstrap profile 会拒绝被排除的能力。
+    打包从同一前缀读取依赖；ELF 依赖检查需要 `readelf`。
+    可选 Torch checkpoint 兼容路径需要安装 `torch-compat`。
+
+    返回的引擎 Tensor 是保有存储的可变借用视图；下一次 forward 复用缓冲区前，
+    调用方应读完或复制输出。模型、后端、并行及 graph 组合以实际支持边界为准。
 
   - 单次推理测试
     - llama示例

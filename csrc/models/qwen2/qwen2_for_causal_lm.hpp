@@ -11,7 +11,7 @@ using Qwen2Attention = infinilm::layers::attention::Attention;
 
 using Qwen2DecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<Qwen2Attention, Qwen2MLP>;
 
-using Qwen2Model = infinilm::layers::causal_lm_templates::TextModel<Qwen2DecoderLayer>;
+using Qwen2Model = infinilm::layers::causal_lm_templates::TextModel<Qwen2DecoderLayer, true>;
 
 using Qwen2ForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<Qwen2Model>;
 

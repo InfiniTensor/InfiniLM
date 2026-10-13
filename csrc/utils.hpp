@@ -1,7 +1,5 @@
 #pragma once
-#include <infinicore/dtype.hpp>
-#include <infinicore/context/context.hpp>
-#include <infinirt.h>
+#include <runtime/dtype.hpp>
 
 #include <cstring>
 #include <iostream>
@@ -24,17 +22,6 @@ inline void assertTrue(int expr, const char *msg, const char *function, const ch
 #define PANIC(EXPR)                                                                               \
     spdlog::error("Error at {} in function {} at file {}, line {}", #EXPR, function, file, line); \
     exit(EXIT_FAILURE)
-
-#define RUN_INFINI(API)                                                         \
-    do {                                                                        \
-        auto api_result_ = (API);                                               \
-        if (api_result_ != INFINI_STATUS_SUCCESS) {                             \
-            std::cerr << "Error Code " << api_result_ << " in `" << #API << "`" \
-                      << " from " << __func__                                   \
-                      << " at " << __FILE__ << ":" << __LINE__ << std::endl;    \
-            throw std::runtime_error("InfiniCore C API Error");                 \
-        }                                                                       \
-    } while (0)
 
 inline float f16_to_f32(uint16_t h) {
     uint32_t sign = (h & 0x8000) << 16;  // Extract the sign bit
@@ -122,40 +109,20 @@ inline uint16_t f32_to_bf16(float val) {
     return bf16_bits;
 }
 
-inline void set_zeros(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> zeros(tensor->nbytes(), 0);
-    infinicore::context::memcpyH2D(tensor->data(), zeros.data(), tensor->nbytes(), false);
-}
-
-inline void set_zeros_device_async(infinicore::Tensor &tensor) {
-    infinicore::context::setDeviceMemoryAsync(
-        tensor->data(), 0, tensor->nbytes(), infinicore::context::getStream());
-}
-
-inline void set_minus_one(infinicore::Tensor &tensor) {
-    std::vector<uint8_t> minus_one(tensor->nbytes(), 0xFF);
-    infinicore::context::memcpyH2D(tensor->data(), minus_one.data(), tensor->nbytes(), false);
-}
-
-inline void set_minus_one_device_async(infinicore::Tensor &tensor) {
-    infinicore::context::setDeviceMemoryAsync(
-        tensor->data(), 0xFF, tensor->nbytes(), infinicore::context::getStream());
-}
-
 // Hash combine utility (similar to boost::hash_combine)
 inline void hash_combine(size_t &seed, size_t value) {
     seed ^= value + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
 
-inline infinicore::DataType parse_dtype(const std::string &dtype_str) {
-    static const std::unordered_map<std::string, infinicore::DataType> dtype_map = {
-        {"float32", infinicore::DataType::F32},
-        {"float16", infinicore::DataType::F16},
-        {"bfloat16", infinicore::DataType::BF16},
-        {"int8", infinicore::DataType::I8},
+inline infinilm::runtime::DataType parse_dtype(const std::string &dtype_str) {
+    static const std::unordered_map<std::string, infinilm::runtime::DataType> dtype_map = {
+        {"float32", infinilm::runtime::DataType::kFloat32},
+        {"float16", infinilm::runtime::DataType::kFloat16},
+        {"bfloat16", infinilm::runtime::DataType::kBFloat16},
+        {"int8", infinilm::runtime::DataType::kInt8},
         // 可根据需要扩展
-        {"int32", infinicore::DataType::I32},
-        {"int64", infinicore::DataType::I64},
+        {"int32", infinilm::runtime::DataType::kInt32},
+        {"int64", infinilm::runtime::DataType::kInt64},
     };
 
     auto it = dtype_map.find(dtype_str);

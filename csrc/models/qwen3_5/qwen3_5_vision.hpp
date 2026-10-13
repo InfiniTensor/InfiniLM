@@ -3,27 +3,26 @@
 #include "../../config/model_config.hpp"
 #include "../../layers/common_modules.hpp"
 
-#include "infinicore/nn/embedding.hpp"
-#include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rope.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../weights/weights.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "runtime/tensor.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
 
-class Qwen35VisionPatchProj : public infinicore::nn::Module {
+class Qwen35VisionPatchProj : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionPatchProj(size_t in_channels,
+    Qwen35VisionPatchProj(infinilm::runtime::Runtime &runtime, size_t in_channels,
                           size_t hidden_size,
                           size_t temporal_patch_size,
                           size_t patch_size,
-                          const infinicore::DataType &dtype,
-                          const infinicore::Device &device);
+                          const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     size_t in_channels_;
@@ -31,31 +30,29 @@ private:
     size_t temporal_patch_size_;
     size_t patch_size_;
 
-    INFINICORE_NN_PARAMETER(weight);
-    INFINICORE_NN_PARAMETER(bias);
+    infinilm::weights::Weight weight_;
+    infinilm::weights::Weight bias_;
 };
 
-class Qwen35VisionPatchEmbed : public infinicore::nn::Module {
+class Qwen35VisionPatchEmbed : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionPatchEmbed(const nlohmann::json &config,
-                           const infinicore::DataType &dtype,
-                           const infinicore::Device &device);
+    Qwen35VisionPatchEmbed(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                           const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
-    INFINICORE_NN_MODULE(Qwen35VisionPatchProj, proj);
+    std::shared_ptr<Qwen35VisionPatchProj> proj_;
 };
 
-class Qwen35VisionAttention : public infinicore::nn::Module {
+class Qwen35VisionAttention : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionAttention(const nlohmann::json &config,
-                          const infinicore::DataType &dtype,
-                          const infinicore::Device &device);
+    Qwen35VisionAttention(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                          const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &row_position_ids,
-                               const infinicore::Tensor &col_position_ids) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
+                               const infinilm::runtime::Tensor &row_position_ids,
+                               const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
     size_t hidden_size_;
@@ -63,70 +60,66 @@ private:
     size_t head_dim_;
     float scale_;
 
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, qkv);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, proj);
-    INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> qkv_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> proj_;
+    std::shared_ptr<infinilm::layers::RoPE> rotary_emb_;
 };
 
-class Qwen35VisionMLP : public infinicore::nn::Module {
+class Qwen35VisionMLP : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionMLP(const nlohmann::json &config,
-                    const infinicore::DataType &dtype,
-                    const infinicore::Device &device);
+    Qwen35VisionMLP(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                    const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::string activation_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc1);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc2);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_fc1_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_fc2_;
 };
 
-class Qwen35VisionBlock : public infinicore::nn::Module {
+class Qwen35VisionBlock : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionBlock(const nlohmann::json &config,
-                      const infinicore::DataType &dtype,
-                      const infinicore::Device &device);
+    Qwen35VisionBlock(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                      const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &row_position_ids,
-                               const infinicore::Tensor &col_position_ids) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
+                               const infinilm::runtime::Tensor &row_position_ids,
+                               const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm1);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm2);
-    INFINICORE_NN_MODULE(Qwen35VisionAttention, attn);
-    INFINICORE_NN_MODULE(Qwen35VisionMLP, mlp);
+    std::shared_ptr<infinilm::layers::LayerNorm> norm1_;
+    std::shared_ptr<infinilm::layers::LayerNorm> norm2_;
+    std::shared_ptr<Qwen35VisionAttention> attn_;
+    std::shared_ptr<Qwen35VisionMLP> mlp_;
 };
 
-class Qwen35VisionPatchMerger : public infinicore::nn::Module {
+class Qwen35VisionPatchMerger : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionPatchMerger(const nlohmann::json &config,
-                            const infinicore::DataType &dtype,
-                            const infinicore::Device &device);
+    Qwen35VisionPatchMerger(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                            const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     size_t hidden_size_;
     size_t merged_size_;
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc1);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc2);
+    std::shared_ptr<infinilm::layers::LayerNorm> norm_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_fc1_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_fc2_;
 };
 
-class Qwen35VisionModel : public infinicore::nn::Module {
+class Qwen35VisionModel : public infinilm::weights::ModelWeights {
 public:
-    Qwen35VisionModel(const nlohmann::json &config,
-                      const infinicore::DataType &dtype,
-                      const infinicore::Device &device);
+    Qwen35VisionModel(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
+                      const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &image_grid_thw) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
+                               const infinilm::runtime::Tensor &image_grid_thw) const;
 
 private:
-    infinicore::Tensor fast_pos_embed_interpolate(const infinicore::Tensor &image_grid_thw) const;
-    infinicore::Tensor build_rotary_position_ids(const infinicore::Tensor &image_grid_thw) const;
+    infinilm::runtime::Tensor fast_pos_embed_interpolate(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &image_grid_thw) const;
+    infinilm::runtime::Tensor build_rotary_position_ids(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &image_grid_thw) const;
 
     size_t hidden_size_;
     size_t num_heads_;
@@ -134,10 +127,10 @@ private:
     size_t spatial_merge_size_;
     size_t num_grid_per_side_;
 
-    INFINICORE_NN_MODULE(Qwen35VisionPatchEmbed, patch_embed);
-    INFINICORE_NN_MODULE(infinicore::nn::Embedding, pos_embed);
-    INFINICORE_NN_MODULE_VEC(Qwen35VisionBlock, blocks);
-    INFINICORE_NN_MODULE(Qwen35VisionPatchMerger, merger);
+    std::shared_ptr<Qwen35VisionPatchEmbed> patch_embed_;
+    std::shared_ptr<infinilm::layers::Embedding> pos_embed_;
+    std::vector<std::shared_ptr<Qwen35VisionBlock>> blocks_;
+    std::shared_ptr<Qwen35VisionPatchMerger> merger_;
 };
 
 } // namespace infinilm::models::qwen3_5

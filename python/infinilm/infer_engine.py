@@ -3,19 +3,81 @@ import os
 import time
 from dataclasses import dataclass
 
-import infinicore
+from . import _core as infinicore
 
 from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
 from .exception_utils import handle_oom_and_exit
-from .modeling_utils import parse_dtype
+from .modeling_utils import _declares_tied_embeddings, parse_dtype
 
 _MODEL_DEFAULTS = {
     "gpt2": {"torch_dtype": "float32"},
     "mistral": {"torch_dtype": "bfloat16"},
 }
+
+
+class _PagedDecodeMetadataBuffers:
+    def __init__(self, batch_size: int, slot_stride: int):
+        import numpy as np
+
+        self._np = np
+        self._storage_views = []
+        self.position_ids, self._position_ids_values = self._empty(
+            [batch_size], infinicore.int64, np.int64
+        )
+        self.slot_mapping, self._slot_mapping_values = self._empty(
+            [batch_size], infinicore.int64, np.int64
+        )
+        self.past_kv_lengths, self._past_kv_lengths_values = self._empty(
+            [batch_size], infinicore.int32, np.int32
+        )
+        self.total_kv_lengths, self._total_kv_lengths_values = self._empty(
+            [batch_size], infinicore.int32, np.int32
+        )
+        self.cu_seqlens, self._cu_seqlens_values = self._empty(
+            [batch_size + 1], infinicore.int32, np.int32
+        )
+        self.input_offsets, self._input_offsets_values = self._empty(
+            [batch_size + 1], infinicore.int32, np.int32
+        )
+
+        self._slot_bases = np.arange(batch_size, dtype=np.int64) * slot_stride
+        self._sequence_indices = np.arange(batch_size + 1, dtype=np.int32)
+        self._input_offsets_values[:] = self._sequence_indices
+
+    def _empty(self, shape, dtype, numpy_dtype):
+        tensor = infinicore.empty(shape, dtype=dtype)
+        scalar_type = self._np.ctypeslib.as_ctypes_type(self._np.dtype(numpy_dtype))
+        storage = (scalar_type * tensor.numel()).from_address(tensor.data_ptr())
+        values = self._np.ctypeslib.as_array(storage).reshape(shape)
+        self._storage_views.append(storage)
+        return tensor, values
+
+    def update(self, past_seq_len: int):
+        total_seq_len = past_seq_len + 1
+        self._position_ids_values.fill(past_seq_len)
+        self._np.add(
+            self._slot_bases,
+            past_seq_len,
+            out=self._slot_mapping_values,
+        )
+        self._past_kv_lengths_values.fill(past_seq_len)
+        self._total_kv_lengths_values.fill(total_seq_len)
+        self._np.multiply(
+            self._sequence_indices,
+            total_seq_len,
+            out=self._cu_seqlens_values,
+        )
+        return (
+            self.position_ids,
+            self.slot_mapping,
+            self.past_kv_lengths,
+            self.total_kv_lengths,
+            self.cu_seqlens,
+            self.input_offsets,
+        )
 
 
 def _apply_torch_dtype_defaults(config: dict) -> dict:
@@ -95,6 +157,10 @@ def read_hf_config(model_path):
         config_dict.setdefault("attention_output_bias", False)
 
     config_dict = _apply_torch_dtype_defaults(config_dict)
+    if config_dict.get("model_type") == "gpt2":
+        config_dict["tie_word_embeddings"] = _declares_tied_embeddings(config_dict)
+    elif config_dict.get("model_type") == "mamba":
+        config_dict.setdefault("tie_word_embeddings", True)
     config_dict = _normalize_videonsa_config(config_dict)
 
     return config_dict
@@ -163,12 +229,10 @@ class InferEngine(_infinilm.InferEngine):
         weight_load_mode="async",
         moe_ep_backend="disabled",
         moe_ep_size=1,
-        use_legacy_moe=False,
         pre_transpose=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
-        self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
         self.hf_config["position_id_axes"] = self.position_id_axes
         text_config = self.hf_config.get("text_config")
@@ -278,6 +342,9 @@ class InferEngine(_infinilm.InferEngine):
         temperature=None,
         top_k=None,
         top_p=None,
+        random_values=None,
+        sampling_rows=None,
+        nsa_owner_snapshot=None,
     ):
         def unwrap_tensor(tensor):
             return (
@@ -336,6 +403,9 @@ class InferEngine(_infinilm.InferEngine):
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            random_values=random_values,
+            sampling_rows=sampling_rows,
+            nsa_owner_snapshot=nsa_owner_snapshot,
         )
 
     def forward(
@@ -361,6 +431,9 @@ class InferEngine(_infinilm.InferEngine):
         temperature=None,
         top_k=None,
         top_p=None,
+        random_values=None,
+        sampling_rows=None,
+        nsa_owner_snapshot=None,
     ):
         try:
             # TODO: Remove `_underlying` and simplify the corresponding code.
@@ -433,6 +506,9 @@ class InferEngine(_infinilm.InferEngine):
                         temperature=temperature,
                         top_k=top_k,
                         top_p=top_p,
+                        random_values=random_values,
+                        sampling_rows=sampling_rows,
+                        nsa_owner_snapshot=nsa_owner_snapshot,
                     )
                 )
                 .output_ids
@@ -462,6 +538,7 @@ class InferEngine(_infinilm.InferEngine):
         temperature=None,
         top_k=None,
         top_p=None,
+        nsa_owner_snapshot=None,
     ):
         try:
             output = super().forward(
@@ -484,12 +561,14 @@ class InferEngine(_infinilm.InferEngine):
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
+                    nsa_owner_snapshot=nsa_owner_snapshot,
                 )
             )
             return {
                 "output_ids": infinicore.Tensor(output.output_ids),
                 "logits": infinicore.Tensor(output.logits),
                 "hidden_states": infinicore.Tensor(output.hidden_states),
+                "execution_report": output.execution_report,
             }
         except BaseException as e:
             handle_oom_and_exit(e)
@@ -509,6 +588,8 @@ class InferEngine(_infinilm.InferEngine):
         position_id_delta=0,
         _measure_and_log_time=False,
     ):
+        if self.model_type == "kimi_k3":
+            raise NotImplementedError("K3 low-level generate lacks managed recurrent row authority; use the bound Scheduler path after qualification")
         eos_token_id = self.eos_token_id
 
         past_seq_len = 0
@@ -546,6 +627,9 @@ class InferEngine(_infinilm.InferEngine):
                 raise RuntimeError(
                     "Low-level generate for mamba-cache models currently requires paged attention"
                 )
+            # Each static Mamba generate call starts a fresh recurrent request.
+            # Explicit forward calls keep their continuation semantics.
+            super().reset_cache(self.get_cache_config())
         elif self.has_mamba_cache:
             mamba_pool_size = max(2, self.get_cache_config().num_blocks() // 4)
             if batch_size > mamba_pool_size - 1:
@@ -571,15 +655,38 @@ class InferEngine(_infinilm.InferEngine):
                 dtype=infinicore.int32,
             )
 
+        decode_metadata = None
         for iter in range(0, generation_config.max_new_tokens):
             if _measure_and_log_time:
                 start_time = time.perf_counter()
 
             batch_size, seq_len = input_ids.shape[:2]
+            reuse_decode_metadata = (
+                self.enable_paged_attn
+                and iter > 0
+                and seq_len == 1
+                and prompt_position_ids is None
+                and self.position_id_axes == 1
+                and mamba_state_indices is None
+            )
 
             if self.enable_paged_attn:
                 input_ids = input_ids.view([1, batch_size * seq_len])
-                if prompt_position_ids is not None:
+                if reuse_decode_metadata:
+                    if decode_metadata is None:
+                        decode_metadata = _PagedDecodeMetadataBuffers(
+                            batch_size,
+                            max_blocks_per_batch * paged_block_size,
+                        )
+                    (
+                        position_ids,
+                        slot_mapping,
+                        past_kv_lengths,
+                        total_kv_lengths,
+                        cu_seqlens,
+                        input_offsets,
+                    ) = decode_metadata.update(past_seq_len)
+                elif prompt_position_ids is not None:
                     if iter == 0:
                         position_ids_list = [
                             list(axis) * batch_size for axis in prompt_position_ids
@@ -605,35 +712,36 @@ class InferEngine(_infinilm.InferEngine):
                         position_ids_list = [
                             position_ids_list for _ in range(self.position_id_axes)
                         ]
-                position_ids = infinicore.from_list(
-                    position_ids_list, dtype=infinicore.int64
-                )
+                if not reuse_decode_metadata:
+                    position_ids = infinicore.from_list(
+                        position_ids_list, dtype=infinicore.int64
+                    )
 
-                if iter == 0:
-                    slot_mapping_list = []
-                    for b in range(batch_size):
-                        slot_mapping_list.extend(
-                            [
-                                b * max_blocks_per_batch * paged_block_size + i
-                                for i in range(seq_len)
-                            ]
-                        )
-                else:
-                    slot_mapping_list = [
-                        i
-                        for i in range(
-                            past_seq_len,
-                            max_blocks_per_batch
-                            * paged_block_size
-                            * initial_batch_size,
-                            max_blocks_per_batch * paged_block_size,
-                        )
-                    ]
+                    if iter == 0:
+                        slot_mapping_list = []
+                        for b in range(batch_size):
+                            slot_mapping_list.extend(
+                                [
+                                    b * max_blocks_per_batch * paged_block_size + i
+                                    for i in range(seq_len)
+                                ]
+                            )
+                    else:
+                        slot_mapping_list = [
+                            i
+                            for i in range(
+                                past_seq_len,
+                                max_blocks_per_batch
+                                * paged_block_size
+                                * initial_batch_size,
+                                max_blocks_per_batch * paged_block_size,
+                            )
+                        ]
 
-                slot_mapping = infinicore.from_list(
-                    slot_mapping_list,
-                    dtype=infinicore.int64,
-                )
+                    slot_mapping = infinicore.from_list(
+                        slot_mapping_list,
+                        dtype=infinicore.int64,
+                    )
             else:
                 position_ids = infinicore.from_list(
                     [
@@ -645,19 +753,22 @@ class InferEngine(_infinilm.InferEngine):
 
                 slot_mapping = None
 
-            past_kv_lengths = infinicore.from_list(
-                [past_seq_len] * batch_size, dtype=infinicore.int32
-            )
-            total_kv_lengths = infinicore.from_list(
-                [past_seq_len + seq_len] * batch_size, dtype=infinicore.int32
-            )
-            cu_seqlens = infinicore.from_list(
-                [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
-                dtype=infinicore.int32,
-            )
-            input_offsets = infinicore.from_list(
-                [seq_len * i for i in range(batch_size + 1)], dtype=infinicore.int32
-            )
+            if not reuse_decode_metadata:
+                past_kv_lengths = infinicore.from_list(
+                    [past_seq_len] * batch_size, dtype=infinicore.int32
+                )
+                total_kv_lengths = infinicore.from_list(
+                    [past_seq_len + seq_len] * batch_size,
+                    dtype=infinicore.int32,
+                )
+                cu_seqlens = infinicore.from_list(
+                    [(past_seq_len + seq_len) * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
+                input_offsets = infinicore.from_list(
+                    [seq_len * i for i in range(batch_size + 1)],
+                    dtype=infinicore.int32,
+                )
 
             mamba_init_state_indices = None
             mamba_final_state_indices = None
@@ -730,7 +841,9 @@ class InferEngine(_infinilm.InferEngine):
         return output_ids
 
     def reset_cache(self, cache_config):
-        infinicore.sync_device()
+        if self.model_type != "kimi_k3":
+            infinicore.sync_device()
+        # K3 native RESET_CACHE drains each existing worker-owned stream.
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         super().reset_cache(cache_config)
 

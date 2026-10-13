@@ -19,6 +19,7 @@ class SamplingParams:
         None  # Placeholder for future usage, not currently handled
     )
     ignore_eos: bool = False
+    seed: Optional[int] = None
 
     def __post_init__(self):
         if self.stop is None:
@@ -32,6 +33,7 @@ class SamplingParams:
             temperature=self.temperature,
             top_p=self.top_p,
             top_k=self.top_k,
+            seed=self.seed,
             max_tokens=self.max_tokens,
             stop=self.stop.copy() if self.stop else None,
             stop_token_ids=self.stop_token_ids.copy() if self.stop_token_ids else None,

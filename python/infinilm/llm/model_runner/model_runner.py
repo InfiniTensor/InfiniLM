@@ -3,21 +3,54 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
 
-import infinicore
+from ... import _core as infinicore
+
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
 from infinilm.distributed.pipeline_transport import PipelineControlServer
-from infinilm.infer_engine import InferEngine
+from infinilm.infer_engine import InferEngine, model_uses_mamba_cache, read_hf_config
 from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
 )
 from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
+from infinilm.llm.nsa_paged_owner import freeze_model_input
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_static_two_row_model(config: EngineConfig, hf_config: dict) -> None:
+    """Fail before native allocation for the initially qualified B1-row domain."""
+    if config.cache_type != "static" or config.static_cache_capacity != 2:
+        return
+    unsupported = (
+        hf_config.get("model_type") != "qwen3"
+        or config.device != "cuda"
+        or config.dtype not in ("float16", "bfloat16")
+        or hf_config.get("torch_dtype") not in ("float16", "bfloat16")
+        or config.max_cache_len <= 0
+        or config.max_cache_len % 256 != 0
+        or "text_config" in hf_config
+        or hf_config.get("quantization_config") is not None
+        or hf_config.get("kv_cache_dtype") not in (None, "auto")
+        or model_uses_mamba_cache(hf_config)
+        or any(layer != "full_attention"
+               for layer in (hf_config.get("layer_types") or []))
+        or config.attn_backend != "default"
+        or config.use_mla
+        or config.draft_model_path is not None
+        or config.pipeline_parallel_size != 1
+    )
+    if unsupported:
+        raise ValueError(
+            "static_cache_capacity=2 currently requires ordinary, unquantized "
+            "full-attention Qwen3 on NVIDIA float16/bfloat16 with a positive "
+            "256-aligned cache length, default attention, no Mamba/MTP/MLA, "
+            "and one pipeline stage"
+        )
 
 
 @dataclass
@@ -46,15 +79,27 @@ class ModelRunner:
     def __init__(self, config: EngineConfig, initialize_processor: bool = True):
         self.config = config
         self._closed = False
+        self._nsa_scheduler = None
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
+        if config.cache_type == "static" and config.static_cache_capacity == 2:
+            _validate_static_two_row_model(config, read_hf_config(config.model_path))
+
+        self._nsa_paged_owner = (config.cache_type == "paged"
+                                 and read_hf_config(config.model_path).get("model_type") == "videonsa")
+        if self._nsa_paged_owner and (config.enable_graph or config.draft_model_path is not None
+                or config.pipeline_parallel_size != 1 or config.kv_transfer_config is not None
+                or config.use_mla or config.device != "cuda" or config.dtype not in ("float16", "bfloat16")
+                or config.attn_backend not in ("paged-attn", "flash-attn")):
+            raise ValueError("NSA owner slice requires NVIDIA eager paged/flash text, no graph/draft/connector/PP/MLA")
         self._init_device()
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
             cache_config = StaticKVCacheConfig(
-                max_batch_size=1, max_cache_len=config.max_cache_len
+                max_batch_size=config.static_cache_capacity,
+                max_cache_len=config.max_cache_len,
             )
             logger.info(
                 f"Using Static KV Cache with max_cache_len={config.max_cache_len}"
@@ -89,7 +134,6 @@ class ModelRunner:
             attention_backend=config.attn_backend,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
-            use_legacy_moe=config.use_legacy_moe,
             pre_transpose=config.pre_transpose,
         )
 
@@ -152,6 +196,22 @@ class ModelRunner:
 
             self.kv_connector.register_kv_caches(kv_caches)
 
+    def bind_nsa_scheduler(self, scheduler) -> None:
+        """Bind the actual LLM-owned producer for the managed NSA route only."""
+        if not self._nsa_paged_owner or self._nsa_scheduler is not None:
+            raise RuntimeError("NSA Scheduler binding requires one fresh NSA runner")
+        from infinilm.llm.scheduler import Scheduler
+
+        if type(scheduler) is not Scheduler or scheduler._nsa_owner_clock is None:
+            raise TypeError("NSA runner requires the actual paged Scheduler")
+        manager = scheduler.cache_manager
+        if (manager._nsa_owner_clock is not scheduler._nsa_owner_clock
+                or scheduler._nsa_owner_clock.pool_epoch != self.model_engine.get_nsa_pool_epoch()
+                or manager.num_blocks != self.config.num_blocks
+                or manager.block_size != self.config.block_size):
+            raise ValueError("NSA Scheduler/engine pool or geometry binding differs")
+        self._nsa_scheduler = scheduler
+
     @property
     def model_type(self):
         return self.model_engine.model_type
@@ -162,7 +222,16 @@ class ModelRunner:
 
     def _init_device(self):
         """Initialize infinicore device and dtype."""
-        supported_devices = ["cpu", "cuda", "mlu", "musa", "npu"]
+        supported_devices = [
+            "cpu",
+            "cuda",
+            "hygon",
+            "iluvatar",
+            "metax",
+            "mlu",
+            "musa",
+            "npu",
+        ]
         device_str = self.config.device
         if device_str not in supported_devices:
             raise ValueError(
@@ -186,6 +255,8 @@ class ModelRunner:
         self.dtype = dtype_map[self.config.dtype]
 
     def execute_model(self, scheduler_output) -> ModelRunnerOutput:
+        requests = tuple(scheduler_output.scheduled_requests)
+        req_ids = [req.request_id for req in requests]
         sampled_tokens_list = []
         kv_connector_output = None
 
@@ -199,9 +270,6 @@ class ModelRunner:
                     sampled_tokens_list = self._model_forward(scheduler_output)
 
         #  model_runner_output
-        req_ids = []
-        for i in range(scheduler_output.num_requests):
-            req_ids.append(scheduler_output.scheduled_requests[i].request_id)
 
         return ModelRunnerOutput(
             req_ids=req_ids,
@@ -210,23 +278,51 @@ class ModelRunner:
         )
 
     def _model_forward(self, scheduler_output):
+        nsa_owner = None
+        if self._nsa_paged_owner:
+            if self._nsa_scheduler is None:
+                raise RuntimeError("NSA managed forward requires the actual bound Scheduler")
+            nsa_owner = self._nsa_scheduler.take_nsa_owner_batch(scheduler_output)
         # Build model inputs
+        requests = scheduler_output.scheduled_requests
+        first_params = requests[0].sampling_params if requests else self.config
+        temperature, top_p, top_k = (
+            first_params.temperature, first_params.top_p, first_params.top_k
+        )
         model_input = self.processor.build_model_inputs(
             scheduler_output,
-            self.config.temperature,
-            self.config.top_p,
-            self.config.top_k,
+            temperature,
+            top_p,
+            top_k,
         )
 
+        if self._nsa_paged_owner:
+            freeze_model_input(self.model_engine, nsa_owner, model_input, infinicore)
+
         if self.speculative_runner is not None:
+            if any(request.sampling_params.top_k != 1 for request in requests):
+                raise ValueError(
+                    "speculative decoding currently requires greedy request sampling"
+                )
             return self._model_forward_with_speculative(scheduler_output, model_input)
+
+        model_input["sampling_rows"] = [
+            (request.sampling_params.temperature,
+             request.sampling_params.top_p,
+             request.sampling_params.top_k)
+            for request in requests
+        ]
+        model_input["random_values"] = [
+            request.next_sampling_random_value()
+            for request in requests
+        ]
 
         # Wake every stage before stage 0 enters forward. Each worker receives
         # the same metadata and then blocks in its model on the activation from
         # the preceding stage. Stage 0 waits for all acknowledgements afterward.
-        if self.pipeline_control is not None:
-            self.pipeline_control.dispatch_forward(model_input)
         try:
+            if self.pipeline_control is not None:
+                self.pipeline_control.dispatch_forward(model_input)
             sampled_tokens = self.model_engine.forward(**model_input)
         except BaseException:
             if self.pipeline_control is not None:
@@ -251,31 +347,66 @@ class ModelRunner:
         """Context manager for KV connector operations around model forward."""
 
         output = KVConnectorOutput()
-        assert scheduler_output.kv_connector_metadata is not None
+        if scheduler_output.kv_connector_metadata is None:
+            raise ValueError("KV connector step requires scheduler metadata")
 
-        self.kv_connector.bind_connector_metadata(
-            scheduler_output.kv_connector_metadata
-        )
-
-        self.kv_connector.start_load_kv()
-
+        connector = self.kv_connector
+        load_started = False
+        first_error = None
         try:
+            connector.bind_connector_metadata(scheduler_output.kv_connector_metadata)
+            connector.start_load_kv()
+            load_started = True
             yield output
+        except BaseException as error:
+            first_error = error
+            raise
         finally:
-            output.finished_sending, output.failed_recving, output.finished_recving = (
-                self.kv_connector.get_finished("finished_req_ids")
-            )
-            output.invalid_block_ids = (
-                self.kv_connector.get_block_ids_with_load_errors()
-            )
-            output.kv_connector_stats = self.kv_connector.get_kv_connector_stats()
+            try:
+                if load_started:
+                    (output.finished_sending, output.failed_recving,
+                     output.finished_recving) = connector.get_finished()
+                    output.invalid_block_ids = connector.get_block_ids_with_load_errors()
+                    output.kv_connector_stats = connector.get_kv_connector_stats()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+                    raise
+                logger.exception("KV completion polling failed after an earlier step error")
+            finally:
+                try:
+                    connector.clear_connector_metadata()
+                except BaseException:
+                    if first_error is None:
+                        raise
+                    logger.exception("KV metadata cleanup failed after an earlier step error")
 
     def close(self) -> None:
-        """Release resources held by the KV connector."""
+        """Stop external resources and deterministically release native engines."""
         if self._closed:
             return
-        if self.pipeline_control is not None:
-            self.pipeline_control.close()
-        if self.kv_connector is not None:
-            self.kv_connector.shutdown()
         self._closed = True
+
+        first_error: BaseException | None = None
+        if self.pipeline_control is not None:
+            try:
+                self.pipeline_control.close()
+            except BaseException as error:
+                first_error = error
+        if self.kv_connector is not None:
+            try:
+                self.kv_connector.shutdown()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+
+        # SpeculativeRunner retains the target engine as well as its draft
+        # engine, so release it first.  Do not defer native teardown to Python
+        # interpreter shutdown, where module and CUDA destruction order is no
+        # longer deterministic.
+        self.speculative_runner = None
+        self.model_engine = None
+        self._nsa_scheduler = None
+
+        if first_error is not None:
+            raise first_error

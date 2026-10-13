@@ -412,7 +412,7 @@ def convert_multimodal_inputs(model, processor, processed_inputs):
 
 
 class TestModel:
-    model: infinicore.nn.Module
+    model: InferEngine
     input_ids_list: list[int]
 
     def __init__(
@@ -443,7 +443,6 @@ class TestModel:
         temperature=1.0,
         top_p=1.0,
         top_k=1,
-        use_legacy_moe=False,
         enable_prefix_caching=False,
         processor=None,
         tokenizer=None,
@@ -516,7 +515,6 @@ class TestModel:
                 use_mla=use_mla,
                 weight_load_mode=weight_load_mode,
                 skip_load=skip_load,
-                use_legacy_moe=use_legacy_moe,
                 enable_prefix_caching=enable_prefix_caching,
             )
             self.processor = self.model.engine.processor
@@ -952,7 +950,6 @@ if __name__ == "__main__":
         temperature=cfg.temperature,
         top_p=cfg.top_p,
         top_k=cfg.top_k,
-        use_legacy_moe=cfg.use_legacy_moe,
         enable_prefix_caching=False,
         processor=processor,
         tokenizer=tokenizer,
@@ -990,23 +987,12 @@ if __name__ == "__main__":
                     temperature=cfg.temperature,
                 )
         else:
-            if enable_paged_attn:
-                warmup_num_blocks = (
-                    (warmup_input_len + warmup_decode_len + paged_kv_block_size - 1)
-                    // paged_kv_block_size
-                ) * warmup_batch
-                warmup_cache_config = PagedKVCacheConfig(
-                    warmup_num_blocks,
-                    paged_kv_block_size,
-                    max_batch_size=warmup_batch,
-                )
-            else:
+            if not enable_paged_attn:
                 warmup_cache_config = StaticKVCacheConfig(
                     max_batch_size=warmup_batch,
                     max_cache_len=warmup_input_len + warmup_decode_len,
                 )
-
-            test.model.reset_cache(warmup_cache_config)
+                test.model.reset_cache(warmup_cache_config)
             warmup_prompt_ids = resize_benchmark_prompt(
                 *test.prompt_token_segments, target_length=warmup_input_len
             )
@@ -1029,8 +1015,13 @@ if __name__ == "__main__":
 
         print("=================== warmup done ====================")
 
-        # reset cache back to benchmark config
-        if cache_config is not None and not test.uses_pipeline_parallel:
+        # Paged warmup reuses the benchmark cache; static warmup uses a
+        # smaller temporary cache and must restore the benchmark dimensions.
+        if (
+            not enable_paged_attn
+            and cache_config is not None
+            and not test.uses_pipeline_parallel
+        ):
             test.model.reset_cache(cache_config)
 
     # ---------------------------------------------------------------------------- #

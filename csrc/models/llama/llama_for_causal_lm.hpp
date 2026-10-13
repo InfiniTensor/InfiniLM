@@ -11,7 +11,7 @@ using LlamaAttention = infinilm::layers::attention::Attention;
 
 using LlamaDecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<LlamaAttention, LlamaMLP>;
 
-using LlamaModel = infinilm::layers::causal_lm_templates::TextModel<LlamaDecoderLayer>;
+using LlamaModel = infinilm::layers::causal_lm_templates::TextModel<LlamaDecoderLayer, true>;
 
 using LlamaForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<LlamaModel>;
 

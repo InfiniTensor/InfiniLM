@@ -1,25 +1,28 @@
+#include "../models_registry.hpp"
 #pragma once
 
 #include "../../config/model_config.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/device.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/tensor.hpp"
 
 #include <memory>
 #include <tuple>
 
 namespace infinilm::models::qwen3_moe {
 
-class Qwen3MoeTopKRouter : public infinicore::nn::Module {
+class Qwen3MoeTopKRouter : public infinilm::weights::ModelWeights {
 public:
-    Qwen3MoeTopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       const infinicore::Device &device);
+    Qwen3MoeTopKRouter(infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>,
+        const engine::distributed::RankInfo &, const layers::moe::EPConfig &);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states) const;
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
+    void validate_runtime(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_PARAMETER(weight);
+    infinilm::weights::Weight weight_;
 
+    infinilm::runtime::Runtime *runtime_borrowed_{nullptr}; // explicit constructor borrows retained caller owner.
     size_t num_experts_per_tok_{0};
     bool norm_topk_prob_{false};
 };

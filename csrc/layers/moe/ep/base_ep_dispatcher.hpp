@@ -2,29 +2,35 @@
 
 #include "../dispatcher/base_dispatcher.hpp"
 #include "ep_config.hpp"
+#include "../../../engine/distributed/communication_group.hpp"
 
-#include <infiniccl.h>
+#include <infiniccl/infiniccl.h>
+#include <memory>
 #include <vector>
 
 namespace infinilm::layers::moe {
 
 class BaseEPDispatcher : public BaseDispatcher {
 public:
-    BaseEPDispatcher(EPConfig ep_config, size_t num_experts);
+    BaseEPDispatcher(EPConfig ep_config, size_t num_experts,
+                     const engine::distributed::RankInfo &rank_info);
 
-    void initialize(const infinicore::Device &device,
+    void initialize(infinilm::runtime::Runtime &runtime,
                     MoeWorkspace &workspace) override;
 
 protected:
+    void assertInitializedRuntime(infinilm::runtime::Runtime &runtime) const;
     std::vector<size_t> equal_split_sizes(size_t local_dim0) const;
-    infinicore::Tensor expert_map(const infinicore::Device &device) const;
+    infinilm::runtime::Tensor expert_map(infinilm::runtime::Runtime &runtime) const;
 
     EPConfig config_;
     size_t num_experts_ = 0;
     infinicclComm_t communicator_ = nullptr;
+    infinilm::runtime::Device device_;
 
 private:
-    mutable infinicore::Tensor expert_map_;
+    std::shared_ptr<infinilm::runtime::Runtime> runtime_owner_;
+    mutable infinilm::runtime::Tensor expert_map_;
 };
 
 } // namespace infinilm::layers::moe

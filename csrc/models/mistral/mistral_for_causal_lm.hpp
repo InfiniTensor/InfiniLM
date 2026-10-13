@@ -11,7 +11,7 @@ using MistralAttention = infinilm::layers::attention::Attention;
 
 using MistralDecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLayer<MistralAttention, MistralMLP>;
 
-using MistralModel = infinilm::layers::causal_lm_templates::TextModel<MistralDecoderLayer>;
+using MistralModel = infinilm::layers::causal_lm_templates::TextModel<MistralDecoderLayer, true>;
 
 using MistralForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<MistralModel>;
 

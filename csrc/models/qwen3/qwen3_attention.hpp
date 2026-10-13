@@ -1,23 +1,35 @@
+#include "../../weights/weights.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "../models_registry.hpp"
 #pragma once
+#include <typeinfo>
 
+#include "../../global_state/forward_context.hpp"
 #include "../../layers/common_modules.hpp"
 
 namespace infinilm::models::qwen3 {
-class Qwen3Attention : public infinicore::nn::Module {
+class Qwen3Attention : public infinilm::weights::ModelWeights {
 public:
-    Qwen3Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                   size_t layer_idx,
-                   const infinicore::Device &device);
+    Qwen3Attention(infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>, size_t,
+                   const engine::distributed::RankInfo &, backends::AttentionBackend, const layers::moe::EPConfig &);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(
+        const infinilm::runtime::Tensor &positions,
+        const infinilm::runtime::Tensor &hidden_states,
+        infinilm::global_state::ForwardContext &forward_context) const;
 
-    void process_weights_after_loading() override {
-        qkv_proj_->process_weights_after_loading();
+    // Owner-local enumeration only; no new child/parameter registration.
+    void append_w4_layers(std::vector<std::shared_ptr<infinilm::nn::BaseLinear>> &layers,
+                          infinilm::quantization::QuantScheme expected_scheme) const {
+        if (!qkv_proj_ || typeid(*qkv_proj_) != typeid(infinilm::layers::linear::QKVParallelLinear) ||
+            qkv_proj_->get_quantization()->get_quant_scheme() != expected_scheme)
+            throw std::invalid_argument("Qwen3 hidden QKV must be exact homogeneous W4 owner");
+        layers.push_back(qkv_proj_);
     }
 
-    void reset_runtime_state() const override {
-        qkv_proj_->reset_runtime_state();
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override {
+        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
     }
 
     size_t layer_idx() const { return layer_idx_; }
@@ -27,18 +39,20 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 private:
-    infinicore::Tensor forward_static_(const infinicore::Tensor &positions,
-                                       const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &positions,
+                                       const infinilm::runtime::Tensor &hidden_states,
+                                       infinilm::global_state::ForwardContext &forward_context) const;
 
-    infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
-                                      const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &positions,
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    std::shared_ptr<infinilm::layers::RMSNorm> q_norm_;
+    std::shared_ptr<infinilm::layers::RMSNorm> k_norm_;
+    std::shared_ptr<infinilm::layers::RoPE> rotary_emb_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
@@ -49,7 +63,7 @@ protected:
     size_t head_dim_;
 
     // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    infinilm::weights::Weight kv_cache_k_scale_;
+    infinilm::weights::Weight kv_cache_v_scale_;
 };
 } // namespace infinilm::models::qwen3

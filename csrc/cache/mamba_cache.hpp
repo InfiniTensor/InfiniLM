@@ -2,37 +2,44 @@
 
 #include "base_cache.hpp"
 
-#include "infinicore/device.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/device.hpp"
+#include "runtime/tensor.hpp"
 #include <cstddef>
-#include <infinicore/dtype.hpp>
+#include <runtime/dtype.hpp>
 #include <utility>
+
+namespace infinilm::runtime { class Runtime; }
+namespace infinilm::engine::distributed { struct RankInfo; }
 
 namespace infinilm::cache {
 
 class MambaCache {
 public:
-    static infinicore::Tensor create_layer_conv_state(
-        infinicore::Size k_dim,
-        infinicore::Size v_dim,
-        infinicore::Size num_k_heads,
-        infinicore::Size num_v_heads,
-        infinicore::Size conv_kernel_dim,
-        infinicore::DataType dtype,
+    static infinilm::runtime::Tensor create_layer_conv_state(
+        infinilm::runtime::Runtime &runtime,
+        const engine::distributed::RankInfo &rank,
+        infinilm::runtime::Size k_dim,
+        infinilm::runtime::Size v_dim,
+        infinilm::runtime::Size num_k_heads,
+        infinilm::runtime::Size num_v_heads,
+        infinilm::runtime::Size conv_kernel_dim,
+        infinilm::runtime::DataType dtype,
         size_t pool_size);
 
-    static infinicore::Tensor create_layer_ssm_state(
-        infinicore::Size k_dim,
-        infinicore::Size v_dim,
-        infinicore::Size num_k_heads,
-        infinicore::Size num_v_heads,
-        infinicore::DataType dtype,
+    static infinilm::runtime::Tensor create_layer_ssm_state(
+        infinilm::runtime::Runtime &runtime,
+        const engine::distributed::RankInfo &rank,
+        infinilm::runtime::Size k_dim,
+        infinilm::runtime::Size v_dim,
+        infinilm::runtime::Size num_k_heads,
+        infinilm::runtime::Size num_v_heads,
+        infinilm::runtime::DataType dtype,
         size_t pool_size);
 
 private:
     static std::pair<size_t, size_t> get_rank_head_counts(
-        infinicore::Size num_k_heads,
-        infinicore::Size num_v_heads,
+        infinilm::runtime::Size num_k_heads,
+        infinilm::runtime::Size num_v_heads,
         size_t tp_size);
 };
 

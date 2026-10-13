@@ -1,25 +1,7 @@
-import importlib
 import json
-import pkgutil
 from pathlib import Path
 
-from transformers import AutoConfig
-
 from .processor import InfinilmProcessor, get_processor_class
-
-# ---------------------------------------------------------------------------
-# Auto-discovery mechanism
-# ---------------------------------------------------------------------------
-# Automatically discover and import all modules matching *_processor.py in
-# this directory. This ensures that any @register_processor decorators are
-# executed at load time, populating the processor registry dynamically
-# without requiring manual imports for each new model.
-# ---------------------------------------------------------------------------
-_current_dir = Path(__file__).resolve().parent
-
-for _module_info in pkgutil.iter_modules([str(_current_dir)]):
-    if _module_info.name.endswith("_processor"):
-        importlib.import_module(f".{_module_info.name}", __package__)
 
 
 class AutoInfinilmProcessor:
@@ -43,6 +25,8 @@ class AutoInfinilmProcessor:
         if raw_model_type in {"qwen3_5", "qwen3_5_moe"}:
             model_type = raw_model_type
         else:
+            from transformers import AutoConfig
+
             config = AutoConfig.from_pretrained(model_dir_path, trust_remote_code=True)
             model_type = config.model_type.lower()
 

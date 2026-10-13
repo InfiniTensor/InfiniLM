@@ -1,4 +1,5 @@
 #pragma once
+#include "../../../weights/weights.hpp"
 
 #include "../../../config/model_config.hpp"
 #include "../../common_modules.hpp"
@@ -15,16 +16,20 @@ enum class TopKRouterBackend {
     FusedGate,
 };
 
-class TopKRouter : public infinicore::nn::Module {
-public:
-    TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-               const infinicore::Device &device);
+class TopKRouter : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &hidden_states) const;
+public:
+    TopKRouter(infinilm::runtime::Runtime &runtime,
+               std::shared_ptr<infinilm::config::ModelConfig> model_config);
+
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(infinilm::runtime::Runtime &runtime,
+                                                            const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_PARAMETER(weight);
-    INFINICORE_NN_PARAMETER(e_score_correction_bias);
+    infinilm::weights::Weight weight_;
+    infinilm::weights::Weight e_score_correction_bias_;
 
     size_t num_experts_{0};
     size_t num_experts_per_tok_{0};

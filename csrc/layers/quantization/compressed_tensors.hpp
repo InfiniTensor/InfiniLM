@@ -1,4 +1,5 @@
 #pragma once
+#include "../../weights/weights.hpp"
 
 #include "base_quantization.hpp"
 namespace infinilm::quantization {
@@ -16,17 +17,18 @@ public:
         size_t in_features, size_t out_features,
         int split_dim, int tp_rank, int tp_size,
         int tp_num_heads,
-        const infinicore::DataType &dtype,
+        const infinilm::runtime::DataType &dtype,
         bool bias) const override;
 
-    infinicore::Tensor forward(
+    infinilm::runtime::Tensor forward(
+        infinilm::runtime::Runtime &runtime,
         const ParamsMap &params,
-        const infinicore::Tensor &input,
+        const infinilm::runtime::Tensor &input,
         bool has_bias,
         float alpha = 1.0f) const override;
 
     std::vector<SplitParam> split_params(
-        const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
+        const std::unordered_map<std::string, infinilm::weights::Weight> &params,
         const std::vector<SplitInfo> &splits,
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;

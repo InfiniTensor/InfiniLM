@@ -8,7 +8,7 @@ void HookRegistry::register_hook(const std::string &name, HookCallback callback)
     SPDLOG_DEBUG("HookRegistry: Registered hook '{}'", name);
 }
 
-void HookRegistry::call_hook(const std::string &name, const infinicore::Tensor &tensor, int layer_idx) const {
+void HookRegistry::call_hook(const std::string &name, const infinilm::runtime::Tensor &tensor, int layer_idx) const {
     // Try exact match first
     auto it = hooks_.find(name);
     if (it != hooks_.end()) {
