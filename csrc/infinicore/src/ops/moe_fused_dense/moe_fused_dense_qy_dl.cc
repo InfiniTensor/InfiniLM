@@ -31,7 +31,7 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
     if (stream_is_capturing(stream)) {
         return cudaGetLastError();
     }
-    return sync_unless_capturing(stream);
+    return cudaStreamSynchronize(stream);
 }
 
 
