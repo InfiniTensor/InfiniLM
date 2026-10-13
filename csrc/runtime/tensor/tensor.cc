@@ -57,7 +57,7 @@ TensorImpl *Tensor::operator->() { return impl_.get(); }
 const TensorImpl *Tensor::operator->() const { return impl_.get(); }
 
 Tensor Tensor::empty(Runtime &runtime, const Shape &shape, const DataType &dtype, bool pin_memory) {
-    return Tensor{TensorImpl::empty(runtime, shape, dtype, pin_memory)};
+    return strided_empty(runtime, shape, calculate_contiguous_strides(shape), dtype, pin_memory);
 }
 
 Tensor Tensor::empty(const Shape &shape,
@@ -72,42 +72,51 @@ Tensor Tensor::empty(const Shape &shape,
 Tensor Tensor::empty_parameter(Runtime &runtime,
                                const Shape &shape,
                                const DataType &dtype) {
-    return Tensor{TensorImpl::empty_parameter(runtime, shape, dtype)};
-}
-
-Tensor Tensor::strided_empty(const Shape &shape,
-                             const Strides &strides,
-                             const DataType &dtype,
-                             const Device &device,
-                             bool pin_memory) {
-    const bool pinned_host = pin_memory && device.type() == Device::Type::kCpu;
-    auto runtime = pinned_host ? context::currentRuntime() : context::resolveRuntime(device);
-    return strided_empty(*runtime, shape, strides, dtype, pinned_host);
+    runtime.assertOwnerThread();
+    if (runtime.device().type() == Device::Type::kCpu) {
+        return empty(runtime, shape, dtype);
+    }
+    const size_t bytes = parameter_storage_bytes(shape, dtype);
+    if (bytes == 0) {
+        return empty(runtime, shape, dtype);
+    }
+    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, dtype));
+    t->data_.offset = 0;
+    t->data_.memory = runtime.allocateParameterMemory(bytes);
+    return Tensor{t};
 }
 
 Tensor Tensor::strided_empty(Runtime &runtime,
                              const Shape &shape,
                              const Strides &strides,
                              const DataType &dtype, bool pin_memory) {
-    return Tensor{TensorImpl::strided_empty(runtime, shape, strides, dtype, pin_memory)};
-}
-
-Tensor Tensor::zeros(const Shape &shape,
-                     const DataType &dtype,
-                     const Device &device,
-                     bool pin_memory) {
-    return Tensor{TensorImpl::zeros(shape, dtype, device, pin_memory)};
+    runtime.assertOwnerThread();
+    const size_t element_bytes = dsize(dtype);
+    if (element_bytes == 0) throw std::length_error("tensor element size is zero");
+    const size_t required_bytes = TensorImpl::storage_span_bytes(shape, strides, element_bytes);
+    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, strides, dtype));
+    t->data_.offset = 0;
+    t->data_.memory = allocate_tensor_storage(runtime, required_bytes, pin_memory);
+    return Tensor{t};
 }
 
 Tensor Tensor::ones(const Shape &shape,
                     const DataType &dtype,
                     const Device &device,
                     bool pin_memory) {
-    return Tensor{TensorImpl::ones(shape, dtype, device, pin_memory)};
+    auto result = Tensor::empty(shape, dtype, device, pin_memory).impl_;
+    if (result->nbytes() != 0) {
+        auto runtime = context::resolveRuntime(result->device());
+        infinilm::execution::submit<infini::ops::Fill>(
+            *runtime, infini::ops::Fill::DefaultConfig(runtime->device().type()),
+            Tensor{result}, 1.0, Tensor{result});
+        INFINILM_TRACE_OP(Ones, Tensor{result});
+    }
+    return Tensor{result};
 }
 
 Tensor Tensor::from_blob(void *raw_ptr, const Shape &shape, const DataType &dtype, const Device &device) {
-    return Tensor{TensorImpl::from_blob(raw_ptr, shape, dtype, device)};
+    return from_blob(raw_ptr, shape, dtype, device, nullptr);
 }
 
 Tensor Tensor::from_blob(void *raw_ptr,
@@ -115,11 +124,23 @@ Tensor Tensor::from_blob(void *raw_ptr,
                          const DataType &dtype,
                          const Device &device,
                          std::shared_ptr<void> owner) {
-    return Tensor{TensorImpl::from_blob(raw_ptr, shape, dtype, device, std::move(owner))};
+    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, dtype));
+    t->data_.offset = 0;
+    const size_t size = t->nbytes();
+    if (raw_ptr == nullptr && size != 0) {
+        throw std::invalid_argument("from_blob requires a non-null pointer for non-empty tensors");
+    }
+    Memory::Deleter keep_owner;
+    if (owner) {
+        keep_owner = [owner = std::move(owner)](std::byte *) {};
+    }
+    t->data_.memory = std::make_shared<Memory>(
+        static_cast<std::byte *>(raw_ptr), size, device, std::move(keep_owner));
+    return Tensor{t};
 }
 
 Tensor Tensor::strided_from_blob(void *raw_ptr, const Shape &shape, const Strides &strides, const DataType &dtype, const Device &device) {
-    return Tensor{TensorImpl::strided_from_blob(raw_ptr, shape, strides, dtype, device)};
+    return strided_from_blob(raw_ptr, shape, strides, dtype, device, nullptr);
 }
 
 Tensor Tensor::strided_from_blob(void *raw_ptr,
@@ -128,8 +149,20 @@ Tensor Tensor::strided_from_blob(void *raw_ptr,
                                  const DataType &dtype,
                                  const Device &device,
                                  std::shared_ptr<void> owner) {
-    return Tensor{TensorImpl::strided_from_blob(
-        raw_ptr, shape, strides, dtype, device, std::move(owner))};
+    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, strides, dtype));
+    t->data_.offset = 0;
+    const size_t size = TensorImpl::storage_span_bytes(shape, strides, dsize(dtype));
+    if (raw_ptr == nullptr && size != 0) {
+        throw std::invalid_argument(
+            "strided_from_blob requires a non-null pointer for non-empty tensors");
+    }
+    Memory::Deleter keep_owner;
+    if (owner) {
+        keep_owner = [owner = std::move(owner)](std::byte *) {};
+    }
+    t->data_.memory = std::make_shared<Memory>(
+        static_cast<std::byte *>(raw_ptr), size, device, std::move(keep_owner));
+    return Tensor{t};
 }
 
 Tensor::operator bool() const {
@@ -232,123 +265,6 @@ std::string TensorImpl::info() const {
     ss << " device=" << this->device().ToString();
 
     return ss.str();
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::empty(
-    Runtime &runtime, const Shape &shape, const DataType &dtype, bool pin_memory) {
-    return strided_empty(runtime, shape, calculate_contiguous_strides(shape), dtype, pin_memory);
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::empty_parameter(
-    Runtime &runtime, const Shape &shape, const DataType &dtype) {
-    runtime.assertOwnerThread();
-    if (runtime.device().type() == Device::Type::kCpu) {
-        return empty(runtime, shape, dtype);
-    }
-    const size_t bytes = parameter_storage_bytes(shape, dtype);
-    if (bytes == 0) {
-        return empty(runtime, shape, dtype);
-    }
-    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, dtype));
-    t->data_.offset = 0;
-    t->data_.memory = runtime.allocateParameterMemory(bytes);
-    return t;
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::strided_empty(
-    Runtime &runtime,
-    const Shape &shape,
-    const Strides &strides,
-    const DataType &dtype, bool pin_memory) {
-    runtime.assertOwnerThread();
-    const size_t element_bytes = dsize(dtype);
-    if (element_bytes == 0) throw std::length_error("tensor element size is zero");
-    const size_t required_bytes = storage_span_bytes(shape, strides, element_bytes);
-    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, strides, dtype));
-    t->data_.offset = 0;
-    t->data_.memory = allocate_tensor_storage(runtime, required_bytes, pin_memory);
-    return t;
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::zeros(const Shape &shape,
-                                              const DataType &dtype,
-                                              const Device &device,
-                                              bool pin_memory) {
-
-    auto result = Tensor::empty(shape, dtype, device, pin_memory).impl_;
-    if (result->nbytes() != 0) {
-        auto runtime = context::resolveRuntime(result->device());
-        if (result->is_contiguous() && !(*runtime).isGraphRecording()) {
-            if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(Tensor{result})))
-                throw std::invalid_argument("zero-fill output layout or storage is invalid");
-            (*runtime).setDeviceMemoryAsync(result->data(), 0, result->nbytes(), (*runtime).stream());
-        } else {
-            infinilm::execution::submit<infini::ops::Fill>(
-                (*runtime), infini::ops::Fill::DefaultConfig((*runtime).device().type()),
-                Tensor{result}, 0.0, Tensor{result});
-        }
-        INFINILM_TRACE_OP(Zeros, Tensor{result});
-    }
-    return result;
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::ones(const Shape &shape,
-                                             const DataType &dtype,
-                                             const Device &device,
-                                             bool pin_memory) {
-    auto result = Tensor::empty(shape, dtype, device, pin_memory).impl_;
-    if (result->nbytes() != 0) {
-        auto runtime = context::resolveRuntime(result->device());
-        infinilm::execution::submit<infini::ops::Fill>(
-            *runtime, infini::ops::Fill::DefaultConfig(runtime->device().type()),
-            Tensor{result}, 1.0, Tensor{result});
-        INFINILM_TRACE_OP(Ones, Tensor{result});
-    }
-    return result;
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::from_blob(
-    void *raw_ptr,
-    const Shape &shape,
-    const DataType &dtype,
-    const Device &device,
-    std::shared_ptr<void> owner) {
-    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, dtype));
-    t->data_.offset = 0;
-    const size_t size = t->nbytes();
-    if (raw_ptr == nullptr && size != 0) {
-        throw std::invalid_argument("from_blob requires a non-null pointer for non-empty tensors");
-    }
-    Memory::Deleter keep_owner;
-    if (owner) {
-        keep_owner = [owner = std::move(owner)](std::byte *) {};
-    }
-    t->data_.memory = std::make_shared<Memory>(
-        static_cast<std::byte *>(raw_ptr), size, device, std::move(keep_owner));
-    return t;
-}
-
-std::shared_ptr<TensorImpl> TensorImpl::strided_from_blob(
-    void *raw_ptr,
-    const Shape &shape,
-    const Strides &strides,
-    const DataType &dtype,
-    const Device &device,
-    std::shared_ptr<void> owner) {
-    auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, strides, dtype));
-    t->data_.offset = 0;
-    const size_t size = storage_span_bytes(shape, strides, dsize(dtype));
-    if (raw_ptr == nullptr && size != 0) {
-        throw std::invalid_argument(
-            "strided_from_blob requires a non-null pointer for non-empty tensors");
-    }
-    Memory::Deleter keep_owner;
-    if (owner) {
-        keep_owner = [owner = std::move(owner)](std::byte *) {};
-    }
-    t->data_.memory = std::make_shared<Memory>(
-        static_cast<std::byte *>(raw_ptr), size, device, std::move(keep_owner));
-    return t;
 }
 
 size_t TensorImpl::storage_span_bytes(

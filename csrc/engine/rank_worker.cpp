@@ -6,6 +6,7 @@
 #include "nsa_run_failure.hpp"
 #include "compiler/paged_decode_bucket.hpp"
 #include "compiler/paged_compiler.hpp"
+#include "compiler/static_batching_compiler.hpp"
 #include "../models/model_factory.hpp"
 #include "../engine/distributed/communication_group.hpp"
 #include <spdlog/spdlog.h>
@@ -542,9 +543,7 @@ void RankWorker::thread_loop() {
             if (model_config_->get<std::string>("model_type") == "kimi_k3") runtime_->syncStream();
             refresh_finite_paged_decode_profile();
             if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                compiler_ = std::make_unique<GeneralCompiler>(
-                    model_, barrier_, *runtime_, forward_context_,
-                    PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size}.validate();
             }
 
             init_done_ = true;
@@ -786,17 +785,21 @@ void RankWorker::thread_loop() {
                         const char *eager_reason = !enable_graph_compiling_ ? "graphs_disabled"
                             : rank_info_.pp_size != 1 ? "pipeline_graph_not_supported"
                             : local_args.sample_all_positions ? "all_positions_not_compiled"
-                            : compiler_ == nullptr ? "compiler_not_ready" : "no_matching_plan";
+                            : "no_matching_plan";
                         // Packed all-position runs do not match the one-token-per-request
                         // output shape captured by the compiled decode graphs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(
-                                effective_args.to_model_input(
+                        if (!local_args.sample_all_positions && enable_graph_compiling_ && rank_info_.pp_size == 1) {
+                            GraphCompiler::Compiled compiled{nullptr, nullptr};
+                            {
+                                const auto lookup_input = effective_args.to_model_input(
                                     infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu},
                                     forward_context_,
                                     false,
                                     true,
-                                    logical_kv_upper_bound, nsa_proof));
+                                    logical_kv_upper_bound, nsa_proof);
+                                if (compiler_) compiled = compiler_->get_compiled(lookup_input);
+                            }
+                            auto [graph, output] = std::move(compiled);
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 graph_execution = graph->execution_report();
@@ -1061,9 +1064,7 @@ void RankWorker::thread_loop() {
                                         forward_context_, attention_backend_, rank_info_);
                     refresh_finite_paged_decode_profile();
                     if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                        compiler_ = std::make_unique<GeneralCompiler>(
-                            model_, barrier_, *runtime_, forward_context_,
-                            PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+                        PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size}.validate();
                     }
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -1088,8 +1089,16 @@ void RankWorker::thread_loop() {
                     if (model_config_->get<std::string>("model_type") == "kimi_k3")
                         throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
                     if (nsa_pool_epoch_) throw std::invalid_argument("NSA COMPILE rejected before compiler/cache touch");
-                    if (compiler_ != nullptr) {
-                        compiler_->compile();
+                    if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
+                        compiler_.reset();
+                        if (dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
+                            compiler_ = std::make_unique<StaticBatchingCompiler>(model_, barrier_, *runtime_, forward_context_);
+                        } else if (dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
+                            compiler_ = std::make_unique<PagedCompiler>(
+                                model_, barrier_, *runtime_, forward_context_,
+                                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+                        }
+                        if (compiler_) compiler_->compile();
                     }
                     {
                         std::lock_guard<std::mutex> lk(mutex_);

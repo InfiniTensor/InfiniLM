@@ -55,22 +55,11 @@ public:
                                   const Shape &shape,
                                   const DataType &dtype);
 
-    static Tensor strided_empty(const Shape &shape,
-                                const Strides &strides,
-                                const DataType &dtype,
-                                const Device &device,
-                                bool pin_memory = false);
-
     static Tensor strided_empty(Runtime &runtime,
                                 const Shape &shape,
                                 const Strides &strides,
                                 const DataType &dtype,
                                 bool pin_memory = false);
-
-    static Tensor zeros(const Shape &shape,
-                        const DataType &dtype,
-                        const Device &device,
-                        bool pin_memory = false);
 
     static Tensor ones(const Shape &shape,
                        const DataType &dtype,
@@ -320,49 +309,6 @@ public:
     Tensor as_strided(const Shape &new_shape, const Strides &new_strides) const;
 
 protected:
-    static std::shared_ptr<TensorImpl> empty(
-        Runtime &runtime, const Shape &shape, const DataType &dtype,
-        bool pin_memory = false);
-
-    static std::shared_ptr<TensorImpl> empty_parameter(
-        Runtime &runtime,
-        const Shape &shape,
-        const DataType &dtype);
-
-    static std::shared_ptr<TensorImpl> strided_empty(
-        Runtime &runtime,
-        const Shape &shape,
-        const Strides &strides,
-        const DataType &dtype,
-        bool pin_memory = false);
-
-    static std::shared_ptr<TensorImpl> zeros(
-        const Shape &shape,
-        const DataType &dtype,
-        const Device &device,
-        bool pin_memory = false);
-
-    static std::shared_ptr<TensorImpl> ones(
-        const Shape &shape,
-        const DataType &dtype,
-        const Device &device,
-        bool pin_memory = false);
-
-    static std::shared_ptr<TensorImpl> from_blob(
-        void *raw_ptr,
-        const Shape &shape,
-        const DataType &dtype,
-        const Device &device,
-        std::shared_ptr<void> owner = nullptr);
-
-    static std::shared_ptr<TensorImpl> strided_from_blob(
-        void *raw_ptr,
-        const Shape &shape,
-        const Strides &strides,
-        const DataType &dtype,
-        const Device &device,
-        std::shared_ptr<void> owner = nullptr);
-
     static size_t storage_span_bytes(
         const Shape &shape,
         const Strides &strides,

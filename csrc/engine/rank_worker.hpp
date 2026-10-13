@@ -6,7 +6,7 @@
 #include "../config/model_config.hpp"
 #include "../global_state/global_state.hpp"
 #include "../models/model_factory.hpp"
-#include "compiler/general_compiler.hpp"
+#include "compiler/graph_compiler.hpp"
 #include "compiler/paged_decode_bucket.hpp"
 #include "distributed/distributed.hpp"
 #include "rank_barrier.hpp"

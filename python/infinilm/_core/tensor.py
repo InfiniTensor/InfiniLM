@@ -31,20 +31,11 @@ class Tensor:
     def data_ptr(self):
         return self._underlying.data_ptr()
 
-    def size(self, dim=None):
-        return self.shape if dim is None else self._underlying.size(dim)
-
-    def stride(self, dim=None):
-        return self.strides if dim is None else self._underlying.stride(dim)
-
     def numel(self):
         return self._underlying.numel()
 
     def is_contiguous(self):
         return self._underlying.is_contiguous()
-
-    def is_pinned(self):
-        return self._underlying.is_pinned()
 
     def copy_(self, source):
         self._underlying.copy_(source._underlying)
@@ -78,9 +69,6 @@ class Tensor:
     def contiguous(self):
         return Tensor(self._underlying.contiguous(), owner=self._owner)
 
-    def as_strided(self, size, stride):
-        return Tensor(self._underlying.as_strided(size, stride), owner=self._owner)
-
     def narrow(self, dim, start, length):
         return Tensor(self._underlying.narrow(dim, start, length), owner=self._owner)
 
@@ -92,9 +80,6 @@ class Tensor:
 
     def squeeze(self, dim):
         return Tensor(self._underlying.squeeze(dim), owner=self._owner)
-
-    def unsqueeze(self, dim):
-        return Tensor(self._underlying.unsqueeze(dim), owner=self._owner)
 
     def __add__(self, other):
         from .ops import add
@@ -118,30 +103,6 @@ def empty(size, *, dtype=None, device=None, pin_memory=False):
     dtype, device = _normalize_factory_args(dtype, device)
     return Tensor(
         _infinicore.empty(size, dtype._underlying, device._underlying, pin_memory)
-    )
-
-
-def empty_like(input, *, dtype=None, device=None):
-    return empty(
-        input.shape,
-        dtype=input.dtype if dtype is None else dtype,
-        device=input.device if device is None else device,
-    )
-
-
-def strided_empty(size, strides, *, dtype=None, device=None, pin_memory=False):
-    dtype, device = _normalize_factory_args(dtype, device)
-    return Tensor(
-        _infinicore.strided_empty(
-            size, strides, dtype._underlying, device._underlying, pin_memory
-        )
-    )
-
-
-def zeros(size, *, dtype=None, device=None, pin_memory=False):
-    dtype, device = _normalize_factory_args(dtype, device)
-    return Tensor(
-        _infinicore.zeros(size, dtype._underlying, device._underlying, pin_memory)
     )
 
 

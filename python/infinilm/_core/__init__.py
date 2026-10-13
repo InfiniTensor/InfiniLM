@@ -33,14 +33,11 @@ from .ops import add, cat
 from .tensor import (
     Tensor,
     empty,
-    empty_like,
     from_blob,
     from_list,
     from_numpy,
     from_torch,
     ones,
-    strided_empty,
-    zeros,
 )
 
 __all__ = [
@@ -50,9 +47,6 @@ __all__ = [
     "device",
     "dtype",
     "empty",
-    "empty_like",
-    "strided_empty",
-    "zeros",
     "ones",
     "from_blob",
     "from_list",
