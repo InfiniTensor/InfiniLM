@@ -3,7 +3,6 @@
  * which is licensed under the BSD-3-Clause license.
  */
 
-#include "runtime/io.hpp"
 #include "runtime/custom_types.h"
 #include "runtime/context.hpp"
 #include "runtime/runtime.hpp"
@@ -139,58 +138,6 @@ struct PrintOptionsImpl {
     int precision = 4;    // default precision: -1 means no precision limit.
     int sci_mode = -1;    // default sci_mode: -1 means auto decision.
 };
-
-inline PrintOptionsImpl &print_options() {
-    static PrintOptionsImpl po;
-    return po;
-}
-
-void set_line_width(int line_width) {
-    print_options().line_width = line_width;
-}
-
-void set_threshold(int threshold) {
-    print_options().threshold = threshold;
-}
-
-void set_edge_items(int edge_items) {
-    print_options().edge_items = edge_items;
-}
-
-void set_precision(int precision) {
-    print_options().precision = precision;
-}
-
-void set_sci_mode(int sci_mode) {
-    print_options().sci_mode = sci_mode;
-}
-
-/**
- * @brief read print options from the out stream and global settings.
- */
-inline print_options::PrintOptionsImpl get_print_options(std::ostream &out) {
-    print_options::PrintOptionsImpl res;
-
-// Macro to read option from stream, apply default if not set, or reset stream value
-#define PROCESS_PRINT_OPTION(OPTION)                                       \
-    res.OPTION = static_cast<int>(out.iword(print_options::OPTION::id())); \
-    if (res.OPTION > 0) {                                                  \
-        out.iword(print_options::OPTION::id()) = long(-1);                 \
-    } else {                                                               \
-        res.OPTION = print_options::print_options().OPTION;                \
-    }
-
-    // Process all print options
-    PROCESS_PRINT_OPTION(edge_items);
-    PROCESS_PRINT_OPTION(line_width);
-    PROCESS_PRINT_OPTION(threshold);
-    PROCESS_PRINT_OPTION(precision);
-
-    res.sci_mode = print_options::print_options().sci_mode;
-
-#undef PROCESS_PRINT_OPTION
-    return res;
-}
 
 template <class T, class E = void>
 struct Printer;
@@ -538,7 +485,7 @@ std::ostream &pretty_print(const Tensor &original_tensor,
 
     std::size_t edge_items = 0;
     Size sz = tensor->numel();
-    auto po = get_print_options(out);
+    auto po = PrintOptionsImpl{};
 
     if (sz > static_cast<std::size_t>(po.threshold)) {
         edge_items = static_cast<std::size_t>(po.edge_items);

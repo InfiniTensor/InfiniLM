@@ -378,68 +378,6 @@ void Runtime::setDeviceMemoryAsync(void *ptr, int value, size_t count, infini::r
     }
 }
 
-// Timing method implementations
-infini::rt::runtime::Event Runtime::createEvent() {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    infini::rt::runtime::Event event = nullptr;
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventCreate(&event));
-    return event;
-}
-
-infini::rt::runtime::Event Runtime::createEventWithFlags(uint32_t flags) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    infini::rt::runtime::Event event = nullptr;
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventCreateWithFlags(&event, flags));
-    return event;
-}
-
-void Runtime::recordEvent(infini::rt::runtime::Event event, infini::rt::runtime::Stream stream) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    if (stream == nullptr) {
-        stream = this->stream();
-    }
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventRecord(event, stream));
-}
-
-bool Runtime::queryEvent(infini::rt::runtime::Event event) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    const auto status = infini::rt::runtime::EventQuery(event);
-    if (status == infini::rt::runtime::kSuccess) {
-        return true;
-    }
-    if (infini::rt::runtime::IsEventNotReady(status)) {
-        return false;
-    }
-    INFINILM_CHECK_ERROR(status);
-    return false;
-}
-
-void Runtime::synchronizeEvent(infini::rt::runtime::Event event) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventSynchronize(event));
-}
-
-void Runtime::destroyEvent(infini::rt::runtime::Event event) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventDestroy(event));
-}
-
-float Runtime::elapsedTime(infini::rt::runtime::Event start, infini::rt::runtime::Event end) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    float ms;
-    INFINILM_CHECK_ERROR(infini::rt::runtime::EventElapsedTime(&ms, start, end));
-    return ms;
-}
-
-void Runtime::streamWaitEvent(infini::rt::runtime::Stream stream, infini::rt::runtime::Event event) {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    // Use current stream if no specific stream is provided
-    if (stream == nullptr) {
-        stream = this->stream();
-    }
-    INFINILM_CHECK_ERROR(infini::rt::runtime::StreamWaitEvent(stream, event, 0));
-}
-
 ::infinilm::execution::graph::GraphManager::CaptureState Runtime::graphCaptureState() const {
     return graph_manager_->capture_state();
 }
@@ -518,10 +456,6 @@ void Runtime::cancelGraphRecording() noexcept {
     } catch (...) {
         warn_runtime_cleanup_failure("rolling back graph allocations", "unknown error");
     }
-}
-
-std::string Runtime::toString() const {
-    return fmt::format("Runtime({})", device_.ToString());
 }
 
 } // namespace infinilm::runtime

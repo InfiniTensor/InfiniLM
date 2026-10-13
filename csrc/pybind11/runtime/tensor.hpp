@@ -44,9 +44,6 @@ inline void bind(py::module &m) {
         .def("is_pinned", [](const Tensor &tensor) { return tensor->is_pinned(); })
         .def("info", [](const Tensor &tensor) { return tensor->info(); })
 
-        .def("debug", [](const Tensor &tensor) { return tensor->debug(); })
-        .def("debug", [](const Tensor &tensor, const std::string &filename) { return tensor->debug(filename); })
-
         .def("copy_", [](Tensor &tensor, const Tensor &other) { tensor->copy_from(other); })
         .def("to", [](const Tensor &tensor, const Device &device) { return tensor->to(device); })
         .def("contiguous", [](const Tensor &tensor) { return tensor->contiguous(); })

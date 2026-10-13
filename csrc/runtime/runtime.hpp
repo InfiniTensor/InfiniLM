@@ -63,16 +63,6 @@ public:
     void setDeviceMemory(void *ptr, int value, size_t count);
     void setDeviceMemoryAsync(void *ptr, int value, size_t count, infini::rt::runtime::Stream stream);
 
-    // Timing methods
-    infini::rt::runtime::Event createEvent();
-    infini::rt::runtime::Event createEventWithFlags(uint32_t flags);
-    void recordEvent(infini::rt::runtime::Event event, infini::rt::runtime::Stream stream = nullptr);
-    bool queryEvent(infini::rt::runtime::Event event);
-    void synchronizeEvent(infini::rt::runtime::Event event);
-    void destroyEvent(infini::rt::runtime::Event event);
-    float elapsedTime(infini::rt::runtime::Event start, infini::rt::runtime::Event end);
-    void streamWaitEvent(infini::rt::runtime::Stream stream, infini::rt::runtime::Event event);
-
     // Graph
     ::infinilm::execution::graph::GraphManager::CaptureState graphCaptureState() const;
     bool isGraphRecording() const;
@@ -80,8 +70,6 @@ public:
     void addGraphOperator(std::shared_ptr<::infinilm::execution::graph::RecordedCall> op);
     std::shared_ptr<::infinilm::execution::graph::Graph> stopGraphRecording();
     void cancelGraphRecording() noexcept;
-
-    std::string toString() const;
 
     friend class ::infinilm::execution::graph::Graph;
 };

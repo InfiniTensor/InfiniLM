@@ -96,25 +96,10 @@ class Tensor:
     def unsqueeze(self, dim):
         return Tensor(self._underlying.unsqueeze(dim), owner=self._owner)
 
-    def debug(self, filename=None):
-        if filename is None:
-            return self._underlying.debug()
-        return self._underlying.debug(filename)
-
     def __add__(self, other):
         from .ops import add
 
         return add(self, other)
-
-    def __iadd__(self, other):
-        from .ops import add
-
-        return add(self, other, out=self)
-
-    def __matmul__(self, other):
-        from .ops import matmul
-
-        return matmul(self, other)
 
     def __repr__(self):
         return repr(self._underlying)

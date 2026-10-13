@@ -28,22 +28,6 @@ inline void bind_add(py::module &m) {
           py::arg("b"),
           R"doc(Addition of two tensors.)doc");
 
-    m.def("add_",
-          [](Tensor c, const Tensor &a, const Tensor &b) {
-              {
-                  if (!c) throw std::invalid_argument("Add output is null");
-                  auto owner = c->allocation_owner();
-                  if (!owner || owner->device() != c->device()) owner = context::resolveRuntime(c->device());
-                  auto &ops_runtime = *owner;
-                  infinilm::execution::submit<infini::ops::Add>(
-                      ops_runtime, infini::ops::Add::DefaultConfig(ops_runtime.device().type()), a, b, c);
-                  INFINILM_TRACE_OP(Add, c);
-              }
-          },
-          py::arg("c"),
-          py::arg("a"),
-          py::arg("b"),
-          R"doc(In-place tensor addition.)doc");
 }
 
 } // namespace infinilm::runtime::ops

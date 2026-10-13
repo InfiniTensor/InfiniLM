@@ -8,7 +8,6 @@ from .context import (
     sync_stream,
 )
 from .device import device
-from .device_event import DeviceEvent
 from .dtype import (
     bfloat16,
     double,
@@ -30,7 +29,7 @@ from .dtype import (
     uint32,
     uint64,
 )
-from .ops import add, cat, matmul
+from .ops import add, cat
 from .tensor import (
     Tensor,
     empty,
@@ -49,7 +48,6 @@ __all__ = [
     "utils",
     "Tensor",
     "device",
-    "DeviceEvent",
     "dtype",
     "empty",
     "empty_like",
@@ -62,7 +60,6 @@ __all__ = [
     "from_torch",
     "add",
     "cat",
-    "matmul",
     "get_device",
     "get_device_count",
     "get_stream",
@@ -88,5 +85,3 @@ __all__ = [
     "uint32",
     "uint64",
 ]
-
-use_ntops = False

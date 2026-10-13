@@ -173,10 +173,6 @@ public:
 
     std::string info() const;
 
-    void debug(const std::string &filename) const;
-
-    void debug() const;
-
     /**
      * Unsafe API that returns a new tensor with the same raw memory untracked by allocator
      * This API is used for loosely tracking a piece of memory while allowing it to be reused,
