@@ -38,15 +38,17 @@ infinicore::Tensor MiniCPM5MoESparseMoeBlock::forward(
     auto flattened = hidden_states->view({shape[0] * shape[1], shape[2]});
 
     auto [routing_weights, selected_experts] = gate_->forward(flattened);
+    // Fold routed_scaling into topk weights (M×topk) instead of mul_scalar on
+    // the full hidden [B,S,H] — Denglin ATen mul_Scalar OORs on long prefill.
+    if (routed_scaling_factor_ != 1.0f) {
+        routing_weights = infinicore::op::mul_scalar(routing_weights, routed_scaling_factor_);
+    }
     infinilm::layers::moe::TopKOutput topk_output{
         routing_weights,
         selected_experts,
         infinicore::Tensor(),
     };
     auto routed = fused_moe_->forward(flattened, topk_output, experts_->moe_weights())->view(shape);
-    if (routed_scaling_factor_ != 1.0f) {
-        routed = infinicore::op::mul_scalar(routed, routed_scaling_factor_);
-    }
     if (has_shared_experts_) {
         return infinicore::op::add(routed, shared_experts_->forward(hidden_states));
     }

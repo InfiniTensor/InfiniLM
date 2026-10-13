@@ -5,94 +5,122 @@
 #ifdef ENABLE_ATEN
 #include "infinicore/adaptor/aten_adaptor.hpp"
 
-#include <ATen/ATen.h>
+#include <moe_align_kernel.h>
 
+#include <ATen/ATen.h>
+#include <ATen/cuda/CUDAContext.h>
+#include <cuda_runtime.h>
+
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace infinicore::op::moe_align_impl::aten {
 namespace {
 
-void run_moe_align_host(at::Tensor sorted_token_ids,
-                        at::Tensor expert_ids,
-                        at::Tensor num_tokens_post_padded,
-                        at::Tensor topk_ids,
-                        const at::Tensor *expert_map,
-                        int64_t num_experts,
-                        int64_t block_size,
-                        bool pad_sorted_token_ids) {
-    auto topk_cpu = topk_ids.to(at::kCPU).contiguous().to(at::kLong).flatten();
-    const int64_t numel = topk_cpu.numel();
-    const auto *topk_ptr = topk_cpu.data_ptr<int64_t>();
+bool host_timer_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
+        cached = (env != nullptr && env[0] == '1' && env[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
 
-    std::vector<int64_t> mapped(static_cast<size_t>(numel));
+struct HostTimer {
+    const char *op;
+    int64_t m;
+    std::chrono::steady_clock::time_point t0;
+    bool active;
+
+    HostTimer(const char *op_name, int64_t m_val)
+        : op(op_name), m(m_val), active(host_timer_enabled()) {
+        if (active) {
+            t0 = std::chrono::steady_clock::now();
+        }
+    }
+
+    ~HostTimer() {
+        if (!active) {
+            return;
+        }
+        auto t1 = std::chrono::steady_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        std::fprintf(stderr, "host_timer op=%s ms=%.3f m=%lld\n", op, ms,
+                     static_cast<long long>(m));
+    }
+};
+
+at::Tensor ensure_i32_contig(const at::Tensor &t) {
+    INFINICORE_ASSERT(t.is_contiguous());
+    if (t.scalar_type() == at::kInt) {
+        return t;
+    }
+    INFINICORE_ASSERT(t.scalar_type() == at::kLong);
+    // Small [M*topk] cast — avoid ATen .to() OOR on Denglin.
+    auto out = at::empty(t.sizes(), t.options().dtype(at::kInt));
+    const int64_t n = t.numel();
+    std::vector<int64_t> host(static_cast<size_t>(n));
+    cudaMemcpy(host.data(), t.data_ptr(),
+               static_cast<size_t>(n * static_cast<int64_t>(sizeof(int64_t))),
+               cudaMemcpyDeviceToHost);
+    std::vector<int32_t> host32(static_cast<size_t>(n));
+    for (int64_t i = 0; i < n; ++i) {
+        host32[static_cast<size_t>(i)] = static_cast<int32_t>(host[static_cast<size_t>(i)]);
+    }
+    cudaMemcpy(out.data_ptr(), host32.data(),
+               static_cast<size_t>(n * static_cast<int64_t>(sizeof(int32_t))),
+               cudaMemcpyHostToDevice);
+    return out;
+}
+
+void run_moe_align_gpu(at::Tensor sorted_token_ids,
+                       at::Tensor expert_ids,
+                       at::Tensor num_tokens_post_padded,
+                       at::Tensor topk_ids,
+                       const at::Tensor *expert_map,
+                       int64_t num_experts,
+                       int64_t block_size,
+                       bool pad_sorted_token_ids) {
+    INFINICORE_ASSERT(sorted_token_ids.is_contiguous());
+    INFINICORE_ASSERT(expert_ids.is_contiguous());
+    INFINICORE_ASSERT(num_tokens_post_padded.is_contiguous());
+    INFINICORE_ASSERT(topk_ids.is_contiguous());
+
+    auto topk_i32 = ensure_i32_contig(topk_ids);
+    at::Tensor map_i32;
+    const void *map_ptr = nullptr;
     if (expert_map != nullptr) {
-        auto map_cpu = expert_map->to(at::kCPU).contiguous().to(at::kLong).flatten();
-        INFINICORE_ASSERT(map_cpu.numel() >= num_experts);
-        const auto *map_ptr = map_cpu.data_ptr<int64_t>();
-        for (int64_t i = 0; i < numel; ++i) {
-            const int64_t eid = topk_ptr[i];
-            if (eid >= 0 && eid < num_experts) {
-                mapped[static_cast<size_t>(i)] = map_ptr[eid];
-            } else {
-                mapped[static_cast<size_t>(i)] = -1;
-            }
-        }
-    } else {
-        for (int64_t i = 0; i < numel; ++i) {
-            mapped[static_cast<size_t>(i)] = topk_ptr[i];
-        }
+        INFINICORE_ASSERT(expert_map->is_contiguous());
+        map_i32 = ensure_i32_contig(*expert_map);
+        map_ptr = map_i32.data_ptr();
     }
 
-    std::vector<int32_t> sorted;
-    std::vector<int32_t> blocks;
-    sorted.reserve(static_cast<size_t>(numel + num_experts * (block_size - 1)));
-    blocks.reserve(static_cast<size_t>((numel + block_size - 1) / block_size + num_experts));
+    auto workspace = at::empty(
+        {static_cast<int64_t>(
+            ::infini::ops::qy::moe_align_workspace_bytes(
+                static_cast<size_t>(num_experts)) /
+            sizeof(int32_t))},
+        sorted_token_ids.options().dtype(at::kInt));
 
-    for (int64_t expert_id = 0; expert_id < num_experts; ++expert_id) {
-        std::vector<int32_t> token_ids;
-        for (int64_t i = 0; i < numel; ++i) {
-            if (mapped[static_cast<size_t>(i)] == expert_id) {
-                token_ids.push_back(static_cast<int32_t>(i));
-            }
-        }
-        if (token_ids.empty()) {
-            continue;
-        }
-        const int64_t num_blocks = (static_cast<int64_t>(token_ids.size()) + block_size - 1) / block_size;
-        const int64_t padded = num_blocks * block_size;
-        sorted.insert(sorted.end(), token_ids.begin(), token_ids.end());
-        sorted.insert(sorted.end(), static_cast<size_t>(padded - token_ids.size()), static_cast<int32_t>(numel));
-        blocks.insert(blocks.end(), static_cast<size_t>(num_blocks), static_cast<int32_t>(expert_id));
+    auto stream = at::cuda::getCurrentCUDAStream().stream();
+    ::infini::ops::qy::moe_align_launch(
+        sorted_token_ids.data_ptr(), expert_ids.data_ptr(),
+        num_tokens_post_padded.data_ptr(), topk_i32.data_ptr(), map_ptr,
+        static_cast<size_t>(topk_i32.numel()),
+        static_cast<size_t>(num_experts), static_cast<size_t>(block_size),
+        static_cast<size_t>(sorted_token_ids.numel()),
+        static_cast<size_t>(expert_ids.numel()), pad_sorted_token_ids,
+        workspace.data_ptr(), reinterpret_cast<void *>(stream));
+    auto err = cudaStreamSynchronize(stream);
+    if (err != cudaSuccess) {
+        throw std::runtime_error(std::string("QY moe_align sync: ") +
+                                 cudaGetErrorString(err));
     }
-
-    const int64_t num_tokens_post = static_cast<int64_t>(blocks.size()) * block_size;
-    auto sorted_out = sorted_token_ids.to(at::kCPU).contiguous();
-    auto expert_out = expert_ids.to(at::kCPU).contiguous();
-    auto num_out = num_tokens_post_padded.to(at::kCPU).contiguous();
-
-    INFINICORE_ASSERT(sorted_out.numel() >= num_tokens_post);
-    INFINICORE_ASSERT(expert_out.numel() >= static_cast<int64_t>(blocks.size()));
-    INFINICORE_ASSERT(num_out.numel() >= 1);
-
-    auto *sorted_ptr = sorted_out.data_ptr<int32_t>();
-    auto *expert_ptr = expert_out.data_ptr<int32_t>();
-    auto *num_ptr = num_out.data_ptr<int32_t>();
-
-    if (pad_sorted_token_ids) {
-        std::fill(sorted_ptr, sorted_ptr + sorted_out.numel(), static_cast<int32_t>(numel));
-    }
-    std::fill(expert_ptr, expert_ptr + expert_out.numel(), static_cast<int32_t>(-1));
-
-    if (num_tokens_post > 0) {
-        std::copy(sorted.begin(), sorted.begin() + num_tokens_post, sorted_ptr);
-    }
-    std::copy(blocks.begin(), blocks.end(), expert_ptr);
-    num_ptr[0] = static_cast<int32_t>(num_tokens_post);
-
-    sorted_token_ids.copy_(sorted_out.to(sorted_token_ids.device()));
-    expert_ids.copy_(expert_out.to(expert_ids.device()));
-    num_tokens_post_padded.copy_(num_out.to(num_tokens_post_padded.device()));
 }
 
 struct PlannedMeta {
@@ -153,6 +181,8 @@ void run(void *planned_meta) {
     using namespace ::infinicore::adaptor;
     set_aten_stream_to_infinicore();
 
+    HostTimer timer("moe_align", static_cast<int64_t>(p->topk_ids->numel()));
+
     at::Tensor expert_map_aten;
     const at::Tensor *expert_map_ptr = nullptr;
     if (p->has_expert_map) {
@@ -160,7 +190,7 @@ void run(void *planned_meta) {
         expert_map_ptr = &expert_map_aten;
     }
 
-    run_moe_align_host(
+    run_moe_align_gpu(
         to_aten_tensor(p->sorted_token_ids),
         to_aten_tensor(p->expert_ids),
         to_aten_tensor(p->num_tokens_post_padded),

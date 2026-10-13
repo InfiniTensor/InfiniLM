@@ -23,7 +23,8 @@ from infinilm.moe_config import configure_moe_ep_backend
 logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+# Long-prefill adapting (CPU RoPE + Q-chunked attn) can exceed 1000s at ~4–7k.
+DEFAULT_REQUEST_TIMEOUT = 7200.0
 
 
 def chunk_json(
