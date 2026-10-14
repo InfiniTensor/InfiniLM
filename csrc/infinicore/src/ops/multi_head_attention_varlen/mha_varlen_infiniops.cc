@@ -47,7 +47,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
          && device_type != Device::Type::kHygon
-         && device_type != Device::Type::kAscend)
+         && device_type != Device::Type::kAscend
+         && device_type != Device::Type::kQy)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -266,6 +267,12 @@ static bool registered = []() {
         Device::Type::kAscend, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kAscend, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kQy, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kQy, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kQy, &cleanup);
     return true;
 }();
 

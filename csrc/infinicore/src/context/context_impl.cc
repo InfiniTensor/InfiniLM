@@ -20,6 +20,7 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
     Device::Type::kIluvatar,
     Device::Type::kHygon,
     Device::Type::kThead,
+    Device::Type::kQy,
     Device::Type::kCpu,
 };
 
@@ -237,6 +238,7 @@ ContextImpl::ContextImpl() {
     initializeDeviceType<Device::Type::kIluvatar>();
     initializeDeviceType<Device::Type::kHygon>();
     initializeDeviceType<Device::Type::kThead>();
+    initializeDeviceType<Device::Type::kQy>();
 
     const bool has_runtime = std::any_of(
         runtime_table_.begin(), runtime_table_.end(),

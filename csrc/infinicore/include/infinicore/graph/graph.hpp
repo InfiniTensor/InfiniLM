@@ -102,6 +102,23 @@ private:
         static void execute(__VA_ARGS__);                                  \
     };
 
+// Same as INFINICORE_GRAPH_OP_CLASS, but keeps the op in eager segments during
+// CUDA-graph capture (host D2H/H2D, ATen temps, or non-capturable kernels).
+#define INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(__OP_NAME__, ...)         \
+    class __OP_NAME__ : public graph::DispatchableGraphOperator {          \
+    public:                                                                \
+        using schema = void (*)(__VA_ARGS__);                              \
+        using plan_schema = void *(*)(__VA_ARGS__);                        \
+        static common::OpDispatcher<plan_schema> &plan_dispatcher();       \
+        static common::OpDispatcher<run_schema> &run_dispatcher();         \
+        static common::OpDispatcher<cleanup_schema> &cleanup_dispatcher(); \
+        __OP_NAME__(__VA_ARGS__);                                          \
+        static void execute(__VA_ARGS__);                                  \
+        bool is_device_graph_capture_safe() const override {               \
+            return false;                                                  \
+        }                                                                  \
+    };
+
 #define INFINICORE_GRAPH_OP_DISPATCHERS_IMPL(__OP_NAME__)                                  \
     common::OpDispatcher<__OP_NAME__::plan_schema> &__OP_NAME__::plan_dispatcher() {       \
         static common::OpDispatcher<__OP_NAME__::plan_schema> dispatcher_;                 \
@@ -116,15 +133,21 @@ private:
         return dispatcher_;                                                                \
     }
 
-#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)             \
-    do {                                                               \
-        const auto device_type = (__DEVICE_TYPE__);                    \
-        const auto plan = plan_dispatcher().lookup(device_type);       \
-        const auto runner = run_dispatcher().lookup(device_type);      \
-        const auto deleter = cleanup_dispatcher().lookup(device_type); \
-        planned_meta_ = plan(__VA_ARGS__);                             \
-        runner_ = runner;                                              \
-        deleter_ = deleter;                                            \
+#define INFINICORE_GRAPH_OP_DISPATCH(__DEVICE_TYPE__, ...)                 \
+    do {                                                                   \
+        const auto device_type = (__DEVICE_TYPE__);                        \
+        try {                                                              \
+            const auto plan = plan_dispatcher().lookup(device_type);       \
+            const auto runner = run_dispatcher().lookup(device_type);      \
+            const auto deleter = cleanup_dispatcher().lookup(device_type); \
+            planned_meta_ = plan(__VA_ARGS__);                             \
+            runner_ = runner;                                              \
+            deleter_ = deleter;                                            \
+        } catch (const std::exception &e) {                                \
+            throw std::runtime_error(std::string(e.what()) + " ["          \
+                                     + std::string(__PRETTY_FUNCTION__)    \
+                                     + "]");                               \
+        }                                                                  \
     } while (0)
 
 #define INFINICORE_DETAIL_FIRST_ARG(__FIRST__, ...) __FIRST__

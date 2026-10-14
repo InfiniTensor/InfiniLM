@@ -166,6 +166,7 @@ class ModelRunner:
         supported_devices = [
             "cpu",
             "cuda",
+            "qy",
             "hygon",
             "thead",
             "iluvatar",
