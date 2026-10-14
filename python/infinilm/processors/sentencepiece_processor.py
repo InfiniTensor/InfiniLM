@@ -79,6 +79,7 @@ class MistralProcessor(SentencePieceProcessor):
 @register_processor("minicpm")
 @register_processor("minicpm4")
 @register_processor("minicpm5_moe")
+@register_processor("g9v3")
 class MiniCPMProcessor(SentencePieceProcessor):
     pass
 

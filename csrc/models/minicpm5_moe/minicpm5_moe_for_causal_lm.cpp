@@ -10,9 +10,10 @@ namespace infinilm::models::minicpm5_moe {
 std::shared_ptr<infinilm::config::ModelConfig>
 create_minicpm5_moe_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     const std::string model_type = model_config->get<std::string>("model_type");
-    if (model_type != "minicpm5_moe") {
+    // g9v3 is the HF model_type for G9 MoE; minicpm5_moe is the InfiniLM alias.
+    if (model_type != "minicpm5_moe" && model_type != "g9v3") {
         throw std::runtime_error(
-            "create_minicpm5_moe_model_config: model_type is not minicpm5_moe");
+            "create_minicpm5_moe_model_config: model_type is not minicpm5_moe or g9v3");
     }
 
     auto &config_json = model_config->get_config_json();
@@ -66,6 +67,11 @@ create_minicpm5_moe_model_config(std::shared_ptr<infinilm::config::ModelConfig> 
 namespace {
 INFINILM_REGISTER_CAUSAL_LM_MODEL(
     minicpm5_moe,
+    infinilm::models::minicpm5_moe::MiniCPM5MoEForCausalLM,
+    infinilm::models::minicpm5_moe::create_minicpm5_moe_model_config);
+
+INFINILM_REGISTER_CAUSAL_LM_MODEL(
+    g9v3,
     infinilm::models::minicpm5_moe::MiniCPM5MoEForCausalLM,
     infinilm::models::minicpm5_moe::create_minicpm5_moe_model_config);
 } // namespace
