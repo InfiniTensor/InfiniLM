@@ -85,10 +85,10 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
     const auto &hidden = dispatch_output.hidden_states;
     const size_t num_tokens = hidden ? hidden->shape()[0] : 0;
     const bool chunk_qy = hidden
-        && hidden->device().type() == infinicore::Device::Type::kQy
-        && !infinicore::context::isGraphRecording()
-        && num_tokens > kQyChunkTokens
-        && hidden->shape().size() == 2;
+                       && hidden->device().type() == infinicore::Device::Type::kQy
+                       && !infinicore::context::isGraphRecording()
+                       && num_tokens > kQyChunkTokens
+                       && hidden->shape().size() == 2;
     std::cerr << "moe_run device=" << static_cast<int>(hidden ? hidden->device().type() : infinicore::Device::Type::kCpu)
               << " m=" << num_tokens
               << " ndim=" << (hidden ? hidden->shape().size() : 0)

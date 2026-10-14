@@ -13,8 +13,8 @@
 #include <cuda_runtime.h>
 
 #include <chrono>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace infinicore::op::rope_impl::aten {
@@ -33,7 +33,6 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
     return cudaStreamSynchronize(stream);
 }
 
-
 // QY FA+paged long-prefill RoPE: Denglin ATen index_select/gather and strided
 // copy_/mul on gated as_strided Q/K hit LaunchOutOfResources. Pack/unpack with
 // cudaMemcpyAsync (contiguous head vectors), rotate on a compact workspace,
@@ -45,10 +44,9 @@ bool host_timer_enabled() {
     if (cached < 0) {
         const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
         const char *env2 = std::getenv("INFINI_ROPE_HOST_TIMER");
-        cached = ((env != nullptr && env[0] == '1' && env[1] == '\0') ||
-                  (env2 != nullptr && env2[0] == '1' && env2[1] == '\0'))
-                     ? 1
-                     : 0;
+        cached = ((env != nullptr && env[0] == '1' && env[1] == '\0') || (env2 != nullptr && env2[0] == '1' && env2[1] == '\0'))
+                   ? 1
+                   : 0;
     }
     return cached == 1;
 }
@@ -260,8 +258,7 @@ at::Tensor rotate_contig_gpu(const at::Tensor &x_contig,
     INFINICORE_ASSERT(cos_table.size(1) == head_dim / 2);
 
     const int algo_tag = (algo == infinicore::nn::RoPE::Algo::GPT_J) ? 0 : 1;
-    if (algo != infinicore::nn::RoPE::Algo::GPT_NEOX &&
-        algo != infinicore::nn::RoPE::Algo::GPT_J) {
+    if (algo != infinicore::nn::RoPE::Algo::GPT_NEOX && algo != infinicore::nn::RoPE::Algo::GPT_J) {
         throw std::runtime_error("Unsupported RoPE algorithm for QY ATen path");
     }
 

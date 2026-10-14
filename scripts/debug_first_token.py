@@ -17,7 +17,7 @@ import os
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
@@ -45,10 +45,7 @@ def _parse_args() -> argparse.Namespace:
         "--out-dir",
         default=os.environ.get(
             "OUT_DIR",
-            str(
-                Path(__file__).resolve().parents[2]
-                / "logs"
-            ),
+            str(Path(__file__).resolve().parents[2] / "logs"),
         ),
         help="Directory for m1-2b-first-token-{mode}.json",
     )
@@ -67,9 +64,7 @@ def _top_k(logits_1d: np.ndarray, k: int) -> List[Dict[str, Any]]:
     k = min(k, int(logits_1d.shape[0]))
     idx = np.argpartition(logits_1d, -k)[-k:]
     idx = idx[np.argsort(-logits_1d[idx])]
-    return [
-        {"token_id": int(i), "logit": float(logits_1d[i])} for i in idx
-    ]
+    return [{"token_id": int(i), "logit": float(logits_1d[i])} for i in idx]
 
 
 def _tokenize_chat(model_dir: str, user_prompt: str) -> Tuple[Any, List[int], str]:
@@ -307,7 +302,7 @@ def main() -> int:
             )
             for i, item in enumerate(record["top5"]):
                 print(
-                    f"  top{i+1}: id={item['token_id']} "
+                    f"  top{i + 1}: id={item['token_id']} "
                     f"logit={item['logit']:.6f} token={item['token']!r}",
                     flush=True,
                 )

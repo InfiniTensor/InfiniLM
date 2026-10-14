@@ -58,9 +58,8 @@ Symbols &symbols() {
             "/usr/local/lib/python3.10/dist-packages/vllm/_dl_C.cpython-310-x86_64-linux-gnu.so",
             "/usr/lib/python3/dist-packages/vllm/_dl_C.cpython-312-x86_64-linux-gnu.so",
         };
-        constexpr const char *kSym =
-            "_Z20invoke_fused_moe_optRN2at6TensorES1_S1_RKSt8optionalIS0_ES5_S5_"
-            "S1_S1_S1_S1_S1_bllllbbbbRKSt6vectorIlSaIlEEl";
+        constexpr const char *kSym = "_Z20invoke_fused_moe_optRN2at6TensorES1_S1_RKSt8optionalIS0_ES5_S5_"
+                                     "S1_S1_S1_S1_S1_bllllbbbbRKSt6vectorIlSaIlEEl";
 
         for (const char *path : paths) {
             if (path == nullptr || path[0] == '\0') {

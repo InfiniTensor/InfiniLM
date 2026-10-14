@@ -107,7 +107,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     // so each causal matmul stays small; FA/paged remains M2.
     constexpr size_t kQyAttnChunkTokens = 128;
     const bool chunk_qy = q_reshaped->device().type() == infinicore::Device::Type::kQy
-        && (seq_len > kQyAttnChunkTokens || total_seq_len > 512);
+                       && (seq_len > kQyAttnChunkTokens || total_seq_len > 512);
 
     auto run_chunk = [&](size_t q_begin, size_t q_rows) -> infinicore::Tensor {
         // Queries at absolute positions [cache_pos + q_begin, ...); keys needed

@@ -12,8 +12,8 @@
 #include <cuda_runtime.h>
 
 #include <chrono>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -40,7 +40,6 @@ cudaError_t sync_device_unless_capturing(cudaStream_t stream) {
     }
     return cudaDeviceSynchronize();
 }
-
 
 bool host_timer_enabled() {
     static int cached = -1;
@@ -179,8 +178,7 @@ void run(void *planned_meta) {
         auto err = sync_unless_capturing(stream);
         if (err != cudaSuccess) {
             throw std::runtime_error(
-                std::string("QY moe_fused_dense silu sync: ") +
-                cudaGetErrorString(err));
+                std::string("QY moe_fused_dense silu sync: ") + cudaGetErrorString(err));
         }
     }
 
@@ -222,8 +220,7 @@ void run(void *planned_meta) {
         auto err = sync_unless_capturing(stream);
         if (err != cudaSuccess) {
             throw std::runtime_error(
-                std::string("QY moe_fused_dense combine sync: ") +
-                cudaGetErrorString(err));
+                std::string("QY moe_fused_dense combine sync: ") + cudaGetErrorString(err));
         }
     }
 }
