@@ -79,11 +79,17 @@ class MistralProcessor(SentencePieceProcessor):
 @register_processor("minicpm")
 @register_processor("minicpm4")
 @register_processor("minicpm5_moe")
-@register_processor("g9v3")
 class MiniCPMProcessor(SentencePieceProcessor):
     pass
 
 
 @register_processor("deepseek_v2")
 class DeepSeekV2Processor(BasicLLMProcessor):
+    pass
+
+
+# G9v3 HF checkpoint uses PreTrainedTokenizerFast + tokenizer.json (GPT-2 BPE),
+# not SentencePiece — use default HF decode (Ġ/Ċ), not the ▁ SP patch.
+@register_processor("g9v3")
+class G9v3Processor(BasicLLMProcessor):
     pass
