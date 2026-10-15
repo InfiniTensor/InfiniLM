@@ -106,6 +106,11 @@ class ModelRunner:
             load_model_state_dict_by_file(
                 self.model_engine, config.model_path, dtype=self.model_engine.dtype
             )
+        else:
+            # Skip-load avoids checkpoint I/O, but modules may still require
+            # deterministic post-load layout transforms before their optimized
+            # kernels can run (for example, Kimi-K3 W4A8 expert shuffling).
+            self.model_engine.process_weights_after_loading()
 
         self.speculative_runner = None
         if config.draft_model_path is not None:

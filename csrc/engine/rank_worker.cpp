@@ -1,11 +1,151 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
+#include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <algorithm>
+#include <cstdlib>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::engine {
+namespace {
+
+// Keep enough work in each stage to amortize transfer overhead while allowing
+// adjacent pipeline stages to overlap long prefills.
+constexpr size_t DEFAULT_PP_MICROBATCH_TOKENS = 4096;
+
+size_t pipeline_microbatch_token_budget() {
+    static const size_t budget = [] {
+        const char *value = std::getenv("INFINILM_PP_MICROBATCH_TOKENS");
+        return value == nullptr ? DEFAULT_PP_MICROBATCH_TOKENS
+                                : std::max<size_t>(1, std::stoull(value));
+    }();
+    return budget;
+}
+
+infinicore::Tensor narrow_contiguous(const infinicore::Tensor &tensor,
+                                     size_t dim,
+                                     size_t start,
+                                     size_t length) {
+    auto result = tensor->narrow({{dim, start, length}});
+    return result->is_contiguous() ? result : result->contiguous();
+}
+
+std::optional<infinicore::Tensor> narrow_optional(
+    const std::optional<infinicore::Tensor> &tensor,
+    size_t dim,
+    size_t start,
+    size_t length) {
+    if (!tensor.has_value()) {
+        return std::nullopt;
+    }
+    return narrow_contiguous(tensor.value(), dim, start, length);
+}
+
+infinicore::Tensor rebase_offsets(const infinicore::Tensor &offsets,
+                                  size_t request_begin,
+                                  size_t request_end) {
+    if (offsets->device().getType() != infinicore::Device::Type::CPU
+        || offsets->dtype() != infinicore::DataType::I32
+        || offsets->ndim() != 1) {
+        throw std::runtime_error(
+            "Pipeline microbatch offsets must be a one-dimensional CPU int32 tensor");
+    }
+    auto result = infinicore::Tensor::empty(
+        {request_end - request_begin + 1},
+        infinicore::DataType::I32,
+        infinicore::Device::cpu());
+    const auto *source = reinterpret_cast<const int32_t *>(offsets->data());
+    auto *destination = reinterpret_cast<int32_t *>(result->data());
+    const int32_t base = source[request_begin];
+    for (size_t i = request_begin; i <= request_end; ++i) {
+        destination[i - request_begin] = source[i] - base;
+    }
+    return result;
+}
+
+std::vector<RankWorker::Input> split_pipeline_prefill(
+    const RankWorker::Input &input,
+    int pp_size) {
+    if (pp_size <= 1
+        || input.sample_all_positions
+        || input.target_hidden_states.has_value()
+        || (input.pixel_values.has_value() && !input.pixel_values->empty())
+        || !input.input_ids.has_value()
+        || !input.input_offsets.has_value()) {
+        return {input};
+    }
+
+    const auto &input_ids = input.input_ids.value();
+    const auto &input_offsets = input.input_offsets.value();
+    if (input_ids->ndim() != 2
+        || input_ids->size(0) != 1
+        || input_offsets->device().getType() != infinicore::Device::Type::CPU
+        || input_offsets->dtype() != infinicore::DataType::I32
+        || input_offsets->ndim() != 1
+        || input_offsets->size(0) < 2) {
+        return {input};
+    }
+
+    const size_t num_requests = input_offsets->size(0) - 1;
+    if (input_ids->numel() == num_requests) {
+        return {input};
+    }
+
+    const auto *offsets = reinterpret_cast<const int32_t *>(input_offsets->data());
+    const size_t token_budget = pipeline_microbatch_token_budget();
+    std::vector<RankWorker::Input> microbatches;
+
+    for (size_t request_begin = 0; request_begin < num_requests;) {
+        size_t request_end = request_begin + 1;
+        while (request_end < num_requests
+               && static_cast<size_t>(offsets[request_end + 1] - offsets[request_begin])
+                      <= token_budget) {
+            ++request_end;
+        }
+
+        const size_t token_begin = static_cast<size_t>(offsets[request_begin]);
+        const size_t token_end = static_cast<size_t>(offsets[request_end]);
+        const size_t request_count = request_end - request_begin;
+        const size_t token_count = token_end - token_begin;
+
+        RankWorker::Input microbatch = input;
+        microbatch.input_ids = narrow_contiguous(
+            input_ids, input_ids->ndim() - 1, token_begin, token_count);
+        if (input.position_ids.has_value()) {
+            microbatch.position_ids = narrow_contiguous(
+                input.position_ids.value(),
+                input.position_ids.value()->ndim() - 1,
+                token_begin,
+                token_count);
+        }
+        microbatch.past_sequence_lengths = narrow_optional(
+            input.past_sequence_lengths, 0, request_begin, request_count);
+        microbatch.total_sequence_lengths = narrow_optional(
+            input.total_sequence_lengths, 0, request_begin, request_count);
+        microbatch.input_offsets = rebase_offsets(
+            input_offsets, request_begin, request_end);
+        if (input.cu_seqlens.has_value()) {
+            microbatch.cu_seqlens = rebase_offsets(
+                input.cu_seqlens.value(), request_begin, request_end);
+        }
+        microbatch.block_tables = narrow_optional(
+            input.block_tables, 0, request_begin, request_count);
+        microbatch.slot_mapping = narrow_optional(
+            input.slot_mapping, 0, token_begin, token_count);
+        microbatch.mamba_init_state_indices = narrow_optional(
+            input.mamba_init_state_indices, 0, request_begin, request_count);
+        microbatch.mamba_final_state_indices = narrow_optional(
+            input.mamba_final_state_indices, 0, request_begin, request_count);
+        microbatches.push_back(std::move(microbatch));
+        request_begin = request_end;
+    }
+
+    return microbatches;
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -292,7 +432,7 @@ void RankWorker::thread_loop() {
                 model_config_,
                 rank_info_.device,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr);
-            if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
+            if (enable_graph_compiling_) {
                 compiler_ = std::make_unique<GeneralCompiler>(model_, barrier_);
             }
 
@@ -418,21 +558,39 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        bool ran_compiled_graph = false;
+                        auto microbatches = split_pipeline_prefill(
+                            local_args, rank_info_.pp_size);
                         // All-position speculative/MTP runs need eager mode because
                         // hidden states are not part of compiled graph outputs.
-                        if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
+                        if (microbatches.size() == 1
+                            && !local_args.sample_all_positions
+                            && compiler_ != nullptr) {
                             auto [graph, output] = compiler_->get_compiled(local_args.to_model_input(infinicore::Device::cpu()));
                             if (graph != nullptr && output != nullptr) {
                                 graph->run();
                                 logits = output->logits;
+                                hidden_states = output->hidden_states;
+                                ran_compiled_graph = true;
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
-                            auto model_args = local_args.to_model_input(rank_info_.device);
-                            auto model_output = model_->forward(model_args);
-                            logits = model_output.logits;
-                            hidden_states = model_output.hidden_states;
+                        if (!ran_compiled_graph) {
+                            std::vector<infinicore::Tensor> microbatch_logits;
+                            microbatch_logits.reserve(microbatches.size());
+                            for (const auto &microbatch : microbatches) {
+                                auto model_args = microbatch.to_model_input(rank_info_.device);
+                                auto model_output = model_->forward(model_args);
+                                if (model_output.logits) {
+                                    microbatch_logits.push_back(model_output.logits);
+                                }
+                                hidden_states = model_output.hidden_states;
+                            }
+                            if (microbatch_logits.size() == 1) {
+                                logits = microbatch_logits.front();
+                            } else if (!microbatch_logits.empty()) {
+                                logits = infinicore::op::cat(microbatch_logits, 1);
+                            }
                         }
 
                         if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {

@@ -171,8 +171,13 @@ void PagedCompiler::compile() {
             auto graph = infinicore::context::stopGraphRecording();
             barrier_->wait();
 
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(
-                new InfinilmModel::Output{infinicore::graph::GraphTensor(output.logits)});
+            auto shared_output = std::make_shared<InfinilmModel::Output>();
+            if (output.logits) {
+                shared_output->logits = infinicore::graph::GraphTensor(output.logits);
+            }
+            if (output.hidden_states) {
+                shared_output->hidden_states = infinicore::graph::GraphTensor(output.hidden_states);
+            }
 
             compiled_map_decode_[b] = CompiledResult{std::move(input), std::make_tuple(graph, shared_output)};
         }
@@ -250,7 +255,14 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                         runtime_seq_lens->data()),
                     batch_size);
             }
-            auto shared_output = std::shared_ptr<InfinilmModel::Output>(new InfinilmModel::Output{std::get<1>(result->second.compiled)->logits->resume_from_blob_()});
+            auto shared_output = std::make_shared<InfinilmModel::Output>();
+            const auto &compiled_output = std::get<1>(result->second.compiled);
+            if (compiled_output->logits) {
+                shared_output->logits = compiled_output->logits->resume_from_blob_();
+            }
+            if (compiled_output->hidden_states) {
+                shared_output->hidden_states = compiled_output->hidden_states->resume_from_blob_();
+            }
 
             return std::make_tuple(graph, shared_output);
         }
