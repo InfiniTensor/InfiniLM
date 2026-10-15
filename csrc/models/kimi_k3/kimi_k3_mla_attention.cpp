@@ -3,6 +3,7 @@
 #include "../../global_state/global_state.hpp"
 
 #include <infinicore/ops/mul.hpp>
+#include <infinicore/ops/rearrange.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 
 #include <cmath>
@@ -23,8 +24,9 @@ infinicore::Tensor build_key(
     key_shape[feature_dim] = qk_nope_head_dim + qk_rope_head_dim;
 
     auto key = infinicore::Tensor::empty(key_shape, kv_b->dtype(), kv_b->device());
-    key->narrow({{feature_dim, 0, qk_nope_head_dim}})
-        ->copy_from(kv_b->narrow({{feature_dim, 0, qk_nope_head_dim}}));
+    infinicore::op::rearrange_(
+        key->narrow({{feature_dim, 0, qk_nope_head_dim}}),
+        kv_b->narrow({{feature_dim, 0, qk_nope_head_dim}}));
 
     auto k_rot_shape = key_shape;
     k_rot_shape[head_axis] = num_heads;
@@ -36,8 +38,9 @@ infinicore::Tensor build_key(
     k_rot_strides[head_axis] = 0;
     k_rot_strides[feature_dim] = k_rot->stride(k_rot->ndim() - 1);
     auto k_rot_heads = k_rot->as_strided(k_rot_shape, k_rot_strides);
-    key->narrow({{feature_dim, qk_nope_head_dim, qk_rope_head_dim}})
-        ->copy_from(k_rot_heads);
+    infinicore::op::rearrange_(
+        key->narrow({{feature_dim, qk_nope_head_dim, qk_rope_head_dim}}),
+        k_rot_heads);
     return key;
 }
 

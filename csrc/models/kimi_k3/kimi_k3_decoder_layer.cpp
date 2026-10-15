@@ -2,8 +2,8 @@
 
 #include <algorithm>
 #include <infinicore/ops/add.hpp>
-#include <infinicore/ops/matmul.hpp>
-#include <infinicore/ops/softmax.hpp>
+#include <infinicore/ops/kimi_attention_residual.hpp>
+#include <infinicore/ops/rearrange.hpp>
 #include <stdexcept>
 #include <vector>
 
@@ -61,13 +61,8 @@ infinicore::Tensor KimiK3DecoderLayer::apply_attn_res(
     }
     auto values = block_residual_storage->narrow(
         {{1, 0, block_residual_count + 1}});
-    auto normalized = norm->forward(values);
-    auto scores = proj->forward(normalized);
-    infinicore::op::softmax_(scores, scores, 1);
-    auto score_matrix = scores->view(
-        {scores->size(0), scores->size(2), scores->size(1)});
-    return infinicore::op::matmul(score_matrix, values)
-        ->squeeze(1)
+    return infinicore::op::kimi_attention_residual(
+               values, norm->weight(), proj->weight(), static_cast<float>(norm->eps()))
         ->view(shape);
 }
 
@@ -100,7 +95,7 @@ infinicore::Tensor KimiK3DecoderLayer::forward(
         auto scratch = block_residual_storage
                            ->narrow({{1, block_residual_count, 1}})
                            ->view({shape[0], shape[1], hidden_size_});
-        scratch->copy_from(current);
+        infinicore::op::rearrange_(scratch, current);
         prefix_sum = scratch;
     } else {
         infinicore::op::add_(prefix_sum, prefix_sum, current);

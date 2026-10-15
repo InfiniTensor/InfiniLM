@@ -6,8 +6,8 @@
 
 #include <infinicore/ops/distributed/allgather.hpp>
 #include <infinicore/ops/distributed/send_recv.hpp>
-#include <infinicore/ops/matmul.hpp>
-#include <infinicore/ops/softmax.hpp>
+#include <infinicore/ops/kimi_attention_residual.hpp>
+#include <infinicore/ops/rearrange.hpp>
 
 #include <optional>
 #include <stdexcept>
@@ -67,7 +67,7 @@ KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
         auto hidden_scratch = block_residual_storage
                                   ->narrow({{1, 0, 1}})
                                   ->view(shape);
-        hidden_scratch->copy_from(first_stage_hidden);
+        infinicore::op::rearrange_(hidden_scratch, first_stage_hidden);
         return {
             hidden_scratch,
             block_residual_storage,
@@ -80,9 +80,9 @@ KimiK3TextModel::PipelineState KimiK3TextModel::initial_state(
     // dimension leaves the received hidden-state slice contiguous.
     auto received_state = recv_sharded_last_dim(
         {prior_block_count + 1, token_count, hidden_size_});
-    block_residual_storage
-        ->narrow({{1, 0, prior_block_count + 1}})
-        ->copy_from(received_state->permute({1, 0, 2}));
+    infinicore::op::rearrange_(
+        block_residual_storage->narrow({{1, 0, prior_block_count + 1}}),
+        received_state->permute({1, 0, 2}));
     auto received_hidden = block_residual_storage
                                ->narrow({{1, prior_block_count, 1}})
                                ->view(shape);
@@ -137,7 +137,7 @@ void KimiK3TextModel::send_pipeline_state(const PipelineState &state) const {
                            ->narrow({{1, 0, state.block_residual_count + 1},
                                      {2, tp_rank_ * shard_hidden, shard_hidden}})
                            ->permute({1, 0, 2});
-    local->copy_from(state_shard);
+    infinicore::op::rearrange_(local, state_shard);
 
     infinicore::op::distributed::send(
         local->view({local->numel() / shard_hidden, shard_hidden}),
@@ -152,13 +152,11 @@ infinicore::Tensor KimiK3TextModel::apply_output_attn_res(
     const auto shape = hidden_states->shape();
     auto values = block_residual_storage->narrow(
         {{1, 0, block_residual_count + 1}});
-    auto normalized = output_attn_res_norm_->forward(values);
-    auto scores = output_attn_res_proj_->forward(normalized);
-    infinicore::op::softmax_(scores, scores, 1);
-    auto score_matrix = scores->view(
-        {scores->size(0), scores->size(2), scores->size(1)});
-    return infinicore::op::matmul(score_matrix, values)
-        ->squeeze(1)
+    return infinicore::op::kimi_attention_residual(
+               values,
+               output_attn_res_norm_->weight(),
+               output_attn_res_proj_->weight(),
+               static_cast<float>(output_attn_res_norm_->eps()))
         ->view(shape);
 }
 
