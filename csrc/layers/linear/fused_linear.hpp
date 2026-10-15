@@ -7,6 +7,29 @@
 namespace infinilm::layers::linear {
 using RegisterParamFn = std::function<void(const std::string &, infinicore::nn::Parameter)>;
 
+// A replicated equivalent of vLLM's MergedColumnParallelLinear with
+// disable_tp=True. Checkpoint shards keep their original names while sharing
+// one runtime GEMM and one fused output buffer.
+class MergedReplicatedLinear : public infinilm::nn::Linear {
+public:
+    MergedReplicatedLinear(size_t input_size,
+                           const std::vector<size_t> &output_sizes,
+                           const std::vector<std::string> &param_names,
+                           RegisterParamFn register_fn,
+                           std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
+                           bool bias = false,
+                           const infinicore::DataType &dtype = infinicore::DataType::F32,
+                           const infinicore::Device &device = infinicore::Device());
+
+    std::vector<infinicore::Tensor> forward_split(infinicore::Tensor &input) const;
+    void process_weights_after_loading() override;
+
+private:
+    std::vector<size_t> output_sizes_;
+    RegisterParamFn register_fn_;
+    std::vector<infinilm::quantization::SplitInfo> split_infos_;
+};
+
 class QKVParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
     explicit QKVParallelLinear(size_t hidden_size,

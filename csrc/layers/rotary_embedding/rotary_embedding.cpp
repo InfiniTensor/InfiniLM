@@ -1,5 +1,6 @@
 #include "rotary_embedding.hpp"
 #include "../../config/model_config.hpp"
+#include "infinicore/ops/cat.hpp"
 #include "rotary_embedding_factory.hpp"
 #include <iomanip>
 #include <memory>
@@ -14,6 +15,7 @@ namespace {
 // Cache dictionary to avoid redundant allocations of RoPE instances.
 // thread_local ensures it is only visible within this compilation unit.
 thread_local std::unordered_map<std::string, std::shared_ptr<infinicore::nn::RoPE>> _ROPE_DICT;
+thread_local std::unordered_map<const infinicore::nn::RoPE *, infinicore::Tensor> _ROPE_COS_SIN_DICT;
 
 std::string make_cache_key(size_t head_dim,
                            size_t rotary_dim,
@@ -110,6 +112,20 @@ get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
                     scaling,
                     std::nullopt,
                     false);
+}
+
+infinicore::Tensor
+get_rope_cos_sin_cache(const std::shared_ptr<infinicore::nn::RoPE> &rope) {
+    const auto *key = rope.get();
+    auto it = _ROPE_COS_SIN_DICT.find(key);
+    if (it != _ROPE_COS_SIN_DICT.end()) {
+        return it->second;
+    }
+
+    auto cache = infinicore::op::cat(
+        {rope->cos_cache(), rope->sin_cache()}, 1);
+    auto [inserted, _] = _ROPE_COS_SIN_DICT.emplace(key, std::move(cache));
+    return inserted->second;
 }
 
 } // namespace infinilm::layers::rotary_embedding

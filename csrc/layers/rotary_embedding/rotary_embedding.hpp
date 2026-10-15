@@ -36,4 +36,7 @@ std::shared_ptr<infinicore::nn::RoPE>
 get_rope(const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
          const infinicore::Device &device);
 
+infinicore::Tensor
+get_rope_cos_sin_cache(const std::shared_ptr<infinicore::nn::RoPE> &rope);
+
 } // namespace infinilm::layers::rotary_embedding

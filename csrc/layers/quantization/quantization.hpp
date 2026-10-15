@@ -4,6 +4,8 @@
 #include "awq_marlin.hpp"
 #include "base_quantization.hpp"
 #include "compressed_tensors.hpp"
+#include "glm_w4a8.hpp"
+#include "glm_w8a8.hpp"
 #include "gptq.hpp"
 #include "gptq_marlin.hpp"
 #include "gptq_qy.hpp"

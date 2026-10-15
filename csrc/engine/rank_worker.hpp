@@ -72,6 +72,8 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+        /// Maximum total sequence length in the current request batch.
+        std::optional<int64_t> max_context_len;
 
         float temperature{1};
 

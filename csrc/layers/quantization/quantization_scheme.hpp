@@ -12,6 +12,9 @@ enum class QuantScheme {
     GPTQ_MARLIN_W4A16,
     MXFP4_W4A16,
     W4A8,
+    GLM_W8A8,
+    GLM_W4A8,
+    GLM_W4A8_RUNTIME,
 };
 
 enum class KVQuantAlgo {
