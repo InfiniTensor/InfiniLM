@@ -1,32 +1,20 @@
-#include "glm_model.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
 #include "../models_registry.hpp"
 #include "glm_dsa_allocate_cache_tensors.hpp"
+#include "glm_model.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/cat.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <stdexcept>
 #include <string>
 #include <vector>
 namespace infinilm::models::glm_moe_dsa {
 namespace {
-void debug_dump(const infinicore::Tensor &tensor, const std::string &name) {
-    if (std::getenv("INFINILM_GLM_DEBUG_DUMP") == nullptr) {
-        return;
-    }
-    const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
-    if (rank.world_rank != 0) {
-        return;
-    }
-    tensor->debug("/tmp/glmdbg_" + name + ".bin");
-}
-
 infinicore::Tensor i32_tensor_on_device(
     const std::vector<int32_t> &values,
     const infinicore::Device &device) {
@@ -43,25 +31,29 @@ GlmDecoder::GlmDecoder(std::shared_ptr<infinilm::config::ModelConfig> c, size_t 
     auto h = c->get<size_t>("hidden_size");
     auto e = c->get<double>("rms_norm_eps");
     auto dt = c->get_dtype();
+    const size_t first_dense_layer_count = c->get_or<size_t>("first_k_dense_replace", 0);
+    auto layer_config = c;
+    if (i < first_dense_layer_count) {
+        auto json = c->get_config_json();
+        json["quantization_config"] = nullptr;
+        layer_config = std::make_shared<infinilm::config::ModelConfig>(json);
+        layer_config->set_rope_algo(c->get_rope_algo());
+    }
     INFINICORE_NN_MODULE_INIT(input_layernorm, h, e, dt, d);
     INFINICORE_NN_MODULE_INIT(post_attention_layernorm, h, e, dt, d);
-    INFINICORE_NN_MODULE_INIT(self_attn, c, i, d);
-    moe_ = i >= c->get_or<size_t>("first_k_dense_replace", 0);
+    INFINICORE_NN_MODULE_INIT(self_attn, layer_config, i, d);
+    moe_ = i >= first_dense_layer_count;
     if (moe_) {
         moe_mlp_ = register_module<GlmMoE>("mlp", c, d);
     } else {
-        dense_mlp_ = register_module<GlmDenseMLP>("mlp", c, d);
+        dense_mlp_ = register_module<GlmDenseMLP>("mlp", layer_config, d);
     }
 }
 void GlmDecoder::forward(const infinicore::Tensor &p, infinicore::Tensor &x, infinicore::Tensor &r) const {
     input_layernorm_->forward_inplace(x, r);
-    debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_input_norm");
     x = self_attn_->forward(p, x);
-    debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_attn");
     post_attention_layernorm_->forward_inplace(x, r);
-    debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_post_attn_norm");
     x = moe_ ? moe_mlp_->forward(x) : dense_mlp_->forward(x);
-    debug_dump(x, "layer_" + std::to_string(layer_idx_) + "_mlp");
 }
 
 namespace {
@@ -189,8 +181,7 @@ void GlmModel::transfer_pipeline_state_(
         pipeline_state.push_back(topk);
     }
 
-    const auto &rank =
-        infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const auto &rank = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const int source_rank = static_cast<int>(source_stage) * rank.tp_size
                           + rank.tp_rank;
     const int destination_rank = static_cast<int>(source_stage + 1) * rank.tp_size
@@ -222,7 +213,6 @@ infinicore::Tensor GlmModel::forward(const infinilm::InfinilmModel::Input &i) co
     infinicore::Tensor x;
     if (pp_rank_ == 0) {
         x = embed_tokens_->forward(i.input_ids.value());
-        debug_dump(x, "embed");
     } else {
         x = infinicore::Tensor::empty(
             {1, num_tokens, hidden_size_}, dtype_, i.position_ids.value()->device());
@@ -249,7 +239,6 @@ infinicore::Tensor GlmModel::forward(const infinilm::InfinilmModel::Input &i) co
     }
     if (pp_rank_ == pp_size_ - 1) {
         norm_->forward_inplace(x, r);
-        debug_dump(x, "final");
     }
     return x;
 }

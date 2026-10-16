@@ -16,12 +16,7 @@ std::vector<ParamDescriptor> GlmW8A8::get_param_layout(
     int /*tp_num_heads*/, const infinicore::DataType &dtype,
     bool bias) const {
     std::vector<ParamDescriptor> result;
-    if (runtime_layout_) {
-        const int runtime_split_dim = split_dim >= 0 ? 1 - split_dim : -1;
-        result.push_back({"weight", {in_features, out_features}, infinicore::DataType::I8, runtime_split_dim, tp_rank, tp_size});
-    } else {
-        result.push_back({"weight", {out_features, in_features}, infinicore::DataType::I8, split_dim, tp_rank, tp_size});
-    }
+    result.push_back({"weight", {out_features, in_features}, infinicore::DataType::I8, split_dim, tp_rank, tp_size});
     const int scale_split_dim = split_dim == 0 ? 0 : -1;
     result.push_back({"weight_scale", {out_features, 1}, infinicore::DataType::F32, scale_split_dim, scale_split_dim == 0 ? tp_rank : 0, scale_split_dim == 0 ? tp_size : 1});
     if (bias) {
@@ -39,9 +34,9 @@ infinicore::Tensor GlmW8A8::forward(
     }
     auto weight_scale = params.at("weight_scale");
     if (weight->ndim() != 2 || weight->dtype() != infinicore::DataType::I8) {
-        throw std::runtime_error("GlmW8A8 expects int8 runtime weight [in,out]");
+        throw std::runtime_error("GlmW8A8 expects FP8 runtime weight [out,in]");
     }
-    const size_t in_features = weight->size(0), out_features = weight->size(1);
+    const size_t out_features = weight->size(0), in_features = weight->size(1);
     if (weight_scale->ndim() != 2 || weight_scale->size(0) != out_features || weight_scale->size(1) != 1 || weight_scale->dtype() != infinicore::DataType::F32) {
         throw std::runtime_error("GlmW8A8 expects float32 weight_scale [out,1]");
     }
@@ -69,7 +64,7 @@ infinicore::Tensor GlmW8A8::forward(
         bias = params.at("bias");
     }
     auto out = infinicore::Tensor::empty({m, out_features}, x->dtype(), x->device());
-    infinicore::op::scaled_mm_w8a8_(out, x_i8, weight, x_scale, effective_scale, bias, false);
+    infinicore::op::scaled_mm_w8a8_(out, x_i8, weight, x_scale, effective_scale, bias, true);
     if (shape.size() == 2) {
         return out;
     }
@@ -86,7 +81,7 @@ std::vector<SplitParam> GlmW8A8::split_params(
     const auto &scale = params.at("weight_scale");
     auto bias = params.find("bias");
     for (const auto &s : splits) {
-        const int weight_dim = runtime_layout_ ? 1 : 0;
+        const int weight_dim = 0;
         result.push_back({s.prefix + ".weight", infinicore::nn::Parameter(
                                                     weight->narrow({{static_cast<size_t>(weight_dim), s.start, s.size}}), weight_dim, tp_rank, tp_size, s.num_shards)});
         result.push_back({s.prefix + ".weight_scale", infinicore::nn::Parameter(
@@ -106,8 +101,6 @@ std::shared_ptr<BaseQuantization> GlmW8A8::process_weights_after_loading(
     if (runtime_layout_) {
         return nullptr;
     }
-    auto weight = params.at("weight");
-    params["weight"] = weight->permute({1, 0})->contiguous();
     return std::make_shared<GlmW8A8>(get_config(), true);
 }
 } // namespace infinilm::quantization

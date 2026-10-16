@@ -157,8 +157,11 @@ const infinicore::nn::Parameter &BaseLinear::get_parameter_ref(const std::string
 std::vector<infinilm::quantization::SplitParam> BaseLinear::split_params(
     const std::vector<infinilm::quantization::SplitInfo> &splits,
     int tp_rank, int tp_size, int tp_num_heads) const {
+    const int narrow_dim = split_dim_ >= 0
+                             ? split_dim_
+                             : quantization_->get_fused_split_dim();
     return quantization_->split_params(
-        parameters_, splits, split_dim_, tp_rank, tp_size, tp_num_heads);
+        parameters_, splits, narrow_dim, tp_rank, tp_size, tp_num_heads);
 }
 
 } // namespace infinilm::nn

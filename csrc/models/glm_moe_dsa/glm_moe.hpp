@@ -26,9 +26,10 @@ private:
     bool renormalize_{false};
     float routed_scaling_factor_{1};
 };
-class GlmW4A8Experts final : public infinicore::nn::Module {
+class GlmW8A8Experts final : public infinicore::nn::Module {
 public:
-    GlmW4A8Experts(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
+    GlmW8A8Experts(std::shared_ptr<infinilm::config::ModelConfig>, const infinicore::Device &);
+    void process_weights_after_loading() override;
     infinicore::Tensor forward(const infinicore::Tensor &,
                                const infinicore::Tensor &,
                                const infinicore::Tensor &,
@@ -46,7 +47,7 @@ public:
 
 private:
     INFINICORE_NN_MODULE(GlmTopKRouter, gate);
-    INFINICORE_NN_MODULE(GlmW4A8Experts, experts);
+    INFINICORE_NN_MODULE(GlmW8A8Experts, experts);
     INFINICORE_NN_MODULE(GlmDenseMLP, shared_experts);
     bool shared_{false};
 };

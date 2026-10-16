@@ -3,15 +3,15 @@
 
 namespace infinilm::quantization {
 
-// Dense GLM W8A8 checkpoint layout is [out, in]. After loading, weights are
-// transposed once to the vLLM/CUINFER runtime layout [in, out].
+// Dense GLM W8A8 weights stay in their row-major checkpoint layout [out, in].
+// Quantized GEMM backends consume this through their transposed-weight path.
 class GlmW8A8 final : public BaseQuantization {
 public:
     explicit GlmW8A8(const nlohmann::json &quant_config, bool runtime_layout = false)
         : BaseQuantization(quant_config), runtime_layout_(runtime_layout) {}
 
     QuantScheme get_quant_scheme() const override { return QuantScheme::GLM_W8A8; }
-    int get_fused_split_dim() const override { return runtime_layout_ ? 1 : 0; }
+    int get_fused_split_dim() const override { return 0; }
 
     std::vector<ParamDescriptor> get_param_layout(
         size_t in_features, size_t out_features,

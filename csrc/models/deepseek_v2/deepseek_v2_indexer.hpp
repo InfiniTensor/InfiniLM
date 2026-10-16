@@ -41,8 +41,6 @@ private:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wq_b);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wk);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, weights_proj);
-    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear>
-        fused_wk_weights_proj_;
     INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, k_norm);
 
     std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;

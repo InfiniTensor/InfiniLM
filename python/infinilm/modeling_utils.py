@@ -146,7 +146,8 @@ def load_state_dict(
         for k in f.keys():
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            is_fp8 = tensor.dtype in (torch.float8_e4m3fn, torch.float8_e5m2)
+            if tensor.is_floating_point() and not preserve_fp32 and not is_fp8:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
@@ -607,6 +608,18 @@ def _remap_glm4(state_dict, config=None):
         fused_key="gate_up_proj",
         output_names=["gate_proj", "up_proj"],
     )
+
+
+def _remap_glm_moe_dsa(state_dict, config=None):
+    """Preserve GLM FP8 weights as bytes and normalize channel scales."""
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if tensor.dtype == torch.float8_e4m3fn:
+            tensor = tensor.view(torch.int8)
+        elif key.endswith((".weight_scale", ".weight_scale_inv")):
+            tensor = tensor.float()
+        remapped[key] = tensor
+    return remapped
 
 
 def _remap_chatglm(state_dict, config=None):
@@ -1101,6 +1114,7 @@ def _remap_kimi_k3(state_dict, config):
 
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
+    "glm_moe_dsa": _remap_glm_moe_dsa,
     "chatglm": _remap_chatglm,
     "baichuan": _remap_baichuan,
     "gpt2": _remap_gpt2,
