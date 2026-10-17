@@ -131,12 +131,10 @@ infinicore::Tensor create_layer_kv_cache(
     size_t block_size = config.block_size();
 
     infinicore::Shape kv_shape;
-    if (global_state::get_infinilm_config().attention_backend == backends::AttentionBackend::FLASH_ATTN) {
-        // FLASH_ATTN kernel expects BSHD layout
-        kv_shape = {2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
-    } else {
-        kv_shape = {2, num_blocks_per_layer, num_rank_k_heads, block_size, k_dim};
-    }
+    // CoreX 4.4 flash decode and MTP prefill both consume the vendor's
+    // physically contiguous BHSD layout. Decode passes a zero-copy BSHD view
+    // to the legacy InfiniCore adapter boundary.
+    kv_shape = {2, num_blocks_per_layer, num_rank_k_heads, block_size, k_dim};
 
     // [1+1, num_blocks, num_rank_k_heads, block_size, k_dim]
     infinicore::Tensor kv_cache = infinicore::Tensor::zeros(

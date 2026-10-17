@@ -164,10 +164,18 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_backend="disabled",
         moe_ep_size=1,
         use_legacy_moe=False,
+        dtype=None,
         pre_transpose=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
+        if dtype is not None:
+            self.hf_config["torch_dtype"] = dtype
+            self.hf_config["dtype"] = dtype
+            text_config = self.hf_config.get("text_config")
+            if isinstance(text_config, dict):
+                text_config["torch_dtype"] = dtype
+                text_config["dtype"] = dtype
         self.hf_config["use_legacy_moe"] = bool(use_legacy_moe)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
         self.hf_config["position_id_axes"] = self.position_id_axes

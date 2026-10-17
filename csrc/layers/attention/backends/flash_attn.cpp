@@ -57,16 +57,19 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         const size_t max_sequence_length = attn_metadata.max_sequence_length > 0
                                              ? attn_metadata.max_sequence_length
                                              : max_position_embeddings_;
-        infinicore::op::paged_attention_prefill_(
+        infinicore::op::paged_attention_prefill_mtp_(
             attn_output,
             query,
-            k_total->permute({0, 2, 1, 3}),
-            v_total->permute({0, 2, 1, 3}),
+            k_total,
+            v_total,
             block_tables.value(),
             total_sequence_lengths.value(),
             input_offsets.value(),
             std::nullopt,
-            scale_);
+            scale_,
+            max_query_length,
+            cu_seqlens.value(),
+            max_sequence_length);
     } else {
         // FA2 decode path: flash::mha_fwd_kvcache
         // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
@@ -77,8 +80,10 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         infinicore::op::mha_kvcache_(
             attn_out_4d,
             q_for_fa,
-            k_total, // [num_blocks, block_size, num_kv_heads, head_dim]
-            v_total,
+            // CoreX 4.4 decode adapter accepts BSHD and converts it back
+            // to the physically contiguous BHSD vendor layout.
+            k_total->permute({0, 2, 1, 3}),
+            v_total->permute({0, 2, 1, 3}),
             total_sequence_lengths.value(), // [seq_len] int32 (one entry per sequence)
             block_tables.value(),           // [seq_len, max_num_blocks_per_seq] int32
             std::nullopt,
@@ -95,8 +100,8 @@ std::tuple<infinicore::Tensor, infinicore::Tensor> FlashAttentionImpl::do_kv_cac
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
     infinicore::op::paged_caching_(
-        k_cache_layer->permute({0, 2, 1, 3}), // permute to BHSD for paged_caching_
-        v_cache_layer->permute({0, 2, 1, 3}),
+        k_cache_layer, // physically contiguous BHSD for paged_caching_
+        v_cache_layer,
         key,
         value,
         slot_mapping);

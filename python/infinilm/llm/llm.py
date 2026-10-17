@@ -99,7 +99,10 @@ class LLMEngine:
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
             )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            max_packed_prefill_tokens = max_position_embeddings * max(
+                config.max_batch_size, 1
+            )
+            assert 1024 <= max_num_batched_tokens <= max_packed_prefill_tokens
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
@@ -660,6 +663,8 @@ class AsyncLLMEngine:
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._healthy = True
         self._abort_queue: Optional[janus.Queue] = None
+        self._profile_remaining_steps = int(os.getenv("INFINILM_PROFILE_STEPS", "0"))
+        self._profile_trace_path = os.getenv("INFINILM_PROFILE_TRACE", "/tmp/infinilm-trace.json")
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -748,14 +753,40 @@ class AsyncLLMEngine:
 
     def _step_loop(self):
         """Background loop that runs inference steps."""
+        profiler = None
         while self._running:
             try:
+                if self._profile_remaining_steps > 0 and profiler is None:
+                    from torch.profiler import ProfilerActivity, profile
+
+                    profiler = profile(
+                        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+                        record_shapes=True,
+                    )
+                    profiler.start()
+                    logger.info(
+                        "Profiling next %s working inference steps to %s",
+                        self._profile_remaining_steps,
+                        self._profile_trace_path,
+                    )
+
                 self._drain_abort_queue()
                 did_work, pending = self.engine.step()
                 if not did_work:
                     time.sleep(0.003)
                 elif pending:
                     self._loop.call_soon_threadsafe(self._batch_put, pending)
+
+                if profiler is not None and did_work:
+                    self._profile_remaining_steps -= 1
+                    if self._profile_remaining_steps == 0:
+                        profiler.stop()
+                        profiler.export_chrome_trace(self._profile_trace_path)
+                        logger.info(
+                            "Saved InfiniLM profiler trace to %s",
+                            self._profile_trace_path,
+                        )
+                        profiler = None
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
@@ -825,7 +856,10 @@ class AsyncLLMEngine:
         has_multimodal_inputs = False
 
         if prompt_token_ids is not None:
-            prompt = self.engine.detokenize(prompt_token_ids)
+            # Token-ID inputs already define the exact model input. Avoid a
+            # prompt-length detokenization pass on the serving hot path.
+            if prompt is None:
+                prompt = ""
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:

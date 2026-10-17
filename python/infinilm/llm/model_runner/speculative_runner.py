@@ -25,6 +25,7 @@ class SpeculativeRunner:
             enable_graph_compiling=config.enable_graph,
             attention_backend="default",
             use_mla=False,
+            dtype=config.dtype,
             weight_load_mode=config.weight_load_mode,
         )
         if self.draft_model_engine.model_type != "minicpm_eagle":

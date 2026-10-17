@@ -90,6 +90,7 @@ class ModelRunner:
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
             use_legacy_moe=config.use_legacy_moe,
+            dtype=config.dtype,
             pre_transpose=config.pre_transpose,
         )
 

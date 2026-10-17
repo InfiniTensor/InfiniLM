@@ -89,6 +89,66 @@ def completion_json(
     }
 
 
+
+def text_completion_json(
+    id_,
+    text,
+    finish_reason="stop",
+    model: str = "unknown",
+    prompt_tokens: int = 0,
+    completion_tokens: int = 0,
+    total_tokens: int = 0,
+):
+    """Generate JSON response for non-streaming text completion."""
+    return {
+        "id": id_,
+        "object": "text_completion",
+        "created": int(time.time()),
+        "model": model,
+        "system_fingerprint": None,
+        "choices": [
+            {
+                "index": 0,
+                "text": text,
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        ],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        },
+    }
+
+
+def text_completion_chunk_json(
+    id_,
+    text=None,
+    finish_reason=None,
+    model: str = "unknown",
+    usage=None,
+):
+    """Generate an OpenAI-compatible streaming text-completion chunk."""
+    choices = []
+    if usage is None:
+        choices.append(
+            {
+                "index": 0,
+                "text": text or "",
+                "logprobs": None,
+                "finish_reason": finish_reason,
+            }
+        )
+    return {
+        "id": id_,
+        "object": "text_completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "system_fingerprint": None,
+        "choices": choices,
+        "usage": usage,
+    }
 class InferenceServer:
     """HTTP server for LLM inference."""
 
@@ -316,6 +376,30 @@ class InferenceServer:
         async def list_models_legacy():
             return _models_payload()
 
+        # OpenAI-compatible text completions endpoint. Token-ID prompts keep
+        # fixed-length benchmarks independent of tokenizer and chat templates.
+        @app.post("/completions")
+        @app.post("/v1/completions")
+        async def completions(request: Request):
+            try:
+                data = await request.json()
+            except Exception as e:
+                logger.error(f"Failed to parse request JSON: {e}")
+                return JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
+
+            if data.get("prompt") is None:
+                return JSONResponse(content={"error": "No prompt provided"}, status_code=400)
+
+            stream = bool(data.get("stream", False))
+            request_id = f"cmpl-{uuid.uuid4().hex}"
+            if stream:
+                return StreamingResponse(
+                    self._stream_completion(request_id, data, request),
+                    media_type="text/event-stream",
+                )
+
+            response = await self._completion(request_id, data, request)
+            return response if isinstance(response, JSONResponse) else JSONResponse(content=response)
     def _normalize_messages(self, messages: list) -> list:
         """Normalize messages to handle multimodal content (list format).
 
@@ -382,7 +466,7 @@ class InferenceServer:
             top_k=int(pick("top_k", self.top_k)),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
-            ignore_eos=self.ignore_eos,
+            ignore_eos=bool(pick("ignore_eos", self.ignore_eos)),
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
@@ -566,6 +650,137 @@ class InferenceServer:
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
 
+    @staticmethod
+    def _completion_prompt(data: dict):
+        prompt = data.get("prompt")
+        if isinstance(prompt, str):
+            return prompt, None
+        if isinstance(prompt, list) and all(isinstance(token, int) for token in prompt):
+            return None, prompt
+        raise ValueError("prompt must be a string or a list of token IDs")
+
+    async def _stream_completion(self, request_id: str, data: dict, http_request: Request):
+        """Handle streaming OpenAI text completion request."""
+        req = None
+        _abort_reason = FinishReason.CANCELED
+        try:
+            prompt, prompt_token_ids = self._completion_prompt(data)
+            sampling_params = self._build_sampling_params(data)
+            req = self.engine.add_request(
+                messages=None,
+                prompt=prompt,
+                prompt_token_ids=prompt_token_ids,
+                sampling_params=sampling_params,
+                request_id=request_id,
+                request_data=data,
+            )
+
+            async for token_output in self.engine.stream_request(
+                req,
+                timeout=DEFAULT_STREAM_TIMEOUT,
+                request_timeout=DEFAULT_REQUEST_TIMEOUT,
+            ):
+                if await http_request.is_disconnected():
+                    logger.info(f"Client disconnected for request {request_id}")
+                    break
+                if token_output.finish_reason == FinishReason.TIMEOUT:
+                    logger.warning(f"Request {request_id} timed out")
+                    break
+
+                finished = token_output.finished
+                chunk = text_completion_chunk_json(
+                    request_id,
+                    text=token_output.token_text,
+                    finish_reason=(
+                        self._convert_finish_reason(token_output.finish_reason)
+                        if finished
+                        else None
+                    ),
+                    model=self.model_id,
+                )
+                yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+                if finished:
+                    usage = {
+                        "prompt_tokens": req.get_prompt_length(),
+                        "completion_tokens": req.get_num_generated_tokens(),
+                        "total_tokens": req.get_total_length(),
+                    }
+                    usage_chunk = text_completion_chunk_json(
+                        request_id,
+                        model=self.model_id,
+                        usage=usage,
+                    )
+                    yield "data: " + json.dumps(usage_chunk, ensure_ascii=False) + "\n\n"
+                    break
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Text completion stream error for {request_id}: {e}", exc_info=True)
+            _abort_reason = FinishReason.ERROR
+            error_chunk = text_completion_chunk_json(
+                request_id,
+                text=f"[Error: {str(e)}]",
+                finish_reason="error",
+                model=self.model_id,
+            )
+            yield "data: " + json.dumps(error_chunk, ensure_ascii=False) + "\n\n"
+        finally:
+            if req and not req.is_finished():
+                self.engine.add_aborted_req(req, _abort_reason)
+        yield "data: [DONE]\n\n"
+
+    async def _completion(self, request_id: str, data: dict, http_request: Request):
+        """Handle non-streaming OpenAI text completion request."""
+        req = None
+        _abort_reason = FinishReason.CANCELED
+        try:
+            prompt, prompt_token_ids = self._completion_prompt(data)
+            sampling_params = self._build_sampling_params(data)
+            req = self.engine.add_request(
+                messages=None,
+                prompt=prompt,
+                prompt_token_ids=prompt_token_ids,
+                sampling_params=sampling_params,
+                request_id=request_id,
+                request_data=data,
+            )
+
+            output_text = ""
+            async for token_output in self.engine.stream_request(
+                req,
+                timeout=DEFAULT_STREAM_TIMEOUT,
+                request_timeout=DEFAULT_REQUEST_TIMEOUT,
+            ):
+                if await http_request.is_disconnected():
+                    logger.info(f"Client disconnected for request {request_id}")
+                    break
+                if token_output.finish_reason == FinishReason.TIMEOUT:
+                    logger.warning(f"Request {request_id} timed out")
+                    break
+                output_text += token_output.token_text
+                if token_output.finished:
+                    break
+
+            return text_completion_json(
+                request_id,
+                output_text,
+                finish_reason=self._convert_finish_reason(req.finish_reason) or "stop",
+                model=self.model_id,
+                prompt_tokens=req.get_prompt_length(),
+                completion_tokens=req.get_num_generated_tokens(),
+                total_tokens=req.get_total_length(),
+            )
+        except asyncio.CancelledError:
+            logger.info(f"Request {request_id} was cancelled")
+            raise
+        except Exception as e:
+            logger.error(f"Text completion error for {request_id}: {e}", exc_info=True)
+            _abort_reason = FinishReason.ERROR
+            return JSONResponse(content={"error": str(e)}, status_code=500)
+        finally:
+            if req and not req.is_finished():
+                self.engine.add_aborted_req(req, _abort_reason)
     def _convert_finish_reason(self, reason: FinishReason) -> str:
         """Convert FinishReason enum to string."""
         if reason is None:
