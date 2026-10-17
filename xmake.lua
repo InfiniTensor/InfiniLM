@@ -1,4 +1,3 @@
-add_requires("pybind11")
 
 set_toolchains("gcc")
 
@@ -22,8 +21,9 @@ add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
 
 target("_infinilm")
-    add_packages("pybind11")
     set_default(false)
+    add_includedirs("/usr/local/corex/lib64/python3/dist-packages/pybind11/include")
+    add_includedirs("/usr/local/include/python3.10")
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")
     set_kind("shared")

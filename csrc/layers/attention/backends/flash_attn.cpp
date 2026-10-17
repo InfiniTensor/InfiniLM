@@ -57,16 +57,14 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         const size_t max_sequence_length = attn_metadata.max_sequence_length > 0
                                              ? attn_metadata.max_sequence_length
                                              : max_position_embeddings_;
-        infinicore::op::mha_varlen_(
+        infinicore::op::paged_attention_prefill_(
             attn_output,
             query,
-            k_total,
-            v_total,
-            input_offsets.value(),
-            cu_seqlens.value(),
+            k_total->permute({0, 2, 1, 3}),
+            v_total->permute({0, 2, 1, 3}),
             block_tables.value(),
-            max_query_length,
-            max_sequence_length,
+            total_sequence_lengths.value(),
+            input_offsets.value(),
             std::nullopt,
             scale_);
     } else {
