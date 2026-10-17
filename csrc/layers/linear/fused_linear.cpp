@@ -1,4 +1,5 @@
 #include "fused_linear.hpp"
+#include "../../global_state/global_state.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -112,7 +113,10 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 
 void QKVParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
-    if (register_fn_ && !split_infos_.empty()) {
+    if (
+        register_fn_ && !split_infos_.empty() &&
+        !global_state::get_infinilm_config().pre_transpose
+    ) {
         auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
         for (auto &sp : params) {
             register_fn_(sp.full_name, std::move(sp.param));
@@ -186,7 +190,10 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
 
 void GateUpParallelLinear::process_weights_after_loading() {
     BaseLinear::process_weights_after_loading();
-    if (register_fn_ && !split_infos_.empty()) {
+    if (
+        register_fn_ && !split_infos_.empty() &&
+        !global_state::get_infinilm_config().pre_transpose
+    ) {
         auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
         for (auto &sp : params) {
             register_fn_(sp.full_name, std::move(sp.param));

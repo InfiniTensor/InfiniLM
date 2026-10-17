@@ -1,8 +1,10 @@
 #include "compressed_tensors.hpp"
 #include "infinicore/ops/linear_w8a8i8.hpp"
+#include "infinicore/ops/linear_w8a16.hpp"
 #include "infinicore/ops/mul_scalar.hpp"
 
 #include <cmath>
+#include <stdexcept>
 #include <optional>
 
 namespace infinilm::quantization {
@@ -16,13 +18,29 @@ std::vector<ParamDescriptor> CompressedTensors::get_param_layout(
 
     std::vector<ParamDescriptor> descs;
     descs.push_back({"weight", {out_features, in_features}, infinicore::DataType::I8, split_dim, tp_rank, tp_size});
-    // weight_scale is per-output-channel [out_features, 1]; always split on
-    // dim0 (output dimension) for ColumnParallel, and don't split for RowParallel.
-    int scale_split_dim = (split_dim == 0) ? 0 : -1;
-    int scale_tp_size = (split_dim == 0) ? tp_size : 1;
-    int scale_tp_rank = (split_dim == 0) ? tp_rank : 0;
-    descs.push_back({"weight_scale", {out_features, 1}, infinicore::DataType::F32, scale_split_dim, scale_tp_rank, scale_tp_size});
-    if (bias) {
+    const bool weight_only =
+        get_config().value("format", "") == "infinilm-w8a16";
+    // W8A8 uses [N, 1] FP32 scales. The vendor W8A16 kernel consumes
+    // a [1, N] scale with the activation dtype.
+    int scale_split_dim;
+    int scale_tp_size;
+    int scale_tp_rank;
+    std::vector<size_t> scale_shape;
+    infinicore::DataType scale_dtype;
+    if (weight_only) {
+        scale_split_dim = (split_dim == 0) ? 1 : -1;
+        scale_tp_size = (split_dim == 0) ? tp_size : 1;
+        scale_tp_rank = (split_dim == 0) ? tp_rank : 0;
+        scale_shape = {1, out_features};
+        scale_dtype = dtype;
+    } else {
+        scale_split_dim = (split_dim == 0) ? 0 : -1;
+        scale_tp_size = (split_dim == 0) ? tp_size : 1;
+        scale_tp_rank = (split_dim == 0) ? tp_rank : 0;
+        scale_shape = {out_features, 1};
+        scale_dtype = infinicore::DataType::F32;
+    }
+    descs.push_back({"weight_scale", scale_shape, scale_dtype, scale_split_dim, scale_tp_rank, scale_tp_size});    if (bias) {
         descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
     }
     return descs;
@@ -43,6 +61,12 @@ infinicore::Tensor CompressedTensors::forward(
         bias_opt = params.at("bias");
     }
 
+    if (get_config().value("format", "") == "infinilm-w8a16") {
+        if (std::fabs(alpha - 1.0f) > 1e-7) {
+            throw std::runtime_error("W8A16 compressed tensors do not support alpha");
+        }
+        return infinicore::op::linear_w8a16(input_contiguous, weight, weight_scale, bias_opt);
+    }
     auto effective_weight_scale = weight_scale;
     if (std::fabs(alpha - 1.0f) > 1e-7f) {
         effective_weight_scale = infinicore::op::mul_scalar(weight_scale, static_cast<double>(alpha));
@@ -67,10 +91,12 @@ std::vector<SplitParam> CompressedTensors::split_params(
                           infinicore::nn::Parameter(
                               weight_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
                               narrow_dim, tp_rank, tp_size, s.num_shards)});
+        const int scale_dim =
+            (get_config().value("format", "") == "infinilm-w8a16") ? 1 : narrow_dim;
         result.push_back({s.prefix + ".weight_scale",
                           infinicore::nn::Parameter(
-                              scale_it->second->narrow({{static_cast<size_t>(narrow_dim), s.start, s.size}}),
-                              narrow_dim, tp_rank, tp_size, s.num_shards)});
+                              scale_it->second->narrow({{static_cast<size_t>(scale_dim), s.start, s.size}}),
+                              scale_dim, tp_rank, tp_size, s.num_shards)});
         if (bias_it != params.end()) {
             result.push_back({s.prefix + ".bias",
                               infinicore::nn::Parameter(
