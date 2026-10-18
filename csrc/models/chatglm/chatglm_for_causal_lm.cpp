@@ -38,6 +38,10 @@ std::shared_ptr<infinilm::config::ModelConfig> create_chatglm_model_config(
         config_json["rope_theta"] = 10000.0;
     }
 
+    if (!config_json.contains("partial_rotary_factor")) {
+        config_json["partial_rotary_factor"] = 0.5;
+    }
+
     // Use GPT-J style RoPE (interleaved dimensions) for chatglm, chatglm/GLM4 share same attention layer
     model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
 

@@ -191,19 +191,19 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_static_(const infinilm
     auto k_pe_rope = rotary_emb_->forward(runtime, k_pe->view({ntokens, 1, qk_rope_head_dim_}), pos_ids, true);
 
     auto q_latent = project_q_nope_to_latent_(runtime, q_nope);
-    const std::vector<infinilm::runtime::Tensor> tensor_13_inputs{q_latent, q_pe};
-    auto tensor_13_shape = tensor_13_inputs[0]->shape();
-    tensor_13_shape[2] = tensor_13_inputs[0]->size(2) + tensor_13_inputs[1]->size(2);
-    auto tensor_result_13 = infinilm::execution::cat_alloc(runtime, tensor_13_inputs, 2, tensor_13_shape);
-    auto query_states = tensor_result_13->view({batch_size, seq_len, num_attention_heads_, mla_head_dim_});
-    const std::vector<infinilm::runtime::Tensor> tensor_12_inputs{kv_norm->view({ntokens, 1, kv_lora_rank_}), k_pe_rope};
-    auto tensor_12_shape = tensor_12_inputs[0]->shape();
-    tensor_12_shape[2] = tensor_12_inputs[0]->size(2) + tensor_12_inputs[1]->size(2);
-    auto tensor_result_12 = infinilm::execution::cat_alloc(runtime, tensor_12_inputs, 2, tensor_12_shape);
-    auto key_states = tensor_result_12
+    const std::vector<infinilm::runtime::Tensor> query_parts{q_latent, q_pe};
+    auto query_shape = query_parts[0]->shape();
+    query_shape[2] = query_parts[0]->size(2) + query_parts[1]->size(2);
+    auto packed_query_states = infinilm::execution::cat_alloc(runtime, query_parts, 2, query_shape);
+    auto query_states = packed_query_states->view({batch_size, seq_len, num_attention_heads_, mla_head_dim_});
+    const std::vector<infinilm::runtime::Tensor> key_parts{kv_norm->view({ntokens, 1, kv_lora_rank_}), k_pe_rope};
+    auto key_shape = key_parts[0]->shape();
+    key_shape[2] = key_parts[0]->size(2) + key_parts[1]->size(2);
+    auto packed_key_states = infinilm::execution::cat_alloc(runtime, key_parts, 2, key_shape);
+    auto key_states = packed_key_states
                           ->view({batch_size, seq_len, 1, mla_head_dim_});
-    const std::vector<int> tensor_11_padding{0, static_cast<int>(qk_rope_head_dim_)};
-    auto value_states = infinilm::execution::pad_constant_alloc(runtime, kv_norm->view({batch_size, seq_len, 1, kv_lora_rank_}), tensor_11_padding, 0.0);
+    const std::vector<int> value_padding{0, static_cast<int>(qk_rope_head_dim_)};
+    auto value_states = infinilm::execution::pad_constant_alloc(runtime, kv_norm->view({batch_size, seq_len, 1, kv_lora_rank_}), value_padding, 0.0);
     INFINILM_TRACE_OP(Pad, value_states);
 
     auto attn_output = latent_attn_->forward(query_states, key_states, value_states, forward_context);
@@ -235,14 +235,14 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
     auto k_pe_rope = rotary_emb_->forward(runtime, k_pe->view({seq_len, 1, qk_rope_head_dim_}), pos_ids, true);
 
     auto q_latent = project_q_nope_to_latent_(runtime, q_nope);
-    const std::vector<infinilm::runtime::Tensor> tensor_10_inputs{q_latent, q_pe};
-    auto tensor_10_shape = tensor_10_inputs[0]->shape();
-    tensor_10_shape[2] = tensor_10_inputs[0]->size(2) + tensor_10_inputs[1]->size(2);
-    auto query_states = infinilm::execution::cat_alloc(runtime, tensor_10_inputs, 2, tensor_10_shape);
-    const std::vector<infinilm::runtime::Tensor> tensor_9_inputs{kv_norm->view({seq_len, 1, kv_lora_rank_}), k_pe_rope};
-    auto tensor_9_shape = tensor_9_inputs[0]->shape();
-    tensor_9_shape[2] = tensor_9_inputs[0]->size(2) + tensor_9_inputs[1]->size(2);
-    auto key_states = infinilm::execution::cat_alloc(runtime, tensor_9_inputs, 2, tensor_9_shape);
+    const std::vector<infinilm::runtime::Tensor> query_parts{q_latent, q_pe};
+    auto query_shape = query_parts[0]->shape();
+    query_shape[2] = query_parts[0]->size(2) + query_parts[1]->size(2);
+    auto query_states = infinilm::execution::cat_alloc(runtime, query_parts, 2, query_shape);
+    const std::vector<infinilm::runtime::Tensor> key_parts{kv_norm->view({seq_len, 1, kv_lora_rank_}), k_pe_rope};
+    auto key_shape = key_parts[0]->shape();
+    key_shape[2] = key_parts[0]->size(2) + key_parts[1]->size(2);
+    auto key_states = infinilm::execution::cat_alloc(runtime, key_parts, 2, key_shape);
     auto value_states = kv_norm->view({seq_len, 1, kv_lora_rank_});
 
     auto &attn_metadata = forward_context.attn_metadata;

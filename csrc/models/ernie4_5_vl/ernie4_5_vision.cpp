@@ -52,15 +52,15 @@ infinilm::runtime::Tensor cat_or_single(infinilm::runtime::Runtime &runtime,
     if (tensors.size() == 1) {
         return tensors[0];
     }
-    auto tensor_15_inputs = tensors;
-    const auto tensor_15_layout = infinilm::execution::tensor_checks::cat::analyze(runtime, tensor_15_inputs, dim);
-    auto tensor_15_shape = (*tensor_15_layout.reference)->shape();
-    tensor_15_shape[tensor_15_layout.axis] = tensor_15_layout.length;
-    auto tensor_result_15 = infinilm::runtime::Tensor::empty(runtime, tensor_15_shape, (*tensor_15_layout.reference)->dtype());
-    infinilm::execution::tensor_checks::cat::validate(runtime, tensor_result_15, tensor_15_inputs, tensor_15_layout);
-    tensor_15_inputs.erase(std::remove_if(tensor_15_inputs.begin(), tensor_15_inputs.end(), infinilm::execution::tensor_checks::cat::empty_vector), tensor_15_inputs.end());
-    if (tensor_result_15->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), tensor_15_inputs, static_cast<int64_t>(tensor_15_layout.axis), tensor_result_15);
-    return tensor_result_15;
+    auto inputs = tensors;
+    const auto layout = infinilm::execution::tensor_checks::cat::analyze(runtime, inputs, dim);
+    auto output_shape = (*layout.reference)->shape();
+    output_shape[layout.axis] = layout.length;
+    auto output = infinilm::runtime::Tensor::empty(runtime, output_shape, (*layout.reference)->dtype());
+    infinilm::execution::tensor_checks::cat::validate(runtime, output, inputs, layout);
+    inputs.erase(std::remove_if(inputs.begin(), inputs.end(), infinilm::execution::tensor_checks::cat::empty_vector), inputs.end());
+    if (output->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), inputs, static_cast<int64_t>(layout.axis), output);
+    return output;
 }
 
 } // namespace
@@ -461,13 +461,13 @@ infinilm::runtime::Tensor Ernie45ResamplerModel::forward(infinilm::runtime::Runt
         }
         auto x_first = cat_or_single(runtime, std::move(first_frames), 0);
         auto x_second = cat_or_single(runtime, std::move(second_frames), 0);
-        const std::vector<infinilm::runtime::Tensor> tensor_14_inputs{x_first, x_second};
-        auto tensor_14_shape = tensor_14_inputs[0]->shape();
-        tensor_14_shape[1] = tensor_14_inputs[0]->size(1) + tensor_14_inputs[1]->size(1);
-        auto tensor_result_14 = infinilm::runtime::Tensor::empty(runtime, tensor_14_shape, tensor_14_inputs[0]->dtype());
-        infinilm::execution::tensor_checks::cat::validate(runtime, tensor_result_14, tensor_14_inputs, {nullptr, 1, 0});
-        if (tensor_result_14->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), tensor_14_inputs, static_cast<int64_t>(1), tensor_result_14);
-        x = tensor_result_14;
+        const std::vector<infinilm::runtime::Tensor> merged_parts{x_first, x_second};
+        auto merged_shape = merged_parts[0]->shape();
+        merged_shape[1] = merged_parts[0]->size(1) + merged_parts[1]->size(1);
+        auto merged_tokens = infinilm::runtime::Tensor::empty(runtime, merged_shape, merged_parts[0]->dtype());
+        infinilm::execution::tensor_checks::cat::validate(runtime, merged_tokens, merged_parts, {nullptr, 1, 0});
+        if (merged_tokens->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), merged_parts, static_cast<int64_t>(1), merged_tokens);
+        x = merged_tokens;
         x = temporal_linear_0_->forward(runtime, x);
         {
             auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());

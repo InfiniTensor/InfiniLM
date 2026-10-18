@@ -130,6 +130,16 @@ private:
         infinilm::runtime::Tensor hidden_states,
         infinilm::global_state::ForwardContext &forward_context) const {
         infinilm::runtime::Tensor residual;
+        // PP sends an already-rounded sum; retain the interior layer's
+        // residual-present normalization path at the receiving stage.
+        if (!is_first_pp_stage() && !layers_.empty()) {
+            residual = infinilm::runtime::Tensor::empty(
+                *forward_context.runtime, hidden_states->shape(), hidden_states->dtype());
+            infinilm::execution::submit<infini::ops::Fill>(
+                *forward_context.runtime,
+                infini::ops::Fill::DefaultConfig(forward_context.runtime->device().type()),
+                residual, 0.0, residual);
+        }
         for (size_t i = 0; i < layers_.size(); ++i) {
             layers_.at(i)->forward(
                 positions, hidden_states, residual, forward_context);

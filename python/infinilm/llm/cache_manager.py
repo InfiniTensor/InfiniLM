@@ -347,8 +347,8 @@ class BlockManager:
         """NSA-only initial domain: private unpublished write pages, no batch sharing.
 
         Complete immutable prefix hits remain pinned; never implement COW by
-        changing a refcount/hash. Decode batch sharing is conservatively excluded
-        until physical compression writer deduplication is separately reviewed.
+        changing a refcount/hash. Decode batch sharing is excluded because
+        physical compression writers do not deduplicate shared pages.
         """
         if self._nsa_owner_clock is None:
             return

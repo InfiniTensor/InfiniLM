@@ -37,7 +37,7 @@ inline Plan make_plan(size_t batch, size_t length, size_t pool,
             throw std::invalid_argument("Mamba offsets must cover every input token");
         }
         // Existing scan is rectangular. Equal-length packed requests can be
-        // represented by a view; ragged requests need a separate reviewed path.
+        // represented by a view; ragged requests are not supported by this path.
         const size_t request_length = requests ? tokens / requests : 0;
         if ((requests == 0 && tokens != 0) || (requests && tokens % requests)) {
             throw std::invalid_argument("Mamba ragged packed input is not supported");

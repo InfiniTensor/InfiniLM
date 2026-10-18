@@ -386,11 +386,11 @@ infinilm::runtime::Tensor VideoNSAVisionModel::gather_rows_(infinilm::runtime::R
     }
     auto indices = infinilm::runtime::Tensor::empty(runtime, {rows, width}, infinilm::runtime::DataType::kInt64);
     runtime.memcpyH2D(indices->data(), flat_indices.data(), flat_indices.size() * sizeof(int64_t), false);
-    auto tensor_33_input = hidden_states->contiguous(runtime);
-    auto tensor_result_33 = infinilm::runtime::Tensor::empty(runtime, indices->shape(), tensor_33_input->dtype());
-    infinilm::execution::tensor_checks::take::validate(runtime, tensor_result_33, tensor_33_input, indices);
-    infinilm::execution::submit<infini::ops::Take>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Take::DefaultConfig(runtime.device().type()), tensor_33_input, indices, tensor_result_33);
-    return tensor_result_33;
+    auto contiguous_hidden_states = hidden_states->contiguous(runtime);
+    auto gathered_hidden_states = infinilm::runtime::Tensor::empty(runtime, indices->shape(), contiguous_hidden_states->dtype());
+    infinilm::execution::tensor_checks::take::validate(runtime, gathered_hidden_states, contiguous_hidden_states, indices);
+    infinilm::execution::submit<infini::ops::Take>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Take::DefaultConfig(runtime.device().type()), contiguous_hidden_states, indices, gathered_hidden_states);
+    return gathered_hidden_states;
 }
 
 infinilm::runtime::Tensor VideoNSAVisionModel::forward(infinilm::runtime::Runtime &runtime,

@@ -148,20 +148,20 @@ infinilm::runtime::Tensor KimiK25Attention::forward(const infinilm::runtime::Ten
         auto value = kv->narrow({{3, qk_nope_head_dim_, v_head_dim_}})->contiguous(runtime);
 
         rotary_emb_->forward(runtime, q_pe, pos_ids, true);
-        auto tensor_23_input = k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_});
-        auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, tensor_23_input, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len),
+        auto rotary_key_view = k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_});
+        auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len),
              static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
         rotary_emb_->forward(runtime, k_pe_heads, pos_ids, true);
-        const std::vector<infinilm::runtime::Tensor> tensor_22_inputs{q_nope, q_pe};
-        auto tensor_22_shape = tensor_22_inputs[0]->shape();
-        tensor_22_shape[3] = tensor_22_inputs[0]->size(3) + tensor_22_inputs[1]->size(3);
-        auto query = infinilm::execution::cat_alloc(runtime, tensor_22_inputs, 3, tensor_22_shape);
-        const std::vector<infinilm::runtime::Tensor> tensor_21_inputs{k_nope, k_pe_heads};
-        auto tensor_21_shape = tensor_21_inputs[0]->shape();
-        tensor_21_shape[3] = tensor_21_inputs[0]->size(3) + tensor_21_inputs[1]->size(3);
-        auto key = infinilm::execution::cat_alloc(runtime, tensor_21_inputs, 3, tensor_21_shape);
-        const std::vector<int> tensor_20_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
-        auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value, tensor_20_padding, 0.0);
+        const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
+        auto query_shape = query_parts[0]->shape();
+        query_shape[3] = query_parts[0]->size(3) + query_parts[1]->size(3);
+        auto query = infinilm::execution::cat_alloc(runtime, query_parts, 3, query_shape);
+        const std::vector<infinilm::runtime::Tensor> key_parts{k_nope, k_pe_heads};
+        auto key_shape = key_parts[0]->shape();
+        key_shape[3] = key_parts[0]->size(3) + key_parts[1]->size(3);
+        auto key = infinilm::execution::cat_alloc(runtime, key_parts, 3, key_shape);
+        const std::vector<int> value_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
+        auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value, value_padding, 0.0);
         INFINILM_TRACE_OP(Pad, value_padded);
         auto output = trim_value_padding(runtime, attn_->forward(query, key, value_padded, forward_context));
         return o_proj_->forward(runtime, output);
@@ -175,20 +175,20 @@ infinilm::runtime::Tensor KimiK25Attention::forward(const infinilm::runtime::Ten
     auto value = kv->narrow({{2, qk_nope_head_dim_, v_head_dim_}})->contiguous(runtime);
 
     rotary_emb_->forward(runtime, q_pe, pos_ids, true);
-    auto tensor_19_input = k_pe->view({seq_len, 1, qk_rope_head_dim_});
-    auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, tensor_19_input, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_),
+    auto rotary_key_view = k_pe->view({seq_len, 1, qk_rope_head_dim_});
+    auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_),
          static_cast<int64_t>(qk_rope_head_dim_)});
     rotary_emb_->forward(runtime, k_pe_heads, pos_ids, true);
-    const std::vector<infinilm::runtime::Tensor> tensor_18_inputs{q_nope, q_pe};
-    auto tensor_18_shape = tensor_18_inputs[0]->shape();
-    tensor_18_shape[2] = tensor_18_inputs[0]->size(2) + tensor_18_inputs[1]->size(2);
-    auto query = infinilm::execution::cat_alloc(runtime, tensor_18_inputs, 2, tensor_18_shape);
-    const std::vector<infinilm::runtime::Tensor> tensor_17_inputs{k_nope, k_pe_heads};
-    auto tensor_17_shape = tensor_17_inputs[0]->shape();
-    tensor_17_shape[2] = tensor_17_inputs[0]->size(2) + tensor_17_inputs[1]->size(2);
-    auto key = infinilm::execution::cat_alloc(runtime, tensor_17_inputs, 2, tensor_17_shape);
-    const std::vector<int> tensor_16_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
-    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value, tensor_16_padding, 0.0);
+    const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
+    auto query_shape = query_parts[0]->shape();
+    query_shape[2] = query_parts[0]->size(2) + query_parts[1]->size(2);
+    auto query = infinilm::execution::cat_alloc(runtime, query_parts, 2, query_shape);
+    const std::vector<infinilm::runtime::Tensor> key_parts{k_nope, k_pe_heads};
+    auto key_shape = key_parts[0]->shape();
+    key_shape[2] = key_parts[0]->size(2) + key_parts[1]->size(2);
+    auto key = infinilm::execution::cat_alloc(runtime, key_parts, 2, key_shape);
+    const std::vector<int> value_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
+    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value, value_padding, 0.0);
     INFINILM_TRACE_OP(Pad, value_padded);
     auto output = trim_value_padding(runtime, attn_->forward(query, key, value_padded, forward_context));
     return o_proj_->forward(runtime, output);

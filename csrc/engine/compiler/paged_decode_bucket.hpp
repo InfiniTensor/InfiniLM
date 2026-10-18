@@ -27,15 +27,15 @@ struct FinitePagedDecodeProfile {
     bool ordinary_kv_prepare{};
     bool unquantized{};
     bool half_dtype{};
-    bool reviewed_short_plan{};
+    bool short_decode_plan{};
     size_t head_dim{};
     size_t block_size{};
     size_t num_blocks{};
 };
 
-// New TP2 qualification is only the actually reviewed dense Qwen3 BF16 shape.
-// It does not generalize ordinary KV preparation to all MoE/custom families.
-inline bool reviewed_qwen3_tp2_finite_decode(
+// TP2 finite buckets currently require the Qwen3 BF16 geometry below.
+// MoE and custom families retain their original decode plans.
+inline bool supports_qwen3_tp2_finite_decode(
     int tp_size,int pp_size,std::string_view model_type,size_t hidden_size,
     size_t attention_heads,size_t kv_heads,size_t depth,size_t position_axes,
     bool bfloat16) {
@@ -48,7 +48,7 @@ inline bool supports_finite_paged_decode_bucket(const FinitePagedDecodeProfile &
     return profile.nvidia && profile.native_flash_decode
         && profile.tensor_parallel_qualified && profile.ordinary_kv_prepare
         && profile.unquantized && profile.half_dtype
-        && !profile.reviewed_short_plan && profile.head_dim == 128
+        && !profile.short_decode_plan && profile.head_dim == 128
         && profile.block_size == 256 && profile.num_blocks >= 2;
 }
 

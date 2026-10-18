@@ -136,10 +136,10 @@ infinilm::runtime::Tensor mean_pool_blocks(infinilm::runtime::Runtime &runtime, 
     for (size_t start = 0; start < seq_len; start += block_size) {
         const size_t len = std::min(block_size, seq_len - start);
         auto block = x->narrow({{0, start, len}});
-        const auto tensor_30_axes = infinilm::execution::tensor_checks::sum::normalized_dim(block, {0});
-        auto pooled = infinilm::runtime::Tensor::empty(runtime, infinilm::execution::tensor_checks::sum::reduced_shape(block, tensor_30_axes, false), block->dtype());
-        infinilm::execution::tensor_checks::sum::validate(runtime, pooled, block, tensor_30_axes, false);
-        infinilm::execution::submit<infini::ops::Sum>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Sum::DefaultConfig(runtime.device().type()), block, std::optional<std::vector<int64_t>>{std::vector<int64_t>(tensor_30_axes.begin(), tensor_30_axes.end())}, false, std::optional<infini::ops::DataType>{}, pooled);
+        const auto pooling_axes = infinilm::execution::tensor_checks::sum::normalized_dim(block, {0});
+        auto pooled = infinilm::runtime::Tensor::empty(runtime, infinilm::execution::tensor_checks::sum::reduced_shape(block, pooling_axes, false), block->dtype());
+        infinilm::execution::tensor_checks::sum::validate(runtime, pooled, block, pooling_axes, false);
+        infinilm::execution::submit<infini::ops::Sum>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Sum::DefaultConfig(runtime.device().type()), block, std::optional<std::vector<int64_t>>{std::vector<int64_t>(pooling_axes.begin(), pooling_axes.end())}, false, std::optional<infini::ops::DataType>{}, pooled);
         blocks.push_back(pooled->unsqueeze(0));
     }
     if (blocks.size() == 1) return blocks.front();
@@ -224,11 +224,10 @@ infinilm::runtime::Tensor expand_head_gate(infinilm::runtime::Runtime &runtime, 
     auto host = infinilm::runtime::Tensor::from_blob(expand_indices.data(), indices->shape(), indices->dtype(),
                                             infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     indices->copy_from(runtime, host); // host vector is consumed before returning
-    auto tensor_26_input = flat_gate;
-    auto tensor_result_26 = infinilm::runtime::Tensor::empty(runtime, indices->shape(), tensor_26_input->dtype());
-    infinilm::execution::tensor_checks::take::validate(runtime, tensor_result_26, tensor_26_input, indices);
-    infinilm::execution::submit<infini::ops::Take>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Take::DefaultConfig(runtime.device().type()), tensor_26_input, indices, tensor_result_26);
-    return tensor_result_26;
+    auto expanded_gate = infinilm::runtime::Tensor::empty(runtime, indices->shape(), flat_gate->dtype());
+    infinilm::execution::tensor_checks::take::validate(runtime, expanded_gate, flat_gate, indices);
+    infinilm::execution::submit<infini::ops::Take>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Take::DefaultConfig(runtime.device().type()), flat_gate, indices, expanded_gate);
+    return expanded_gate;
 }
 
 std::array<int, 3> read_mrope_section(const std::shared_ptr<infinilm::config::ModelConfig> &model_config) {
@@ -617,10 +616,10 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
         INFINILM_TRACE_OP(Sigmoid, ops_output);
         gates = std::move(ops_output);
     }
-    const auto tensor_24_axes = infinilm::execution::tensor_checks::sum::normalized_dim(gates, {2});
-    auto gate_sum = infinilm::runtime::Tensor::empty(runtime, infinilm::execution::tensor_checks::sum::reduced_shape(gates, tensor_24_axes, false), gates->dtype());
-    infinilm::execution::tensor_checks::sum::validate(runtime, gate_sum, gates, tensor_24_axes, false);
-    infinilm::execution::submit<infini::ops::Sum>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Sum::DefaultConfig(runtime.device().type()), gates, std::optional<std::vector<int64_t>>{std::vector<int64_t>(tensor_24_axes.begin(), tensor_24_axes.end())}, false, std::optional<infini::ops::DataType>{}, gate_sum); // [1, seq, heads]
+    const auto gate_sum_axes = infinilm::execution::tensor_checks::sum::normalized_dim(gates, {2});
+    auto gate_sum = infinilm::runtime::Tensor::empty(runtime, infinilm::execution::tensor_checks::sum::reduced_shape(gates, gate_sum_axes, false), gates->dtype());
+    infinilm::execution::tensor_checks::sum::validate(runtime, gate_sum, gates, gate_sum_axes, false);
+    infinilm::execution::submit<infini::ops::Sum>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Sum::DefaultConfig(runtime.device().type()), gates, std::optional<std::vector<int64_t>>{std::vector<int64_t>(gate_sum_axes.begin(), gate_sum_axes.end())}, false, std::optional<infini::ops::DataType>{}, gate_sum); // [1, seq, heads]
     auto gate_expanded = expand_head_gate(runtime, gate_sum, head_dim_);
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, nsa_heads->shape(), nsa_heads->dtype());

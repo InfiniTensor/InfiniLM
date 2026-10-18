@@ -95,6 +95,13 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     const auto &prefill = attn_metadata.static_prefill_host;
     const auto &window_size = layer.window_size();
     const bool finite_window = window_size[0] >= 0;
+    bool varlen_candidate = finite_window;
+#ifndef INFINICORE_MHA_VARLEN_OMITTED
+    varlen_candidate = varlen_candidate || (prefill && seq_len > 1
+        && kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE
+        && (q_rope->dtype() == infinilm::runtime::DataType::kFloat16
+            || q_rope->dtype() == infinilm::runtime::DataType::kBFloat16));
+#endif
     if (finite_window && seq_len > 1 && !prefill)
         throw std::invalid_argument("Static finite window requires validated prefill row/past/total metadata");
     if (prefill) {
@@ -144,7 +151,7 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         runtime,
         attn_metadata.first_total_sequence_length,
         attn_metadata.total_sequence_lengths);
-    if (finite_window && (batch_size == 0 || total_seq_len == 0
+    if (varlen_candidate && (batch_size == 0 || total_seq_len == 0
         || seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size
         || total_seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size))
         throw std::invalid_argument("Static finite window cumulative lengths exceed int32");
@@ -169,7 +176,7 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
     v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
 
-    if (finite_window) {
+    if (varlen_candidate) {
         // Flat, nonpaged Varlen: complete prefixes remain stored; only visibility changes.
         // GPU temporaries use the Runtime's existing same-stream allocator contract.
         // Only missing CPU offsets require synchronous H2D before host owner release.
@@ -201,19 +208,28 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         out_shape.back() = value_head_dim;
         out = infinilm::runtime::Tensor::empty(runtime, out_shape, Q->dtype());
 #ifndef INFINICORE_MHA_VARLEN_OMITTED
-        infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
-            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
-            infini::ops::Config::Automatic(),
+        const auto config = infini::ops::Config::Automatic();
+        auto arguments = std::make_tuple(
             Q, K, V, *cu_q, *cu_k,
             std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{},
             static_cast<int64_t>(seq_len), static_cast<int64_t>(total_seq_len),
             0.0, std::optional<double>{scale_}, true, window_size, 0.0, false, false,
             out, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
+        const bool supported = finite_window || std::apply([&](const auto &...args) {
+            return infini::ops::FlashAttnVarlenFunc::CanMake(
+                config, infinilm::execution::detail::view(args)...);
+        }, arguments);
+        if (supported) {
+            std::apply([&](const auto &...args) {
+                infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
+                    runtime, infinilm::execution::RecordingPolicy::DeviceOnly, config, args...);
+            }, arguments);
+            INFINILM_TRACE_OP(MultiheadAttentionVarlen, out);
+            return out->view({batch_size, seq_len, num_heads_ * value_head_dim});
+        }
 #else
         throw std::runtime_error("MhaVarlen is unavailable in the greedy_bootstrap build profile");
 #endif
-        INFINILM_TRACE_OP(MultiheadAttentionVarlen, out);
-        return out->view({batch_size, seq_len, num_heads_ * value_head_dim});
     }
 
     // Compute attention.

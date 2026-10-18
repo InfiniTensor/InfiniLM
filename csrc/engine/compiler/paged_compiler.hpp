@@ -36,7 +36,7 @@ FinitePagedDecodeProfile make_finite_paged_decode_profile(
 
 // Shared legacy short-plan eligibility. The finite FlashKV bucket policy
 // must not replace its established input selection with another plan family.
-bool uses_reviewed_short_decode_graph(
+bool uses_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
     infinilm::runtime::Device::Type device_type,

@@ -286,24 +286,7 @@ void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireSubmissionPolicy(runtime);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    bool capture_safe = false;
-    if (runtime.isGraphRecording()) {
-        infini::rt::DeviceGuard guard{runtime.device().type(), runtime.device().index()};
-        if (!guard.active()) {
-            throw std::runtime_error("AllReduce could not select its worker device");
-        }
-        int supported = 0;
-        const auto status = infinicclAllReduceIsCaptureSafe(communicator, &supported);
-        if (status != infinicclSuccess) {
-            throw std::runtime_error("AllReduce capture capability query failed with result "
-                                     + std::to_string(static_cast<int>(status)));
-        }
-        if (supported != 0 && supported != 1) {
-            throw std::runtime_error("AllReduce capture capability query returned invalid support value");
-        }
-        capture_safe = supported == 1;
-    }
-    submitCollective(runtime, output, input, capture_safe,
+    submitCollective(runtime, output, input, true,
         [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
             return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream);
         });

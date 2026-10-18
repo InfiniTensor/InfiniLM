@@ -61,8 +61,7 @@ void sample_request_token(
 #ifdef INFINICORE_RANDOM_SAMPLE_OMITTED
     throw std::runtime_error("sampling provider is omitted by the bootstrap build; only supported greedy Argmax inputs are available");
 #else
-    // Retain the published domain and pre-write checks; SDK51 does not cover
-    // request scalar validity or the LM single-row/output-scalar restriction.
+    // Validate request scalars and the LM single-row/output-scalar layout.
     INFINILM_ASSERT(device_type == Device::Type::kNvidia);
     INFINILM_ASSERT(logits->ndim() == 1 && logits->numel() > 0 && logits->is_contiguous());
     INFINILM_ASSERT(dtype == DataType::kFloat16 || dtype == DataType::kBFloat16
@@ -94,7 +93,7 @@ void sample_request_token(
         sampled_logits = scaled_logits;
     }
 
-    // These are SDK51 host control views, eagerly copied into provider staging.
+    // Host control views are eagerly copied into provider staging.
     // They are not Runtime-owned operands; the recording rejection above is required.
     int64_t top_k_value = greedy ? 1 : static_cast<int64_t>(top_k);
     float top_p_value = greedy ? 1.0f : top_p;

@@ -136,15 +136,6 @@ inline void validate_shape(const Shape &source, const Shape &target) {
     }
 }
 
-inline void validate_broadcast(Runtime &runtime, Tensor y, Tensor x) {
-    runtime.assertOwnerThread();
-    if (!x || !y || runtime.device() != x->device() ||
-        x->device() != y->device() || x->dtype() != y->dtype()) {
-        throw std::invalid_argument("BroadcastTo runtime, devices or dtypes differ");
-    }
-    validate_shape(x->shape(), y->shape());
-}
-
 inline Shape checked_shape(const std::vector<int64_t> &shape, size_t element_size) {
     Shape target;
     target.reserve(shape.size());

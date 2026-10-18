@@ -17,8 +17,6 @@ namespace infinilm::engine::distributed {
 // LM submission boundary: caller allocates the output and owns the topology.
 // Communicators are borrowed from CommunicationGroup. Models and all recorded
 // calls must be drained/destroyed before their group (InferEngine enforces this).
-// SDK51 exposes capture eligibility only for AllReduce; other calls remain
-// explicit host replay in the existing graph plan, never capture-qualified.
 void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
                 const infinilm::runtime::Tensor &input, infinicclRedOp_t op,
                 infinicclComm_t communicator);
@@ -32,7 +30,7 @@ void send(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &
 void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
            int peer, infinicclComm_t communicator);
 
-// EP split metadata stays in LM. SDK51 only supports uniform counts; unequal
+// EP split metadata stays in LM. Collectives require uniform counts; unequal
 // splits fail before any submission and never trigger a CPU fallback.
 void allgatherv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
                  const infinilm::runtime::Tensor &input,

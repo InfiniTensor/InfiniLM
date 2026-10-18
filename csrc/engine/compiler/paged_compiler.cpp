@@ -180,7 +180,7 @@ bool is_exact_baichuan_fixed_prefill_input(
             {0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
 }
 
-bool supports_reviewed_short_decode_graph(
+bool supports_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
     infinilm::runtime::Device::Type device_type,
@@ -249,12 +249,12 @@ bool optional_tensors_compatible(
 
 } // namespace
 
-bool uses_reviewed_short_decode_graph(
+bool uses_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
     infinilm::runtime::Device::Type device_type,
     const PagedGraphConfig &graph_config) {
-    return supports_reviewed_short_decode_graph(
+    return supports_short_decode_graph(
         paged_config, model_config, device_type, graph_config);
 }
 
@@ -269,8 +269,8 @@ FinitePagedDecodeProfile make_finite_paged_decode_profile(
     const size_t head_dim=model_config->get_or<size_t>(
         "head_dim",num_heads==0?0:hidden/num_heads);
     const auto dtype=model_config->get_dtype();
-    const bool reviewed_tp2=graph_config.tp_size==2 && graph_config.pp_size==1 &&
-        reviewed_qwen3_tp2_finite_decode(
+    const bool qwen3_tp2_finite_decode=graph_config.tp_size==2 && graph_config.pp_size==1 &&
+        supports_qwen3_tp2_finite_decode(
         graph_config.tp_size,graph_config.pp_size,
         model_config->get_or<std::string>("model_type",""),hidden,num_heads,
         model_config->get_or<size_t>("num_key_value_heads",0),
@@ -281,12 +281,12 @@ FinitePagedDecodeProfile make_finite_paged_decode_profile(
         device_type==infinilm::runtime::Device::Type::kNvidia,
         graph_config.attention_backend==backends::AttentionBackend::FLASH_ATTN ||
             graph_config.attention_backend==backends::AttentionBackend::PAGED_ATTN,
-        graph_config.tp_size==1 || reviewed_tp2,
+        graph_config.tp_size==1 || qwen3_tp2_finite_decode,
         ordinary_kv_prepare,
         model_config->get_quant_scheme()==quantization::QuantScheme::NONE &&
             model_config->get_kv_quant_scheme()==quantization::KVQuantAlgo::NONE,
         dtype==infinilm::runtime::DataType::kFloat16 || dtype==infinilm::runtime::DataType::kBFloat16,
-        uses_reviewed_short_decode_graph(paged_config,model_config,device_type,graph_config),
+        uses_short_decode_graph(paged_config,model_config,device_type,graph_config),
         head_dim,paged_config.block_size(),paged_config.num_blocks()
     };
 }
@@ -628,7 +628,7 @@ void PagedCompiler::compile() {
                          free_before, free_after);
         }
 
-        if (uses_reviewed_short_decode_graph(
+        if (uses_short_decode_graph(
                 *paged_config, model_->get_model_config().get(),
                 runtime_.device().type(), graph_config_)) {
             candidate_short_holder = infinilm::runtime::Tensor::empty(

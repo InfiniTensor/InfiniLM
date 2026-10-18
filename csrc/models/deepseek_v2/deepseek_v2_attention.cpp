@@ -144,20 +144,20 @@ infinilm::runtime::Tensor DeepseekV2Attention::forward_static_(const infinilm::r
         throw std::runtime_error("DeepseekV2Attention: unexpected position_ids shape");
     }
     q_pe = rotary_emb_->forward(runtime, q_pe, pos_ids, true);
-    auto tensor_8_input = k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_});
-    auto k_pe_broadcast = infinilm::execution::broadcast_materialized(runtime, tensor_8_input, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
+    auto rotary_key_view = k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_});
+    auto k_pe_broadcast = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
     k_pe_broadcast = rotary_emb_->forward(runtime, k_pe_broadcast, pos_ids, true);
 
-    const std::vector<infinilm::runtime::Tensor> tensor_7_inputs{q_nope, q_pe};
-    auto tensor_7_shape = tensor_7_inputs[0]->shape();
-    tensor_7_shape[3] = tensor_7_inputs[0]->size(3) + tensor_7_inputs[1]->size(3);
-    auto query_states = infinilm::execution::cat_alloc(runtime, tensor_7_inputs, 3, tensor_7_shape);
-    const std::vector<infinilm::runtime::Tensor> tensor_6_inputs{k_nope, k_pe_broadcast};
-    auto tensor_6_shape = tensor_6_inputs[0]->shape();
-    tensor_6_shape[3] = tensor_6_inputs[0]->size(3) + tensor_6_inputs[1]->size(3);
-    auto key_states = infinilm::execution::cat_alloc(runtime, tensor_6_inputs, 3, tensor_6_shape);
-    const std::vector<int> tensor_5_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
-    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value_states, tensor_5_padding, 0.0);
+    const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
+    auto query_shape = query_parts[0]->shape();
+    query_shape[3] = query_parts[0]->size(3) + query_parts[1]->size(3);
+    auto query_states = infinilm::execution::cat_alloc(runtime, query_parts, 3, query_shape);
+    const std::vector<infinilm::runtime::Tensor> key_parts{k_nope, k_pe_broadcast};
+    auto key_shape = key_parts[0]->shape();
+    key_shape[3] = key_parts[0]->size(3) + key_parts[1]->size(3);
+    auto key_states = infinilm::execution::cat_alloc(runtime, key_parts, 3, key_shape);
+    const std::vector<int> value_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
+    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value_states, value_padding, 0.0);
     INFINILM_TRACE_OP(Pad, value_padded);
 
     auto attn_output = attn_->forward(query_states, key_states, value_padded, forward_context);
@@ -191,20 +191,20 @@ infinilm::runtime::Tensor DeepseekV2Attention::forward_paged_(const infinilm::ru
 
     auto pos_ids = position_ids_for_rope_(runtime, position_ids);
     q_pe = rotary_emb_->forward(runtime, q_pe, pos_ids, true);
-    auto tensor_4_input = k_pe->view({seq_len, 1, qk_rope_head_dim_});
-    auto k_pe_broadcast = infinilm::execution::broadcast_materialized(runtime, tensor_4_input, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
+    auto rotary_key_view = k_pe->view({seq_len, 1, qk_rope_head_dim_});
+    auto k_pe_broadcast = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
     k_pe_broadcast = rotary_emb_->forward(runtime, k_pe_broadcast, pos_ids, true);
 
-    const std::vector<infinilm::runtime::Tensor> tensor_3_inputs{q_nope, q_pe};
-    auto tensor_3_shape = tensor_3_inputs[0]->shape();
-    tensor_3_shape[2] = tensor_3_inputs[0]->size(2) + tensor_3_inputs[1]->size(2);
-    auto query_states = infinilm::execution::cat_alloc(runtime, tensor_3_inputs, 2, tensor_3_shape);
-    const std::vector<infinilm::runtime::Tensor> tensor_2_inputs{k_nope, k_pe_broadcast};
-    auto tensor_2_shape = tensor_2_inputs[0]->shape();
-    tensor_2_shape[2] = tensor_2_inputs[0]->size(2) + tensor_2_inputs[1]->size(2);
-    auto key_states = infinilm::execution::cat_alloc(runtime, tensor_2_inputs, 2, tensor_2_shape);
-    const std::vector<int> tensor_1_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
-    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value_states, tensor_1_padding, 0.0);
+    const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
+    auto query_shape = query_parts[0]->shape();
+    query_shape[2] = query_parts[0]->size(2) + query_parts[1]->size(2);
+    auto query_states = infinilm::execution::cat_alloc(runtime, query_parts, 2, query_shape);
+    const std::vector<infinilm::runtime::Tensor> key_parts{k_nope, k_pe_broadcast};
+    auto key_shape = key_parts[0]->shape();
+    key_shape[2] = key_parts[0]->size(2) + key_parts[1]->size(2);
+    auto key_states = infinilm::execution::cat_alloc(runtime, key_parts, 2, key_shape);
+    const std::vector<int> value_padding{0, static_cast<int>(q_head_dim_ - v_head_dim_)};
+    auto value_padded = infinilm::execution::pad_constant_alloc(runtime, value_states, value_padding, 0.0);
     INFINILM_TRACE_OP(Pad, value_padded);
 
     auto attn_output = attn_->forward(query_states, key_states, value_padded, forward_context);
