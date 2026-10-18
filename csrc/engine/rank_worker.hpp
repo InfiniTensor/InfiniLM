@@ -144,6 +144,7 @@ public:
     std::unordered_map<std::string, infinilm::weights::Weight> state_dict();
 
     std::vector<std::string> state_dict_keys();
+    std::vector<std::string> state_required_keys();
 
     // Submit a run (forward + sampling) job.
     void run(const Input &args);

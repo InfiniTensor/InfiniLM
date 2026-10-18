@@ -13,7 +13,7 @@ Glm4DecoderLayer::Glm4DecoderLayer(infinilm::runtime::Runtime &runtime,
                                    const engine::distributed::RankInfo &rank_info,
                                    backends::AttentionBackend attention_backend,
                                    const layers::moe::EPConfig &ep_config) {
-    infinilm::models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    infinilm::models::validate_runtime_construction(model_config, runtime, rank_info);
     const auto &dtype = model_config->get_dtype();
     size_t hidden_size = model_config->get<size_t>("hidden_size");
     double rms_norm_eps = model_config->get<double>("rms_norm_eps");

@@ -9,7 +9,7 @@ from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
 from infinilm.distributed.pipeline_transport import PipelineControlServer
-from infinilm.infer_engine import InferEngine, model_uses_mamba_cache, read_hf_config
+from infinilm.infer_engine import InferEngine, read_hf_config
 from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
@@ -20,37 +20,6 @@ from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
 logger = logging.getLogger(__name__)
-
-
-def _validate_static_two_row_model(config: EngineConfig, hf_config: dict) -> None:
-    """Fail before native allocation for the initially qualified B1-row domain."""
-    if config.cache_type != "static" or config.static_cache_capacity != 2:
-        return
-    unsupported = (
-        hf_config.get("model_type") != "qwen3"
-        or config.device != "cuda"
-        or config.dtype not in ("float16", "bfloat16")
-        or hf_config.get("torch_dtype") not in ("float16", "bfloat16")
-        or config.max_cache_len <= 0
-        or config.max_cache_len % 256 != 0
-        or "text_config" in hf_config
-        or hf_config.get("quantization_config") is not None
-        or hf_config.get("kv_cache_dtype") not in (None, "auto")
-        or model_uses_mamba_cache(hf_config)
-        or any(layer != "full_attention"
-               for layer in (hf_config.get("layer_types") or []))
-        or config.attn_backend != "default"
-        or config.use_mla
-        or config.draft_model_path is not None
-        or config.pipeline_parallel_size != 1
-    )
-    if unsupported:
-        raise ValueError(
-            "static_cache_capacity=2 currently requires ordinary, unquantized "
-            "full-attention Qwen3 on NVIDIA float16/bfloat16 with a positive "
-            "256-aligned cache length, default attention, no Mamba/MTP/MLA, "
-            "and one pipeline stage"
-        )
 
 
 @dataclass
@@ -83,16 +52,12 @@ class ModelRunner:
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
-        if config.cache_type == "static" and config.static_cache_capacity == 2:
-            _validate_static_two_row_model(config, read_hf_config(config.model_path))
-
         self._nsa_paged_owner = (config.cache_type == "paged"
                                  and read_hf_config(config.model_path).get("model_type") == "videonsa")
-        if self._nsa_paged_owner and (config.enable_graph or config.draft_model_path is not None
-                or config.pipeline_parallel_size != 1 or config.kv_transfer_config is not None
-                or config.use_mla or config.device != "cuda" or config.dtype not in ("float16", "bfloat16")
-                or config.attn_backend not in ("paged-attn", "flash-attn")):
-            raise ValueError("NSA owner slice requires NVIDIA eager paged/flash text, no graph/draft/connector/PP/MLA")
+        if self._nsa_paged_owner and (
+            config.draft_model_path is not None or config.kv_transfer_config is not None
+        ):
+            raise ValueError("NSA request ownership does not support speculative decoding or KV transfer")
         self._init_device()
 
         # Initialize KV cache based on cache type
@@ -202,7 +167,7 @@ class ModelRunner:
             raise RuntimeError("NSA Scheduler binding requires one fresh NSA runner")
         from infinilm.llm.scheduler import Scheduler
 
-        if type(scheduler) is not Scheduler or scheduler._nsa_owner_clock is None:
+        if not isinstance(scheduler, Scheduler) or scheduler._nsa_owner_clock is None:
             raise TypeError("NSA runner requires the actual paged Scheduler")
         manager = scheduler.cache_manager
         if (manager._nsa_owner_clock is not scheduler._nsa_owner_clock
@@ -299,11 +264,12 @@ class ModelRunner:
         if self._nsa_paged_owner:
             freeze_model_input(self.model_engine, nsa_owner, model_input, infinicore)
 
-        if self.speculative_runner is not None:
-            if any(request.sampling_params.top_k != 1 for request in requests):
-                raise ValueError(
-                    "speculative decoding currently requires greedy request sampling"
-                )
+        if self.speculative_runner is not None and all(
+            request.sampling_params.top_k == 1
+            or request.sampling_params.top_p == 0.0
+            or request.sampling_params.temperature == 0.0
+            for request in requests
+        ):
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
         model_input["sampling_rows"] = [

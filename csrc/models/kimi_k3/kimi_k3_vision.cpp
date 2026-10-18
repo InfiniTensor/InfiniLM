@@ -1,6 +1,4 @@
-#ifndef INFINICORE_MHA_OMITTED
 #include <base/flash_attn_with_kvcache.h>
-#endif
 #include "execution/submit.hpp"
 #include "../../weights/weights.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
@@ -10,9 +8,7 @@
 #include "runtime/runtime.hpp"
 #include "kimi_k3_vision.hpp"
 
-#if !defined(INFINICORE_UPSAMPLE_OPS_UNAVAILABLE)
-#include <base/upsample_bilinear2d.h>
-#endif
+#include <base/upsample_bicubic2d.h>
 
 #include <cmath>
 #include <cstdint>
@@ -91,26 +87,20 @@ infinilm::runtime::Tensor KimiK3VisionPosEmbed::forward(infinilm::runtime::Runti
         return weight_->view({height_ * width_, hidden_size_});
     }
     auto nchw = weight_->permute({2, 0, 1})->unsqueeze(0);
-    // TODO(kimi_k3): Use bicubic interpolation to match the reference model
-    // once InfiniCore provides a bicubic upsample operator.
     runtime.assertOwnerThread();
     if (nchw->device() != runtime.device()) {
-        throw std::invalid_argument("UpsampleBilinear requires NCHW input on its Runtime device");
+        throw std::invalid_argument("UpsampleBicubic requires NCHW input on its Runtime device");
     }
     const std::vector<int64_t> output_size{static_cast<int64_t>(grid_h), static_cast<int64_t>(grid_w)};
     if (output_size[0] <= 0 || output_size[1] <= 0) {
-        throw std::invalid_argument("UpsampleBilinear output_size must contain positive H and W");
+        throw std::invalid_argument("UpsampleBicubic output_size must contain positive H and W");
     }
     auto resized = infinilm::runtime::Tensor::empty(runtime,
         {nchw->size(0), nchw->size(1), static_cast<size_t>(output_size[0]), static_cast<size_t>(output_size[1])},
         nchw->dtype());
-#if !defined(INFINICORE_UPSAMPLE_OPS_UNAVAILABLE)
-    infinilm::execution::submit<infini::ops::UpsampleBilinear2d>(
+    infinilm::execution::submit<infini::ops::UpsampleBicubic2d>(
         runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Config::Automatic(),
         nchw, output_size, false, std::optional<double>{}, std::optional<double>{}, resized);
-#else
-    throw std::runtime_error("UpsampleBilinear requires an InfiniOps prefix with UpsampleBilinear2d");
-#endif
     return resized->squeeze(0)
         ->permute({1, 2, 0})
         ->contiguous(runtime)
@@ -253,9 +243,6 @@ infinilm::runtime::Tensor KimiK3VisionBlock::forward(infinilm::runtime::Runtime 
     const infinilm::runtime::Tensor mha_value = v->unsqueeze(0);
     auto mha_output = infinilm::runtime::Tensor::empty(runtime, mha_query->shape(), mha_query->dtype());
     {
-#ifdef INFINICORE_MHA_OMITTED
-        throw std::runtime_error("ordinary MHA is unavailable in the greedy_bootstrap or InfiniOps-disabled build profile");
-#else
         const auto mha_config = infini::ops::FlashAttnWithKvcache::DefaultConfig(runtime.device().type());
         const std::optional<infinilm::runtime::Tensor> mha_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
@@ -265,7 +252,6 @@ infinilm::runtime::Tensor KimiK3VisionBlock::forward(infinilm::runtime::Runtime 
             false, std::vector<int64_t>{-1, -1}, double{0.0}, true, int64_t{0}, false,
             mha_output, mha_none);
         INFINILM_TRACE_OP(MultiheadAttention, mha_output);
-#endif
     }
     auto attn_output = mha_output->view({seq_len, num_heads_ * head_dim_});
     const auto ops_other = wo_->forward(runtime, attn_output);

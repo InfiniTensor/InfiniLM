@@ -63,7 +63,7 @@ class _RowLease:
 
 
 class StaticScheduler:
-    """Request scheduler for separate prefills and up to two-row decode.
+    """Request scheduler for separate prefills and batched decode over physical cache rows.
 
     Simplified scheduling logic:
     - Prefill is one request; two ready leases may decode together
@@ -79,8 +79,8 @@ class StaticScheduler:
         cache_capacity: int = 1,
         on_aborted_request=None,
     ):
-        if cache_capacity not in (1, 2):
-            raise ValueError("static cache capacity must be 1 or 2")
+        if isinstance(cache_capacity, bool) or not isinstance(cache_capacity, int) or cache_capacity < 1:
+            raise ValueError("static cache capacity must be a positive integer")
         self.waiting_queue = janus.Queue()
         self._queued_request_ids: set[int] = set()
         self._leases_by_row: dict[int, _RowLease] = {}
@@ -276,9 +276,8 @@ class StaticScheduler:
                 return None
             rows = sorted(self._leases_by_row)
             first_row = next((r for r in rows if r >= self._next_row), rows[0])
-            decode_rows = [first_row]
-            if self.cache_capacity == 2 and len(rows) == 2:
-                decode_rows.append(rows[0] if rows[1] == first_row else rows[1])
+            start = rows.index(first_row)
+            decode_rows = rows[start:] + rows[:start]
             requests = [self._leases_by_row[row].request for row in decode_rows]
             for row in decode_rows:
                 lease = self._leases_by_row[row]

@@ -8,9 +8,9 @@
 #include "runtime/runtime.hpp"
 #include <exception>
 #include <stdexcept>
-#include <typeinfo>
+#include <unordered_set>
 #include <limits>
-#include "qwen3/qwen3_for_causal_lm.hpp"
+
 #include "../parallel/topology.hpp"
 
 namespace infinilm {
@@ -132,16 +132,28 @@ std::vector<infinilm::runtime::Tensor> InfinilmModel::default_allocate_kv_cache_
 namespace {
 using Module = infinilm::weights::ModelWeights;
 void w4_require(bool ok, const char *message) { if (!ok) throw std::invalid_argument(message); }
-void w4_keys(const Module &owner, const std::vector<std::string> &keys) {
-    w4_require(owner.children().size() == keys.size(), "AWQ exact owner children count mismatch");
-    for (const auto &key : keys) w4_require(owner.children().count(key) == 1, "AWQ missing owner child");
-}
-template<class T> std::shared_ptr<T> w4_child(const Module &owner, const std::string &name) {
-    const auto it = owner.children().find(name);
-    w4_require(it != owner.children().end() && it->second && typeid(*it->second) == typeid(T),
-                "AWQ unsupported concrete owner child");
-    return std::static_pointer_cast<T>(it->second);
+void collect_w4(const Module &owner, quantization::QuantScheme scheme,
+                std::vector<std::shared_ptr<nn::BaseLinear>> &layers,
+                std::vector<std::shared_ptr<nn::BaseLinear>> &dense,
+                std::vector<std::shared_ptr<Module>> &hooks,
+                std::unordered_set<const Module *> &visited) {
+    for (const auto &child : owner.loading_children()) {
+        w4_require(bool(child), "Null loading module");
+        if (!visited.insert(child.get()).second) continue;
+        if (auto linear = std::dynamic_pointer_cast<nn::BaseLinear>(child)) {
+            if (linear->get_quantization()->get_quant_scheme() == quantization::QuantScheme::NONE)
+                dense.push_back(std::move(linear));
+            else {
+                w4_require(linear->get_quantization()->get_quant_scheme() == scheme, "Mixed W4 layer scheme");
+                layers.push_back(std::move(linear));
+            }
+        } else {
+            collect_w4(*child, scheme, layers, dense, hooks, visited);
+            // Nested models orchestrate traversal; they have no owner-local hook.
+            if (!std::dynamic_pointer_cast<InfinilmModel>(child)) hooks.push_back(child);
+        }
     }
+}
 }
 
 std::unique_ptr<quantization::W4ModelPlan> InfinilmModel::validate_w4_weights(
@@ -151,83 +163,39 @@ std::unique_ptr<quantization::W4ModelPlan> InfinilmModel::validate_w4_weights(
     runtime.assertOwnerThread();
     w4_require(runtime.graphCaptureState() == infinilm::execution::graph::GraphManager::CaptureState::kInactive,
                 "W4 validation requires inactive graph state");
-    w4_require(runtime.device().type() == infinilm::runtime::Device::Type::kNvidia, "AWQ requires NVIDIA Runtime");
     w4_require(!pre_transpose,
                 "W4 finalization does not support the legacy dense pre_transpose path");
-    using namespace models::qwen3;
     w4_require(model_config_ != nullptr, "W4 model config is required");
     const auto expected_scheme = model_config_->get_quant_scheme();
-    w4_require(typeid(*this) == typeid(Qwen3ForCausalLM) &&
-                model_config_->get<std::string>("model_type") == "qwen3" &&
-                (expected_scheme == quantization::QuantScheme::AWQ_W4A16 ||
-                 expected_scheme == quantization::QuantScheme::GPTQ_W4A16),
-                "W4 unsupported model owner family");
-    w4_require(runtime.device() == rank.device, "AWQ Runtime does not match current worker rank device");
-    if (expected_scheme == quantization::QuantScheme::GPTQ_W4A16) {
-        w4_require((rank.tp_size == 1 || rank.tp_size == 2) && rank.pp_size == 1 &&
-                   ep_backend == "disabled" && ep_size == 1,
-                   "GPTQ owner requires TP1/2, PP1 and disabled EP");
-    }
-    const auto range = parallel::Topology(rank.tp_size, rank.pp_size, rank.pp_stage)
-                           .layer_range(model_config_->get<size_t>("num_hidden_layers"));
-    const bool first = rank.pp_stage == 0, last = rank.pp_stage + 1 == rank.pp_size;
-    w4_require(range.second - range.first <= std::numeric_limits<size_t>::max() / 4,
-                "AWQ local coverage count overflow");
-    w4_keys(*this, last ? std::vector<std::string>{"model", "lm_head"} : std::vector<std::string>{"model"});
-    auto text = w4_child<Qwen3Model>(*this, "model");
-    std::vector<std::string> model_keys;
-    if (first) model_keys.push_back("embed_tokens");
-    if (last) model_keys.push_back("norm");
-    for (size_t i = range.first; i < range.second; ++i) model_keys.push_back("layers." + std::to_string(i));
-    w4_keys(*text, model_keys);
-    if (first) (void)w4_child<infinilm::layers::Embedding>(*text, "embed_tokens");
-    if (last) (void)w4_child<infinilm::layers::RMSNorm>(*text, "norm");
-    std::vector<std::shared_ptr<nn::BaseLinear>> layers;
-    layers.reserve((range.second - range.first) * 4);
-    for (size_t i = range.first; i < range.second; ++i) {
-        auto decoder = w4_child<Qwen3DecoderLayer>(*text, "layers." + std::to_string(i));
-        w4_keys(*decoder, {"input_layernorm", "post_attention_layernorm", "self_attn", "mlp"});
-        (void)w4_child<infinilm::layers::RMSNorm>(*decoder, "input_layernorm");
-        (void)w4_child<infinilm::layers::RMSNorm>(*decoder, "post_attention_layernorm");
-        auto attention = w4_child<Qwen3Attention>(*decoder, "self_attn");
-        w4_keys(*attention, {"q_norm", "k_norm", "o_proj"});
-        (void)w4_child<infinilm::layers::RMSNorm>(*attention, "q_norm");
-        (void)w4_child<infinilm::layers::RMSNorm>(*attention, "k_norm");
-        attention->append_w4_layers(layers, expected_scheme); // exact hidden QKV strong owner
-        layers.push_back(w4_child<nn::RowParallelLinear>(*attention, "o_proj"));
-        auto mlp = w4_child<Qwen3MLP>(*decoder, "mlp");
-        w4_keys(*mlp, {"down_proj"});
-        mlp->append_w4_layers(layers, expected_scheme); // exact hidden GateUp strong owner
-        layers.push_back(w4_child<nn::RowParallelLinear>(*mlp, "down_proj"));
-    }
-    w4_require(layers.size() == (range.second - range.first) * 4, "AWQ missing layer coverage");
-    std::shared_ptr<nn::BaseLinear> dense_head;
-    if (last) {
-        auto head = w4_child<nn::Linear>(*this, "lm_head");
-        w4_require(head->get_quantization()->get_quant_scheme() == quantization::QuantScheme::NONE,
-                    "AWQ lm_head must retain the existing dense owner");
-        dense_head = std::move(head);
-    }
+    w4_require(runtime.device() == rank.device, "W4 Runtime does not match worker device");
+    std::vector<std::shared_ptr<nn::BaseLinear>> layers, dense;
+    std::vector<std::shared_ptr<Module>> hooks;
+    std::unordered_set<const Module *> visited{this};
+    collect_w4(*this, expected_scheme, layers, dense, hooks, visited);
     // Constructor validates EVERY layer and duplicate before returning a plan;
     // no device allocation/repack, no raw callbacks and no noarg fused hook here.
-    auto plan = std::make_unique<quantization::W4ModelPlan>(expected_scheme, std::move(layers), std::move(dense_head));
+    auto plan = std::make_unique<quantization::W4ModelPlan>(expected_scheme, std::move(layers), std::move(dense), std::move(hooks));
     plan->validate_metadata(runtime); // all local entries before this rank's VALIDATE acknowledgement
     return plan;
 }
 
 void InfinilmModel::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
     runtime.assertOwnerThread();
-    for (const auto &[_, sub] : children()) {
-        process_weights_recursive_(sub.get(), runtime, pre_transpose);
+    std::unordered_set<const weights::ModelWeights *> visited{this};
+    for (const auto &sub : loading_children()) {
+        process_weights_recursive_(sub.get(), runtime, pre_transpose, visited);
     }
 }
 
 void InfinilmModel::process_weights_recursive_(infinilm::weights::ModelWeights *module,
-                                               infinilm::runtime::Runtime &runtime, bool pre_transpose) {
-    for (const auto &[_, sub] : module->children()) {
-        process_weights_recursive_(sub.get(), runtime, pre_transpose);
+                                               infinilm::runtime::Runtime &runtime, bool pre_transpose,
+                                               std::unordered_set<const weights::ModelWeights *> &visited) {
+    if (!module || !visited.insert(module).second) return;
+    for (const auto &sub : module->loading_children()) {
+        process_weights_recursive_(sub.get(), runtime, pre_transpose, visited);
     }
-    module->process_weights_after_loading(runtime, pre_transpose);
+    if (!dynamic_cast<InfinilmModel *>(module))
+        module->process_weights_after_loading(runtime, pre_transpose);
 }
 
 } // namespace infinilm

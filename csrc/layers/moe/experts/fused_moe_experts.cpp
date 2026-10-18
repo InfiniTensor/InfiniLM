@@ -61,8 +61,8 @@ FusedMoeExperts::FusedMoeExperts(infinilm::runtime::Runtime &runtime,
             {num_local_experts, intermediate_size_per_partition_ * 2, hidden_size_}, dtype);
         w2_weight_ = infinilm::weights::Weight(runtime,
             {num_local_experts, hidden_size_, intermediate_size_per_partition_}, dtype);
-        this->bind_weight("w13_weight", w13_weight_);
-        this->bind_weight("w2_weight", w2_weight_);
+        this->bind_derived_weight("w13_weight", w13_weight_);
+        this->bind_derived_weight("w2_weight", w2_weight_);
     for (size_t local_expert = 0; local_expert < num_local_experts; ++local_expert) {
         const size_t global_expert = expert_placement.local_expert_start + local_expert;
         auto gate_weight = w13_weight_

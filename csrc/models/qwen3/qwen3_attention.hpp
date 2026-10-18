@@ -19,18 +19,13 @@ public:
         const infinilm::runtime::Tensor &hidden_states,
         infinilm::global_state::ForwardContext &forward_context) const;
 
-    // Owner-local enumeration only; no new child/parameter registration.
-    void append_w4_layers(std::vector<std::shared_ptr<infinilm::nn::BaseLinear>> &layers,
-                          infinilm::quantization::QuantScheme expected_scheme) const {
-        if (!qkv_proj_ || typeid(*qkv_proj_) != typeid(infinilm::layers::linear::QKVParallelLinear) ||
-            qkv_proj_->get_quantization()->get_quant_scheme() != expected_scheme)
-            throw std::invalid_argument("Qwen3 hidden QKV must be exact homogeneous W4 owner");
-        layers.push_back(qkv_proj_);
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        result.push_back(qkv_proj_);
+        return result;
     }
 
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override {
-        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
-    }
+
 
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }

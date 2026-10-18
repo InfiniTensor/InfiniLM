@@ -43,6 +43,13 @@ DeepseekV2TopKRouter::DeepseekV2TopKRouter(infinilm::runtime::Runtime &runtime,
     num_experts_ = model_config->get<size_t>("num_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
     norm_topk_prob_ = model_config->get<bool>("norm_topk_prob");
+    // This router computes ungrouped softmax top-k with unit routing scale.
+    if (model_config->get_or<std::string>("scoring_func", "softmax") != "softmax"
+        || model_config->get_or<std::string>("topk_method", "greedy") != "greedy"
+        || model_config->get_or<double>("routed_scaling_factor", 1.0) != 1.0
+        || model_config->get_or<size_t>("n_group", 1) != 1
+        || model_config->get_or<size_t>("topk_group", 1) != 1)
+        throw std::invalid_argument("DeepseekV2TopKRouter implements ungrouped softmax top-k with unit routing scale");
 
         if (!num_experts_ || !num_experts_per_tok_ || num_experts_per_tok_ > num_experts_)
             throw std::invalid_argument("Deepseek router expert/topk geometry is invalid");
@@ -64,7 +71,7 @@ DeepseekV2TopKRouter::forward(infinilm::runtime::Runtime &runtime, const infinil
     auto router_indices = infinilm::runtime::Tensor::empty(runtime, {ntoken, num_experts_per_tok_}, infinilm::runtime::DataType::kInt32);
     auto topk_scratch = infinilm::runtime::Tensor::empty(runtime, router_scores->shape(), infinilm::runtime::DataType::kInt32);
     infinilm::execution::submit<infini::ops::TopkSoftmax>(
-        runtime, infinilm::execution::RecordingPolicy::Unqualified,
+        runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
         infini::ops::TopkSoftmax::DefaultConfig(runtime.device().type()),
         router_logits, std::optional<infinilm::runtime::Tensor>{},
         std::optional<infinilm::runtime::Tensor>{}, norm_topk_prob_,

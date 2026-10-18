@@ -1,8 +1,6 @@
 #include "attention_layer.hpp"
 #include "../../../execution/submit.hpp"
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
 #include <base/flash_attn_varlen_func.h>
-#endif
 #include "runtime/owner_drain_fail_stop.hpp"
 #include "runtime/utils.hpp"
 #include <stdexcept>
@@ -33,9 +31,13 @@ AttentionLayer::AttentionLayer(size_t num_heads,
         attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, kv_quant_scheme);
         break;
     case ::infinilm::backends::AttentionBackend::PAGED_ATTN:
+        if (kv_quant_scheme != infinilm::quantization::KVQuantAlgo::NONE)
+            throw std::invalid_argument("Paged Attention has no quantized-cache conversion path");
         attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
         break;
     case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
+        if (kv_quant_scheme != infinilm::quantization::KVQuantAlgo::NONE)
+            throw std::invalid_argument("Flash Attention has no quantized-cache conversion path");
         attn_backend_impl_ = std::make_shared<backends::FlashAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
         break;
     default:
@@ -57,8 +59,6 @@ infinilm::runtime::Tensor AttentionLayer::forward(
     auto &attn_metadata = forward_context.attn_metadata;
     auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
     auto &runtime = *forward_context.runtime;
-    if (window_size_[0] >= 0 && runtime.device().type() != infinilm::runtime::Device::Type::kNvidia)
-        throw std::invalid_argument("Finite attention window requires NVIDIA");
 
     return std::visit(
         [&](auto &impl_ptr) -> infinilm::runtime::Tensor {
@@ -115,7 +115,6 @@ void AttentionLayer::prefill_paged(
         || block_width <= static_cast<size_t>(std::numeric_limits<int>::max()) / page_size);
     const auto max_seqlen_k = block_width * page_size;
     INFINILM_ASSERT(q->size(0) <= static_cast<size_t>(std::numeric_limits<int>::max()));
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
     infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
         runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
         infini::ops::Config::Automatic(), q, k_cache, v_cache, cu_q, cum_seqlens_k_tensor,
@@ -123,9 +122,6 @@ void AttentionLayer::prefill_paged(
         static_cast<int64_t>(q->size(0)), static_cast<int64_t>(max_seqlen_k),
         0.0, std::optional<double>{scale}, true, std::vector<int64_t>{-1, -1}, 0.0, false, false,
         out, std::optional<Tensor>{}, std::optional<Tensor>{});
-#else
-    throw std::runtime_error("MhaVarlen is unavailable in the greedy_bootstrap build profile");
-#endif
     INFINILM_TRACE_OP(MultiheadAttentionVarlen, out);
     } catch (...) {
         try {

@@ -19,25 +19,6 @@ size_t static_graph_configured_page_size(
            : configured_page_size;
 }
 
-bool supports_static_graph_configuration(
-    const infinilm::cache::StaticKVCacheConfig &cache_config,
-    const infinilm::config::ModelConfig &model_config,
-    const infinilm::runtime::Device &device) {
-    if (device.type() != infinilm::runtime::Device::Type::kNvidia
-        || model_config.get_kv_quant_scheme() != infinilm::quantization::KVQuantAlgo::NONE) {
-        return false;
-    }
-    const auto dtype = model_config.get_kv_cache_dtype();
-    const auto head_dim = model_config.get_head_dim();
-    const size_t page_size = static_graph_configured_page_size(
-        cache_config, model_config);
-    return cache_config.max_batch_size() > 0
-        && (dtype == infinilm::runtime::DataType::kFloat16
-            || dtype == infinilm::runtime::DataType::kBFloat16)
-        && (head_dim == 64 || head_dim == 128)
-        && page_size > 0 && page_size % 256 == 0;
-}
-
 size_t require_static_graph_local_cache(
     infinilm::runtime::Runtime &runtime,
     size_t cache_capacity,
@@ -84,10 +65,8 @@ void StaticBatchingCompiler::compile() {
 
     const size_t cache_capacity = static_config->max_batch_size();
     const auto &model_config = model_->get_model_config();
-    if (!model_->supports_kv_only_prepare()
-        || !model_config
-        || !supports_static_graph_configuration(
-            *static_config, *model_config, runtime_.device())) {
+    if (!model_->supports_kv_only_prepare()) {
+        skip_unavailable_prepare("static graph prepare cannot restore this model's state");
         return;
     }
     const size_t cache_page_size = require_static_graph_local_cache(
@@ -103,6 +82,7 @@ void StaticBatchingCompiler::compile() {
         PrepareStateGuard prepare_state{
             runtime_, forward_context_, static_prepare_views(runtime_, forward_context_)};
         InfinilmModel::Input input;
+        try {
         input.input_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
         input.position_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
         input.past_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
@@ -151,6 +131,10 @@ void StaticBatchingCompiler::compile() {
         prepare_state.restore();
         candidate[std::make_tuple(b, 1)] = CompiledResult{
             std::move(input), std::make_tuple(graph, shared_output), std::move(metadata)};
+        } catch (...) {
+            try { runtime_.syncStream(); } catch (...) { std::terminate(); }
+            throw;
+        }
     }
     compiled_map_.swap(candidate);
 }

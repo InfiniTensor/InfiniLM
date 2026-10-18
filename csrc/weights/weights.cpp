@@ -120,6 +120,12 @@ std::vector<std::string> ModelWeights::state_dict_keys() const {
     for (const auto &[name, weight] : state_dict()) result.push_back(name);
     return result;
 }
+std::vector<std::string> ModelWeights::state_required_keys() const {
+    std::vector<std::string> result;
+    for (const auto &[name, weight] : state_dict())
+        if (weight.checkpoint_required()) result.push_back(name);
+    return result;
+}
 Weight &ModelWeights::resolve(const std::string &name) {
     auto local = local_weights_.find(name);
     if (local != local_weights_.end()) return local->second;

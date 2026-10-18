@@ -19,8 +19,6 @@ DeepseekV2DecoderLayer::DeepseekV2DecoderLayer(infinilm::runtime::Runtime &runti
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
         || (rank_info.tp_size > 1 && !rank_info.comm))
         throw std::invalid_argument("Invalid explicit Deepseek construction resources");
-    if (use_mla && model_config->get_or<size_t>("q_lora_rank", 0) != 0)
-        throw std::runtime_error("DeepseekV2MLAAttention: q_lora_rank is not supported yet");
     try {
     const auto &dtype{model_config->get_dtype()};
     const size_t hidden_size = model_config->get<size_t>("hidden_size");

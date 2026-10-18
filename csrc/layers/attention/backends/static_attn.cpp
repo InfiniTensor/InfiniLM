@@ -6,9 +6,7 @@
 #include "static_attn.hpp"
 #include "../../../utils.hpp"
 #include "attention_layer.hpp"
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
 #include <base/flash_attn_varlen_func.h>
-#endif
 #include "runtime/runtime.hpp"
 #include "../attention_checks.hpp"
 #include <cstring>
@@ -96,12 +94,10 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     const auto &window_size = layer.window_size();
     const bool finite_window = window_size[0] >= 0;
     bool varlen_candidate = finite_window;
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
     varlen_candidate = varlen_candidate || (prefill && seq_len > 1
         && kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE
         && (q_rope->dtype() == infinilm::runtime::DataType::kFloat16
             || q_rope->dtype() == infinilm::runtime::DataType::kBFloat16));
-#endif
     if (finite_window && seq_len > 1 && !prefill)
         throw std::invalid_argument("Static finite window requires validated prefill row/past/total metadata");
     if (prefill) {
@@ -207,7 +203,6 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         auto out_shape = Q->shape();
         out_shape.back() = value_head_dim;
         out = infinilm::runtime::Tensor::empty(runtime, out_shape, Q->dtype());
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
         const auto config = infini::ops::Config::Automatic();
         auto arguments = std::make_tuple(
             Q, K, V, *cu_q, *cu_k,
@@ -227,9 +222,6 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             INFINILM_TRACE_OP(MultiheadAttentionVarlen, out);
             return out->view({batch_size, seq_len, num_heads_ * value_head_dim});
         }
-#else
-        throw std::runtime_error("MhaVarlen is unavailable in the greedy_bootstrap build profile");
-#endif
     }
 
     // Compute attention.
@@ -370,10 +362,8 @@ bool StaticAttentionImpl::use_cache_decode_(
     q = q->view({query->size(0), 1, num_heads_, head_dim_});
     out = infinilm::runtime::Tensor::empty(runtime, q->shape(), q->dtype());
     bool attention_supported = false;
-#ifndef INFINICORE_MHA_KVCACHE_OMITTED
     const auto kv_bound = window_size[0] >= 0 ? metadata.logical_kv_upper_bound : 0;
     if (kv_bound <= static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
-        infinilm::layers::attention::detail::check_kvcache_window(out, window_size);
         infini::ops::FlashAttnWithKvcacheConfig kv_config(static_cast<int64_t>(kv_bound));
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infini::ops::Tensor> kv_none;
@@ -387,7 +377,6 @@ bool StaticAttentionImpl::use_cache_decode_(
             kv_none, std::optional<double>{scale_}, true, window_size, double{0.0}, true,
             int64_t{0}, false, infinilm::execution::detail::view(out), kv_none);
     }
-#endif
     choice.fused = attention_supported
         && [&]() {
             if (infini::ops::ReshapeAndCacheFlash::active_implementation_indices(runtime.device().type()).empty()) return false;
@@ -447,13 +436,10 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward_decode_(
     ASSERT(q_decode->ndim() == 3 && output->shape() == q_decode->shape());
     const auto kv_query = q_decode->unsqueeze(1);
     const auto kv_output = output->unsqueeze(1);
-#ifdef INFINICORE_MHA_KVCACHE_OMITTED
-    throw std::runtime_error("MhaKVCache is unavailable in the greedy_bootstrap build profile");
-#else
     const auto kv_window = window_size;
     const auto kv_bound = infinilm::layers::attention::detail::check_kvcache(
         runtime, kv_output, kv_query, k_cache, v_cache, attn_metadata.total_sequence_lengths.value(), attn_metadata.block_tables.value(),
-        std::nullopt, window_size[0] >= 0 ? attn_metadata.logical_kv_upper_bound : 0, kv_window);
+        std::nullopt, window_size[0] >= 0 ? attn_metadata.logical_kv_upper_bound : 0);
     infini::ops::FlashAttnWithKvcacheConfig kv_config(kv_bound);
     kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
     const std::optional<infinilm::runtime::Tensor> kv_none;
@@ -465,7 +451,6 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward_decode_(
         std::optional<double>{scale_}, true, kv_window, double{0.0}, true,
         int64_t{0}, false, kv_output, kv_none);
     INFINILM_TRACE_OP(MhaKVCache, kv_output);
-#endif
 
     return output->view({query->size(0), 1, num_heads_ * head_dim_});
 }

@@ -20,7 +20,7 @@ KimiK3ForConditionalGeneration::KimiK3ForConditionalGeneration(
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     model_config_ = model_config;
         owner_tp_size_=rank_info.tp_size;owner_pp_size_=rank_info.pp_size;owner_pp_stage_=rank_info.pp_stage;
@@ -87,7 +87,6 @@ void KimiK3ForConditionalGeneration::replace_image_embeddings(
 InfinilmModel::Output KimiK3ForConditionalGeneration::forward(
     const Input &input, global_state::ForwardContext &forward_context) const {
     forward_context.require_runtime().assertOwnerThread();
-    throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (!input.pixel_values.has_value() || input.pixel_values->empty()
         || !language_model_->model().is_first_pp_stage()) {
         return language_model_->forward(input, forward_context);

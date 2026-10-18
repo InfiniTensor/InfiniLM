@@ -30,18 +30,6 @@ std::uint64_t issue_nsa_pool_epoch() {
 }
 
 
-bool is_internal_moe_packed_weight(const std::string &key) {
-    constexpr const char *suffixes[] = {
-        ".mlp.experts.w13_weight", ".mlp.experts.w2_weight",
-        ".mlp.experts.w1", ".mlp.experts.w2"};
-    for (const auto *suffix : suffixes) {
-        const auto length = std::char_traits<char>::length(suffix);
-        if (key.size() >= length && key.compare(key.size() - length, length, suffix) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
 
 std::string weight_key_error(const char *kind, std::vector<std::string> keys) {
     std::sort(keys.begin(), keys.end());
@@ -137,18 +125,6 @@ InferEngine::InferEngine(
         throw std::invalid_argument("weight_load_mode must be either 'async' or 'sync'");
     }
     if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
-        // These backends register both canonical InfiniOps flash-attention
-        // providers used by the paged prefill and decode paths below.
-        if (device_type != infinilm::runtime::Device::Type::kNvidia
-            && device_type != infinilm::runtime::Device::Type::kMetax
-            && device_type != infinilm::runtime::Device::Type::kMoore
-            && device_type != infinilm::runtime::Device::Type::kCambricon
-            && device_type != infinilm::runtime::Device::Type::kIluvatar
-            && device_type != infinilm::runtime::Device::Type::kHygon
-            && device_type != infinilm::runtime::Device::Type::kAscend) {
-            throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, and Ascend devices");
-        }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {
             throw std::invalid_argument(
@@ -158,10 +134,8 @@ InferEngine::InferEngine(
             throw std::invalid_argument(
                 "flash-attn requires at least one paged KV cache block");
         }
-        if (paged_cache_config->block_size() == 0
-            || paged_cache_config->block_size() % 256 != 0) {
-            throw std::invalid_argument(
-                "flash-attn requires a nonzero paged KV cache block size divisible by 256");
+        if (paged_cache_config->block_size() == 0) {
+            throw std::invalid_argument("flash-attn requires a nonzero paged KV cache block size");
         }
     }
     if (cache_config != nullptr) {
@@ -170,82 +144,6 @@ InferEngine::InferEngine(
 
     // Load model config if model_path is provided, model_path must be valid, and config.json exists
     this->model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
-    const auto public_model_type = model_config_->get<std::string>("model_type");
-    if (public_model_type == "mistral") {
-        const auto *static_cache = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config_.get());
-        const auto *paged_cache = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get());
-        const bool static_layout = attention_backend_ == backends::AttentionBackend::STATIC_ATTN
-            && static_cache && static_cache->max_cache_len() == 256;
-        const bool paged_layout = attention_backend_ == backends::AttentionBackend::FLASH_ATTN
-            && paged_cache && paged_cache->block_size() == 256;
-        if (device_type != infinilm::runtime::Device::Type::kNvidia
-            || distributed_config.tp_device_ids.size() != 1
-            || distributed_config.pp_size != 1 || distributed_config.pp_stage != 0
-            || distributed_config.moe_ep_backend != "disabled" || distributed_config.moe_ep_size != 1
-            || enable_graph_compiling || pre_transpose || use_mla || kv_cache_dtype.has_value()
-            || (!static_layout && !paged_layout))
-            throw std::invalid_argument("Public Mistral requires NVIDIA TP1/PP1, disabled EP, eager static256 or flash/paged256 attention, pre_transpose=false and NONE KV quantization; MLA is unsupported");
-    }
-    if (public_model_type == "qwen3_moe" || public_model_type == "deepseek"
-        || public_model_type == "mamba" || public_model_type == "ernie4_5_moe_vl") {
-        if (device_type != infinilm::runtime::Device::Type::kNvidia
-            || distributed_config.tp_device_ids.size() != 1
-            || distributed_config.pp_size != 1 || distributed_config.pp_stage != 0
-            || distributed_config.moe_ep_backend != "disabled" || distributed_config.moe_ep_size != 1
-            || enable_graph_compiling || pre_transpose || use_mla || kv_cache_dtype.has_value()
-            || attention_backend_ != backends::AttentionBackend::STATIC_ATTN
-            || dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config_.get()) == nullptr) {
-            throw std::invalid_argument(
-                std::string("Public ") + (public_model_type == "deepseek" ? "Deepseek"
-                    : public_model_type == "mamba" ? "Mamba"
-                    : public_model_type == "ernie4_5_moe_vl" ? "Ernie" : "Qwen3MoE")
-                + " requires NVIDIA TP1/PP1, disabled EP, static KV cache, "
-                  "eager execution, pre_transpose=false and NONE KV quantization; MLA is unsupported");
-        }
-    }
-    if (public_model_type == "ernie4_5_moe_vl"
-        && dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config_.get())->max_cache_len() != 256)
-        throw std::invalid_argument("Public Ernie text requires static cache length256");
-    const auto quant_scheme = model_config_->get_quant_scheme();
-    if (quant_scheme == quantization::QuantScheme::AWQ_W4A16
-        || quant_scheme == quantization::QuantScheme::GPTQ_W4A16) {
-        if (device_type != infinilm::runtime::Device::Type::kNvidia
-            || distributed_config.tp_device_ids.size() != 1
-            || distributed_config.pp_size != 1 || distributed_config.pp_stage != 0
-            || distributed_config.moe_ep_backend != "disabled" || distributed_config.moe_ep_size != 1
-            || enable_graph_compiling || pre_transpose || use_mla || kv_cache_dtype.has_value()
-            || model_config_->get_kv_quant_scheme() != quantization::KVQuantAlgo::NONE)
-            throw std::invalid_argument(
-                std::string("Public ")
-                + (quant_scheme == quantization::QuantScheme::AWQ_W4A16 ? "AWQ" : "GPTQ")
-                + " requires NVIDIA TP1/PP1, disabled EP, eager execution, "
-                  "pre_transpose=false and NONE KV quantization; MLA is unsupported");
-    }
-    if (attention_backend_ == backends::AttentionBackend::FLASH_ATTN) {
-        const auto dtype = model_config_->get_dtype();
-        if (dtype != infinilm::runtime::DataType::kFloat16
-            && dtype != infinilm::runtime::DataType::kBFloat16) {
-            throw std::invalid_argument(
-                "flash-attn requires a float16 or bfloat16 model dtype");
-        }
-        const size_t head_dim = model_config_->get_head_dim();
-        if (head_dim == 0 || head_dim > 256 || head_dim % 8 != 0) {
-            throw std::invalid_argument(
-                "flash-attn requires head_dim to be a positive multiple of 8 no greater than 256");
-        }
-        if (device_type == infinilm::runtime::Device::Type::kMoore
-            && head_dim != 64
-            && head_dim != 128) {
-            throw std::invalid_argument(
-                "flash-attn on Moore requires head_dim to be 64 or 128");
-        }
-        if (device_type == infinilm::runtime::Device::Type::kIluvatar
-            && head_dim != 64
-            && head_dim != 128) {
-            throw std::invalid_argument(
-                "flash-attn on Iluvatar requires head_dim to be 64 or 128");
-        }
-    }
     auto infinilm_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
         attention_backend,
         this->model_config_,
@@ -261,29 +159,11 @@ InferEngine::InferEngine(
     if (model_config_->get<std::string>("model_type") == "videonsa"
         && dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get()) != nullptr)
     {
-        const auto *paged = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get());
-        if (enable_graph_compiling || distributed_config.pp_size != 1 || use_mla
-            || device_type != infinilm::runtime::Device::Type::kNvidia || !paged->block_size()
-            || paged->block_size() % 64 || !paged->num_blocks()
-            || paged->block_size() > 2147483647u || paged->num_blocks() > 2147483647u
-            || model_config_->get_head_dim() != 128
-            || (model_config_->get_dtype() != infinilm::runtime::DataType::kFloat16
-                && model_config_->get_dtype() != infinilm::runtime::DataType::kBFloat16)
-            || model_config_->get_quant_scheme() != quantization::QuantScheme::NONE
-            || model_config_->get_kv_quant_scheme() != quantization::KVQuantAlgo::NONE
-            || (attention_backend_ != backends::AttentionBackend::PAGED_ATTN
-                && attention_backend_ != backends::AttentionBackend::FLASH_ATTN))
-            throw std::invalid_argument("NSA owner slice excludes graph/PP/MLA/quantization and unsupported cache geometry");
         nsa_pool_epoch_ = issue_nsa_pool_epoch();
     }
     // Create one RankWorker per rank
     int local_tp_size = communication_group_.tp_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)local_tp_size);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3") {
-        if (enable_graph_compiling || distributed_config.pp_size != 1 || local_tp_size != 1
-            || device_type != infinilm::runtime::Device::Type::kNvidia)
-            throw std::invalid_argument("KDA owner slice requires NVIDIA eager TP1 PP1");
-    }
     workers_.reserve(local_tp_size);
     try {
         for (int r = 0; r < local_tp_size; ++r) {
@@ -394,8 +274,12 @@ void InferEngine::process_weights_after_loading() {
         const std::unordered_set<std::string> expected(expected_keys.begin(), expected_keys.end());
         std::vector<std::string> missing;
         std::vector<std::string> unexpected;
-        for (const auto &key : expected_keys) {
-            if (!loaded_weight_keys_.count(key) && !is_internal_moe_packed_weight(key)) {
+        std::unordered_set<std::string> required;
+        for (auto &worker : workers_) {
+            for (const auto &key : worker->state_required_keys()) required.insert(key);
+        }
+        for (const auto &key : required) {
+            if (!loaded_weight_keys_.count(key)) {
                 missing.push_back(key);
             }
         }
@@ -411,8 +295,6 @@ void InferEngine::process_weights_after_loading() {
         const auto scheme = model_config_->get_quant_scheme();
         if (scheme == infinilm::quantization::QuantScheme::AWQ_W4A16 ||
             scheme == infinilm::quantization::QuantScheme::GPTQ_W4A16) {
-            if (model_config_->get<std::string>("model_type") != "qwen3")
-                throw std::invalid_argument("W4 finalization supports only exact Qwen3 owner family");
             // Every worker rejects unsupported/mixed coverage before ANY stage.
             for (auto &worker : workers_) worker->validate_w4_weights();
             for (auto &worker : workers_) worker->prepare_w4_weights();
@@ -574,8 +456,6 @@ InferEngine::Input::to_model_input(
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (weight_state_ == WeightState::Failed
         || weight_state_ == WeightState::Finalizing
         || (weight_state_ == WeightState::Loading && weight_load_started_)) {
@@ -637,8 +517,6 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
 
 void InferEngine::compile() {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (nsa_pool_epoch_) throw std::invalid_argument("NSA owner slice excludes COMPILE before state mutation");
     if (weight_state_ == WeightState::Loading) {
         return;
@@ -655,7 +533,6 @@ void InferEngine::compile() {
 }
 
 void InferEngine::compile_workers() {
-    if (model_config_->get<std::string>("model_type") == "kimi_k3") return; // Unsupported K3 must not enter graph preparation.
     if (nsa_pool_epoch_) return; // weight finalization/reset must not enter COMPILE
     for (auto &worker : workers_) {
         worker->compile();
@@ -746,8 +623,6 @@ std::uint64_t InferEngine::get_nsa_pool_epoch() {
 
 std::vector<std::vector<infinilm::runtime::Tensor>> InferEngine::get_kv_cache() {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (nsa_pool_epoch_) throw std::invalid_argument("NSA borrowed KV writers are outside owner slice");
     std::vector<std::vector<infinilm::runtime::Tensor>> kv_cache_list;
     if (workers_.empty()) {

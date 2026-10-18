@@ -24,6 +24,12 @@ struct KimiK3Mxfp4MoeWeights {
 
 class KimiK3MLP : public infinilm::weights::ModelWeights {
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (gate_up_proj_) result.push_back(gate_up_proj_);
+        return result;
+    }
+
     KimiK3MLP(
     infinilm::runtime::Runtime &runtime,
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
@@ -31,7 +37,7 @@ public:
     const engine::distributed::RankInfo &rank_info);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
+
 
 private:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;

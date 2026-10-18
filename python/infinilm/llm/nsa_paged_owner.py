@@ -3,7 +3,7 @@
 No device readbacks or host-success completion inference. First domain excludes
 connectors, speculative rewrite, multimodal, graphs and shared one-tail prefixes.
 """
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from threading import get_ident
 
 U64_MAX = (1 << 64) - 1
@@ -20,7 +20,7 @@ class OwnerClock:
     """One scheduler-owned counter; no identity registry.
 
     Bind on first mutation, since scheduler construction may precede its thread.
-    pool_epoch is a required Root-issued/bound token, never id() or constant 1.
+    pool_epoch is a required native pool binding, never id() or constant 1.
     A replacement Scheduler needs a new binding and invalidates old NSA state.
     """
     def __init__(self, pool_epoch):
@@ -44,8 +44,7 @@ class OwnerClock:
 def claim_first(clock, request):
     """Call ONLY after existing _claim_request ownership checks, owner is None.
 
-    Existing active-object claims must skip this hook. These fields are proposed
-    declarations on InferenceRequest, not existing production members.
+    Existing active-object claims must skip this hook.
     """
     if request._nsa_incarnation != 0 or request._nsa_prefix_revision != 0:
         raise RuntimeError("request already issued")
@@ -58,18 +57,10 @@ def allocation_before_reset(clock, block):
     """Call after free-front/refcount checks but BEFORE popleft/reset/used.add.
 
     Only actual allocation issues this token. Pin/publish/free retaining a hash
-    must not call it. Root adds allocation_generation = 0 in Block.__init__.
+    must not call it.
     """
     generation, = clock.issue()
     block.allocation_generation = generation
-
-
-def revision_before_rewrite(clock, request):
-    if request._nsa_incarnation == 0:
-        raise RuntimeError("unclaimed request rewrite")
-    revision, = clock.issue()
-    request._nsa_prefix_revision = revision
-    # A failed/partial rewrite stays invalidated. Never roll this token back.
 
 
 @dataclass(frozen=True)
@@ -86,7 +77,6 @@ class OwnerRow:
     total: int
     pages: tuple[Page, ...]
     slots: tuple[int, ...]
-    external_writer_pending: bool = False
 
 
 @dataclass(frozen=True)
@@ -150,8 +140,8 @@ def _validate(pool_epoch, page_size, page_count, rows, upload):
     for i, row in enumerate(rows):
         integer(row.incarnation, 1, U64_MAX, "incarnation")
         integer(row.revision, 1, U64_MAX, "revision")
-        if row.incarnation in seen or row.external_writer_pending:
-            raise ValueError("duplicate owner or external writer")
+        if row.incarnation in seen:
+            raise ValueError("duplicate owner")
         seen.add(row.incarnation)
         integer(row.past, 0, I32_MAX - 1, "past")
         integer(row.total, 1, I32_MAX, "total")
@@ -196,27 +186,11 @@ def freeze_snapshot(pool_epoch, page_size, page_count, rows, upload):
     # Reconstruct immutable owner values: never retain mutable request lists.
     rows = tuple(OwnerRow(r.incarnation, r.revision, r.past, r.total,
                           tuple(Page(p.physical, p.generation) for p in r.pages),
-                          tuple(r.slots), r.external_writer_pending) for r in rows)
+                          tuple(r.slots)) for r in rows)
     upload = cpu_value(upload.past, upload.total, upload.offsets,
                        upload.tables, upload.slots, upload.cu)
     _validate(pool_epoch, page_size, page_count, rows, upload)
     return Snapshot(pool_epoch, page_size, page_count, rows, upload)
-
-
-def bind_effective_upload(snapshot, actual_local, actual_effective):
-    """Worker preflight BEFORE compiler/to_model_input/cache write.
-
-    Check exact original upload, then approved CPU bucket normalization. Padding
-    and width may change; active pages/rows/slots/lengths must match. Root owns
-    transformation and retention of the actual effective CPU tensor snapshot.
-    """
-    if actual_local != snapshot.upload:
-        raise ValueError("submitted CPU metadata changed after freeze")
-    _validate(snapshot.pool_epoch, snapshot.page_size, snapshot.page_count,
-              snapshot.rows, actual_effective)
-    return replace(snapshot, upload=cpu_value(
-        actual_effective.past, actual_effective.total, actual_effective.offsets,
-        actual_effective.tables, actual_effective.slots, actual_effective.cu))
 
 
 @dataclass(frozen=True)

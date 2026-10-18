@@ -36,6 +36,12 @@ protected:
     infinilm::runtime::Device device_;
 
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) result.push_back(qkv_proj_);
+        return result;
+    }
+
     KimiK3DeltaAttention(infinilm::runtime::Runtime &runtime,
                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
                          size_t layer_idx,

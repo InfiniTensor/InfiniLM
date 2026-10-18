@@ -340,7 +340,7 @@ GPT2ForCausalLM::GPT2ForCausalLM(infinilm::runtime::Runtime &runtime,
                                  std::shared_ptr<infinilm::config::ModelConfig> config,
                                  const engine::distributed::RankInfo &rank,
                                  backends::AttentionBackend backend, const layers::moe::EPConfig &ep) {
-    validate_runtime_construction(config, runtime, rank, backend, ep);
+    validate_runtime_construction(config, runtime, rank);
     model_config_ = config;
     const auto &dtype = config->get_dtype();
     const size_t hidden_size = config->get<size_t>("hidden_size");

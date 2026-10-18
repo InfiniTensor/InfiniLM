@@ -37,7 +37,7 @@ public:
 
     TextModel(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
                      const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
         try {
 
         const auto &dtype{model_config->get_dtype()};

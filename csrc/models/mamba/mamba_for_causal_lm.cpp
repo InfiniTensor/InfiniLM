@@ -193,7 +193,7 @@ MambaMixer::MambaMixer(infinilm::runtime::Runtime &runtime,
                        backends::AttentionBackend attention_backend,
                        const layers::moe::EPConfig &ep_config)
     : layer_idx_(layer_idx) {
-    models::validate_runtime_construction(config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(config, runtime, rank_info);
     const auto &dtype = config->get_dtype();
     const size_t hidden_size = config->get<size_t>("hidden_size");
     intermediate_size_ = config->get<size_t>("intermediate_size");
@@ -322,10 +322,12 @@ MambaBlock::MambaBlock(infinilm::runtime::Runtime &runtime,
                        size_t layer_idx, const engine::distributed::RankInfo &rank_info,
                        backends::AttentionBackend attention_backend,
                        const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(config, runtime, rank_info);
     const auto &dtype = config->get_dtype();
     const size_t hidden_size = config->get<size_t>("hidden_size");
     const double eps = config->get<double>("layer_norm_epsilon");
+    if (config->get_or<bool>("residual_in_fp32", true) && dtype != infinilm::runtime::DataType::kFloat32)
+        throw std::invalid_argument("MambaBlock FP32 residual accumulation is not implemented for reduced-precision hidden states");
     try {
         norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_ )>>(runtime, hidden_size, eps, dtype));
         mixer_ = this->bind_child("mixer", std::make_shared<std::remove_reference_t<decltype(*mixer_ )>>(runtime, config, layer_idx, rank_info, attention_backend, ep_config));
@@ -345,8 +347,6 @@ infinilm::runtime::Tensor MambaBlock::forward(const infinilm::runtime::Tensor &h
     auto &runtime = *forward_context.runtime;
     runtime.assertOwnerThread();
     auto residual = hidden_states;
-    // In the public all-FP32 profile this already honors residual_in_fp32;
-    // reduced-dtype residual conversion is a separate provider qualification.
     auto x = norm_->forward(runtime, hidden_states);
     x = mixer_->forward(x, forward_context, route);
     auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
@@ -361,7 +361,7 @@ MambaModel::MambaModel(infinilm::runtime::Runtime &runtime,
                        const engine::distributed::RankInfo &rank_info,
                        backends::AttentionBackend attention_backend,
                        const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(config, runtime, rank_info);
     const auto &dtype = config->get_dtype();
     const size_t vocab_size = config->get<size_t>("vocab_size");
     const size_t hidden_size = config->get<size_t>("hidden_size");
@@ -439,7 +439,7 @@ MambaForCausalLM::MambaForCausalLM(infinilm::runtime::Runtime &runtime,
                                    const engine::distributed::RankInfo &rank_info,
                                    backends::AttentionBackend attention_backend,
                                    const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(config, runtime, rank_info);
     model_config_ = config;
     const auto &dtype = config->get_dtype();
     const size_t hidden_size = config->get<size_t>("hidden_size");

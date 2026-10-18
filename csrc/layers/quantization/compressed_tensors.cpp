@@ -59,14 +59,10 @@ infinilm::runtime::Tensor CompressedTensors::forward(
         input_contiguous = input->contiguous(runtime);
     if (std::fabs(alpha - 1.0f) > 1e-7f) {
             effective_weight_scale = infinilm::runtime::Tensor::empty(runtime, weight_scale->shape(), weight_scale->dtype());
-#ifdef INFINICORE_MUL_SCALAR_OPS_UNAVAILABLE
-            throw std::runtime_error("MulScalar requires an InfiniOps MulScalar provider");
-#else
             infinilm::execution::submit<infini::ops::MulScalar>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::MulScalar::DefaultConfig(runtime.device().type()),
                 weight_scale, static_cast<double>(alpha), effective_weight_scale);
-#endif
             INFINILM_TRACE_OP(MulScalar, effective_weight_scale);
     }
         if (input_contiguous->ndim() == 0 || weight->ndim() != 2 ||

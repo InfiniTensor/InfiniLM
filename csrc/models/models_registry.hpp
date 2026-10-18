@@ -68,16 +68,9 @@ const std::map<std::string, ConfigCreator> &get_model_config_map();
  * @tparam ModelT Runtime-first model type, with exactly one complete constructor signature.
  * @tparam ConfigCreatorFn Type of a function like `create_qwen3_model_config` (for `decltype`).
  */
-void validate_selected_construction(const std::shared_ptr<config::ModelConfig> &config,
-                                   infinilm::runtime::Runtime &runtime,
-                                   const engine::distributed::RankInfo &rank,
-                                   const layers::moe::EPConfig &ep);
-
 void validate_runtime_construction(const std::shared_ptr<config::ModelConfig> &config,
                                   infinilm::runtime::Runtime &runtime,
-                                  const engine::distributed::RankInfo &rank,
-                                  backends::AttentionBackend backend,
-                                  const layers::moe::EPConfig &ep);
+                                  const engine::distributed::RankInfo &rank);
 
 inline void validate_dense_construction_metadata(
     const std::shared_ptr<config::ModelConfig> &model_config, const char *family) {

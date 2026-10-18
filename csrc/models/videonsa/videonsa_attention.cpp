@@ -186,9 +186,6 @@ infinilm::runtime::Tensor grouped_dense_attention(infinilm::runtime::Runtime &ru
             std::optional<infinilm::runtime::Tensor>{}, std::optional<float>{scale},
             std::optional<float>{0.0F}, std::optional<int>{}, std::optional<int>{}, scores);
         INFINILM_TRACE_OP(Gemm, scores);
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Softmax>(
             runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), scores, std::int64_t{-1}, std::optional<infini::ops::DataType>{}, scores);
         auto out_shape = scores->shape();
@@ -312,6 +309,8 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
         || forward_context.nsa_owner->invocation != nsa_prepared_invocation_))
         throw std::invalid_argument("NSA raw write requires complete worker/model preflight");
     const bool can_use_paged_decode_nsa = is_paged && has_paged_metadata && is_decode;
+    if (can_use_paged_decode_nsa)
+        throw std::runtime_error("Paged NSA decode requires InfiniOps compressed-cache and attention operators");
     if (can_use_paged_decode_nsa && !nsa_prepared_tail_)
         throw std::invalid_argument("NSA one-tail evidence differs from actual model shape");
     const bool can_use_fast_prefill = is_flash_attn
@@ -380,9 +379,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
         auto gate_hidden = g_proj_1_->forward(runtime, hidden_states_mutable);
         {
             auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate_hidden->shape(), gate_hidden->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Silu>(
                 runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), gate_hidden, ops_output);
             gate_hidden = std::move(ops_output);
@@ -392,9 +388,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
         gates = local_head_gates(gates, 3, total_num_attention_heads_, num_attention_heads_, tp_rank_);
         {
             auto ops_output = infinilm::runtime::Tensor::empty(runtime, gates->shape(), gates->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Sigmoid>(
                 runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gates, ops_output);
             INFINILM_TRACE_OP(Sigmoid, ops_output);
@@ -425,23 +418,14 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
             // Experimental scattered path: selected-block attention reuses the compressed output
             // to keep this branch expressible with existing dense ops only.
             auto comp_part = infinilm::runtime::Tensor::empty(runtime, comp_heads->shape(), comp_heads->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Mul>(
                 runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), comp_heads, g_cmp, comp_part);
             INFINILM_TRACE_OP(Mul, comp_part);
             auto sel_part = infinilm::runtime::Tensor::empty(runtime, comp_heads->shape(), comp_heads->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Mul>(
                 runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), comp_heads, g_sel, sel_part);
             INFINILM_TRACE_OP(Mul, sel_part);
             auto win_part = infinilm::runtime::Tensor::empty(runtime, win_heads->shape(), win_heads->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Mul>(
                 runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), win_heads, g_win, win_part);
             INFINILM_TRACE_OP(Mul, win_part);
@@ -509,85 +493,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     auto k_cache_for_nsa = k_cache_layer->permute({0, 2, 1, 3});
     auto v_cache_for_nsa = v_cache_layer->permute({0, 2, 1, 3});
 
-    if (can_use_paged_decode_nsa) {
-        auto gate_hidden = g_proj_1_->forward(runtime, hidden_states_mutable);
-        {
-            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate_hidden->shape(), gate_hidden->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-            infinilm::execution::submit<infini::ops::Silu>(
-                runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), gate_hidden, ops_output);
-            gate_hidden = std::move(ops_output);
-        }
-        auto gates = g_proj_2_->forward(runtime, gate_hidden);
-        gates = gates->view({seq_len, 3, total_num_attention_heads_});
-        gates = local_head_gates(gates, 2, total_num_attention_heads_, num_attention_heads_, tp_rank_);
-        {
-            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gates->shape(), gates->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
-            infinilm::execution::submit<infini::ops::Sigmoid>(
-                runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gates, ops_output);
-            INFINILM_TRACE_OP(Sigmoid, ops_output);
-            gates = std::move(ops_output);
-    }
-
-#ifndef INFINICORE_NSA_OPS_UNAVAILABLE
-        const auto &nsa_k_cmp = nsa_k_cmp_cache_.value();
-        const auto &nsa_v_cmp = nsa_v_cmp_cache_.value();
-        const auto &nsa_block_tables = attn_metadata.block_tables.value();
-        const auto &nsa_kv_lens = attn_metadata.total_sequence_lengths.value();
-        // Temporary pre-write contract until the actual public Ops provider covers it.
-        if (!infini::ops::NsaCompressPagedCache::valid_invocation(
-                infinilm::execution::detail::view(k_cache_for_nsa),
-                infinilm::execution::detail::view(v_cache_for_nsa),
-                infinilm::execution::detail::view(nsa_block_tables),
-                infinilm::execution::detail::view(nsa_kv_lens),
-                static_cast<int>(kNsaBlockSize), nsa_update_last_only_,
-                infinilm::execution::detail::view(nsa_k_cmp),
-                infinilm::execution::detail::view(nsa_v_cmp)))
-            throw std::invalid_argument("NsaCompressPagedCache: invalid storage/alias");
-        infinilm::execution::submit<infini::ops::NsaCompressPagedCache>(
-            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
-            infini::ops::NsaCompressPagedCache::DefaultConfig(runtime.device().type()),
-            k_cache_for_nsa, v_cache_for_nsa, nsa_block_tables, nsa_kv_lens,
-            static_cast<int>(kNsaBlockSize), nsa_update_last_only_, nsa_k_cmp, nsa_v_cmp);
-        INFINILM_TRACE_OP(NsaCompressPagedCache, nsa_k_cmp);
-#else
-        throw std::runtime_error("NsaCompressPagedCache: native InfiniOps provider is unavailable in this build");
-#endif
-        nsa_lane_.compression_enqueued(); // only successful native submission
-
-        auto nsa_heads = infinilm::runtime::Tensor::empty(runtime, {seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype());
-#ifndef INFINICORE_NSA_OPS_UNAVAILABLE
-        // Temporary pre-write contract until the actual public Ops provider covers it.
-        if (!infini::ops::NsaPagedAttention::valid_invocation(
-                infinilm::execution::detail::view(q_reshaped),
-                infinilm::execution::detail::view(nsa_k_cmp),
-                infinilm::execution::detail::view(nsa_v_cmp),
-                infinilm::execution::detail::view(k_cache_for_nsa),
-                infinilm::execution::detail::view(v_cache_for_nsa),
-                infinilm::execution::detail::view(nsa_block_tables),
-                infinilm::execution::detail::view(nsa_kv_lens),
-                infinilm::execution::detail::view(gates),
-                scale, static_cast<int>(kNsaBlockSize), int{256}, kNsaSelectBlocks,
-                infinilm::execution::detail::view(nsa_heads)))
-            throw std::invalid_argument("NsaPagedAttention: invalid storage/alias");
-        infinilm::execution::submit<infini::ops::NsaPagedAttention>(
-            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
-            infini::ops::NsaPagedAttention::DefaultConfig(runtime.device().type()),
-            q_reshaped, nsa_k_cmp, nsa_v_cmp, k_cache_for_nsa, v_cache_for_nsa,
-            nsa_block_tables, nsa_kv_lens, gates, scale,
-            static_cast<int>(kNsaBlockSize), int{256}, kNsaSelectBlocks, nsa_heads);
-        INFINILM_TRACE_OP(NsaPagedAttention, nsa_heads);
-#else
-        throw std::runtime_error("NsaPagedAttention: native InfiniOps provider is unavailable in this build");
-#endif
-        auto attn_output = nsa_heads->view({1, seq_len, num_attention_heads_ * head_dim_});
-        return o_proj_->forward(runtime, attn_output);
-    }
 
     auto k_cmp = mean_pool_blocks(runtime, k_reshaped, kNsaBlockSize);
     auto v_cmp = mean_pool_blocks(runtime, v_reshaped, kNsaBlockSize);
@@ -596,9 +501,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     auto gate_hidden = g_proj_1_->forward(runtime, hidden_states_mutable);
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate_hidden->shape(), gate_hidden->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Silu>(
             runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), gate_hidden, ops_output);
         gate_hidden = std::move(ops_output);
@@ -608,9 +510,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     gates = local_head_gates(gates, 3, total_num_attention_heads_, num_attention_heads_, tp_rank_);
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, gates->shape(), gates->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Sigmoid>(
             runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gates, ops_output);
         INFINILM_TRACE_OP(Sigmoid, ops_output);
@@ -623,9 +522,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     auto gate_expanded = expand_head_gate(runtime, gate_sum, head_dim_);
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, nsa_heads->shape(), nsa_heads->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Mul>(
             runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), nsa_heads, gate_expanded, ops_output);
         INFINILM_TRACE_OP(Mul, ops_output);
@@ -641,22 +537,20 @@ void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &contex
         throw std::invalid_argument("VideoNSA requires worker-scoped owner proof");
     auto &runtime = *context.runtime;
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording() || runtime.device().type() != infinilm::runtime::Device::Type::kNvidia
+    if (runtime.isGraphRecording()
         || (attention_backend_ != backends::AttentionBackend::PAGED_ATTN
             && attention_backend_ != backends::AttentionBackend::FLASH_ATTN))
-        throw std::invalid_argument("VideoNSA owner slice requires NVIDIA eager paged attention");
+        throw std::invalid_argument("VideoNSA owner requires eager paged attention");
     const auto &proof = *context.nsa_owner;
     const auto &s = proof.owner;
-    if (!num_key_value_heads_ || !num_attention_heads_ || num_key_value_heads_ > 65535
-        || num_attention_heads_ > 65535 || num_attention_heads_ % num_key_value_heads_)
-        throw std::invalid_argument("VideoNSA local heads outside native launch domain");
+    if (!num_key_value_heads_ || !num_attention_heads_ || num_attention_heads_ % num_key_value_heads_)
+        throw std::invalid_argument("VideoNSA local attention heads must be divisible by KV heads");
     if (layer_idx_ >= context.kv_cache_vec.size() || !context.kv_cache_vec[layer_idx_])
         throw std::invalid_argument("VideoNSA raw backing absent");
     const auto &raw = context.kv_cache_vec[layer_idx_];
     if (raw->device() != runtime.device() || raw->ndim() != 5 || !raw->is_contiguous() || raw->size(0) != 2
         || raw->size(1) != s.page_count || raw->size(2) != s.page_size
-        || raw->size(3) != num_key_value_heads_ || raw->size(4) != head_dim_ || head_dim_ != 128
-        || (raw->dtype() != infinilm::runtime::DataType::kFloat16 && raw->dtype() != infinilm::runtime::DataType::kBFloat16))
+        || raw->size(3) != num_key_value_heads_ || raw->size(4) != head_dim_)
         throw std::invalid_argument("VideoNSA raw backing/view does not match owner geometry");
     if (nsa_backing_epoch_ == s.pool_epoch && nsa_raw_lease_) {
         const auto &old = nsa_raw_lease_.value();
@@ -701,8 +595,6 @@ void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &contex
         evidence.rows.push_back(std::move(row));
     }
     nsa_update_last_only_ = nsa_lane_.begin(std::move(evidence)); // BEFORE ANY layer raw write
-    if (!nsa_update_last_only_ && s.upload.table_width > 65535 / (s.page_size / 64))
-        throw std::invalid_argument("VideoNSA FULL uploaded width outside native launch domain");
     nsa_prepared_tail_ = true;
 }
 

@@ -40,6 +40,7 @@ private:
 class Weight final {
 public:
     Weight() = default;
+    bool checkpoint_required() const noexcept { return checkpoint_required_; }
     Weight(const Tensor &tensor, Size tp_dim = 0, Size tp_rank = 0,
            Size tp_size = 1, Size num_shards = 0);
     Weight(Runtime &runtime, const Shape &shape, const DataType &dtype,
@@ -58,6 +59,7 @@ public:
     void load_no_sync(Runtime &runtime, const Tensor &source);
 private:
     friend class ModelWeights;
+    bool checkpoint_required_ = true;
     Tensor tensor_;
     Size tp_dim_ = 0, tp_rank_ = 0, tp_size_ = 1, num_shards_ = 0;
     Tensor select_source(Runtime &runtime, const Tensor &source) const;
@@ -71,6 +73,7 @@ public:
     virtual ~ModelWeights() = default;
     std::unordered_map<std::string, Weight> state_dict() const;
     std::vector<std::string> state_dict_keys() const;
+    std::vector<std::string> state_required_keys() const;
     void load_parameter(Runtime &runtime, const std::string &name, const Tensor &source);
     void load_parameters_no_sync(Runtime &runtime,
                                  const std::unordered_map<std::string, Tensor> &sources,
@@ -78,10 +81,20 @@ public:
     const std::unordered_map<std::string, std::shared_ptr<ModelWeights>> &children() const {
         return child_weights_;
     }
+    // Loading owners include fused projections that do not add checkpoint prefixes.
+    virtual std::vector<std::shared_ptr<ModelWeights>> loading_children() const {
+        std::vector<std::shared_ptr<ModelWeights>> result;
+        for (const auto &[_, child] : child_weights_) result.push_back(child);
+        return result;
+    }
     // Model traversal visits bound children first; hooks do not revisit them.
     virtual void process_weights_after_loading(Runtime &, bool) {}
 protected:
     Tensor bind_weight(const std::string &name, Weight weight);
+    Tensor bind_derived_weight(const std::string &name, Weight weight) {
+        weight.checkpoint_required_ = false;
+        return bind_weight(name, std::move(weight));
+    }
     template <class T>
     std::shared_ptr<T> bind_child(const std::string &name, std::shared_ptr<T> child) {
         static_assert(std::is_base_of<ModelWeights, T>::value,

@@ -9,9 +9,7 @@
 #include <limits>
 #include "../../../utils.hpp"
 #include "../attention_checks.hpp"
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
 #include <base/flash_attn_varlen_func.h>
-#endif
 #include "runtime/runtime.hpp"
 
 namespace infinilm::layers::attention::backends {
@@ -81,7 +79,6 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
     auto attn_output = infinilm::runtime::Tensor::empty(
         runtime, {seq_len, num_heads_, head_dim_}, query->dtype());
     if (is_prefill) {
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
             infini::ops::Config::Automatic(),
@@ -90,9 +87,6 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
             static_cast<int64_t>(attn_metadata.max_query_length), static_cast<int64_t>(attn_metadata.max_sequence_length),
             0.0, std::optional<double>{scale_}, true, layer.window_size(), 0.0, false, false,
             attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
-#else
-        throw std::runtime_error("MhaVarlen is unavailable in the greedy_bootstrap build profile");
-#endif
         INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
     } else {
         // FA2 decode path: flash::mha_fwd_kvcache
@@ -101,13 +95,10 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
         // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
         auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
         auto attn_out_4d = attn_output->view({seq_len, 1, num_heads_, head_dim_});
-#ifdef INFINICORE_MHA_KVCACHE_OMITTED
-        throw std::runtime_error("MhaKVCache is unavailable in the greedy_bootstrap build profile");
-#else
         const auto kv_window = layer.window_size();
         const auto kv_bound = infinilm::layers::attention::detail::check_kvcache(
             runtime, attn_out_4d, q_for_fa, k_total, v_total, total_sequence_lengths.value(), block_tables.value(),
-            std::nullopt, attn_metadata.logical_kv_upper_bound, kv_window);
+            std::nullopt, attn_metadata.logical_kv_upper_bound);
         infini::ops::FlashAttnWithKvcacheConfig kv_config(kv_bound);
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infinilm::runtime::Tensor> kv_none;
@@ -119,7 +110,6 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
             std::optional<double>{scale_}, true, kv_window, double{0.0}, true,
             int64_t{0}, false, attn_out_4d, kv_none);
         INFINILM_TRACE_OP(MhaKVCache, attn_out_4d);
-#endif
     }
     return attn_output->view({1, seq_len, num_heads_ * head_dim_});
 }

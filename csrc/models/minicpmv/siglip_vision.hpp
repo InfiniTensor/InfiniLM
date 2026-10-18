@@ -48,6 +48,12 @@ private:
 
 class SiglipAttention : public infinilm::weights::ModelWeights {
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) result.push_back(qkv_proj_);
+        return result;
+    }
+
     SiglipAttention(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
                     const infinilm::runtime::DataType &dtype);
 

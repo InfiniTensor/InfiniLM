@@ -3,6 +3,8 @@
 #include <exception>
 #pragma once
 
+#include "../../global_state/forward_context.hpp"
+
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "runtime/device.hpp"
@@ -58,7 +60,7 @@ public:
 
     TextCausalLM(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
                      const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
         const auto head_output_dtype = detail::prepare_lm_head_output_dtype(
             *model_config, runtime.device(), model_config->get_dtype());
         int32_t shift_value = -1;

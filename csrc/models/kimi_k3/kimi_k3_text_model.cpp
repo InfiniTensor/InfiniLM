@@ -24,7 +24,7 @@ KimiK3TextModel::KimiK3TextModel(
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     std::shared_ptr<KimiK3DecoderLayer> pending_child;
     try {
         dtype_ = model_config->get_dtype();
@@ -176,9 +176,6 @@ infinilm::runtime::Tensor KimiK3TextModel::apply_output_attn_res(
         {{1, 0, block_residual_count + 1}});
     auto normalized = output_attn_res_norm_->forward(runtime, values);
     auto scores = output_attn_res_proj_->forward(runtime, normalized);
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Softmax>(
         runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), scores, std::int64_t{1}, std::optional<infini::ops::DataType>{}, scores);
     auto score_matrix = scores->view(
@@ -202,7 +199,6 @@ infinilm::runtime::Tensor KimiK3TextModel::forward(
     global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
-    throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     auto input_ids = input.input_ids.value();
     auto first_hidden = is_first_pp_stage()
                           ? embed_tokens_->forward(runtime, input_ids)
@@ -217,7 +213,6 @@ infinilm::runtime::Tensor KimiK3TextModel::forward_embeds(
     global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
-    throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     auto state = initial_state(runtime, inputs_embeds);
     for (const auto &layer : layers_) {
         state.hidden_states = layer->forward(

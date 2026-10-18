@@ -1,6 +1,4 @@
-#ifndef INFINICORE_MHA_OMITTED
 #include <base/flash_attn_with_kvcache.h>
-#endif
 #include "../../weights/weights.hpp"
 #include "../../layers/normalization/checks.hpp"
 #include "../../execution/submit.hpp"
@@ -10,9 +8,7 @@
 #include "runtime/runtime.hpp"
 #include <exception>
 #include <limits>
-#if !defined(INFINICORE_QUICK_GELU_OPS_UNAVAILABLE)
 #include <base/quick_gelu.h>
-#endif
 
 
 #include <cmath>
@@ -188,9 +184,6 @@ infinilm::runtime::Tensor Ernie45VisionAttention::forward(infinilm::runtime::Run
     const infinilm::runtime::Tensor mha_value = v;
     auto mha_output = infinilm::runtime::Tensor::empty(runtime, mha_query->shape(), mha_query->dtype());
     {
-#ifdef INFINICORE_MHA_OMITTED
-        throw std::runtime_error("ordinary MHA is unavailable in the greedy_bootstrap or InfiniOps-disabled build profile");
-#else
         const auto mha_config = infini::ops::FlashAttnWithKvcache::DefaultConfig(runtime.device().type());
         const std::optional<infinilm::runtime::Tensor> mha_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
@@ -200,7 +193,6 @@ infinilm::runtime::Tensor Ernie45VisionAttention::forward(infinilm::runtime::Run
             false, std::vector<int64_t>{-1, -1}, double{0.0}, true, int64_t{0}, false,
             mha_output, mha_none);
         INFINILM_TRACE_OP(MultiheadAttention, mha_output);
-#endif
     }
     auto out = mha_output->view({seq_len, hidden_size_});
     return proj_->forward(runtime, out);
@@ -234,16 +226,12 @@ infinilm::runtime::Tensor Ernie45VisionMLP::forward(infinilm::runtime::Runtime &
     runtime.assertOwnerThread();
     if (!x || runtime.device() != x->device())
         throw std::invalid_argument("QuickGelu requires nonnull input on the Runtime device");
-#if !defined(INFINICORE_QUICK_GELU_OPS_UNAVAILABLE)
     const auto quick_gelu_config = infini::ops::QuickGelu::DefaultConfig(runtime.device().type());
     auto quick_gelu_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
     infinilm::execution::submit<infini::ops::QuickGelu>(
         runtime, infinilm::execution::RecordingPolicy::HostOnly,
         quick_gelu_config, x, quick_gelu_output);
     x = std::move(quick_gelu_output);
-#else
-    throw std::runtime_error("QuickGelu UNAVAILABLE: prefix lacks the declared QuickGelu API");
-#endif
     return fc2_->forward(runtime, x);
 }
 

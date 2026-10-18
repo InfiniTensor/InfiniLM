@@ -71,24 +71,7 @@ Qwen3NextAttention::Qwen3NextAttention(
     }
 }
 
-void Qwen3NextAttention::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
-    runtime.assertOwnerThread();
-    if (runtime.device() != device_)
-        throw std::invalid_argument("Qwen3NextAttention: postload Runtime device mismatch");
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
-        throw std::logic_error("Qwen3NextAttention: postload requires inactive graph state");
-    // o_proj and q/k norms are registered; only qkv_proj is hidden.
-    auto old_parameters = qkv_proj_->state_dict();
-    auto old_aliases = local_weights_;
-    try {
-        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
-        runtime.syncStream();
-    } catch (...) {
-        const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
-        std::rethrow_exception(failure);
-    }
-}
+
 
 infinilm::runtime::Tensor Qwen3NextAttention::forward(const infinilm::runtime::Tensor &positions,
                                                const infinilm::runtime::Tensor &hidden_states,

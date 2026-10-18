@@ -272,7 +272,7 @@ def load_model_state_dict_by_file(
         else "model.embed_tokens.weight"
     )
     quantization_config = model.hf_config.get("quantization_config")
-    raw_w4 = (model_type == "qwen3" and remapper is None
+    raw_w4 = (remapper is None
               and isinstance(quantization_config, dict)
               and quantization_config.get("quant_method") in ("awq", "gptq"))
     # Ernie uses selected native reads through its single group iterator below.

@@ -160,14 +160,10 @@ infinilm::runtime::Tensor KimiK25MoE::forward(infinilm::runtime::Runtime &runtim
         if (!routed || runtime.device() != routed->device())
             throw std::invalid_argument("MulScalar runtime and input devices differ");
         auto scaled_routed = infinilm::runtime::Tensor::empty(runtime, routed->shape(), routed->dtype());
-#ifdef INFINICORE_MUL_SCALAR_OPS_UNAVAILABLE
-        throw std::runtime_error("MulScalar requires an InfiniOps MulScalar provider");
-#else
         infinilm::execution::submit<infini::ops::MulScalar>(
             runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
             infini::ops::MulScalar::DefaultConfig(runtime.device().type()),
             routed, static_cast<double>(routed_scaling_factor_), scaled_routed);
-#endif
         INFINILM_TRACE_OP(MulScalar, scaled_routed);
         routed = std::move(scaled_routed);
     }

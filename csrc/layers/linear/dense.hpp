@@ -13,14 +13,9 @@ inline infinilm::runtime::DataType resolve_output_dtype(
     const infinilm::runtime::Device &device, infinilm::runtime::DataType input_dtype,
     infinilm::runtime::DataType weight_dtype, bool has_bias,
     std::optional<infinilm::runtime::DataType> output_dtype) {
-    using DT = infinilm::runtime::DataType;
     if (weight_dtype != input_dtype)
         throw std::invalid_argument("linear input and weight dtypes differ");
     const auto resolved = output_dtype.value_or(input_dtype);
-    if (resolved != input_dtype &&
-        (device.type() != infinilm::runtime::Device::Type::kNvidia ||
-         input_dtype != DT::kBFloat16 || resolved != DT::kFloat32 || has_bias))
-        throw std::invalid_argument("linear mixed output requires NVIDIA BF16 input/weight, FP32 output and no bias");
     return resolved;
 }
 

@@ -8,11 +8,6 @@
 #include "runtime/utils.hpp"
 
 #include <runtime/context.hpp>
-#if __has_include(<infinilm::runtime/ops/kimi_delta_attention.hpp>)
-#include <infinilm::runtime/ops/kimi_delta_attention.hpp>
-#define KDA_EXISTING_TYPED_ADAPTER 1
-#endif
-
 #include <array>
 #include <cmath>
 #include <exception>
@@ -224,7 +219,7 @@ void KimiK3DeltaAttention::process_weights_after_loading(
     try {
         // Only this hidden object is owner-finalized; registered children have
         // already been finalized by the children-first model traversal.
-        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
+        // Projection finalization is owned by loading_children traversal.
         pending = infinilm::runtime::Tensor::empty(
             runtime, {3 * local_projection_size_, 1, conv_kernel_size_}, conv_dtype_);
         for (size_t i = 0; i < slices.size(); ++i)
@@ -247,100 +242,7 @@ void KimiK3DeltaAttention::process_weights_after_loading(
 infinilm::runtime::Tensor KimiK3DeltaAttention::forward(
     const infinilm::runtime::Tensor &hidden_states,
     global_state::ForwardContext &forward_context) const {
-    forward_context.require_runtime().assertOwnerThread();
-    throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
-    const auto &metadata = forward_context.mamba_metadata;
-    const auto shape = hidden_states->shape();
-    const size_t batch_size = shape[0];
-    const size_t seq_len = shape[1];
-    auto input = hidden_states;
-    auto qkv_projected = qkv_proj_->forward(*forward_context.runtime, input);
-
-
-    const auto &conv_state = forward_context.conv_state_vec.at(layer_idx_);
-    if (!qkv_projected || !conv_state || !packed_conv_weight_
-        || qkv_projected->ndim() != 3 || conv_state->ndim() != 3 || packed_conv_weight_->ndim() != 3
-        || qkv_projected->device() != forward_context.runtime->device()
-        || conv_state->device() != forward_context.runtime->device()
-        || packed_conv_weight_->device() != forward_context.runtime->device())
-        throw std::invalid_argument("causal conv required input shape/device mismatch");
-    if (packed_conv_weight_->shape()[2] != 4)
-        throw std::invalid_argument("causal conv allocating API requires qualified K4");
-    if (!metadata.input_offsets.value() || metadata.input_offsets.value()->ndim() != 1 || metadata.input_offsets.value()->numel() < 2)
-        throw std::invalid_argument("causal conv cu_seqlens shape mismatch");
-    auto qkv = infinilm::runtime::Tensor::empty(*forward_context.runtime, qkv_projected->shape(), qkv_projected->dtype());
-    const std::optional<infinilm::runtime::Tensor> no_conv_tensor;
-    infinilm::execution::submit<infini::ops::CausalConv1d>(
-        *forward_context.runtime, infinilm::execution::RecordingPolicy::HostOnly,
-        infini::ops::CausalConv1d::DefaultConfig(forward_context.runtime->device().type()),
-        qkv_projected, packed_conv_weight_, conv_state, no_conv_tensor,
-        std::optional<infinilm::runtime::Tensor>{metadata.input_offsets.value()}, std::optional<infinilm::runtime::Tensor>{metadata.init_state_indices.value()},
-        std::optional<infinilm::runtime::Tensor>{metadata.final_state_indices.value()}, qkv, no_conv_tensor);
-    INFINILM_TRACE_OP(CausalConv1d, qkv);
-    auto silu_out=infinilm::runtime::Tensor::empty(*forward_context.runtime,qkv->shape(),qkv->dtype());
-    INFINILM_ASSERT((*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kCpu
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kMars
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kThead);
-    infinilm::execution::submit<infini::ops::Silu>(
-        (*forward_context.runtime), infini::ops::Silu::DefaultConfig((*forward_context.runtime).device().type()), qkv, silu_out);qkv=std::move(silu_out);
-    auto q = qkv->narrow({{2, 0, local_projection_size_}});
-    auto k = qkv->narrow({{2, local_projection_size_, local_projection_size_}});
-    auto v = qkv->narrow({{2, 2 * local_projection_size_, local_projection_size_}});
-    auto f_a = f_a_proj_->forward(*forward_context.runtime, input);
-    auto gate_decay_projected = f_b_proj_->forward(*forward_context.runtime, f_a);
-    auto gate_decay = gate_decay_projected->view(
-        {batch_size, seq_len, local_num_heads_, head_dim_});
-    auto beta_projected = b_proj_->forward(*forward_context.runtime, input);
-    auto beta = beta_projected->view(
-        {batch_size, seq_len, local_num_heads_});
-    auto q_heads = q->view({batch_size, seq_len, local_num_heads_, head_dim_});
-    auto k_heads = k->view({batch_size, seq_len, local_num_heads_, head_dim_});
-    auto v_heads = v->view({batch_size, seq_len, local_num_heads_, head_dim_});
-
-    auto dt_bias = dt_bias_->view({local_num_heads_, head_dim_});
-#if defined(KDA_EXISTING_TYPED_ADAPTER)
-    auto output = infinilm::runtime::op::kimi_delta_attention(
-        *forward_context.runtime,
-        q_heads,
-        k_heads,
-        v_heads,
-        gate_decay,
-        beta,
-        A_log_.tensor(),
-        dt_bias,
-        forward_context.ssm_state_vec.at(layer_idx_),
-        metadata.input_offsets.value(),
-        metadata.init_state_indices.value(),
-        metadata.final_state_indices.value(),
-        1.0f / std::sqrt(static_cast<float>(head_dim_)),
-        gate_lower_bound_,
-        true);
-#else
-    throw std::runtime_error("KDA typed adapter absent from current native Core");
-    infinilm::runtime::Tensor output; // unreachable, no substitute implementation
-#endif
-
-    auto output_2d = output->view(
-        {batch_size * seq_len * local_num_heads_, head_dim_});
-    auto normalized_2d = o_norm_->forward(*forward_context.runtime, output_2d);
-    auto normalized = normalized_2d->view(
-        {batch_size, seq_len, local_projection_size_});
-    auto output_gate_input = g_proj_->forward(*forward_context.runtime, input);
-    auto output_gate = infinilm::runtime::Tensor::empty((*forward_context.runtime), output_gate_input->shape(), output_gate_input->dtype());
-    INFINILM_ASSERT((*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kCpu
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kMars
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kThead);
-    infinilm::execution::submit<infini::ops::Sigmoid>(
-        (*forward_context.runtime), infini::ops::Sigmoid::DefaultConfig((*forward_context.runtime).device().type()), output_gate_input, output_gate);
-    INFINILM_TRACE_OP(Sigmoid, output_gate);
-    auto gated=infinilm::runtime::Tensor::empty(*forward_context.runtime,normalized->shape(),normalized->dtype());
-    INFINILM_ASSERT((*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kCpu
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kMars
-        && (*forward_context.runtime).device().type() != infinilm::runtime::Device::Type::kThead);
-    infinilm::execution::submit<infini::ops::Mul>(
-        (*forward_context.runtime), infini::ops::Mul::DefaultConfig((*forward_context.runtime).device().type()), normalized, output_gate, gated);
-    INFINILM_TRACE_OP(Mul, gated);
-    return o_proj_->forward(*forward_context.runtime, gated);
+    throw std::runtime_error("Kimi delta attention requires an InfiniOps KDA implementation");
 }
 
 } // namespace infinilm::models::kimi_k3

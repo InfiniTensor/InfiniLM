@@ -15,6 +15,12 @@ namespace infinilm::layers::moe { struct EPConfig; }
 namespace infinilm::layers::attention {
 class Attention : public infinilm::weights::ModelWeights {
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) result.push_back(qkv_proj_);
+        return result;
+    }
+
     Attention(infinilm::runtime::Runtime &runtime,
               std::shared_ptr<infinilm::config::ModelConfig> model_config,
               size_t layer_idx, const engine::distributed::RankInfo &rank_info,
@@ -26,9 +32,7 @@ public:
         const infinilm::runtime::Tensor &hidden_states,
         infinilm::global_state::ForwardContext &forward_context) const;
 
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override {
-        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
-    }
+
 
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }

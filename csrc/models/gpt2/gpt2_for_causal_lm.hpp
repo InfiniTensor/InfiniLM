@@ -13,6 +13,12 @@ namespace infinilm::models::gpt2 {
 
 class GPT2Attention : public infinilm::weights::ModelWeights {
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) result.push_back(qkv_proj_);
+        return result;
+    }
+
     GPT2Attention(infinilm::runtime::Runtime &runtime,
                   std::shared_ptr<infinilm::config::ModelConfig> config,
                   size_t layer_idx, const engine::distributed::RankInfo &rank,

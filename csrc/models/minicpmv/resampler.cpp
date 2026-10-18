@@ -141,9 +141,6 @@ infinilm::runtime::Tensor ResamplerAttention::forward(infinilm::runtime::Runtime
         std::optional<float>{0.0f}, std::optional<int>{}, std::optional<int>{}, attn_weights);
     INFINILM_TRACE_OP(Gemm, attn_weights);
     auto attn_view = attn_weights->view({batch_size * num_heads_, q_len, k_len});
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Softmax>(
         runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), attn_view, std::int64_t{-1}, std::optional<infini::ops::DataType>{}, attn_view);
 

@@ -15,7 +15,7 @@ namespace infinilm::models::qwen3_moe {
 
 Qwen3MoeTopKRouter::Qwen3MoeTopKRouter(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank_info, const layers::moe::EPConfig &ep_config) {
-    models::validate_selected_construction(model_config, runtime, rank_info, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
 
     runtime_borrowed_ = &runtime; // caller/worker retains the actual owner.

@@ -26,7 +26,7 @@ class TextDecoderLayer : public infinilm::weights::ModelWeights {
 public:
     TextDecoderLayer(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
                      size_t layer_idx, const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) : layer_idx_(layer_idx) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
         try {
 
 

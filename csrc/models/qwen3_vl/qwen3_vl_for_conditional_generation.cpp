@@ -11,7 +11,7 @@ Qwen3VLModel::Qwen3VLModel(infinilm::runtime::Runtime &runtime,
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank,
     backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep) {
-    models::validate_runtime_construction(model_config, runtime, rank, attention_backend, ep);
+    models::validate_runtime_construction(model_config, runtime, rank);
     try {
     nlohmann::json &config_json = model_config->get_config_json();
     nlohmann::json &text_config_json = config_json["text_config"];
@@ -36,7 +36,7 @@ Qwen3VLForConditionalGeneration::Qwen3VLForConditionalGeneration(infinilm::runti
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank,
     backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep) {
-    models::validate_runtime_construction(model_config, runtime, rank, attention_backend, ep);
+    models::validate_runtime_construction(model_config, runtime, rank);
     try {
     model_config_ = model_config;
     const nlohmann::json &config_json = model_config->get_config_json();

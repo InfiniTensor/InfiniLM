@@ -46,13 +46,6 @@ class SpeculativeRunner:
             sampled_tokens = self.target_model_engine.forward(**model_input)
             return sampled_tokens.to_numpy().tolist()
 
-        # Keep non-greedy sampling on the established target path. Correct stochastic
-        # speculative sampling needs distribution-level acceptance, while current MTP
-        # verification is exact for greedy decoding.
-        if self.config.top_k != 1 or self.config.temperature != 1.0:
-            sampled_tokens = self.target_model_engine.forward(**model_input)
-            return sampled_tokens.to_numpy().tolist()
-
         requests = scheduler_output.scheduled_requests
         if not requests:
             return []

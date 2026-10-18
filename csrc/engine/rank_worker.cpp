@@ -309,13 +309,19 @@ std::vector<std::string> RankWorker::state_dict_keys() {
     return model_->state_dict_keys();
 }
 
+std::vector<std::string> RankWorker::state_required_keys() {
+    std::unique_lock<std::mutex> lk(mutex_);
+    cv_.wait(lk, [&] { return init_done_ || should_exit_; });
+    if (failure_) std::rethrow_exception(failure_);
+    if (!model_) throw std::runtime_error("state_required_keys called before model initialization");
+    return model_->state_required_keys();
+}
+
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
 void RankWorker::run(const Input &args) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
 
     if (should_exit_) {
         if (failure_) {
@@ -344,8 +350,6 @@ void RankWorker::compile() {
         throw std::runtime_error("RankWorker is closing; cannot run");
     }
 
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (nsa_pool_epoch_) throw std::invalid_argument("NSA owner slice excludes COMPILE before command mutation");
     job_cmd_ = Command::COMPILE;
     has_job_ = true;
@@ -421,8 +425,6 @@ bool RankWorker::drain_nsa_owner_noexcept() noexcept {
 
 std::vector<infinilm::runtime::Tensor> RankWorker::get_kv_cache() {
     std::unique_lock<std::mutex> lk(mutex_);
-    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     if (nsa_pool_epoch_) throw std::invalid_argument("NSA borrowed KV writer unsupported");
     cv_.wait(lk, [&] { return init_done_ || should_exit_; });
 
@@ -531,11 +533,9 @@ void RankWorker::thread_loop() {
 
             // Create model using factory (may be expensive)
             // Construction EP configuration uses this worker's owned values.
-            const auto construction_ep = model_config_->get<std::string>("model_type") == "qwen3_moe"
-                ? layers::moe::make_ep_config(infinilm_config_->moe_ep_backend,
+            const auto construction_ep = layers::moe::make_ep_config(infinilm_config_->moe_ep_backend,
                                              infinilm_config_->moe_ep_size,
-                                             rank_info_.tp_size, rank_info_.tp_rank)
-                : layers::moe::EPConfig{};
+                                             rank_info_.tp_size, rank_info_.tp_rank);
             model_ = InfinilmModelFactory::createModel(
                 model_config_, *runtime_, rank_info_, attention_backend_, construction_ep,
                 pending_cache_config_ != nullptr ? pending_cache_config_.get() : nullptr,
@@ -701,7 +701,7 @@ void RankWorker::thread_loop() {
                         // Its catch sees the real exception before these locals unwind.
                         try {
                         if (nsa_pool_epoch_) {
-                            if (enable_graph_compiling_ || compiler_ || runtime_->isGraphRecording() || rank_info_.pp_size != 1
+                            if (runtime_->isGraphRecording() || rank_info_.pp_size != 1
                                 || local_args.sample_all_positions || local_args.target_hidden_states || local_args.pixel_values
                                 || local_args.image_bound || local_args.tgt_sizes || local_args.image_grid_thw
                                 || local_args.image_req_ids || local_args.visual_token_ranges
@@ -947,15 +947,10 @@ void RankWorker::thread_loop() {
                                                       || std::get<0>(row) == 0.0f;
                                               })
                                 : top_p == 0.0f || top_k == 1 || temperature == 0.0f;
-                            const auto logits_dtype = logits->dtype();
-                            const bool batch_greedy = rank_info_.device.type() == infinilm::runtime::Device::Type::kNvidia
-                                                   && parameter_greedy
+                            const bool batch_greedy = parameter_greedy
                                                    && n_out > 0
                                                    && logits_positions == n_out
                                                    && logits->is_contiguous()
-                                                   && (logits_dtype == infinilm::runtime::DataType::kFloat16
-                                                       || logits_dtype == infinilm::runtime::DataType::kBFloat16
-                                                       || logits_dtype == infinilm::runtime::DataType::kFloat32)
                                                    && (sample_all_positions || logits_are_last_token_only);
                             if (batch_greedy) {
                                 float random_val = 0.0f;
@@ -1089,8 +1084,6 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::COMPILE) {
                 try {
-                    if (model_config_->get<std::string>("model_type") == "kimi_k3")
-                        throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
                     if (nsa_pool_epoch_) throw std::invalid_argument("NSA COMPILE rejected before compiler/cache touch");
                     if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
                         compiler_.reset();

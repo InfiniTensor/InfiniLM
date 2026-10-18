@@ -46,24 +46,7 @@ Qwen3NextSharedExpert::Qwen3NextSharedExpert(
     }
 }
 
-void Qwen3NextSharedExpert::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
-    runtime.assertOwnerThread();
-    if (runtime.device() != device_)
-        throw std::invalid_argument("Qwen3NextSharedExpert: postload Runtime device mismatch");
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
-        throw std::logic_error("Qwen3NextSharedExpert: postload requires inactive graph state");
-    // down_proj is already finalized by the children-first traversal.
-    auto old_parameters = gate_up_proj_->state_dict();
-    auto old_aliases = local_weights_;
-    try {
-        gate_up_proj_->process_weights_after_loading(runtime, pre_transpose);
-        runtime.syncStream();
-    } catch (...) {
-        const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
-        std::rethrow_exception(failure);
-    }
-}
+
 
 infinilm::runtime::Tensor Qwen3NextSharedExpert::forward(infinilm::runtime::Runtime &runtime,
                                                  const infinilm::runtime::Tensor &hidden_states) const {
@@ -130,18 +113,12 @@ infinilm::runtime::Tensor Qwen3NextSparseMoeBlock::forward(infinilm::runtime::Ru
     auto hidden_states_for_gate = hidden_states;
     const auto ops_input = shared_expert_gate_->forward(runtime, hidden_states_for_gate);
     auto shared_gate = infinilm::runtime::Tensor::empty(runtime, ops_input->shape(), ops_input->dtype());
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Sigmoid>(
         runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), ops_input, shared_gate);
     INFINILM_TRACE_OP(Sigmoid, shared_gate);
     shared_gate = shared_gate->as_strided(shared_states->shape(), {shared_gate->stride(0), shared_gate->stride(1), 0});
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, shared_states->shape(), shared_states->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Mul>(
             runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), shared_states, shared_gate, ops_output);
         INFINILM_TRACE_OP(Mul, ops_output);

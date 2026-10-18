@@ -588,8 +588,6 @@ class InferEngine(_infinilm.InferEngine):
         position_id_delta=0,
         _measure_and_log_time=False,
     ):
-        if self.model_type == "kimi_k3":
-            raise NotImplementedError("K3 low-level generate lacks managed recurrent row authority; use the bound Scheduler path")
         eos_token_id = self.eos_token_id
 
         past_seq_len = 0

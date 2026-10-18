@@ -23,10 +23,10 @@ public:
                                infinilm::global_state::ForwardContext &forward_context) const;
 
     using infinilm::weights::ModelWeights::process_weights_after_loading;
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override {
-        // qkv_proj_ is hidden and registers logical parameters on this owner.
-        // o_proj_, q_norm_ and k_norm_ belong to children-first traversal.
-        qkv_proj_->process_weights_after_loading(runtime, pre_transpose);
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) result.push_back(qkv_proj_);
+        return result;
     }
 
     size_t layer_idx() const { return layer_idx_; }

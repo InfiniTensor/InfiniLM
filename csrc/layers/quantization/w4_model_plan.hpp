@@ -12,12 +12,14 @@ class W4ModelPlan final {
 public:
     explicit W4ModelPlan(QuantScheme expected_scheme,
                          std::vector<std::shared_ptr<nn::BaseLinear>> layers,
-                         std::shared_ptr<nn::BaseLinear> dense_head = {})
-        : expected_scheme_(expected_scheme), dense_head_(std::move(dense_head)) {
+                         std::vector<std::shared_ptr<nn::BaseLinear>> dense_head = {},
+                         std::vector<std::shared_ptr<weights::ModelWeights>> hooks = {})
+        : expected_scheme_(expected_scheme), dense_head_(std::move(dense_head)), hooks_(std::move(hooks)) {
         if (expected_scheme_ != QuantScheme::AWQ_W4A16 && expected_scheme_ != QuantScheme::GPTQ_W4A16)
             throw std::invalid_argument("W4 plan requires AWQ or GPTQ scheme");
-        if (dense_head_ && dense_head_->get_quantization()->get_quant_scheme() != QuantScheme::NONE)
-            throw std::invalid_argument("W4 dense head exemption is NONE only");
+        for (const auto &head : dense_head_)
+            if (!head || head->get_quantization()->get_quant_scheme() != QuantScheme::NONE)
+                throw std::invalid_argument("W4 dense exemption is NONE only");
         entries_.reserve(layers.size());
         for (auto& layer : layers) {
             if (!layer || layer->get_quantization()->get_quant_scheme() != expected_scheme_)
@@ -33,15 +35,6 @@ public:
             if (expected_scheme_ == QuantScheme::AWQ_W4A16) {
                 entry.layer->validate_awq_metadata(runtime);
             } else {
-                const auto quant = entry.layer->get_quantization();
-                const auto group = quant->get_or<int>("group_size", quant->get_or<int>("q_group_size", 128));
-                if (entry.layer->dtype() != infinilm::runtime::DataType::kFloat16 ||
-                    quant->get_or<int>("bits", quant->get_or<int>("w_bit", 4)) != 4 ||
-                    (group != 32 && group != 128) ||
-                    !quant->get_or<bool>("sym", true) ||
-                    quant->get_or<std::string>("checkpoint_format", "gptq") != "gptq" ||
-                    quant->get_or<bool>("desc_act", false))
-                    throw std::invalid_argument("GPTQ owner requires FP16 canonical symmetric historical g32/g128 non-desc");
                 (void)entry.layer->validate_gptq_metadata(runtime);
             }
         }
@@ -53,8 +46,9 @@ public:
             if (entry.candidate) throw std::logic_error("W4 partial preparation cannot be retried");
             entry.candidate = entry.layer->prepare_w4_after_loading(runtime, false);
         }
-        // Only exact root head, validated pre_transpose=false; no hidden noarg hook.
-        if (dense_head_) dense_head_->process_weights_after_loading(runtime, false);
+        // Dense owners use the same validated post-load transpose policy.
+        for (const auto &head : dense_head_) head->process_weights_after_loading(runtime, false);
+        for (const auto &owner : hooks_) owner->process_weights_after_loading(runtime, false);
         prepared_ = true;
     }
     // Worker calls only after successful owner sync AND trim.
@@ -77,7 +71,8 @@ private:
     };
     const QuantScheme expected_scheme_;
     std::vector<Entry> entries_;
-    std::shared_ptr<nn::BaseLinear> dense_head_;
+    std::vector<std::shared_ptr<nn::BaseLinear>> dense_head_;
+    std::vector<std::shared_ptr<weights::ModelWeights>> hooks_;
     bool prepared_ = false, sealed_ = false;
 };
 } // namespace infinilm::quantization

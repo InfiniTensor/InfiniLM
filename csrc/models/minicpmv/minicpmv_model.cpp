@@ -45,7 +45,7 @@ MiniCPMVModel::MiniCPMVModel(infinilm::runtime::Runtime &runtime,
     const engine::distributed::RankInfo &rank,
     backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep)
     : config_(model_config) {
-    models::validate_runtime_construction(model_config, runtime, rank, attention_backend, ep);
+    models::validate_runtime_construction(model_config, runtime, rank);
     try {
 
     const auto &dtype{model_config->get_dtype()};

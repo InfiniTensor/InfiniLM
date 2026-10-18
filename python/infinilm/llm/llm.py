@@ -39,7 +39,9 @@ logger = logging.getLogger(__name__)
 
 def _chat_tensor_mode(processor, has_multimodal_inputs: bool) -> str:
     """Use NumPy only for the built-in text processor's media-free inputs."""
-    if not has_multimodal_inputs and type(processor) is BasicLLMProcessor:
+    if (not has_multimodal_inputs
+            and isinstance(processor, BasicLLMProcessor)
+            and type(processor).__call__ is BasicLLMProcessor.__call__):
         return "np"
     return "pt"
 
@@ -480,7 +482,7 @@ class LLM:
             tensor_parallel_size: Number of devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
-            static_cache_capacity: Static KV rows (1 or 2), still one request per forward.
+            static_cache_capacity: Static KV row capacity; separate prefills and batched decode.
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).
@@ -707,7 +709,7 @@ class AsyncLLMEngine:
             tensor_parallel_size: Number of devices for tensor parallelism.
             cache_type: Cache type ('paged' or 'static').
             max_batch_size: Maximum batch size (only for paged cache).
-            static_cache_capacity: Static KV rows (1 or 2), still one request per forward.
+            static_cache_capacity: Static KV row capacity; separate prefills and batched decode.
             max_tokens: Default maximum tokens to generate.
             num_blocks: Number of KV cache blocks (only for paged cache).
             block_size: Size of each KV cache block (only for paged cache).

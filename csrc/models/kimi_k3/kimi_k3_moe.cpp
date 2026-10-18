@@ -6,8 +6,6 @@
 #include "runtime/runtime.hpp"
 
 #include "../../engine/distributed/communication_group.hpp"
-#include <infinilm::runtime/ops/fused_moe_mxfp4.hpp>
-#include <infinilm::runtime/ops/situ_and_mul.hpp>
 #include <exception>
 #include <stdexcept>
 #include <string>
@@ -36,7 +34,6 @@ KimiK3MLP::KimiK3MLP(
         || (rank_info.tp_size > 1 && !rank_info.comm))
         throw std::invalid_argument("Invalid explicit KimiK3MLP construction resources");
     try {
-        device_ = runtime.device();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const auto &dtype = model_config->get_dtype();
     situ_beta_ = model_config->get_or<float>("activation_situ_beta", 4.0f);
@@ -63,34 +60,10 @@ KimiK3MLP::KimiK3MLP(
     }
 }
 
-void KimiK3MLP::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
-    runtime.assertOwnerThread();
-    if (runtime.device() != device_)
-        throw std::invalid_argument("KimiK3MLP: postload Runtime device differs");
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
-        throw std::logic_error("KimiK3MLP: postload requires inactive graph state");
-    if (postload_attempted_)
-        throw std::logic_error("KimiK3MLP: postload is single-use after mutation attempt");
-    auto old_parameters = gate_up_proj_->state_dict();
-    auto old_quantization = gate_up_proj_->get_quantization();
-    postload_attempted_ = true;
-    try {
-        // Dense decoder MLP and MoE shared_experts both reach this hidden owner.
-        // down_proj is registered and remains exclusively traversal-owned.
-        gate_up_proj_->process_weights_after_loading(runtime, pre_transpose);
-        runtime.syncStream();
-    } catch (...) {
-        const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
-        std::rethrow_exception(failure);
-    }
-}
+
 
 infinilm::runtime::Tensor KimiK3MLP::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
-    auto input = hidden_states;
-    auto [gate, up] = gate_up_proj_->forward_split(runtime, input);
-    auto activated = infinilm::runtime::op::situ_and_mul(gate, up, situ_beta_, situ_linear_beta_);
-    return down_proj_->forward(runtime, activated);
+    throw std::runtime_error("SiTU activation requires an InfiniOps implementation");
 }
 
 KimiK3Experts::KimiK3Experts(
@@ -231,32 +204,7 @@ KimiK3MoE::KimiK3MoE(
 }
 
 infinilm::runtime::Tensor KimiK3MoE::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
-    const auto shape = hidden_states->shape();
-    auto flattened = hidden_states->view({shape[0] * shape[1], shape[2]});
-    auto [routing_weights, selected_experts] = gate_->forward(runtime, flattened);
-    auto routed_input = routed_expert_down_proj_->forward(runtime, flattened);
-    const auto &weights = experts_->mxfp4_weights();
-    auto routed = infinilm::runtime::op::fused_moe_mxfp4(
-        routed_input,
-        selected_experts,
-        routing_weights,
-        weights.packed_w13,
-        weights.w13_scale,
-        weights.packed_w2,
-        weights.w2_scale,
-        infinilm::runtime::op::FusedMoeActivation::Situglu);
-    if (tp_size_ > 1 && communicator_ != nullptr) {
-        infinilm::engine::distributed::allreduce_(runtime,
-            routed, routed, INFINICCL_SUM, communicator_);
-    }
-    routed = routed_expert_norm_->forward(runtime, routed);
-    routed = routed_expert_up_proj_->forward(runtime, routed)->view(shape);
-    auto shared = shared_experts_->forward(runtime, hidden_states);
-    auto ops_output = infinilm::runtime::Tensor::empty(runtime, routed->shape(), routed->dtype());
-    infinilm::execution::submit<infini::ops::Add>(
-        runtime, infini::ops::Add::DefaultConfig(runtime.device().type()), routed, shared, ops_output);
-    INFINILM_TRACE_OP(Add, ops_output);
-    return ops_output;
+    throw std::runtime_error("MXFP4 expert execution requires an InfiniOps implementation");
 }
 
 } // namespace infinilm::models::kimi_k3

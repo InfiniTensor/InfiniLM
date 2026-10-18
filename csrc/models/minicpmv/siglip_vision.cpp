@@ -1,6 +1,4 @@
-#ifndef INFINICORE_MHA_OMITTED
 #include <base/flash_attn_with_kvcache.h>
-#endif
 #include "../../weights/weights.hpp"
 #include "../../execution/submit.hpp"
 #include <base/gemm.h>
@@ -206,9 +204,6 @@ infinilm::runtime::Tensor SiglipAttention::forward(infinilm::runtime::Runtime &r
         const infinilm::runtime::Tensor mha_value = v;
         auto mha_output = infinilm::runtime::Tensor::empty(runtime, mha_query->shape(), mha_query->dtype());
         {
-#ifdef INFINICORE_MHA_OMITTED
-            throw std::runtime_error("ordinary MHA is unavailable in the greedy_bootstrap or InfiniOps-disabled build profile");
-#else
             const auto mha_config = infini::ops::FlashAttnWithKvcache::DefaultConfig(runtime.device().type());
             const std::optional<infinilm::runtime::Tensor> mha_none;
             infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
@@ -218,7 +213,6 @@ infinilm::runtime::Tensor SiglipAttention::forward(infinilm::runtime::Runtime &r
                 false, std::vector<int64_t>{-1, -1}, double{0.0}, true, int64_t{0}, false,
                 mha_output, mha_none);
             INFINILM_TRACE_OP(MultiheadAttention, mha_output);
-#endif
         }
         auto out = mha_output->view({batch_size, seq_len, num_heads_ * head_dim_});
         return out_proj_->forward(runtime, out);
@@ -243,9 +237,6 @@ infinilm::runtime::Tensor SiglipAttention::forward(infinilm::runtime::Runtime &r
         INFINILM_TRACE_OP(Gemm, attn_weights);
 
         auto attn_view = attn_weights->view({batch_size * num_heads_, seq_len, seq_len});
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Softmax>(
             runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), attn_view, std::int64_t{-1}, std::optional<infini::ops::DataType>{}, attn_view);
 
@@ -303,11 +294,8 @@ infinilm::runtime::Tensor SiglipMLP::forward(infinilm::runtime::Runtime &runtime
     } else if (activation_ == "relu") {
         {
             auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Relu>(
-                runtime, infinilm::execution::RecordingPolicy::Unqualified,
+                runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::Relu::DefaultConfig(runtime.device().type()), x, ops_output);
             x = std::move(ops_output);
         }

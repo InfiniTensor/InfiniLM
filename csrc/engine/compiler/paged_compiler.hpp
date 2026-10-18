@@ -26,7 +26,7 @@ struct PagedGraphConfig {
     }
 };
 
-// One qualification producer shared by worker eager normalization and compiler.
+// Shared table-layout policy for eager and compiled decode.
 FinitePagedDecodeProfile make_finite_paged_decode_profile(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
@@ -34,8 +34,7 @@ FinitePagedDecodeProfile make_finite_paged_decode_profile(
     infinilm::runtime::Device::Type device_type,
     const PagedGraphConfig &graph_config);
 
-// Shared legacy short-plan eligibility. The finite FlashKV bucket policy
-// must not replace its established input selection with another plan family.
+// Narrow decode tables are selected from actual sequence lengths.
 bool uses_short_decode_graph(
     const cache::PagedKVCacheConfig &paged_config,
     const config::ModelConfig *model_config,
@@ -67,7 +66,6 @@ private:
     };
 
     std::optional<CompiledResult> compiled_short_decode_b1_;
-    std::optional<CompiledResult> compiled_baichuan_prefill_b1_s10_;
     std::map<
         std::pair<size_t, size_t>, // (num_requests, logical KV bound; 0=legacy full width)
         CompiledResult>

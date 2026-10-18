@@ -157,8 +157,6 @@ infinilm::runtime::Tensor Qwen3NextCausalConv1D::forward(const infinilm::runtime
     if (!conv_state || qkv->ndim() != 3 || conv_state->ndim() != 3 || conv_weight->ndim() != 3
         || conv_state->device() != runtime.device())
         throw std::invalid_argument("causal conv required input shape/device mismatch");
-    if (conv_weight->shape()[2] != 4)
-        throw std::invalid_argument("causal conv allocating API requires qualified K4");
     if (!conv_offsets || conv_offsets->ndim() != 1 || conv_offsets->numel() < 2)
         throw std::invalid_argument("causal conv cu_seqlens shape mismatch");
     auto conv_out = infinilm::runtime::Tensor::empty(runtime, qkv->shape(), qkv->dtype());
@@ -245,24 +243,7 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(
     }
 }
 
-void Qwen3NextGatedDeltaNet::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
-    runtime.assertOwnerThread();
-    if (runtime.device() != device_)
-        throw std::invalid_argument("Qwen3NextGatedDeltaNet: postload Runtime device mismatch");
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
-        throw std::logic_error("Qwen3NextGatedDeltaNet: postload requires inactive graph state");
-    // Only the hidden projection: conv1d/z/a/b/norm/out_proj are traversal-owned.
-    auto old_parameters = in_proj_qkv_->state_dict();
-    auto old_aliases = local_weights_;
-    try {
-        in_proj_qkv_->process_weights_after_loading(runtime, pre_transpose);
-        runtime.syncStream(); // Old storage/split aliases survive successful transpose copies.
-    } catch (...) {
-        const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
-        std::rethrow_exception(failure);
-    }
-}
+
 
 infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
     const infinilm::runtime::Tensor &hidden_states,
@@ -422,17 +403,11 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
         {static_cast<infinilm::runtime::Stride>(seq_len * local_value_dim_), static_cast<infinilm::runtime::Stride>(local_value_dim_), 1});
     const auto ops_other = [&]() {
         auto gated = infinilm::runtime::Tensor::empty(runtime, z->shape(), z->dtype());
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Silu>(
             runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), z, gated);
         return gated;
     }();
     auto gated = infinilm::runtime::Tensor::empty(runtime, v_norm->shape(), v_norm->dtype());
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Mul>(
         runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), v_norm, ops_other, gated);
     INFINILM_TRACE_OP(Mul, gated);

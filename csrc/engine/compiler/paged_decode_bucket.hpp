@@ -21,34 +21,17 @@ struct PagedDecodeBucket {
 };
 
 struct FinitePagedDecodeProfile {
-    bool nvidia{};
-    bool native_flash_decode{};
-    bool tensor_parallel_qualified{};
     bool ordinary_kv_prepare{};
-    bool unquantized{};
-    bool half_dtype{};
+    bool paged_attention{};
+    bool unquantized_kv{};
     bool short_decode_plan{};
-    size_t head_dim{};
     size_t block_size{};
     size_t num_blocks{};
 };
 
-// TP2 finite buckets currently require the Qwen3 BF16 geometry below.
-// MoE and custom families retain their original decode plans.
-inline bool supports_qwen3_tp2_finite_decode(
-    int tp_size,int pp_size,std::string_view model_type,size_t hidden_size,
-    size_t attention_heads,size_t kv_heads,size_t depth,size_t position_axes,
-    bool bfloat16) {
-    return tp_size==2 && pp_size==1 && model_type=="qwen3" &&
-        hidden_size==1024 && attention_heads==16 && kv_heads==8 &&
-        depth==28 && position_axes==1 && bfloat16;
-}
-
 inline bool supports_finite_paged_decode_bucket(const FinitePagedDecodeProfile &profile) {
-    return profile.nvidia && profile.native_flash_decode
-        && profile.tensor_parallel_qualified && profile.ordinary_kv_prepare
-        && profile.unquantized && profile.half_dtype
-        && !profile.short_decode_plan && profile.head_dim == 128
+    return profile.ordinary_kv_prepare && profile.paged_attention
+        && profile.unquantized_kv && !profile.short_decode_plan
         && profile.block_size == 256 && profile.num_blocks >= 2;
 }
 

@@ -18,9 +18,7 @@ DeepseekV2Model::DeepseekV2Model(infinilm::runtime::Runtime &runtime,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config,
     bool use_mla) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
-    if (use_mla && model_config->get_or<size_t>("q_lora_rank", 0) != 0)
-        throw std::runtime_error("DeepseekV2MLAAttention: q_lora_rank is not supported yet");
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     const auto &dtype{model_config->get_dtype()};
     const size_t vocab_size = model_config->get<size_t>("vocab_size");
@@ -65,9 +63,7 @@ DeepseekV2ForCausalLM::DeepseekV2ForCausalLM(infinilm::runtime::Runtime &runtime
     const layers::moe::EPConfig &ep_config,
     bool use_mla)
     : use_mla_(use_mla) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
-    if (use_mla && model_config->get_or<size_t>("q_lora_rank", 0) != 0)
-        throw std::runtime_error("DeepseekV2MLAAttention: q_lora_rank is not supported yet");
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     model_config_ = model_config;
     const auto &dtype{model_config->get_dtype()};

@@ -78,6 +78,12 @@ public:
     virtual Compiled get_compiled(const InfinilmModel::Input &input) = 0;
 
 protected:
+    void skip_unavailable_prepare(const char *reason) const {
+        const char *strict = std::getenv("INFINILM_REQUIRE_DEVICE_GRAPH");
+        if (strict && std::string_view(strict) == "1") throw std::runtime_error(reason);
+        std::fprintf(stderr, "Graph preparation skipped: %s\n", reason);
+    }
+
     std::shared_ptr<InfinilmModel::Output> snapshot_output(const InfinilmModel::Output &output) {
         infinilm::runtime::Tensor graph_hidden_states;
         if (output.hidden_states) {

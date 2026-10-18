@@ -19,7 +19,7 @@ Ernie45Model::Ernie45Model(infinilm::runtime::Runtime &runtime,
         backends::AttentionBackend attention_backend,
         const layers::moe::EPConfig &ep_config)
     : model_config_(model_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     const auto &dtype = model_config->get_dtype();
     auto &config_json = model_config->get_config_json();

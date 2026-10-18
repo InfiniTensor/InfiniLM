@@ -15,7 +15,7 @@
 
 namespace infinilm::execution {
 
-enum class RecordingPolicy { AllowHostReplay, DeviceOnly, Unqualified, HostOnly };
+enum class RecordingPolicy { AllowHostReplay, DeviceOnly, HostOnly };
 
 namespace detail {
 
@@ -135,8 +135,7 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
     const auto bytes = instance->workspace_size_in_bytes();
     auto workspace = bytes ? runtime.allocateMemory(bytes) : std::shared_ptr<infinilm::runtime::Memory>{};
     auto recorded = std::make_tuple(detail::snapshot(runtime, args)...);
-    const bool capture_safe = policy != RecordingPolicy::Unqualified &&
-                              policy != RecordingPolicy::HostOnly && instance->capture_safe();
+    const bool capture_safe = policy != RecordingPolicy::HostOnly && instance->capture_safe();
     runtime.addGraphOperator(std::make_shared<infinilm::execution::graph::RecordedCall>(
         [recorded = std::move(recorded), instance = std::move(instance),
          workspace = std::move(workspace), owner = runtime.shared_from_this()]() mutable {

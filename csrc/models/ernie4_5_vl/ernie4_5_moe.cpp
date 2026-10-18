@@ -165,9 +165,6 @@ Ernie45Experts::Ernie45Experts(infinilm::runtime::Runtime &runtime,
     if (model_config->get_quant_scheme() != infinilm::quantization::QuantScheme::NONE)
         throw std::invalid_argument("Ernie45Experts: quantization must be NONE");
     const auto &dtype = model_config->get_dtype();
-    if (runtime.device().type() != infinilm::runtime::Device::Type::kNvidia
-        || (dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16))
-        throw std::invalid_argument("Ernie45Experts: dense runner requires NVIDIA F16/BF16");
 
     const auto &config_json = model_config->get_config_json();
     auto expert_counts = get_size_list(config_json, "moe_num_experts");
@@ -183,8 +180,8 @@ Ernie45Experts::Ernie45Experts(infinilm::runtime::Runtime &runtime,
     const size_t int_limit = static_cast<size_t>(std::numeric_limits<int32_t>::max());
     for (size_t i = 0; i < expert_counts.size(); ++i) {
         const size_t e = expert_counts[i], m = intermediate_sizes[i];
-        if (!hidden_size || hidden_size > int_limit || hidden_size % 8
-            || !m || m > int_limit / 2 || m % 8 || !e || e >= 1024
+        if (!hidden_size || hidden_size > int_limit
+            || !m || m > int_limit / 2 || !e
             || !num_experts_per_tok_ || num_experts_per_tok_ > e
             || hidden_size > std::numeric_limits<size_t>::max() / (2 * m)
             || e > std::numeric_limits<size_t>::max() / (2 * m * hidden_size) / 2)
@@ -277,7 +274,7 @@ Ernie45MoE::Ernie45MoE(infinilm::runtime::Runtime &runtime,
         const engine::distributed::RankInfo &rank_info,
         backends::AttentionBackend attention_backend,
         const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     num_experts_ = model_config->get<size_t>("num_experts");
     const auto expert_counts = get_size_list(model_config->get_config_json(), "moe_num_experts");

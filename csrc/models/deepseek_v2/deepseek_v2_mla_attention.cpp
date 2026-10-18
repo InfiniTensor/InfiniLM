@@ -15,9 +15,7 @@
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../../utils.hpp"
 #include "deepseek_v2_utils.hpp"
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
 #include <base/flash_attn_varlen_func.h>
-#endif
 
 #include <stdexcept>
 
@@ -293,7 +291,6 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
                 throw std::invalid_argument("MLA prefill maximum length exceeds int64");
             // K/V are dense prompt tensors. Passing block_tables here makes the
             // varlen backend interpret them as a paged KV cache.
-#ifndef INFINICORE_MHA_VARLEN_OMITTED
             infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
                 runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
                 infini::ops::Config::Automatic(),
@@ -302,9 +299,6 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
                 static_cast<int64_t>(max_seqlen), static_cast<int64_t>(max_seqlen),
                 0.0, std::optional<double>{softmax_scale_}, true, std::vector<int64_t>{-1, -1}, 0.0, false, false,
                 attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
-#else
-            throw std::runtime_error("MhaVarlen is unavailable in the greedy_bootstrap build profile");
-#endif
             INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
         } else {
             ASSERT_EQ(attention_backend_, ::infinilm::backends::AttentionBackend::PAGED_ATTN);
@@ -323,13 +317,10 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
         ASSERT(query_states->ndim() == 3 && attn_output->shape() == query_states->shape());
         const auto kv_query = query_states->unsqueeze(1);
         const auto kv_output = attn_output->unsqueeze(1);
-#ifdef INFINICORE_MHA_KVCACHE_OMITTED
-        throw std::runtime_error("MhaKVCache is unavailable in the greedy_bootstrap build profile");
-#else
         const auto kv_window = std::vector<int64_t>{-1, -1};
         const auto kv_bound = infinilm::layers::attention::detail::check_kvcache(
             runtime, kv_output, kv_query, k_cache_layer, v_cache_layer, total_sequence_lengths.value(), block_tables.value(),
-            std::nullopt, size_t{0}, kv_window);
+            std::nullopt, size_t{0});
         infini::ops::FlashAttnWithKvcacheConfig kv_config(kv_bound);
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infinilm::runtime::Tensor> kv_none;
@@ -341,7 +332,6 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
             std::optional<double>{softmax_scale_}, true, kv_window, double{0.0}, true,
             int64_t{0}, false, kv_output, kv_none);
         INFINILM_TRACE_OP(MhaKVCache, kv_output);
-#endif
     }
     return project_latent_to_value_(runtime, attn_output, batch_size, seq_len);
 }

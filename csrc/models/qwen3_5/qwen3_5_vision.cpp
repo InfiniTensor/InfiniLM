@@ -1,6 +1,4 @@
-#ifndef INFINICORE_MHA_OMITTED
 #include <base/flash_attn_with_kvcache.h>
-#endif
 #include "execution/submit.hpp"
 #include "../../weights/weights.hpp"
 #include "../../layers/linear/dense.hpp"
@@ -13,9 +11,7 @@
 #include <memory>
 #include <exception>
 
-#if !defined(INFINICORE_UPSAMPLE_OPS_UNAVAILABLE)
 #include <base/upsample_bilinear2d.h>
-#endif
 
 #include <algorithm>
 #include <cmath>
@@ -197,9 +193,6 @@ infinilm::runtime::Tensor Qwen35VisionAttention::forward(infinilm::runtime::Runt
     const infinilm::runtime::Tensor mha_value = v;
     auto mha_output = infinilm::runtime::Tensor::empty(runtime, mha_query->shape(), mha_query->dtype());
     {
-#ifdef INFINICORE_MHA_OMITTED
-        throw std::runtime_error("ordinary MHA is unavailable in the greedy_bootstrap or InfiniOps-disabled build profile");
-#else
         const auto mha_config = infini::ops::FlashAttnWithKvcache::DefaultConfig(runtime.device().type());
         const std::optional<infinilm::runtime::Tensor> mha_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
@@ -209,7 +202,6 @@ infinilm::runtime::Tensor Qwen35VisionAttention::forward(infinilm::runtime::Runt
             false, std::vector<int64_t>{-1, -1}, double{0.0}, true, int64_t{0}, false,
             mha_output, mha_none);
         INFINILM_TRACE_OP(MultiheadAttention, mha_output);
-#endif
     }
     auto out = mha_output->view({seq_len, hidden_size_});
     return proj_->forward(runtime, out);
@@ -374,13 +366,9 @@ infinilm::runtime::Tensor Qwen35VisionModel::fast_pos_embed_interpolate(infinilm
     auto resized = infinilm::runtime::Tensor::empty(runtime,
         {pos_nchw->size(0), pos_nchw->size(1), static_cast<size_t>(output_size[0]), static_cast<size_t>(output_size[1])},
         pos_nchw->dtype());
-#if !defined(INFINICORE_UPSAMPLE_OPS_UNAVAILABLE)
     infinilm::execution::submit<infini::ops::UpsampleBilinear2d>(
         runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Config::Automatic(),
         pos_nchw, output_size, true, std::optional<double>{}, std::optional<double>{}, resized);
-#else
-    throw std::runtime_error("UpsampleBilinear requires an InfiniOps prefix with UpsampleBilinear2d");
-#endif
     auto one_frame = resized->squeeze(0)
                          ->permute({1, 2, 0})
                          ->view({1, grid_h / spatial_merge_size_, spatial_merge_size_, grid_w / spatial_merge_size_, spatial_merge_size_, hidden_size_})

@@ -25,9 +25,10 @@ public:
     }
 
     void set_kv_quant_scheme(infinilm::runtime::DataType kv_cache_dtype) {
-        throw std::runtime_error(
-            "KV cache INT8 quantization is unsupported because the selected InfiniOps attention providers require FP16/BF16 KV tensors and InfiniLM has no INT8 conversion path; requested dtype `"
-            + infinilm::runtime::toString(kv_cache_dtype) + "`.");
+        if (kv_cache_dtype != infinilm::runtime::DataType::kInt8)
+            throw std::invalid_argument("KV quantization requires int8 storage");
+        kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
+        kv_cache_dtype_ = kv_cache_dtype;
     }
 
     infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {

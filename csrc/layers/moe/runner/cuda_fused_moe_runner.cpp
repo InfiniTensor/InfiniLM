@@ -172,9 +172,6 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(infinilm::runti
             runtime, {1}, infinilm::runtime::DataType::kInt32);
     }
 
-#ifdef INFINICORE_MOE_ALIGN_OPS_UNAVAILABLE
-    throw std::runtime_error("moe_align UNAVAILABLE: requires InfiniOps MoeAlignBlockSize");
-#else
     const auto expert_map = dispatch_output.expert_map
         ? std::optional<infinilm::runtime::Tensor>{dispatch_output.expert_map}
         : std::nullopt;
@@ -189,7 +186,6 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(infinilm::runti
     } else {
         INFINILM_TRACE_OP(MoeAlign, workspace.sorted_token_ids);
     }
-#endif
     return CudaFusedMoeRunnerInput{
         dispatch_output.hidden_states,
         dispatch_output.topk_output,

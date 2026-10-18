@@ -15,8 +15,6 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_moe_model_config(std
         throw std::runtime_error("create_qwen3_moe_model_config: model_type is not qwen3_moe");
     }
     if (model_config->get_quant_scheme() != infinilm::quantization::QuantScheme::NONE) throw std::invalid_argument("Qwen3MoE requires NONE quantization");
-    const auto dtype = model_config->get_dtype();
-    if (dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16) throw std::invalid_argument("Qwen3MoE requires FP16 or BF16");
     const auto &json = model_config->get_config_json();
     if ((json.contains("decoder_sparse_step") && model_config->get<int64_t>("decoder_sparse_step") != 1)
         || (json.contains("mlp_only_layers") && (!json.at("mlp_only_layers").is_array() || !json.at("mlp_only_layers").empty()))) {
@@ -33,9 +31,8 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_moe_model_config(std
     const size_t kv_heads = model_config->get<size_t>("num_key_value_heads");
     const size_t head_dim = model_config->get<size_t>("head_dim");
     const size_t index_limit = static_cast<size_t>(std::numeric_limits<int32_t>::max());
-    // Align rejects E=1024 even though dense compute accepts it; use the common domain.
-    if (experts >= 1024 || topk > experts || heads % kv_heads != 0
-        || hidden % 8 != 0 || mid % 8 != 0 || hidden > index_limit || mid > index_limit / 2
+    if (topk > experts || heads % kv_heads != 0
+        || hidden > index_limit || mid > index_limit / 2
         || heads > index_limit / head_dim
         || hidden > std::numeric_limits<size_t>::max() / experts / 2 / mid / sizeof(uint16_t)) {
         throw std::invalid_argument("Qwen3MoE Factory configuration geometry is invalid");

@@ -85,9 +85,6 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
             std::optional<infinilm::runtime::Tensor>{}, std::optional<float>{scale_},
             std::optional<float>{0.0f}, std::optional<int>{}, std::optional<int>{}, attn);
         INFINILM_TRACE_OP(Gemm, attn);
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Softmax>(
             runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), attn, std::int64_t{-1}, std::optional<infini::ops::DataType>{}, attn);
         auto attention_output_shape = attn->shape();
@@ -136,9 +133,6 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
                 std::optional<infinilm::runtime::Tensor>{}, std::optional<float>{scale_},
                 std::optional<float>{0.0f}, std::optional<int>{}, std::optional<int>{}, attn);
             INFINILM_TRACE_OP(Gemm, attn);
-            INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-                && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-                && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
             infinilm::execution::submit<infini::ops::Softmax>(
                 runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), attn, std::int64_t{-1}, std::optional<infini::ops::DataType>{}, attn);
             auto attention_output_shape = attn->shape();

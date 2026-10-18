@@ -19,7 +19,7 @@ KimiK25ForConditionalGeneration::KimiK25ForConditionalGeneration(
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     model_config_ = model_config;
     const auto &dtype = model_config->get_dtype();
@@ -133,9 +133,6 @@ create_kimi_k25_model_config(std::shared_ptr<infinilm::config::ModelConfig> mode
     config_json["attention_output_bias"] = config_json.value("attention_bias", false);
     config_json["e_score_correction_bias"] = true;
     config_json["apply_routed_scaling_factor_on_output"] = false;
-    // TODO(kimi_k25): Restore the grouped noaux_tc router after the graph-backed
-    // MoeFusedGate path is safe for multi-rank model execution.
-    config_json["moe_router_backend"] = "sigmoid";
 
     // Only metadata consumed by the actual construction branch is required.
     if (model_config->get<int64_t>("hidden_size") <= 0

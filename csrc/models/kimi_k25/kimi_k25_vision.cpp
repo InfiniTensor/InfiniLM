@@ -1,6 +1,4 @@
-#ifndef INFINICORE_MHA_OMITTED
 #include <base/flash_attn_with_kvcache.h>
-#endif
 #include "execution/submit.hpp"
 #include "../../weights/weights.hpp"
 #include "../../layers/linear/dense.hpp"
@@ -9,9 +7,7 @@
 #include <exception>
 #include "kimi_k25_vision.hpp"
 
-#if !defined(INFINICORE_UPSAMPLE_BICUBIC_OPS_UNAVAILABLE)
 #include <base/upsample_bicubic2d.h>
-#endif
 
 #include "runtime/runtime.hpp"
 
@@ -140,7 +136,6 @@ infinilm::runtime::Tensor KimiK25VisionPosEmbed::forward(infinilm::runtime::Runt
     if (grid_h == height_ && grid_w == width_) {
         return weight_->view({height_ * width_, hidden_size_});
     }
-#if !defined(INFINICORE_UPSAMPLE_BICUBIC_OPS_UNAVAILABLE)
     auto nchw = weight_->permute({2, 0, 1})->unsqueeze(0);
     auto resized = infinilm::runtime::Tensor::empty(
         runtime, {nchw->size(0), nchw->size(1), grid_h, grid_w}, nchw->dtype());
@@ -153,9 +148,6 @@ infinilm::runtime::Tensor KimiK25VisionPosEmbed::forward(infinilm::runtime::Runt
         ->permute({1, 2, 0})
         ->contiguous(runtime)
         ->view({grid_h * grid_w, hidden_size_});
-#else
-    throw std::runtime_error("UpsampleBicubic requires an InfiniOps prefix with UpsampleBicubic2d");
-#endif
 }
 
 KimiK25VisionPatchEmbed::KimiK25VisionPatchEmbed(
@@ -299,9 +291,6 @@ infinilm::runtime::Tensor KimiK25VisionBlock::forward(infinilm::runtime::Runtime
     const infinilm::runtime::Tensor mha_value = v->unsqueeze(0);
     auto mha_output = infinilm::runtime::Tensor::empty(runtime, mha_query->shape(), mha_query->dtype());
     {
-#ifdef INFINICORE_MHA_OMITTED
-        throw std::runtime_error("ordinary MHA is unavailable in the greedy_bootstrap or InfiniOps-disabled build profile");
-#else
         const auto mha_config = infini::ops::FlashAttnWithKvcache::DefaultConfig(runtime.device().type());
         const std::optional<infinilm::runtime::Tensor> mha_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
@@ -311,7 +300,6 @@ infinilm::runtime::Tensor KimiK25VisionBlock::forward(infinilm::runtime::Runtime
             false, std::vector<int64_t>{-1, -1}, double{0.0}, true, int64_t{0}, false,
             mha_output, mha_none);
         INFINILM_TRACE_OP(MultiheadAttention, mha_output);
-#endif
     }
     auto attn_output = mha_output->view({seq_len, hidden_size_});
     const auto ops_other = wo_->forward(runtime, attn_output);

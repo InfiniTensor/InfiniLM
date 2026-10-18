@@ -13,7 +13,6 @@ local MUSA_ROOT =
     or os.getenv("MUSA_HOME")
     or os.getenv("MUSA_PATH")
     or "/usr/local/musa"
-local OPERATOR_CALLS_HEADER = INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"
 local TORCH_LIB = os.getenv("TORCH_LIB")
 set_toolchains("gcc")
 
@@ -30,75 +29,6 @@ option("cxx11-abi")
     set_description("Set _GLIBCXX_USE_CXX11_ABI to match PyTorch and the installed Infini stack")
     set_values("0", "1")
 option_end()
-
-option("capability-profile")
-    set_default("release")
-    set_showmenu(true)
-    set_description("InfiniOps adapter capabilities: release, attention_bootstrap, or greedy_bootstrap")
-    set_values("release", "attention_bootstrap", "greedy_bootstrap")
-option_end()
-
-local CAPABILITY_PROFILE = get_config("capability-profile") or "release"
--- One public-Key capability map for direct consumers and retained wrappers/adapters.
--- true requires the generated API; strings name existing explicit reject guards.
--- The three profile-dependent entries retain the original bootstrap exclusions.
-local DIRECT_OPS = {
-    ["Add"] = true,
-    ["Argmax"] = true,
-    ["Cast"] = true,
-    ["Cat"] = true,
-    ["CausalConv1d"] = true,
-    ["ChunkGatedDeltaRule"] = true,
-    ["Convolution"] = true,
-    ["Copy"] = true,
-    ["DeepseekMoe"] = true,
-    ["Embedding"] = true,
-    ["Fill"] = true,
-    ["FlashAttnVarlenFunc"] = CAPABILITY_PROFILE ~= "greedy_bootstrap",
-    ["FlashAttnWithKvcache"] = CAPABILITY_PROFILE ~= "greedy_bootstrap",
-    ["FusedAddRmsNorm"] = true,
-    ["FusedGatedDeltaNetGating"] = true,
-    ["Gelu"] = true,
-    ["Gemm"] = true,
-    ["I8Gemm"] = true,
-    ["LayerNorm"] = true,
-    ["MambaSelectiveScan"] = true,
-    ["MoeAlignBlockSize"] = "INFINICORE_MOE_ALIGN_OPS_UNAVAILABLE",
-    ["MoeFusedDense"] = true,
-    ["MoeFusedGate"] = true,
-    ["Mrope"] = true,
-    ["Mul"] = true,
-    ["MulScalar"] = "INFINICORE_MUL_SCALAR_OPS_UNAVAILABLE",
-    ["NsaCompressPagedCache"] = "INFINICORE_NSA_OPS_UNAVAILABLE",
-    ["NsaPagedAttention"] = "INFINICORE_NSA_OPS_UNAVAILABLE",
-    ["PadConstant"] = true,
-    ["PerChannelQuantI8"] = true,
-    ["PerTensorDequantI8"] = true,
-    ["PerTensorQuantI8"] = true,
-    ["QuickGelu"] = "INFINICORE_QUICK_GELU_OPS_UNAVAILABLE",
-    ["RecurrentGatedDeltaRule"] = true,
-    ["Relu"] = true,
-    ["ReshapeAndCacheFlash"] = true,
-    ["RmsNorm"] = true,
-    ["RotaryEmbedding"] = true,
-    ["SeparateTableRope"] = true,
-    ["Sigmoid"] = true,
-    ["Silu"] = true,
-    ["SiluAndMul"] = true,
-    ["Softmax"] = true,
-    ["Sum"] = true,
-    ["Take"] = true,
-    ["TopKTopPSamplingFromLogits"] = CAPABILITY_PROFILE == "release",
-    ["TopkSigmoid"] = "INFINICORE_MOE_TOPK_SIGMOID_OPS_UNAVAILABLE",
-    ["TopkSoftmax"] = true,
-    ["Tril"] = true,
-    ["Triu"] = true,
-    ["UpsampleBicubic2d"] = "INFINICORE_UPSAMPLE_BICUBIC_OPS_UNAVAILABLE",
-    ["UpsampleBilinear2d"] = "INFINICORE_UPSAMPLE_OPS_UNAVAILABLE",
-    ["W4MarlinGemm"] = true,
-    ["W4MarlinParameters"] = true,
-    ["W4MarlinRepack"] = true,
-}
 
 local cxx11_abi = os.getenv("INFINILM_CXX11_ABI")
 if not cxx11_abi or cxx11_abi == "" then
@@ -141,15 +71,6 @@ target("infinilm_runtime")
     set_kind("shared")
     set_languages("cxx17")
     add_defines("USE_INFINIRT_GRAPH")
-    if CAPABILITY_PROFILE == "greedy_bootstrap" then
-        add_defines("INFINICORE_MHA_OMITTED", { public = true })
-        add_defines("INFINICORE_MHA_KVCACHE_OMITTED", { public = true })
-        add_defines("INFINICORE_MHA_VARLEN_OMITTED", { public = true })
-    end
-    if CAPABILITY_PROFILE ~= "release" then
-        add_defines("INFINICORE_RANDOM_SAMPLE_OMITTED", { public = true })
-    end
-
     if not is_plat("windows") then
         add_cxflags("-fPIC")
     end
@@ -174,26 +95,6 @@ target("infinilm_runtime")
     add_files("csrc/runtime/tensor/*.cc")
     add_files("csrc/execution/trace/op_trace.cc")
     add_files("csrc/execution/graph/graph.cc")
-
-    on_load(function (target)
-        if not os.isfile(OPERATOR_CALLS_HEADER) then
-            raise("InfiniOps operator instantiation manifest is missing: " .. OPERATOR_CALLS_HEADER)
-        end
-        local operator_calls = io.readfile(OPERATOR_CALLS_HEADER)
-        for operator_type, requirement in pairs(DIRECT_OPS) do
-            local symbol = "Operator<::infini::ops::" .. operator_type .. ">"
-            if requirement and not operator_calls:find(symbol, 1, true) then
-                if type(requirement) == "string" then
-                    print("InfiniOps " .. operator_type .. " UNAVAILABLE for LM consumers"
-                        .. " in profile " .. CAPABILITY_PROFILE .. "; retaining explicit rejection")
-                    target:add("defines", requirement, { public = true })
-                else
-                    raise("InfiniOps " .. operator_type .. " is required by a public Ops LM call"
-                        .. " in profile " .. CAPABILITY_PROFILE)
-                end
-            end
-        end
-    end)
 
     set_installdir("python/infinilm/_lib")
     on_install(function (target)
@@ -221,30 +122,8 @@ target("_infinilm")
     add_includedirs(INFINI_ROOT .. "/include")
     add_includedirs(INFINI_ROOT .. "/include/infiniccl")
 
-    add_files("csrc/**.cpp|runtime/**.cpp|models/**.cpp")
-    add_files("csrc/**.cc|runtime/**.cc|execution/graph/graph.cc|execution/trace/op_trace.cc|models/**.cc")
-    add_files("csrc/models/*.cpp")
-    add_files("csrc/models/baichuan/*.cpp")
-    add_files("csrc/models/chatglm/*.cpp")
-    add_files("csrc/models/deepseek/deepseek_for_causal_lm.cpp",
-              "csrc/models/deepseek/deepseek_decoder_layer.cpp",
-              "csrc/models/deepseek_v2/deepseek_v2_moe.cpp")
-    add_files("csrc/models/ernie4_5_vl/*.cpp")
-    add_files("csrc/models/fm9g/*.cpp")
-    add_files("csrc/models/glm4/*.cpp")
-    add_files("csrc/models/gpt2/gpt2_for_causal_lm.cpp")
-    add_files("csrc/models/internlm3/*.cpp")
-    add_files("csrc/models/llama/*.cpp")
-    add_files("csrc/models/mamba/*.cpp")
-    add_files("csrc/models/mistral/*.cpp")
-    add_files("csrc/models/minicpm4/*.cpp")
-    add_files("csrc/models/minicpm_eagle/*.cpp")
-    add_files("csrc/models/qwen2/*.cpp")
-    add_files("csrc/models/qwen3/*.cpp")
-    add_files("csrc/models/qwen3_moe/qwen3_moe_experts.cpp",
-              "csrc/models/qwen3_moe/qwen3_moe_topk_router.cpp",
-              "csrc/models/qwen3_moe/qwen3_moe_sparse_moe_block.cpp",
-              "csrc/models/qwen3_moe/qwen3_moe_for_causal_lm.cpp")
+    add_files("csrc/**.cpp|runtime/**.cpp")
+    add_files("csrc/**.cc|runtime/**.cc|execution/graph/graph.cc|execution/trace/op_trace.cc")
 
     set_installdir("python")
     on_install(function (target)

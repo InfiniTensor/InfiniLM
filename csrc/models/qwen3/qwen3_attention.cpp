@@ -10,7 +10,7 @@ namespace infinilm::models::qwen3 {
 
 Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
                                size_t layer_idx, const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
-    models::validate_selected_construction(model_config, runtime, rank_info, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
 
     layer_idx_ = layer_idx;

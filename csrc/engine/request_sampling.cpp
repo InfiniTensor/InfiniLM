@@ -36,36 +36,19 @@ void sample_request_token(
     const size_t num_rows = batched ? logits->size(0) : 1;
     const bool greedy = random_value == 0.0f || top_p == 0.0f
                      || top_k == 1 || temperature == 0.0f;
-    const bool greedy_device = device_type == Device::Type::kNvidia
-                            || device_type == Device::Type::kMetax
-                            || device_type == Device::Type::kIluvatar
-                            || device_type == Device::Type::kMoore
-                            || device_type == Device::Type::kCambricon
-                            || device_type == Device::Type::kAscend
-                            || device_type == Device::Type::kHygon;
-    if (greedy_device && greedy
-        && (logits->ndim() == 1 || (device_type == Device::Type::kNvidia && batched))
-        && logits->numel() > 0 && logits->is_contiguous()
-        && (dtype == DataType::kFloat16 || dtype == DataType::kBFloat16 || dtype == DataType::kFloat32)
-        && indices->numel() == num_rows
-        && (!batched || (indices->ndim() == 1 && indices->size(0) == num_rows))
-        && indices->dtype() == DataType::kInt64 && indices->is_contiguous()) {
+    if (greedy) {
+        INFINILM_ASSERT((logits->ndim() == 1 || batched) && logits->numel() > 0);
+        INFINILM_ASSERT(indices->numel() == num_rows);
         const std::optional<int64_t> dim = batched ? std::optional<int64_t>{1} : std::nullopt;
         execution::submit<infini::ops::Argmax>(
-            runtime, execution::RecordingPolicy::Unqualified,
+            runtime, execution::RecordingPolicy::AllowHostReplay,
             infini::ops::Argmax::DefaultConfig(device_type),
             logits, dim, false, indices);
         return;
     }
 
-#ifdef INFINICORE_RANDOM_SAMPLE_OMITTED
-    throw std::runtime_error("sampling provider is omitted by the bootstrap build; only supported greedy Argmax inputs are available");
-#else
     // Validate request scalars and the LM single-row/output-scalar layout.
-    INFINILM_ASSERT(device_type == Device::Type::kNvidia);
     INFINILM_ASSERT(logits->ndim() == 1 && logits->numel() > 0 && logits->is_contiguous());
-    INFINILM_ASSERT(dtype == DataType::kFloat16 || dtype == DataType::kBFloat16
-                     || dtype == DataType::kFloat32 || dtype == DataType::kFloat64);
     INFINILM_ASSERT(indices->numel() == 1 && indices->is_contiguous());
     INFINILM_ASSERT(indices->dtype() == DataType::kInt32 || indices->dtype() == DataType::kInt64);
     INFINILM_ASSERT(std::isfinite(random_value));
@@ -85,10 +68,10 @@ void sample_request_token(
         scaled_logits = Tensor::empty(runtime, logits_2d->shape(), dtype);
         inverse_temperature = Tensor::empty(runtime, {1, 1}, dtype);
         execution::submit<infini::ops::Fill>(
-            runtime, execution::RecordingPolicy::Unqualified, fill_config,
+            runtime, execution::RecordingPolicy::AllowHostReplay, fill_config,
             inverse_temperature, static_cast<double>(1.0f / temperature), inverse_temperature);
         execution::submit<infini::ops::Mul>(
-            runtime, execution::RecordingPolicy::Unqualified, mul_config,
+            runtime, execution::RecordingPolicy::AllowHostReplay, mul_config,
             logits_2d, inverse_temperature, scaled_logits);
         sampled_logits = scaled_logits;
     }
@@ -115,10 +98,9 @@ void sample_request_token(
         static_cast<int64_t>(uint64_t{0x4c4d5f73616d706cULL} ^ random_bits)};
     const std::optional<int64_t> offset{0};
     execution::submit<infini::ops::TopKTopPSamplingFromLogits>(
-        runtime, execution::RecordingPolicy::Unqualified, sampling_config,
+        runtime, execution::RecordingPolicy::AllowHostReplay, sampling_config,
         sampled_logits, top_k_tensor, top_p_tensor, row_indices,
         std::string{"joint"}, true, false, seed, offset, output);
-#endif
 }
 
 } // namespace infinilm::engine

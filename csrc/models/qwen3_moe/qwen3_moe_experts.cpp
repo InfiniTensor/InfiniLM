@@ -16,7 +16,7 @@ namespace infinilm::models::qwen3_moe {
 
 Qwen3MoeExperts::Qwen3MoeExperts(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank_info, const layers::moe::EPConfig &ep_config) {
-    models::validate_selected_construction(model_config, runtime, rank_info, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
 
     const auto &dtype = model_config->get_dtype();
@@ -32,8 +32,8 @@ Qwen3MoeExperts::Qwen3MoeExperts(infinilm::runtime::Runtime &runtime, std::share
     ASSERT(intermediate_size % static_cast<size_t>(tp_size_) == 0);
     intermediate_size_per_partition_ = intermediate_size / static_cast<size_t>(tp_size_);
 
-    w1_ = infinilm::weights::Weight(runtime, {num_experts_, 2 * intermediate_size_per_partition_, hidden_size_}, dtype); this->bind_weight("w1", w1_);
-    w2_ = infinilm::weights::Weight(runtime, {num_experts_, hidden_size_, intermediate_size_per_partition_}, dtype); this->bind_weight("w2", w2_);
+    w1_ = infinilm::weights::Weight(runtime, {num_experts_, 2 * intermediate_size_per_partition_, hidden_size_}, dtype); this->bind_derived_weight("w1", w1_);
+    w2_ = infinilm::weights::Weight(runtime, {num_experts_, hidden_size_, intermediate_size_per_partition_}, dtype); this->bind_derived_weight("w2", w2_);
 
     for (size_t expert = 0; expert < num_experts_; ++expert) {
         auto gate_weight = w1_

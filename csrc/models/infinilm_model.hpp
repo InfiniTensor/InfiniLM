@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_set>
 
 #include "../backends/attention_backends.hpp"
 #include "../cache/cache.hpp"
@@ -121,6 +122,6 @@ protected:
     std::shared_ptr<infinilm::config::ModelConfig> model_config_;
 
 private:
-    static void process_weights_recursive_(infinilm::weights::ModelWeights *module, infinilm::runtime::Runtime &runtime, bool pre_transpose);
+    static void process_weights_recursive_(infinilm::weights::ModelWeights *module, infinilm::runtime::Runtime &runtime, bool pre_transpose, std::unordered_set<const weights::ModelWeights *> &visited);
 };
 } // namespace infinilm

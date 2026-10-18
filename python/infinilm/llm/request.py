@@ -202,7 +202,7 @@ class InferenceRequest:
         # Paged scheduler ownership is single-use, including after completion.
         self._paged_submitted: bool = False
         self._paged_completion_state: Optional[str] = None
-        # Proposed NSA paged-owner tokens; issued only by Scheduler.
+        # NSA paged-owner tokens; issued only by Scheduler.
         self._nsa_incarnation: int = 0
         self._nsa_prefix_revision: int = 0
         self.num_local_cached_tokens: int = (

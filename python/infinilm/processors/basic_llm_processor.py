@@ -111,12 +111,14 @@ class BasicLLMProcessor(InfinilmProcessor):
         from .. import _core as infinicore
 
         """Build model input from static scheduler output."""
-        if scheduler_output.num_requests == 2:
-            if scheduler_output.is_prefill or scheduler_output.cache_capacity != 2:
-                raise ValueError("static two-row forward only supports decode")
+        if scheduler_output.num_requests > 1:
+            if scheduler_output.is_prefill:
+                raise ValueError("static multi-row forward only supports decode")
             rows = scheduler_output.physical_rows
-            if (len(scheduler_output.scheduled_requests) != 2
-                    or len(rows) != 2 or set(rows) != {0, 1}
+            count = scheduler_output.num_requests
+            if (len(scheduler_output.scheduled_requests) != count
+                    or len(rows) != count or len(set(rows)) != count
+                    or any(row < 0 or row >= scheduler_output.cache_capacity for row in rows)
                     or scheduler_output.cache_row_length <= 0):
                 raise ValueError("static decode requires two distinct physical rows")
             input_ids = []
@@ -145,9 +147,9 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
                 "past_kv_lengths": infinicore.from_list(past_lengths, dtype=infinicore.int32),
                 "total_kv_lengths": infinicore.from_list(total_lengths, dtype=infinicore.int32),
-                "input_offsets": infinicore.from_list([0, 1, 2], dtype=infinicore.int32),
+                "input_offsets": infinicore.from_list(list(range(count + 1)), dtype=infinicore.int32),
                 "cu_seqlens": infinicore.from_list(
-                    [0, total_lengths[0], sum(total_lengths)], dtype=infinicore.int32),
+                    [0] + [sum(total_lengths[:i]) for i in range(1, count + 1)], dtype=infinicore.int32),
                 "block_tables": infinicore.from_list(
                     [[row] for row in rows], dtype=infinicore.int32),
                 "slot_mapping": infinicore.from_list(slots, dtype=infinicore.int64),

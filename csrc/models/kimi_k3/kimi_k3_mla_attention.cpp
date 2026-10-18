@@ -163,17 +163,11 @@ infinilm::runtime::Tensor KimiK3MLAAttention::forward(
         padded_output->dtype());
     auto gate = g_proj_->forward(runtime, input)
                     ->view({batch_size, seq_len, local_num_heads_, v_head_dim_});
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Sigmoid>(
         runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gate, gate);
     INFINILM_TRACE_OP(Sigmoid, gate);
     {
         const auto ops_input = padded_output->narrow({{3, 0, v_head_dim_}});
-        INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-            && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-            && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
         infinilm::execution::submit<infini::ops::Mul>(
             runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), ops_input, gate, output);
         INFINILM_TRACE_OP(Mul, output);

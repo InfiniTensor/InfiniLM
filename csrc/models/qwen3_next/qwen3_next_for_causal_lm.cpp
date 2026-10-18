@@ -19,7 +19,7 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     model_config_ = model_config;
     const size_t tp = static_cast<size_t>(rank_info.tp_size);
     const auto layer_types = model_config->get<std::vector<std::string>>("layer_types");

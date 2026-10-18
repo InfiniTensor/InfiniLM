@@ -50,7 +50,7 @@ VideoNSAForConditionalGeneration::VideoNSAForConditionalGeneration(infinilm::run
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank,
     backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep) {
-    models::validate_runtime_construction(model_config, runtime, rank, attention_backend, ep);
+    models::validate_runtime_construction(model_config, runtime, rank);
     try {
     model_config_ = model_config;
     auto text_config = text_config_from(model_config);

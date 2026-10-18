@@ -14,7 +14,7 @@ Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(infinilm::runtime::Runtime &runti
     const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
     (void)attention_backend;
-    models::validate_selected_construction(model_config, runtime, rank_info, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
         gate_ = this->bind_child("gate", std::make_shared<Qwen3MoeTopKRouter>(runtime, model_config, rank_info, ep_config));
         experts_ = this->bind_child("experts", std::make_shared<Qwen3MoeExperts>(runtime, model_config, rank_info, ep_config));

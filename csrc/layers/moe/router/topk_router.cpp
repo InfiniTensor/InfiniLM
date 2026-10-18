@@ -127,9 +127,6 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> TopKRouter::for
     case TopKRouterBackend::Sigmoid: {
         auto token_expert_indices = infinilm::runtime::Tensor::empty(
             runtime, router_scores->shape(), infinilm::runtime::DataType::kInt32);
-#ifdef INFINICORE_MOE_TOPK_SIGMOID_OPS_UNAVAILABLE
-        throw std::runtime_error("moe_topk_sigmoid UNAVAILABLE: requires InfiniOps TopkSigmoid");
-#else
         const auto sigmoid_bias = correction_bias
             ? std::optional<infinilm::runtime::Tensor>{correction_bias}
             : std::optional<infinilm::runtime::Tensor>{};
@@ -139,7 +136,6 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> TopKRouter::for
             router_logits, sigmoid_bias, std::optional<infinilm::runtime::Tensor>{},
             norm_topk_prob_, 1.0, router_scores, router_indices, token_expert_indices);
         INFINILM_TRACE_OP(MoeTopkSigmoid, router_scores);
-#endif
         break;
     }
     case TopKRouterBackend::FusedGate:

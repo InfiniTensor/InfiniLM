@@ -97,9 +97,6 @@ infinilm::runtime::Tensor KimiK3DecoderLayer::apply_attn_res(
         {{1, 0, block_residual_count + 1}});
     auto normalized = norm->forward(runtime, values);
     auto scores = proj->forward(runtime, normalized);
-    INFINILM_ASSERT(runtime.device().type() != infinilm::runtime::Device::Type::kCpu
-        && runtime.device().type() != infinilm::runtime::Device::Type::kMars
-        && runtime.device().type() != infinilm::runtime::Device::Type::kThead);
     infinilm::execution::submit<infini::ops::Softmax>(
         runtime, infini::ops::Softmax::DefaultConfig(runtime.device().type()), scores, std::int64_t{1}, std::optional<infini::ops::DataType>{}, scores);
     auto score_matrix = scores->view(
@@ -123,7 +120,6 @@ infinilm::runtime::Tensor KimiK3DecoderLayer::forward(
     const infinilm::runtime::Tensor &block_residual_storage,
     size_t &block_residual_count,
     global_state::ForwardContext &forward_context) const {
-    throw std::runtime_error("KimiK3 indexed KDA is unsupported: native Core adapter/provider unavailable; provider and state restoration pending");
     auto &runtime = *forward_context.runtime;
     const auto shape = hidden_states->shape();
     auto prefix_sum = hidden_states;

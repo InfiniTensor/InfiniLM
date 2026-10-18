@@ -44,6 +44,12 @@ protected:
     infinilm::runtime::Device device_;
 
 public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (in_proj_qkv_) result.push_back(in_proj_qkv_);
+        return result;
+    }
+
     Qwen3NextGatedDeltaNet(infinilm::runtime::Runtime &runtime,
                        std::shared_ptr<infinilm::config::ModelConfig> model_config,
                            size_t layer_idx,
@@ -53,7 +59,7 @@ public:
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
                               const infinilm::global_state::ForwardContext &forward_context) const;
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
+
 
 private:
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;

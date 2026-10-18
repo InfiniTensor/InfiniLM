@@ -49,7 +49,7 @@ Ernie45DecoderLayer::Ernie45DecoderLayer(infinilm::runtime::Runtime &runtime,
         const engine::distributed::RankInfo &rank_info,
         backends::AttentionBackend attention_backend,
         const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info, attention_backend, ep_config);
+    models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
     const auto &dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");

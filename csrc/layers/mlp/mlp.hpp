@@ -36,18 +36,13 @@ public:
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
                               const infinilm::runtime::Tensor &hidden_states) const;
 
-    // Owner-local enumeration only; no new child/parameter registration.
-    void append_w4_layers(std::vector<std::shared_ptr<infinilm::nn::BaseLinear>> &layers,
-                          infinilm::quantization::QuantScheme expected_scheme) const {
-        if (!gate_up_proj_ || typeid(*gate_up_proj_) != typeid(infinilm::layers::linear::GateUpParallelLinear) ||
-            gate_up_proj_->get_quantization()->get_quant_scheme() != expected_scheme)
-            throw std::invalid_argument("Qwen3 hidden GateUp must be exact homogeneous W4 owner");
-        layers.push_back(gate_up_proj_);
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        result.push_back(gate_up_proj_);
+        return result;
     }
 
-    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override {
-        gate_up_proj_->process_weights_after_loading(runtime, pre_transpose);
-    }
+
 
     // Module information
     size_t hidden_size() const { return hidden_size_; }
