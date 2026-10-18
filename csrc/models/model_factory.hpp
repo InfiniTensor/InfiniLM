@@ -7,6 +7,7 @@ namespace infinilm {
 
 class InfinilmModelFactory {
 public:
+    // Normalize with ConfigFactory before sharing the configuration with ranks.
     static std::shared_ptr<InfinilmModel> createModel(
         std::shared_ptr<config::ModelConfig>, infinilm::runtime::Runtime &,
         const engine::distributed::RankInfo &, backends::AttentionBackend,

@@ -1,6 +1,7 @@
 /*
  * This file contains some code derived from xtensor (https://github.com/xtensor-stack/xtensor),
- * which is licensed under the BSD-3-Clause license.
+ * which is licensed under the BSD-3-Clause license. The complete notice is in
+ * python/infinilm/licenses/xtensor-LICENSE.txt (also distributed with the package).
  */
 
 #include "runtime/custom_types.h"

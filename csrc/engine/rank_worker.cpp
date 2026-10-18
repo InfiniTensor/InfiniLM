@@ -574,7 +574,7 @@ void RankWorker::thread_loop() {
                 local_cmd = job_cmd_;
                 if (local_cmd == Command::LOAD) {
                     local_param_name = pending_param_name_;
-                    local_param = pending_param_;
+                    local_param = std::move(pending_param_);
                 } else if (local_cmd == Command::LOAD_BATCH) {
                     local_params = std::move(pending_params_);
                     // strict is copied with the batch because loading runs on
@@ -603,6 +603,7 @@ void RankWorker::thread_loop() {
                 try {
                     if (nsa_pool_epoch_) nsa_drain_required_ = true;
                     model_->load_parameter(*runtime_, local_param_name, local_param);
+                    local_param.reset();
                 } catch (...) {
                     fail("load_parameter", std::current_exception());
                     break;
@@ -620,6 +621,8 @@ void RankWorker::thread_loop() {
                     if (nsa_pool_epoch_) nsa_drain_required_ = true;
                     model_->load_parameters_no_sync(*runtime_, local_params, local_params_strict);
                     runtime_->syncStream();
+                    // Completion includes releasing the source owners, not only H2D.
+                    local_params.clear();
                 } catch (...) {
                     fail("load_parameters", std::current_exception());
                     break;

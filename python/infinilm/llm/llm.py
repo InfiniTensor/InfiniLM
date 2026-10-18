@@ -341,6 +341,8 @@ class LLMEngine:
                         req.generated_text = last_committed_text + delta
                         req._token_decode_offset = len(req.generated_token_ids)
                     is_finished = self._check_request_finished(req, token_id)
+                    if is_finished and req.finish_reason == FinishReason.EOS_TOKEN:
+                        req.generated_text = last_committed_text
                     # vLLM-style replacement character handling is primarily
                     # relevant for streaming. Offline requests have no queue.
                     if req._output_queue is None:
@@ -348,11 +350,6 @@ class LLMEngine:
                             req.mark_finished(req.finish_reason)
                     else:
                         if holds_back and not is_finished:
-                            token_text = ""
-                        elif is_finished and req.finish_reason in (
-                            FinishReason.EOS_TOKEN,
-                            FinishReason.STOP_STRING,
-                        ):
                             token_text = ""
                         else:
                             token_text = req.generated_text[req._text_output_offset :]
@@ -385,11 +382,6 @@ class LLMEngine:
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:
         """Check if request generation is finished."""
-        max_tokens = req.sampling_params.max_tokens
-        if max_tokens and req.get_num_generated_tokens() >= max_tokens:
-            req.finish_reason = FinishReason.LENGTH
-            return True
-
         if not req.sampling_params.ignore_eos:
             # Check EOS token - only stop if ignore_eos is False
             eos_ids = req.eos_token_ids or self.eos_token_ids
@@ -406,6 +398,11 @@ class LLMEngine:
                     req.generated_text = req.generated_text[: -len(stop_str)]
                     req.finish_reason = FinishReason.STOP_STRING
                     return True
+
+        max_tokens = req.sampling_params.max_tokens
+        if max_tokens and req.get_num_generated_tokens() >= max_tokens:
+            req.finish_reason = FinishReason.LENGTH
+            return True
 
         return False
 

@@ -249,7 +249,7 @@ setup(
     package_dir={"": "python"},
     packages=find_packages(where="python"),
     package_data={
-        "infinilm": ["_lib/" + pattern for pattern in (*INFINILM_NATIVE_ARTIFACTS, *NATIVE_AUXILIARY_NAMES)],
+        "infinilm": ["licenses/*.txt", *["_lib/" + pattern for pattern in (*INFINILM_NATIVE_ARTIFACTS, *NATIVE_AUXILIARY_NAMES)]],
     },
     include_package_data=True,
     distclass=BinaryDistribution,

@@ -17,10 +17,6 @@ void models::validate_selected_construction(const std::shared_ptr<config::ModelC
     const auto model_type = model_config->get<std::string>("model_type");
     const bool is_qwen3_text = model_type == "qwen3" || model_type == "qwen3_vl_text";
     if (model_type != "qwen3_moe" && !is_qwen3_text && model_type != "llama" && model_type != "qwen2" && model_type != "mistral") throw std::invalid_argument("selected constructor requires an explicitly migrated family");
-    const auto &config_map = models::get_model_config_map();
-    const auto it = config_map.find(model_type);
-    if (it == config_map.end()) throw std::invalid_argument("selected configuration handler is unavailable");
-    it->second(model_config);
     if ((model_type == "qwen3_moe" || is_qwen3_text) && model_config->get_kv_quant_scheme() != quantization::KVQuantAlgo::NONE)
         throw std::invalid_argument("selected Qwen constructor requires NONE KV quantization");
     if ((model_type == "llama" || model_type == "qwen2" || model_type == "mistral") && model_config->get_kv_quant_scheme() != quantization::KVQuantAlgo::NONE
@@ -88,10 +84,6 @@ void models::validate_runtime_construction(const std::shared_ptr<config::ModelCo
         || (rank.tp_size > 1 && !rank.comm) || (rank.pp_size > 1 && !rank.world_comm))
         throw std::invalid_argument("Runtime constructor rank topology is invalid");
     if (hybrid || remaining || vision) {
-        const auto &handlers = get_model_config_map();
-        const auto handler = handlers.find(type);
-        if (handler == handlers.end()) throw std::invalid_argument("Runtime configuration handler is unavailable");
-        handler->second(model_config);
         return;
     }
     const size_t limit = std::numeric_limits<size_t>::max();
@@ -113,10 +105,6 @@ void models::validate_runtime_construction(const std::shared_ptr<config::ModelCo
             && backend != backends::AttentionBackend::FLASH_ATTN)
             throw std::invalid_argument("Unsupported explicit Attention backend");
     }
-    const auto &handlers = get_model_config_map();
-    const auto handler = handlers.find(type);
-    if (handler == handlers.end()) throw std::invalid_argument("Runtime configuration handler is unavailable");
-    handler->second(model_config);
     if (type == "mamba") return; // Its own handler owns the complete Mamba metadata contract.
     validate_dense_construction_metadata(model_config, type.c_str());
     const size_t tp = static_cast<size_t>(rank.tp_size);

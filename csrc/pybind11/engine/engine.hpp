@@ -67,7 +67,8 @@ inline void bind_hook_registry(py::module &m) {
 }
 
 inline void bind_infer_engine(py::module &m) {
-    py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
+    py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(
+        m, "InferEngine", py::release_gil_before_calling_cpp_dtor());
 
     infer_engine
         .def(py::init([](
@@ -81,6 +82,7 @@ inline void bind_infer_engine(py::module &m) {
                           bool use_mla,
                           const std::string &weight_load_mode,
                           bool pre_transpose) {
+                 py::gil_scoped_release release;
                  return std::make_shared<InferEngine>(
                      config_str,
                      dist,
@@ -105,14 +107,20 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("pre_transpose") = false)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
+             py::call_guard<py::gil_scoped_release>(),
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("load_params", &InferEngine::load_params,
              py::arg("params"), py::arg("strict") = true,
+             py::call_guard<py::gil_scoped_release>(),
              "Load a batch of parameter tensors into all workers, syncing once per worker")
         .def("state_dict_keyname", &InferEngine::state_dict_keys)
         .def("state_dict", [](InferEngine &self) {
+            const auto tensors = [&self] {
+                py::gil_scoped_release release;
+                return self.state_dict();
+            }();
             py::list state_dict_tp_all;
-            for (const auto &state_dict_tp : self.state_dict()) {
+            for (const auto &state_dict_tp : tensors) {
                 py::dict result;
                 for (const auto &[name, param] : state_dict_tp) {
                     result[py::cast(name)] = infinilm::runtime::Tensor(param);
@@ -121,7 +129,9 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
-        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
+        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading,
+             py::call_guard<py::gil_scoped_release>(),
+             "Process the weights after loading on all workers (e.g., for quantization)")
         .def(
             "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
@@ -134,8 +144,10 @@ inline void bind_infer_engine(py::module &m) {
             },
             "Run inference on all ranks with arbitrary arguments")
         .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
-        .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
+            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); },
+            py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
+        .def("get_kv_cache", &InferEngine::get_kv_cache,
+             py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
         .def("get_nsa_pool_epoch", [](InferEngine &self) {
             py::gil_scoped_release release;
             return self.get_nsa_pool_epoch();
