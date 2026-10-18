@@ -4,10 +4,10 @@
  * python/infinilm/licenses/xtensor-LICENSE.txt (also distributed with the package).
  */
 
-#include "runtime/custom_types.h"
 #include "runtime/context.hpp"
-#include "runtime/runtime.hpp"
+#include "runtime/custom_types.h"
 #include "runtime/dtype.hpp"
+#include "runtime/runtime.hpp"
 #include "runtime/tensor.hpp"
 #include <cmath>
 #include <cstdint>
@@ -474,11 +474,13 @@ template <class T>
 std::ostream &pretty_print(const Tensor &original_tensor,
                            std::ostream &out = std::cout) {
     auto runtime = original_tensor->allocation_owner();
-    if (!runtime || runtime->device() != original_tensor->device())
+    if (!runtime || runtime->device() != original_tensor->device()) {
         runtime = context::resolveRuntime(original_tensor->device());
+    }
     runtime->assertOwnerThread();
     Tensor tensor = original_tensor->device().type() == Device::Type::kCpu
-        ? original_tensor : original_tensor->to(*runtime, Device::Type::kCpu);
+                      ? original_tensor
+                      : original_tensor->to(*runtime, Device::Type::kCpu);
     bool on_cpu = original_tensor->device() == Device::Type::kCpu;
     std::string device_str = original_tensor->device().ToString();
 

@@ -1,6 +1,6 @@
 #pragma once
-#include "../utils.hpp"
 #include "../layers/quantization/quantization.hpp"
+#include "../utils.hpp"
 #include "nlohmann/json.hpp"
 #include <optional>
 #include <stdexcept>
@@ -25,8 +25,9 @@ public:
     }
 
     void set_kv_quant_scheme(infinilm::runtime::DataType kv_cache_dtype) {
-        if (kv_cache_dtype != infinilm::runtime::DataType::kInt8)
+        if (kv_cache_dtype != infinilm::runtime::DataType::kInt8) {
             throw std::invalid_argument("KV quantization requires int8 storage");
+        }
         kv_quant_scheme = infinilm::quantization::KVQuantAlgo::INT8;
         kv_cache_dtype_ = kv_cache_dtype;
     }

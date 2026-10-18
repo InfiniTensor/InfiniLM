@@ -6,8 +6,8 @@
 
 #include "execution/graph/graph_manager.hpp"
 
-#include <infini/rt.h>
 #include <cstdint>
+#include <infini/rt.h>
 
 namespace infinilm::runtime {
 class Runtime : public std::enable_shared_from_this<Runtime> {

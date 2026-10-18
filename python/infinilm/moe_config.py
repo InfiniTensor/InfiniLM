@@ -42,6 +42,7 @@ def is_moe_model(model_path: str) -> bool:
         return False
     with open(config_path, "r") as f:
         config = json.load(f)
+
     def has_experts(value):
         if not isinstance(value, dict):
             return False
@@ -49,8 +50,9 @@ def is_moe_model(model_path: str) -> bool:
             count = value.get(key)
             if isinstance(count, int) and not isinstance(count, bool) and count > 0:
                 return True
-        return any(has_experts(child) for child in value.values()
-                   if isinstance(child, dict))
+        return any(
+            has_experts(child) for child in value.values() if isinstance(child, dict)
+        )
 
     return has_experts(config)
 

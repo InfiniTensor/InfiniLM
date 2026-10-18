@@ -71,8 +71,10 @@ class EngineConfig:
     static_cache_capacity: int = 1
 
     def __post_init__(self) -> None:
-        if (type(self.static_cache_capacity) is not int
-                or self.static_cache_capacity < 1):
+        if (
+            type(self.static_cache_capacity) is not int
+            or self.static_cache_capacity < 1
+        ):
             raise ValueError("static_cache_capacity must be a positive integer")
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")

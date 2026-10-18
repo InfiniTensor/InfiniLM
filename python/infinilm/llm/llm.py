@@ -39,9 +39,11 @@ logger = logging.getLogger(__name__)
 
 def _chat_tensor_mode(processor, has_multimodal_inputs: bool) -> str:
     """Use NumPy only for the built-in text processor's media-free inputs."""
-    if (not has_multimodal_inputs
-            and isinstance(processor, BasicLLMProcessor)
-            and type(processor).__call__ is BasicLLMProcessor.__call__):
+    if (
+        not has_multimodal_inputs
+        and isinstance(processor, BasicLLMProcessor)
+        and type(processor).__call__ is BasicLLMProcessor.__call__
+    ):
         return "np"
     return "pt"
 
@@ -75,8 +77,11 @@ def _finalize_aborted_request(
             req.mark_failed(reason)
         if req._output_queue is not None:
             final = TokenOutput(
-                request_id=req.request_id, token_id=-1, token_text="",
-                finished=True, finish_reason=req.finish_reason,
+                request_id=req.request_id,
+                token_id=-1,
+                token_text="",
+                finished=True,
+                finish_reason=req.finish_reason,
                 generated_text=req.generated_text,
             )
             try:
@@ -86,8 +91,11 @@ def _finalize_aborted_request(
                     if len(notification_errors) < 4:
                         notification_errors.append((req.request_id, error))
                 else:
-                    logger.warning("Final abort output could not be delivered for %s: %s",
-                                   req.request_id, error)
+                    logger.warning(
+                        "Final abort output could not be delivered for %s: %s",
+                        req.request_id,
+                        error,
+                    )
     return True
 
 
@@ -169,8 +177,11 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
-                nsa_owner_pool_epoch=(model_engine.get_nsa_pool_epoch()
-                                      if model_engine.model_type == "videonsa" else None),
+                nsa_owner_pool_epoch=(
+                    model_engine.get_nsa_pool_epoch()
+                    if model_engine.model_type == "videonsa"
+                    else None
+                ),
             )
             if model_engine.model_type == "videonsa":
                 self.model_runner.bind_nsa_scheduler(self.scheduler)
@@ -226,26 +237,46 @@ class LLMEngine:
         request_ids = tuple(req.request_id for req in requests)
         computed_lengths = tuple(req.get_total_length() for req in requests)
         generations = tuple(req._static_cache_lease_generation for req in requests)
-        physical_rows = (tuple(scheduler_output.physical_rows)
-                         if hasattr(scheduler_output, "physical_rows") else None)
-        if (len({id(req) for req in requests}) != len(requests)
-                or len(set(request_ids)) != len(request_ids)
-                or scheduler_output.num_requests != len(requests)):
+        physical_rows = (
+            tuple(scheduler_output.physical_rows)
+            if hasattr(scheduler_output, "physical_rows")
+            else None
+        )
+        if (
+            len({id(req) for req in requests}) != len(requests)
+            or len(set(request_ids)) != len(request_ids)
+            or scheduler_output.num_requests != len(requests)
+        ):
             raise RuntimeError("scheduled batch has conflicting request identity")
         runner_output = self.model_runner.execute_model(scheduler_output)
         # Validate the entire returned batch before connector, KV, token or queue
         # consumption. Native writes/SPEC reservation commits already happened.
-        if (tuple(runner_output.req_ids) != request_ids
-                or (tuple(scheduler_output.physical_rows)
-                    if hasattr(scheduler_output, "physical_rows") else None) != physical_rows
-                or len(scheduler_output.scheduled_requests) != len(requests)
-                or any(actual is not expected for actual, expected in
-                       zip(scheduler_output.scheduled_requests, requests))
-                or any(req.request_id != rid or req.get_total_length() != length
-                       for req, rid, length in zip(requests, request_ids, computed_lengths))):
-            raise RuntimeError("model output does not match its scheduled request snapshot")
+        if (
+            tuple(runner_output.req_ids) != request_ids
+            or (
+                tuple(scheduler_output.physical_rows)
+                if hasattr(scheduler_output, "physical_rows")
+                else None
+            )
+            != physical_rows
+            or len(scheduler_output.scheduled_requests) != len(requests)
+            or any(
+                actual is not expected
+                for actual, expected in zip(
+                    scheduler_output.scheduled_requests, requests
+                )
+            )
+            or any(
+                req.request_id != rid or req.get_total_length() != length
+                for req, rid, length in zip(requests, request_ids, computed_lengths)
+            )
+        ):
+            raise RuntimeError(
+                "model output does not match its scheduled request snapshot"
+            )
         sampled_token_ids = self._validate_sampled_token_ids(
-            requests, runner_output.sampled_token_ids)
+            requests, runner_output.sampled_token_ids
+        )
         self.scheduler.accept_model_output(requests, generations, physical_rows)
         self.scheduler.update_from_output(runner_output)
         self._update_requests(requests, sampled_token_ids)
@@ -279,12 +310,16 @@ class LLMEngine:
                 # Empty rows are legal on the existing speculative remaining path.
                 frozen = tuple(row)
                 if any(type(token) is not int or token < 0 for token in frozen):
-                    raise RuntimeError("model output requires non-negative integer token IDs")
+                    raise RuntimeError(
+                        "model output requires non-negative integer token IDs"
+                    )
                 rows.append(frozen)
             elif type(row) is int and row >= 0:
                 rows.append(row)
             else:
-                raise RuntimeError("model output requires non-negative integer token IDs")
+                raise RuntimeError(
+                    "model output requires non-negative integer token IDs"
+                )
         return tuple(rows)
 
     def _update_requests(
@@ -293,7 +328,9 @@ class LLMEngine:
         sampled_token_ids: list[int | list[int]],
     ) -> None:
         """Apply sampled tokens and publish their target-model KV boundary."""
-        sampled_token_ids = self._validate_sampled_token_ids(requests, sampled_token_ids)
+        sampled_token_ids = self._validate_sampled_token_ids(
+            requests, sampled_token_ids
+        )
         for req, token_ids in zip(requests, sampled_token_ids):
             # The model successfully consumed the request's current logical tokens.
             # Commit this boundary before observing a concurrent client abort.
@@ -780,12 +817,16 @@ class AsyncLLMEngine:
         """Start the background inference loop."""
         with self._stop_lock:
             if self._stop_requested or self._stopped:
-                raise RuntimeError("AsyncLLMEngine cannot restart after stop or during a pending stop")
+                raise RuntimeError(
+                    "AsyncLLMEngine cannot restart after stop or during a pending stop"
+                )
             if self._running:
                 logger.warning("AsyncLLMEngine is already running")
                 return
             if self._step_thread is not None:
-                raise RuntimeError("AsyncLLMEngine cannot restart after stop or during a pending stop")
+                raise RuntimeError(
+                    "AsyncLLMEngine cannot restart after stop or during a pending stop"
+                )
 
             self._loop = asyncio.get_running_loop()
             self._abort_queue = janus.Queue()
@@ -842,9 +883,16 @@ class AsyncLLMEngine:
     def _submit_request(self, request: InferenceRequest) -> None:
         """Linearize queue submission with stop, including tokenizer races."""
         with self._stop_lock:
-            if (not self._running or self._step_thread is None
-                    or self._stop_requested or self._stopped or not self._healthy):
-                raise RuntimeError("AsyncLLMEngine is not running or stopping; request not submitted")
+            if (
+                not self._running
+                or self._step_thread is None
+                or self._stop_requested
+                or self._stopped
+                or not self._healthy
+            ):
+                raise RuntimeError(
+                    "AsyncLLMEngine is not running or stopping; request not submitted"
+                )
             self.engine.add_request(request)
 
     def add_aborted_req(
@@ -899,7 +947,9 @@ class AsyncLLMEngine:
                 if self._stop_requested:
                     self.engine.scheduler.shutdown_drain(
                         lambda req: _finalize_aborted_request(
-                            req, FinishReason.CANCELED))
+                            req, FinishReason.CANCELED
+                        )
+                    )
                     self._stop_drain_complete = True
                     self._running = False
                     break
@@ -921,10 +971,13 @@ class AsyncLLMEngine:
                         seen.add(id(req))
                         try:
                             _finalize_aborted_request(
-                                req, reason, notification_errors=notification_errors)
+                                req, reason, notification_errors=notification_errors
+                            )
                         except Exception as notification_error:
                             if len(notification_errors) < 4:
-                                notification_errors.append((req.request_id, notification_error))
+                                notification_errors.append(
+                                    (req.request_id, notification_error)
+                                )
 
                     # An abort accepted before failure owns its reason. Hold
                     # stop -> terminal locks so late aborts cannot race this.
@@ -938,17 +991,25 @@ class AsyncLLMEngine:
                                 notify(req, reason)
                     except Exception as notification_error:
                         if len(notification_errors) < 4:
-                            notification_errors.append(("abort queue", notification_error))
+                            notification_errors.append(
+                                ("abort queue", notification_error)
+                            )
                     try:
                         self.engine.scheduler.notify_failed_requests(notify)
                     except Exception as notification_error:
                         if len(notification_errors) < 4:
-                            notification_errors.append(("scheduler enumeration", notification_error))
+                            notification_errors.append(
+                                ("scheduler enumeration", notification_error)
+                            )
                     # Unknown native completion remains owned: no drain, retry,
                     # cache retirement, close, or successful-drain declaration.
                 try:
-                    logger.error("Error in step loop: %s; notification errors (first four): %s",
-                                 e, notification_errors, exc_info=True)
+                    logger.error(
+                        "Error in step loop: %s; notification errors (first four): %s",
+                        e,
+                        notification_errors,
+                        exc_info=True,
+                    )
                 except Exception:
                     # Logging cannot undo the fault latch or request notifications.
                     pass
@@ -1003,9 +1064,16 @@ class AsyncLLMEngine:
         # output queue. _submit_request repeats this under the same lock after
         # tokenization, closing a concurrent stop race.
         with self._stop_lock:
-            if (not self._running or self._step_thread is None
-                    or self._stop_requested or self._stopped or not self._healthy):
-                raise RuntimeError("AsyncLLMEngine is not running or stopping; request not submitted")
+            if (
+                not self._running
+                or self._step_thread is None
+                or self._stop_requested
+                or self._stopped
+                or not self._healthy
+            ):
+                raise RuntimeError(
+                    "AsyncLLMEngine is not running or stopping; request not submitted"
+                )
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
@@ -1027,7 +1095,8 @@ class AsyncLLMEngine:
             )
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt,
+                messages,
+                add_generation_prompt=add_generation_prompt,
                 chat_template_kwargs=chat_template_kwargs,
             )
 
@@ -1138,8 +1207,11 @@ class AsyncLLMEngine:
         try:
             while True:
                 try:
-                    if (request_timeout and not timeout_submitted
-                            and time.time() - start > float(request_timeout)):
+                    if (
+                        request_timeout
+                        and not timeout_submitted
+                        and time.time() - start > float(request_timeout)
+                    ):
                         logger.warning(
                             f"Request {request.request_id} exceeded request timeout of {request_timeout} seconds"
                         )
@@ -1160,8 +1232,11 @@ class AsyncLLMEngine:
                     logger.warning(
                         f"Timeout while waiting for token from request {request.request_id}"
                     )
-                    if (request_timeout and not timeout_submitted
-                            and time.time() - start > float(request_timeout)):
+                    if (
+                        request_timeout
+                        and not timeout_submitted
+                        and time.time() - start > float(request_timeout)
+                    ):
                         self.add_aborted_req(request, FinishReason.TIMEOUT)
                         timeout_submitted = True
                     if not self._healthy or not self._running:
@@ -1174,7 +1249,9 @@ class AsyncLLMEngine:
                         except asyncio.QueueEmpty:
                             _finalize_aborted_request(
                                 request,
-                                FinishReason.TIMEOUT if timeout_submitted else FinishReason.ERROR,
+                                FinishReason.TIMEOUT
+                                if timeout_submitted
+                                else FinishReason.ERROR,
                             )
                             raise RuntimeError(
                                 "abort finalization unavailable: step thread stopped"

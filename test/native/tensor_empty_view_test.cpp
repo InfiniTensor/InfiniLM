@@ -10,13 +10,16 @@ namespace {
 using namespace infinilm::runtime;
 
 void require(bool condition) {
-    if (!condition) throw std::runtime_error("tensor empty view assertion failed");
+    if (!condition) {
+        throw std::runtime_error("tensor empty view assertion failed");
+    }
 }
 
 template <class Error, class Function>
 void expect_error(Function function) {
-    try { function(); }
-    catch (const Error &) { return; }
+    try {
+        function();
+    } catch (const Error &) { return; }
     throw std::runtime_error("expected view exception was not raised");
 }
 
@@ -38,7 +41,10 @@ void run() {
     const auto max_size = std::numeric_limits<Size>::max();
     expect_error<std::length_error>([&] { (void)empty->view({max_size, 2}); });
     expect_error<std::length_error>([&] { (void)empty->view({0, max_size}); });
-    owner.reset(); base.reset(); empty.reset(); flat.reset();
+    owner.reset();
+    base.reset();
+    empty.reset();
+    flat.reset();
     require(!weak_owner.expired());
     multi.reset();
     require(weak_owner.expired());
@@ -73,8 +79,9 @@ void run() {
 } // namespace
 
 int main() {
-    try { run(); }
-    catch (const std::exception &error) {
+    try {
+        run();
+    } catch (const std::exception &error) {
         std::fprintf(stderr, "tensor_empty_view_test: %s\n", error.what());
         return 1;
     }

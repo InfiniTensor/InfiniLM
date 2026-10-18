@@ -4,13 +4,11 @@ from collections import deque
 from collections.abc import Sequence
 from typing import Dict, List, Set
 
+from infinilm.llm.nsa_paged_owner import allocation_before_reset
 from infinilm.llm.prefix_cache import (
     EMPTY_BLOCK_HASH,
     BlockHash,
 )
-
-
-from infinilm.llm.nsa_paged_owner import allocation_before_reset
 
 
 class Block:
@@ -297,8 +295,10 @@ class BlockManager:
         """Validate the whole verification batch before releasing any page."""
         if len(block_tables) != len(keep_lengths):
             raise ValueError("one retained length is required per block table")
-        plans = [self._validate_truncate_blocks(table, length)
-                 for table, length in zip(block_tables, keep_lengths)]
+        plans = [
+            self._validate_truncate_blocks(table, length)
+            for table, length in zip(block_tables, keep_lengths)
+        ]
         discarded = [page for _, pages in plans for page in pages]
         if len(discarded) != len(set(discarded)):
             raise RuntimeError("verification reservations overlap discarded pages")
@@ -361,22 +361,35 @@ class BlockManager:
                 if not 0 <= page_id < self.num_blocks:
                     raise RuntimeError("NSA request contains invalid physical page")
                 page = self.blocks[page_id]
-                if page_id not in self.used_block_ids or page.ref_count <= 0 or not page.allocation_generation:
+                if (
+                    page_id not in self.used_block_ids
+                    or page.ref_count <= 0
+                    or not page.allocation_generation
+                ):
                     raise RuntimeError("NSA request page lacks live owner generation")
                 if decode and page_id in active_pages:
-                    raise RuntimeError("NSA initial decode domain excludes shared physical prefix pages")
+                    raise RuntimeError(
+                        "NSA initial decode domain excludes shared physical prefix pages"
+                    )
                 active_pages.add(page_id)
             if not request.slot_mapping:
                 raise RuntimeError("NSA owner requires actual scheduler slots")
             for slot in request.slot_mapping:
-                if type(slot) is not int or not 0 <= slot < self.num_blocks * self.block_size:
+                if (
+                    type(slot) is not int
+                    or not 0 <= slot < self.num_blocks * self.block_size
+                ):
                     raise RuntimeError("NSA owner slot out of range")
                 page_id, _ = divmod(slot, self.block_size)
                 if page_id not in request.block_table or slot in raw_slots:
-                    raise RuntimeError("NSA owner slot/table mismatch or overlapping raw writers")
+                    raise RuntimeError(
+                        "NSA owner slot/table mismatch or overlapping raw writers"
+                    )
                 page = self.blocks[page_id]
                 if page.ref_count != 1 or page.hash != EMPTY_BLOCK_HASH:
-                    raise RuntimeError("NSA raw write requires a private unpublished tail; COW absent")
+                    raise RuntimeError(
+                        "NSA raw write requires a private unpublished tail; COW absent"
+                    )
                 raw_slots.add(slot)
 
     def append_slot(
@@ -384,16 +397,30 @@ class BlockManager:
     ) -> tuple[List[int], int]:
         """Allocate the slot used to compute the latest logical token."""
         if self._nsa_owner_clock is not None:
-            expected = (num_tokens + self.block_size - 2) // self.block_size if num_tokens > 0 else -1
-            if num_tokens <= 0 or len(block_table) != expected or len(block_table) != len(set(block_table)):
+            expected = (
+                (num_tokens + self.block_size - 2) // self.block_size
+                if num_tokens > 0
+                else -1
+            )
+            if (
+                num_tokens <= 0
+                or len(block_table) != expected
+                or len(block_table) != len(set(block_table))
+            ):
                 raise RuntimeError("NSA append requires exact preceding logical table")
             if (num_tokens - 1) % self.block_size != 0:
                 page_id = block_table[-1]
                 if not 0 <= page_id < self.num_blocks:
                     raise RuntimeError("NSA append tail out of range")
                 page = self.blocks[page_id]
-                if page_id not in self.used_block_ids or page.ref_count != 1 or page.hash != EMPTY_BLOCK_HASH:
-                    raise RuntimeError("NSA append requires private unpublished tail; COW absent")
+                if (
+                    page_id not in self.used_block_ids
+                    or page.ref_count != 1
+                    or page.hash != EMPTY_BLOCK_HASH
+                ):
+                    raise RuntimeError(
+                        "NSA append requires private unpublished tail; COW absent"
+                    )
         if (num_tokens - 1) % self.block_size == 0:
             if not self.free_block_ids and not self.try_free_blocks(1):
                 raise RuntimeError("No available cache blocks")

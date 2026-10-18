@@ -29,7 +29,6 @@ inline void bind(py::module &m) {
     // Synchronization
     m.def("sync_stream", []() { currentRuntime()->syncStream(); }, "Synchronize the current stream");
     m.def("sync_device", []() { currentRuntime()->syncDevice(); }, "Synchronize the current device");
-
 }
 
 } // namespace infinilm::runtime::context

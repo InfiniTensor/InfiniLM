@@ -2,12 +2,12 @@
 #include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
-#include <exception>
 #include "../infinilm_model.hpp"
-#include "runtime/tensor.hpp"
 #include "qwen3_5_decoderLayer.hpp"
 #include "qwen3_5_vision.hpp"
 #include "runtime/runtime.hpp"
+#include "runtime/tensor.hpp"
+#include <exception>
 
 namespace infinilm::models::qwen3_5 {
 
@@ -16,10 +16,10 @@ using Qwen35LanguageModel = infinilm::layers::causal_lm_templates::TextModel<Qwe
 class Qwen35ModelBase : public infinilm::weights::ModelWeights {
 public:
     Qwen35ModelBase(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+                    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                    const engine::distributed::RankInfo &rank_info,
+                    backends::AttentionBackend attention_backend,
+                    const layers::moe::EPConfig &ep_config);
 
     void reset_cache(const cache::CacheConfig *cache_config,
                      global_state::ForwardContext &forward_context,
@@ -49,7 +49,9 @@ public:
             language_model_ = this->bind_child("language_model", std::make_shared<LanguageModel>(runtime, model_config, rank_info, attention_backend, ep_config));
         } catch (...) {
             // Base visual owners remain alive until this body drain completes.
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
     }

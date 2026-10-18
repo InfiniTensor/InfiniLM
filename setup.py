@@ -79,12 +79,19 @@ def read_elf_dependencies(source):
     try:
         result = subprocess.run(
             ["readelf", "-W", "-h", "-d", str(source)],
-            check=True, capture_output=True, text=True, encoding="utf-8",
+            check=True,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
             env={**os.environ, "LC_ALL": "C"},
         )
     except (OSError, subprocess.CalledProcessError) as error:
-        raise RuntimeError(f"readelf could not inspect ELF dependency {source}") from error
-    elf_class = re.search(r"^[ \t]*Class:[ \t]*(ELF32|ELF64)[ \t\r]*$", result.stdout, re.MULTILINE)
+        raise RuntimeError(
+            f"readelf could not inspect ELF dependency {source}"
+        ) from error
+    elf_class = re.search(
+        r"^[ \t]*Class:[ \t]*(ELF32|ELF64)[ \t\r]*$", result.stdout, re.MULTILINE
+    )
     machine = re.search(r"^[ \t]*Machine:[ \t]*([^\r\n]+)", result.stdout, re.MULTILINE)
     if elf_class is None or machine is None or not machine.group(1).strip():
         raise RuntimeError(f"readelf did not report ELF class/machine for {source}")
@@ -93,7 +100,9 @@ def read_elf_dependencies(source):
         if "(NEEDED)" in line:
             match = re.search(r"\(NEEDED\)\s+Shared library:\s*\[([^\]]+)\]", line)
             if match is None:
-                raise RuntimeError(f"readelf reported an unrecognized DT_NEEDED for {source}")
+                raise RuntimeError(
+                    f"readelf reported an unrecognized DT_NEEDED for {source}"
+                )
             needed.add(match.group(1))
     return (elf_class.group(1), machine.group(1).strip()), needed
 
@@ -159,7 +168,9 @@ def stage_runtime_dependencies(extra_staging_directory=None):
         source = sources[name]
         elf = read_elf_dependencies(source)
         if elf is None or any(elf[0] != identity for identity in identities):
-            raise RuntimeError(f"ELF class/machine mismatch for Ops dependency {source}")
+            raise RuntimeError(
+                f"ELF class/machine mismatch for Ops dependency {source}"
+            )
         all_sources.update(sources)
 
     staging_directories = [destination]
@@ -167,7 +178,9 @@ def stage_runtime_dependencies(extra_staging_directory=None):
         staging_directories.append(Path(extra_staging_directory))
     for directory in staging_directories:
         if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
-            raise RuntimeError(f"Use a clean, non-symlink runtime staging directory: {directory}")
+            raise RuntimeError(
+                f"Use a clean, non-symlink runtime staging directory: {directory}"
+            )
         for name in NATIVE_AUXILIARY_NAMES:
             staged = directory / name
             if name not in required_aux and (staged.exists() or staged.is_symlink()):
@@ -197,10 +210,15 @@ def root_extension():
     if not isinstance(suffix, str) or not suffix:
         raise RuntimeError("Python EXT_SUFFIX is required")
     source = PROJECT_ROOT / "python" / ("_infinilm" + suffix)
-    candidates = {p for pattern in INFINILM_EXTENSION_ARTIFACTS
-                  for p in (PROJECT_ROOT / "python").glob(pattern)}
+    candidates = {
+        p
+        for pattern in INFINILM_EXTENSION_ARTIFACTS
+        for p in (PROJECT_ROOT / "python").glob(pattern)
+    }
     if candidates != {source} or not source.is_file() or source.is_symlink():
-        raise RuntimeError("exactly one regular root _infinilm EXT_SUFFIX artifact is required")
+        raise RuntimeError(
+            "exactly one regular root _infinilm EXT_SUFFIX artifact is required"
+        )
     return source
 
 
@@ -226,7 +244,10 @@ class BuildPy(build_py):
 
     def get_outputs(self, include_bytecode=1):
         outputs = super().get_outputs(include_bytecode)
-        native = str(Path(self.build_lib) / ("_infinilm" + sysconfig.get_config_var("EXT_SUFFIX")))
+        native = str(
+            Path(self.build_lib)
+            / ("_infinilm" + sysconfig.get_config_var("EXT_SUFFIX"))
+        )
         if native not in outputs:
             outputs.append(native)
         return outputs
@@ -249,7 +270,13 @@ setup(
     package_dir={"": "python"},
     packages=find_packages(where="python"),
     package_data={
-        "infinilm": ["licenses/*.txt", *["_lib/" + pattern for pattern in (*INFINILM_NATIVE_ARTIFACTS, *NATIVE_AUXILIARY_NAMES)]],
+        "infinilm": [
+            "licenses/*.txt",
+            *[
+                "_lib/" + pattern
+                for pattern in (*INFINILM_NATIVE_ARTIFACTS, *NATIVE_AUXILIARY_NAMES)
+            ],
+        ],
     },
     include_package_data=True,
     distclass=BinaryDistribution,

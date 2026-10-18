@@ -91,9 +91,10 @@ inline PagedDecodeBucket choose_paged_decode_bucket(
         max_total = std::max(max_total, static_cast<size_t>(total));
     }
     const size_t bound = batch <= 2
-        ? (max_total <= block_size ? block_size
-           : max_total <= 2 * block_size ? 2 * block_size : 0)
-        : 0;
+                           ? (max_total <= block_size       ? block_size
+                              : max_total <= 2 * block_size ? 2 * block_size
+                                                            : 0)
+                           : 0;
     const size_t width = bound ? bound / block_size : num_blocks;
     if (batch > std::numeric_limits<size_t>::max() / width) {
         throw std::overflow_error("paged decode table size overflows");
@@ -101,8 +102,7 @@ inline PagedDecodeBucket choose_paged_decode_bucket(
     PagedDecodeBucket result{batch, bound, width,
                              std::vector<int32_t>(batch * width, -1)};
     for (size_t row = 0; row < batch; ++row) {
-        const size_t required = 1 + (static_cast<size_t>(total_lengths[row]) - 1)
-                                      / block_size;
+        const size_t required = 1 + (static_cast<size_t>(total_lengths[row]) - 1) / block_size;
         if (required > source_width || required > width) {
             throw std::invalid_argument("paged decode table is shorter than its sequence");
         }

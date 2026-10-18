@@ -1,10 +1,10 @@
+#include "none_quantization.hpp"
 #include "../../weights/weights.hpp"
 #include "../linear/dense.hpp"
-#include "none_quantization.hpp"
+#include "runtime/runtime.hpp"
+#include <exception>
 #include <optional>
 #include <stdexcept>
-#include <exception>
-#include "runtime/runtime.hpp"
 
 namespace infinilm::quantization {
 
@@ -96,17 +96,21 @@ std::vector<SplitParam> NoneQuantization::split_params(
 
 std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loading(
     infinilm::runtime::Runtime &runtime, ParamsMap &params, bool pre_transpose, int) const {
-    if (!pre_transpose) return nullptr; // No TLS, allocation, submission or success fence.
+    if (!pre_transpose) {
+        return nullptr; // No TLS, allocation, submission or success fence.
+    }
     runtime.assertOwnerThread();
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
         throw std::logic_error("dense pre_transpose requires inactive graph state");
+    }
     const auto weight_it = params.find("weight");
     auto self = std::const_pointer_cast<BaseQuantization>(shared_from_this());
     infinilm::runtime::Tensor source, permuted, pending;
     if (weight_it != params.end()) {
         source = weight_it->second;
-        if (!source || source->device() != runtime.device())
+        if (!source || source->device() != runtime.device()) {
             throw std::invalid_argument("pre_transpose Runtime and weight devices differ");
+        }
         try {
             permuted = source->permute({1, 0});
             pending = infinilm::runtime::Tensor::empty(runtime, permuted->shape(), permuted->dtype());
@@ -115,9 +119,11 @@ std::shared_ptr<BaseQuantization> NoneQuantization::process_weights_after_loadin
             weight_prepacked_ = true;
         } catch (...) {
             const auto failure = std::current_exception();
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             std::rethrow_exception(failure);
-    }
+        }
     }
     return self;
 }

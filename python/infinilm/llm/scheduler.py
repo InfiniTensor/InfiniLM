@@ -11,9 +11,8 @@ from typing import List, Optional
 import janus
 
 from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
+from infinilm.llm.nsa_paged_owner import OwnerClock, capture_owner_batch, claim_first
 from infinilm.llm.request import InferenceRequest, RequestStatus
-
-from infinilm.llm.nsa_paged_owner import OwnerClock, claim_first, capture_owner_batch
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +27,10 @@ class _SpeculativeCacheReservation:
         self.completed = False
 
     def _assert_active(self):
-        if (self.ops._scheduler._scheduler_thread_id != threading.get_ident()
-                or self.ops._pending is not self):
+        if (
+            self.ops._scheduler._scheduler_thread_id != threading.get_ident()
+            or self.ops._pending is not self
+        ):
             raise RuntimeError("verification belongs to its active Scheduler thread")
 
     def mark_submitted(self):
@@ -57,14 +58,21 @@ class _SpeculativeCacheReservation:
             for req, _, _, _, _ in self.rows:
                 locks.enter_context(req._terminal_lock)
             for req, base, original, _, _ in self.rows:
-                if (self.ops._scheduler._active_requests.get(req.request_id) is not req
-                        or req.get_total_length() != base
-                        or tuple(req.block_table) != original):
-                    raise RuntimeError("verification request changed before cache publication")
-            lengths = [base if req.is_aborted() else length
-                       for (req, base, _, _, _), length in zip(self.rows, keep_lengths)]
+                if (
+                    self.ops._scheduler._active_requests.get(req.request_id) is not req
+                    or req.get_total_length() != base
+                    or tuple(req.block_table) != original
+                ):
+                    raise RuntimeError(
+                        "verification request changed before cache publication"
+                    )
+            lengths = [
+                base if req.is_aborted() else length
+                for (req, base, _, _, _), length in zip(self.rows, keep_lengths)
+            ]
             tables = self.ops._cache_manager.truncate_blocks_many(
-                [table for _, _, _, table, _ in self.rows], lengths)
+                [table for _, _, _, table, _ in self.rows], lengths
+            )
             for (req, _, _, _, _), table in zip(self.rows, tables):
                 req.block_table = table
                 req.num_blocks = len(table)
@@ -94,11 +102,17 @@ class SpeculativeCacheOps:
             raise ValueError("verification batch repeats a request")
         for candidate in candidates:
             req = candidate["req"]
-            if (self._scheduler._active_requests.get(req.request_id) is not req
-                    or req._paged_completion_state != "active"
-                    or candidate["base_len"] != req.get_total_length()):
-                raise RuntimeError("verification requires current Scheduler request ownership")
-            self._cache_manager._validate_truncate_blocks(req.block_table, candidate["base_len"])
+            if (
+                self._scheduler._active_requests.get(req.request_id) is not req
+                or req._paged_completion_state != "active"
+                or candidate["base_len"] != req.get_total_length()
+            ):
+                raise RuntimeError(
+                    "verification requires current Scheduler request ownership"
+                )
+            self._cache_manager._validate_truncate_blocks(
+                req.block_table, candidate["base_len"]
+            )
         batch = _SpeculativeCacheReservation(self)
         self._pending = batch
         try:
@@ -106,7 +120,9 @@ class SpeculativeCacheOps:
                 req, base = candidate["req"], candidate["base_len"]
                 count = len(candidate["draft_tokens"])
                 original = tuple(req.block_table)
-                table, slots = self._cache_manager.append_slots(list(original), base + 1, count)
+                table, slots = self._cache_manager.append_slots(
+                    list(original), base + 1, count
+                )
                 batch.rows.append((req, base, original, tuple(table), count))
                 candidate["block_table"] = table
                 candidate["slot_mapping"] = slots
@@ -127,7 +143,8 @@ class SpeculativeCacheOps:
                     try:
                         self._cache_manager.truncate_blocks_many(
                             [table for _, _, _, table, _ in batch.rows],
-                            [base for _, base, _, _, _ in batch.rows])
+                            [base for _, base, _, _, _ in batch.rows],
+                        )
                     except BaseException:
                         self._scheduler._completion_failed = True
                         raise
@@ -173,7 +190,9 @@ class Scheduler:
         enable_prefix_caching: bool = True,
         nsa_owner_pool_epoch: int | None = None,
     ):
-        if nsa_owner_pool_epoch is not None and (connector is not None or has_mamba_cache):
+        if nsa_owner_pool_epoch is not None and (
+            connector is not None or has_mamba_cache
+        ):
             raise ValueError("NSA owner slice excludes connectors and recurrent cache")
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -192,12 +211,20 @@ class Scheduler:
         self._completion_failed = False
         self._nsa_pending_handoff = None
 
-        self._nsa_owner_clock = (OwnerClock(nsa_owner_pool_epoch)
-                                 if nsa_owner_pool_epoch is not None else None)
+        self._nsa_owner_clock = (
+            OwnerClock(nsa_owner_pool_epoch)
+            if nsa_owner_pool_epoch is not None
+            else None
+        )
         self.cache_manager = BlockManager(
-            num_blocks=num_blocks, block_size=block_size,
-            **({"nsa_owner_clock": self._nsa_owner_clock}
-               if self._nsa_owner_clock is not None else {}))
+            num_blocks=num_blocks,
+            block_size=block_size,
+            **(
+                {"nsa_owner_clock": self._nsa_owner_clock}
+                if self._nsa_owner_clock is not None
+                else {}
+            ),
+        )
         self.has_mamba_cache = has_mamba_cache
         self.mamba_cache_manager = (
             MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
@@ -213,20 +240,28 @@ class Scheduler:
     def add_request(self, request: InferenceRequest):
         if request is not None:
             if self._completion_failed:
-                raise RuntimeError("paged scheduler cannot accept after a failed completion")
+                raise RuntimeError(
+                    "paged scheduler cannot accept after a failed completion"
+                )
             # add_request is a producer-side method. It only protects this
             # object's single submission; ID ownership is claimed on the
             # scheduler thread when the queue is consumed.
             with request._terminal_lock:
-                if (request._paged_submitted or request._paged_completion_state is not None
-                        or request.is_finished() or request.is_aborted()
-                        or request.status != RequestStatus.WAITING):
+                if (
+                    request._paged_submitted
+                    or request._paged_completion_state is not None
+                    or request.is_finished()
+                    or request.is_aborted()
+                    or request.status != RequestStatus.WAITING
+                ):
                     raise ValueError("paged scheduler requires a new waiting request")
                 # Advisory producer-side rejection. _claim_request repeats the
                 # check on the single consumer thread, closing the race with
                 # a concurrent completion or another queued producer.
-                if (request.request_id in self._active_requests
-                        or request.request_id in self.pending_free_blocks):
+                if (
+                    request.request_id in self._active_requests
+                    or request.request_id in self.pending_free_blocks
+                ):
                     raise ValueError("paged request ID still owns cache resources")
                 # TODO: Remove the multimodal exclusion once media-aware prefix
                 # hashing and model-side cache-boundary handling are supported.
@@ -257,12 +292,16 @@ class Scheduler:
 
     def _claim_request(self, request: InferenceRequest) -> None:
         owner = self._active_requests.get(request.request_id)
-        if (not request._paged_submitted
-                or request._paged_completion_state not in (None, "active")
-                or request.request_id in self.pending_free_blocks
-                or (owner is not None and owner is not request)):
+        if (
+            not request._paged_submitted
+            or request._paged_completion_state not in (None, "active")
+            or request.request_id in self.pending_free_blocks
+            or (owner is not None and owner is not request)
+        ):
             self._completion_failed = True
-            raise RuntimeError("paged request ID or object has conflicting resource ownership")
+            raise RuntimeError(
+                "paged request ID or object has conflicting resource ownership"
+            )
         if owner is None and self._nsa_owner_clock is not None:
             claim_first(self._nsa_owner_clock, request)
         self._active_requests[request.request_id] = request
@@ -275,7 +314,11 @@ class Scheduler:
         if self._nsa_pending_handoff is not None or output.nsa_owner is None:
             raise RuntimeError("NSA managed handoff is missing or already pending")
         self._nsa_pending_handoff = (
-            output, output.nsa_owner, tuple(output.scheduled_requests), output.is_prefill)
+            output,
+            output.nsa_owner,
+            tuple(output.scheduled_requests),
+            output.is_prefill,
+        )
         return output
 
     def take_nsa_owner_batch(self, output: SchedulerOutput):
@@ -287,24 +330,34 @@ class Scheduler:
         self._ensure_scheduler_thread()
         handoff = self._nsa_pending_handoff
         if self._nsa_owner_clock is None or handoff is None or handoff[0] is not output:
-            raise RuntimeError("NSA output was not published by this Scheduler or was already consumed")
+            raise RuntimeError(
+                "NSA output was not published by this Scheduler or was already consumed"
+            )
         _, batch, requests, is_prefill = handoff
         actual = output.scheduled_requests
-        if (output.nsa_owner is not batch or output.is_prefill != is_prefill
-                or output.num_requests != len(requests) or len(actual) != len(requests)
-                or any(a is not b for a, b in zip(actual, requests))):
+        if (
+            output.nsa_owner is not batch
+            or output.is_prefill != is_prefill
+            or output.num_requests != len(requests)
+            or len(actual) != len(requests)
+            or any(a is not b for a, b in zip(actual, requests))
+        ):
             raise RuntimeError("NSA published batch was replaced or reordered")
         # Cancellation after publication does not revoke live ownership.
         # Execute this bounded batch; existing step handles abort after return.
         for request in requests:
-            if (self._active_requests.get(request.request_id) is not request
-                    or not request._paged_submitted
-                    or request._paged_completion_state != "active"
-                    or request.request_id in self.pending_free_blocks):
+            if (
+                self._active_requests.get(request.request_id) is not request
+                or not request._paged_submitted
+                or request._paged_completion_state != "active"
+                or request.request_id in self.pending_free_blocks
+            ):
                 raise RuntimeError("NSA batch lacks current live request ownership")
         live = capture_owner_batch(self.cache_manager, requests, is_prefill)
         if live != batch:
-            raise RuntimeError("NSA live request/page/slot authority changed after publication")
+            raise RuntimeError(
+                "NSA live request/page/slot authority changed after publication"
+            )
         # Consume before processor/native submission. A retry cannot reuse this
         # current handoff; no history, event queue, registry or completion claim.
         self._nsa_pending_handoff = None
@@ -332,7 +385,9 @@ class Scheduler:
         """Schedule and return batch of requests to execute."""
         self._ensure_scheduler_thread()
         if self._nsa_owner_clock is not None and self._nsa_pending_handoff is not None:
-            raise RuntimeError("NSA previous managed batch must be consumed before another schedule")
+            raise RuntimeError(
+                "NSA previous managed batch must be consumed before another schedule"
+            )
         deferred_requests = []
         scheduled_requests = []
         seen_request_objects = set()
@@ -513,13 +568,19 @@ class Scheduler:
             is_prefill = True
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
-                    scheduled_requests, decode=not is_prefill)
+                    scheduled_requests, decode=not is_prefill
+                )
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
                 speculative_cache_ops=self.speculative_cache_ops,
-                nsa_owner=(capture_owner_batch(self.cache_manager, scheduled_requests, is_prefill)
-                           if self._nsa_owner_clock is not None else None),
+                nsa_owner=(
+                    capture_owner_batch(
+                        self.cache_manager, scheduled_requests, is_prefill
+                    )
+                    if self._nsa_owner_clock is not None
+                    else None
+                ),
             )
             if self.connector is not None:
                 meta = self.connector.build_connector_meta()
@@ -586,13 +647,19 @@ class Scheduler:
             is_prefill = False
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
-                    scheduled_requests, decode=not is_prefill)
+                    scheduled_requests, decode=not is_prefill
+                )
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
                 speculative_cache_ops=self.speculative_cache_ops,
-                nsa_owner=(capture_owner_batch(self.cache_manager, scheduled_requests, is_prefill)
-                           if self._nsa_owner_clock is not None else None),
+                nsa_owner=(
+                    capture_owner_batch(
+                        self.cache_manager, scheduled_requests, is_prefill
+                    )
+                    if self._nsa_owner_clock is not None
+                    else None
+                ),
             )
 
             if self.connector is not None:
@@ -645,8 +712,10 @@ class Scheduler:
         for req in requests:
             if req._paged_completion_state == "done":
                 continue
-            if (self._active_requests.get(req.request_id) is not req
-                    or req._paged_completion_state != "active"):
+            if (
+                self._active_requests.get(req.request_id) is not req
+                or req._paged_completion_state != "active"
+            ):
                 self._completion_failed = True
                 raise RuntimeError("paged completion does not own this request object")
             if req.status in [
@@ -707,7 +776,9 @@ class Scheduler:
 
     def notify_failed_requests(self, finalize_request) -> None:
         """Notify after async fail-stop without retiring resource ownership."""
-        for req in list(self._active_requests.values()) + list(self.remote_kv_requests.values()):
+        for req in list(self._active_requests.values()) + list(
+            self.remote_kv_requests.values()
+        ):
             finalize_request(req)
         if self._dequeued_request is not None:
             finalize_request(self._dequeued_request)
@@ -737,7 +808,9 @@ class Scheduler:
                     break
                 if id(req) in seen:
                     self._completion_failed = True
-                    raise RuntimeError("paged shutdown found a duplicate queued request")
+                    raise RuntimeError(
+                        "paged shutdown found a duplicate queued request"
+                    )
                 seen.add(id(req))
                 self._claim_request(req)
                 self._dequeued_request = None
@@ -746,8 +819,11 @@ class Scheduler:
         for req in active:
             finalize_request(req)
 
-        if (self.remote_kv_requests or self.pending_free_blocks
-                or self.pending_kv_decode_blocks):
+        if (
+            self.remote_kv_requests
+            or self.pending_free_blocks
+            or self.pending_kv_decode_blocks
+        ):
             self._completion_failed = True
             raise RuntimeError(
                 "paged connector transfer pending during shutdown; "
@@ -817,10 +893,12 @@ class Scheduler:
         if len({id(req) for req in requests}) != len(requests):
             raise RuntimeError("paged model output repeated a request")
         for req, generation in zip(requests, generations):
-            if (generation is not None
-                    or self._active_requests.get(req.request_id) is not req
-                    or req._paged_completion_state != "active"
-                    or req.request_id in self.pending_free_blocks):
+            if (
+                generation is not None
+                or self._active_requests.get(req.request_id) is not req
+                or req._paged_completion_state != "active"
+                or req.request_id in self.pending_free_blocks
+            ):
                 raise RuntimeError("paged model output does not own its request object")
 
     def commit_computed_tokens(

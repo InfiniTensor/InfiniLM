@@ -1,16 +1,16 @@
-#include "rope.hpp"
-#include "rope_scaling_configs.hpp"
 #include "rotary_embedding.hpp"
 #include "../../config/model_config.hpp"
+#include "rope.hpp"
+#include "rope_scaling_configs.hpp"
 #include "rotary_embedding_factory.hpp"
-#include <iomanip>
-#include <cstdint>
-#include <utility>
 #include "runtime/runtime.hpp"
+#include <cstdint>
+#include <iomanip>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <typeinfo>
+#include <utility>
 
 namespace infinilm::layers::rotary_embedding {
 
@@ -68,7 +68,9 @@ get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::co
          std::optional<std::vector<int>> mrope_section,
          bool mrope_interleaved) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device) throw std::invalid_argument("get_rope Runtime and device must agree");
+    if (runtime.device() != device) {
+        throw std::invalid_argument("get_rope Runtime and device must agree");
+    }
     if (!model_config) {
         throw std::invalid_argument("get_rope requires a model owner");
     }
@@ -83,18 +85,18 @@ get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::co
                                           mrope_section,
                                           mrope_interleaved,
                                           *model_config)
-        + "_runtime_owner_" + std::to_string(reinterpret_cast<std::uintptr_t>(&runtime));
+                         + "_runtime_owner_" + std::to_string(reinterpret_cast<std::uintptr_t>(&runtime));
     return model_config->get_or_create_rope(cache_key, [&] {
         return std::make_shared<infinilm::layers::RoPE>(runtime, head_dim,
-                                                       rotary_dim,
-                                                       max_position_embeddings,
-                                                       rope_theta,
-                                                       algo,
-                                                       dtype,
-                                                       device,
-                                                       scaling,
-                                                       mrope_section,
-                                                       mrope_interleaved);
+                                                        rotary_dim,
+                                                        max_position_embeddings,
+                                                        rope_theta,
+                                                        algo,
+                                                        dtype,
+                                                        device,
+                                                        scaling,
+                                                        mrope_section,
+                                                        mrope_interleaved);
     });
 }
 
@@ -103,7 +105,9 @@ get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::co
          const infinilm::runtime::Device &device) {
 
     runtime.assertOwnerThread();
-    if (runtime.device() != device) throw std::invalid_argument("get_rope Runtime and device must agree");
+    if (runtime.device() != device) {
+        throw std::invalid_argument("get_rope Runtime and device must agree");
+    }
     size_t rotary_dim = model_config->get_rotary_dim();
     size_t head_dim = model_config->get_head_dim();
     auto scaling = make_scaling_config(model_config);

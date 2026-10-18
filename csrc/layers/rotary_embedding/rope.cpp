@@ -1,25 +1,25 @@
 #include "rope.hpp"
 #include "../../execution/submit.hpp"
 #include "runtime/custom_types.h"
-#include "runtime/utils.hpp"
 #include "runtime/runtime.hpp"
+#include "runtime/utils.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <exception>
 #include <functional>
 #include <limits>
-#include <exception>
 #include <stdexcept>
 #include <utility>
 #include <vector>
 
 namespace infinilm::layers {
-using infinilm::runtime::Tensor;
-using infinilm::runtime::Runtime;
 using infinilm::runtime::DataType;
 using infinilm::runtime::Device;
+using infinilm::runtime::Runtime;
 using infinilm::runtime::Shape;
 using infinilm::runtime::Size;
+using infinilm::runtime::Tensor;
 
 namespace {
 
@@ -45,7 +45,9 @@ void upload_cache(Runtime &runtime, Tensor table, const Tensor &host) {
     } catch (...) {
         const auto failure = std::current_exception();
         if (runtime.device().type() != Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         std::rethrow_exception(failure);
     }
@@ -79,13 +81,16 @@ RoPE::RoPE(Runtime &runtime, size_t head_dim,
     if (rotary_dim % 2 != 0) {
         throw std::invalid_argument("rotary_dim must be even for RoPE, got " + std::to_string(rotary_dim));
     }
-    if (rotary_dim == 0 || rotary_dim > head_dim_)
+    if (rotary_dim == 0 || rotary_dim > head_dim_) {
         throw std::invalid_argument("RoPE rotary_dim must be positive and no larger than head_dim");
-    if (algo != Algo::GPT_J && algo != Algo::GPT_NEOX)
+    }
+    if (algo != Algo::GPT_J && algo != Algo::GPT_NEOX) {
         throw std::invalid_argument("RoPE algorithm must be GPT_J or GPT_NEOX");
+    }
     if (mrope_section_.has_value()) {
-        if (head_dim_ > static_cast<size_t>(std::numeric_limits<int>::max()))
+        if (head_dim_ > static_cast<size_t>(std::numeric_limits<int>::max())) {
             throw std::invalid_argument("MRoPE head_dim exceeds the public int ABI");
+        }
         const auto &section = mrope_section_.value();
         if (section.size() != 3 || section[0] <= 0 || section[1] <= 0 || section[2] <= 0) {
             throw std::invalid_argument("mrope_section must contain 3 positive values");
@@ -139,9 +144,7 @@ void RoPE::initialize_cache(Runtime &runtime) {
     // the exact existing FP32 expression; scaling can still depend on position.
     std::vector<float> base_inv_frequencies(cache_dim);
     for (size_t dim_idx = 0; dim_idx < cache_dim; ++dim_idx) {
-        base_inv_frequencies[dim_idx] = 1.0f / std::pow(
-            static_cast<float>(theta_),
-            2.0f * static_cast<float>(dim_idx) / static_cast<float>(rotary_dim_));
+        base_inv_frequencies[dim_idx] = 1.0f / std::pow(static_cast<float>(theta_), 2.0f * static_cast<float>(dim_idx) / static_cast<float>(rotary_dim_));
     }
 
     for (size_t pos = 0; pos < max_seq_len_; pos++) {
@@ -219,15 +222,13 @@ void RoPE::initialize_cache(Runtime &runtime) {
     sin_cache_ = sin_cache_next;
     cos_cache_ = cos_cache_next;
     cos_sin_cache_ = cos_sin_cache_next;
-
-
-
 }
 
 Tensor RoPE::forward(Runtime &runtime, const Tensor &x, const Tensor &pos, bool in_place) const {
     runtime.assertOwnerThread();
-    if (cache_runtime_owner_.get() != &runtime)
+    if (cache_runtime_owner_.get() != &runtime) {
         throw std::invalid_argument("RoPE cache belongs to another Runtime owner");
+    }
     if (runtime.device() != device_ || x->device() != device_ || pos->device() != device_) {
         throw std::invalid_argument("RoPE Runtime, input, positions and cache devices must agree");
     }
@@ -303,11 +304,14 @@ static Tensor mrope_flatten_output(const Tensor &x, size_t head_dim, const char 
 
 std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, const Tensor &q, const Tensor &k, const Tensor &positions) const {
     runtime.assertOwnerThread();
-    if (cache_runtime_owner_.get() != &runtime)
+    if (cache_runtime_owner_.get() != &runtime) {
         throw std::invalid_argument("RoPE cache belongs to another Runtime owner");
-    for (const auto &t : {q, k, positions})
-        if (!t || t->device() != runtime.device() || runtime.device() != device_)
+    }
+    for (const auto &t : {q, k, positions}) {
+        if (!t || t->device() != runtime.device() || runtime.device() != device_) {
             throw std::invalid_argument("RoPE Runtime, input, positions and cache devices must agree");
+        }
+    }
     if (!mrope_section_.has_value()) {
         auto q_out = Tensor::empty(runtime, q->shape(), q->dtype());
         auto k_out = Tensor::empty(runtime, k->shape(), k->dtype());
@@ -334,11 +338,14 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
                                         const Tensor &k,
                                         const Tensor &positions) const {
     runtime.assertOwnerThread();
-    if (cache_runtime_owner_.get() != &runtime)
+    if (cache_runtime_owner_.get() != &runtime) {
         throw std::invalid_argument("RoPE cache belongs to another Runtime owner");
-    for (const auto &t : {q_out, k_out, q, k, positions})
-        if (!t || t->device() != runtime.device() || runtime.device() != device_)
+    }
+    for (const auto &t : {q_out, k_out, q, k, positions}) {
+        if (!t || t->device() != runtime.device() || runtime.device() != device_) {
             throw std::invalid_argument("RoPE Runtime, outputs, inputs, positions and cache devices must agree");
+        }
+    }
     if (!mrope_section_.has_value()) {
         if (cos_sin_cache_) {
             if (q_out->data() != q->data()) {

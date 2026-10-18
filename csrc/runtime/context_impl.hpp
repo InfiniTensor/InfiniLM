@@ -15,7 +15,8 @@ private:
     std::array<size_t, static_cast<size_t>(Device::Type::kCount)> device_counts_{};
     std::array<bool, static_cast<size_t>(Device::Type::kCount)> device_types_initialized_{};
     static thread_local std::array<std::vector<std::weak_ptr<Runtime>>,
-                                   static_cast<size_t>(Device::Type::kCount)> thread_runtimes_;
+                                   static_cast<size_t>(Device::Type::kCount)>
+        thread_runtimes_;
     // Active runtime for current thread. Can use "static thread local" because context is a process singleton.
     static thread_local std::shared_ptr<Runtime> current_runtime_;
 
@@ -36,6 +37,5 @@ public:
     size_t getDeviceCount(Device::Type type);
 
     static ContextImpl &singleton();
-
 };
 } // namespace infinilm::runtime

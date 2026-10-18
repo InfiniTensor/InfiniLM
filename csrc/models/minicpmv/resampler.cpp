@@ -1,14 +1,14 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/linear/dense.hpp"
 #include "resampler.hpp"
+#include "../../layers/linear/dense.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "../../utils.hpp"
 
 #include "runtime/context.hpp"
 #include "runtime/runtime.hpp"
-#include <memory>
 #include <exception>
+#include <memory>
 
 #include <cmath>
 #include <cstring>
@@ -38,7 +38,9 @@ void compute_2d_sincos_pos_embed(float *out, size_t embed_dim, size_t h, size_t 
 
 void write_pos_embed(void *dst, infinilm::runtime::DataType dtype, const float *src, size_t n) {
     if (dtype == infinilm::runtime::DataType::kFloat32) {
-        if (n != 0) std::memcpy(dst, src, n * sizeof(float));
+        if (n != 0) {
+            std::memcpy(dst, src, n * sizeof(float));
+        }
         return;
     }
     if (dtype == infinilm::runtime::DataType::kFloat16) {
@@ -59,15 +61,15 @@ void write_pos_embed(void *dst, infinilm::runtime::DataType dtype, const float *
 }
 
 infinilm::runtime::Tensor build_2d_sincos_pos_embed_cpu(size_t h,
-                                                 size_t w,
-                                                 size_t embed_dim,
-                                                 infinilm::runtime::DataType dtype) {
+                                                        size_t w,
+                                                        size_t embed_dim,
+                                                        infinilm::runtime::DataType dtype) {
     std::vector<float> buf(h * w * embed_dim);
     compute_2d_sincos_pos_embed(buf.data(), embed_dim, h, w);
     // Owned, zero-initialized CPU bytes; no implicit Runtime/zeros submission.
     auto owner = std::make_shared<std::vector<unsigned char>>(buf.size() * infinilm::runtime::dsize(dtype), 0);
     auto embedding_cpu = infinilm::runtime::Tensor::from_blob(owner->data(),
-        {h, w, embed_dim}, dtype, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu}, owner);
+                                                              {h, w, embed_dim}, dtype, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu}, owner);
     write_pos_embed(embedding_cpu->data(), embedding_cpu->dtype(), buf.data(), buf.size());
     return embedding_cpu;
 }
@@ -81,24 +83,30 @@ ResamplerAttention::ResamplerAttention(infinilm::runtime::Runtime &runtime, size
       head_dim_(num_heads ? embed_dim / num_heads : 0),
       scale_(1.0f / std::sqrt(static_cast<float>(head_dim_))) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("ResamplerAttention construction requires eager Runtime");
-    try {
-    if (embed_dim_ == 0 || num_heads_ == 0 || embed_dim_ % num_heads_ != 0) {
-        throw std::runtime_error("ResamplerAttention: embed_dim must be divisible by num_heads");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("ResamplerAttention construction requires eager Runtime");
     }
-    in_proj_weight_ = infinilm::weights::Weight(runtime, {3 * embed_dim_, embed_dim_}, dtype); this->bind_weight("in_proj_weight", in_proj_weight_);
-    in_proj_bias_ = infinilm::weights::Weight(runtime, {3 * embed_dim_}, dtype); this->bind_weight("in_proj_bias", in_proj_bias_);
-    out_proj_ = this->bind_child("out_proj", std::make_shared<std::remove_reference_t<decltype(*out_proj_ )>>(runtime, embed_dim_, embed_dim_, true, dtype));
+    try {
+        if (embed_dim_ == 0 || num_heads_ == 0 || embed_dim_ % num_heads_ != 0) {
+            throw std::runtime_error("ResamplerAttention: embed_dim must be divisible by num_heads");
+        }
+        in_proj_weight_ = infinilm::weights::Weight(runtime, {3 * embed_dim_, embed_dim_}, dtype);
+        this->bind_weight("in_proj_weight", in_proj_weight_);
+        in_proj_bias_ = infinilm::weights::Weight(runtime, {3 * embed_dim_}, dtype);
+        this->bind_weight("in_proj_bias", in_proj_bias_);
+        out_proj_ = this->bind_child("out_proj", std::make_shared<std::remove_reference_t<decltype(*out_proj_)>>(runtime, embed_dim_, embed_dim_, true, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor ResamplerAttention::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &query,
-                                               const infinilm::runtime::Tensor &key,
-                                               const infinilm::runtime::Tensor &value) const {
+                                                      const infinilm::runtime::Tensor &key,
+                                                      const infinilm::runtime::Tensor &value) const {
     runtime.assertOwnerThread();
     auto batch_size = query->size(0);
     auto q_len = query->size(1);
@@ -178,57 +186,64 @@ Resampler::Resampler(infinilm::runtime::Runtime &runtime, size_t num_queries,
       patch_size_(patch_size),
       use_kv_proj_(kv_dim != embed_dim) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Resampler construction requires eager Runtime");
-    if (patch_size_ == 0 || num_heads_ == 0 || embed_dim_ % num_heads_ != 0)
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Resampler construction requires eager Runtime");
+    }
+    if (patch_size_ == 0 || num_heads_ == 0 || embed_dim_ % num_heads_ != 0) {
         throw std::invalid_argument("Resampler requires valid patch/head geometry");
+    }
     infinilm::runtime::Tensor embedding_table_init;
     try {
-    query_ = infinilm::weights::Weight(runtime, {num_queries_, embed_dim_}, dtype); this->bind_weight("query", query_);
-    proj_ = infinilm::weights::Weight(runtime, {embed_dim_, embed_dim_}, dtype); this->bind_weight("proj", proj_);
+        query_ = infinilm::weights::Weight(runtime, {num_queries_, embed_dim_}, dtype);
+        this->bind_weight("query", query_);
+        proj_ = infinilm::weights::Weight(runtime, {embed_dim_, embed_dim_}, dtype);
+        this->bind_weight("proj", proj_);
 
-    attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_ )>>(runtime, embed_dim_, num_heads_, dtype));
-    ln_q_ = this->bind_child("ln_q", std::make_shared<std::remove_reference_t<decltype(*ln_q_ )>>(runtime, embed_dim_, 1e-6, dtype));
-    ln_kv_ = this->bind_child("ln_kv", std::make_shared<std::remove_reference_t<decltype(*ln_kv_ )>>(runtime, embed_dim_, 1e-6, dtype));
-    ln_post_ = this->bind_child("ln_post", std::make_shared<std::remove_reference_t<decltype(*ln_post_ )>>(runtime, embed_dim_, 1e-6, dtype));
+        attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_)>>(runtime, embed_dim_, num_heads_, dtype));
+        ln_q_ = this->bind_child("ln_q", std::make_shared<std::remove_reference_t<decltype(*ln_q_)>>(runtime, embed_dim_, 1e-6, dtype));
+        ln_kv_ = this->bind_child("ln_kv", std::make_shared<std::remove_reference_t<decltype(*ln_kv_)>>(runtime, embed_dim_, 1e-6, dtype));
+        ln_post_ = this->bind_child("ln_post", std::make_shared<std::remove_reference_t<decltype(*ln_post_)>>(runtime, embed_dim_, 1e-6, dtype));
 
-    if (use_kv_proj_) {
-        kv_proj_ = this->bind_child("kv_proj", std::make_shared<std::remove_reference_t<decltype(*kv_proj_ )>>(runtime, kv_dim_, embed_dim_, false, dtype));
-    }
+        if (use_kv_proj_) {
+            kv_proj_ = this->bind_child("kv_proj", std::make_shared<std::remove_reference_t<decltype(*kv_proj_)>>(runtime, kv_dim_, embed_dim_, false, dtype));
+        }
 
-    // Initialize full 2d embeddings with max size, calculate on cpu and copy to gpu
-    size_t num_patches = image_size_ / patch_size_;
-    embedding_table_ = infinilm::runtime::Tensor::empty_parameter(runtime, {num_patches, num_patches, embed_dim_}, dtype);
-    embedding_table_init = build_2d_sincos_pos_embed_cpu(num_patches, num_patches, embed_dim_, dtype);
-    embedding_table_->copy_from(runtime, embedding_table_init);
-    runtime.syncStream(); // The CPU owner remains alive until upload completion.
+        // Initialize full 2d embeddings with max size, calculate on cpu and copy to gpu
+        size_t num_patches = image_size_ / patch_size_;
+        embedding_table_ = infinilm::runtime::Tensor::empty_parameter(runtime, {num_patches, num_patches, embed_dim_}, dtype);
+        embedding_table_init = build_2d_sincos_pos_embed_cpu(num_patches, num_patches, embed_dim_, dtype);
+        embedding_table_->copy_from(runtime, embedding_table_init);
+        runtime.syncStream(); // The CPU owner remains alive until upload completion.
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Resampler::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &x,
-                                      const infinilm::runtime::Tensor &tgt_sizes) const {
+                                             const infinilm::runtime::Tensor &tgt_sizes) const {
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording()) {
         throw std::invalid_argument("Resampler: data-dependent target-size metadata is not recording-qualified");
     }
-    if (!x || x->device() != runtime.device() || !tgt_sizes ||
-        tgt_sizes->dtype() != infinilm::runtime::DataType::kInt64 || !tgt_sizes->is_contiguous() ||
-        tgt_sizes->ndim() != 2 || tgt_sizes->size(0) != x->size(0) || tgt_sizes->size(1) != 2) {
+    if (!x || x->device() != runtime.device() || !tgt_sizes || tgt_sizes->dtype() != infinilm::runtime::DataType::kInt64 || !tgt_sizes->is_contiguous() || tgt_sizes->ndim() != 2 || tgt_sizes->size(0) != x->size(0) || tgt_sizes->size(1) != 2) {
         throw std::invalid_argument("Resampler: invalid input or target-size metadata");
     }
     std::vector<int64_t> target_values(tgt_sizes->numel());
     const auto cpu = infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu, 0};
-    if (tgt_sizes->device() == cpu) std::memcpy(target_values.data(), tgt_sizes->data(), tgt_sizes->nbytes());
-    else if (tgt_sizes->device() == runtime.device()) {
+    if (tgt_sizes->device() == cpu) {
+        std::memcpy(target_values.data(), tgt_sizes->data(), tgt_sizes->nbytes());
+    } else if (tgt_sizes->device() == runtime.device()) {
         runtime.memcpyD2H(target_values.data(), tgt_sizes->data(), tgt_sizes->nbytes());
         runtime.syncStream();
-    } else throw std::invalid_argument("Resampler: metadata belongs to another device");
+    } else {
+        throw std::invalid_argument("Resampler: metadata belongs to another device");
+    }
     for (size_t i = 0; i < target_values.size(); i += 2) {
-        if (target_values[i] <= 0 || target_values[i + 1] <= 0 ||
-            static_cast<uint64_t>(target_values[i]) > x->size(1) / static_cast<uint64_t>(target_values[i + 1])) {
+        if (target_values[i] <= 0 || target_values[i + 1] <= 0 || static_cast<uint64_t>(target_values[i]) > x->size(1) / static_cast<uint64_t>(target_values[i + 1])) {
             throw std::invalid_argument("Resampler: target grid exceeds sequence capacity");
         }
     }

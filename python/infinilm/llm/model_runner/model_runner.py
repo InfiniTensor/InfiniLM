@@ -3,8 +3,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
 
-from ... import _core as infinicore
-
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.config.engine_config import EngineConfig
 from infinilm.distributed import DistConfig
@@ -18,6 +16,8 @@ from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
 from infinilm.llm.nsa_paged_owner import freeze_model_input
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
+
+from ... import _core as infinicore
 
 logger = logging.getLogger(__name__)
 
@@ -52,12 +52,16 @@ class ModelRunner:
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
-        self._nsa_paged_owner = (config.cache_type == "paged"
-                                 and read_hf_config(config.model_path).get("model_type") == "videonsa")
+        self._nsa_paged_owner = (
+            config.cache_type == "paged"
+            and read_hf_config(config.model_path).get("model_type") == "videonsa"
+        )
         if self._nsa_paged_owner and (
             config.draft_model_path is not None or config.kv_transfer_config is not None
         ):
-            raise ValueError("NSA request ownership does not support speculative decoding or KV transfer")
+            raise ValueError(
+                "NSA request ownership does not support speculative decoding or KV transfer"
+            )
         self._init_device()
 
         # Initialize KV cache based on cache type
@@ -170,10 +174,13 @@ class ModelRunner:
         if not isinstance(scheduler, Scheduler) or scheduler._nsa_owner_clock is None:
             raise TypeError("NSA runner requires the actual paged Scheduler")
         manager = scheduler.cache_manager
-        if (manager._nsa_owner_clock is not scheduler._nsa_owner_clock
-                or scheduler._nsa_owner_clock.pool_epoch != self.model_engine.get_nsa_pool_epoch()
-                or manager.num_blocks != self.config.num_blocks
-                or manager.block_size != self.config.block_size):
+        if (
+            manager._nsa_owner_clock is not scheduler._nsa_owner_clock
+            or scheduler._nsa_owner_clock.pool_epoch
+            != self.model_engine.get_nsa_pool_epoch()
+            or manager.num_blocks != self.config.num_blocks
+            or manager.block_size != self.config.block_size
+        ):
             raise ValueError("NSA Scheduler/engine pool or geometry binding differs")
         self._nsa_scheduler = scheduler
 
@@ -246,13 +253,17 @@ class ModelRunner:
         nsa_owner = None
         if self._nsa_paged_owner:
             if self._nsa_scheduler is None:
-                raise RuntimeError("NSA managed forward requires the actual bound Scheduler")
+                raise RuntimeError(
+                    "NSA managed forward requires the actual bound Scheduler"
+                )
             nsa_owner = self._nsa_scheduler.take_nsa_owner_batch(scheduler_output)
         # Build model inputs
         requests = scheduler_output.scheduled_requests
         first_params = requests[0].sampling_params if requests else self.config
         temperature, top_p, top_k = (
-            first_params.temperature, first_params.top_p, first_params.top_k
+            first_params.temperature,
+            first_params.top_p,
+            first_params.top_k,
         )
         model_input = self.processor.build_model_inputs(
             scheduler_output,
@@ -273,14 +284,15 @@ class ModelRunner:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
         model_input["sampling_rows"] = [
-            (request.sampling_params.temperature,
-             request.sampling_params.top_p,
-             request.sampling_params.top_k)
+            (
+                request.sampling_params.temperature,
+                request.sampling_params.top_p,
+                request.sampling_params.top_k,
+            )
             for request in requests
         ]
         model_input["random_values"] = [
-            request.next_sampling_random_value()
-            for request in requests
+            request.next_sampling_random_value() for request in requests
         ]
 
         # Wake every stage before stage 0 enters forward. Each worker receives
@@ -330,22 +342,31 @@ class ModelRunner:
         finally:
             try:
                 if load_started:
-                    (output.finished_sending, output.failed_recving,
-                     output.finished_recving) = connector.get_finished()
-                    output.invalid_block_ids = connector.get_block_ids_with_load_errors()
+                    (
+                        output.finished_sending,
+                        output.failed_recving,
+                        output.finished_recving,
+                    ) = connector.get_finished()
+                    output.invalid_block_ids = (
+                        connector.get_block_ids_with_load_errors()
+                    )
                     output.kv_connector_stats = connector.get_kv_connector_stats()
             except BaseException as error:
                 if first_error is None:
                     first_error = error
                     raise
-                logger.exception("KV completion polling failed after an earlier step error")
+                logger.exception(
+                    "KV completion polling failed after an earlier step error"
+                )
             finally:
                 try:
                     connector.clear_connector_metadata()
                 except BaseException:
                     if first_error is None:
                         raise
-                    logger.exception("KV metadata cleanup failed after an earlier step error")
+                    logger.exception(
+                        "KV metadata cleanup failed after an earlier step error"
+                    )
 
     def close(self) -> None:
         """Stop external resources and deterministically release native engines."""

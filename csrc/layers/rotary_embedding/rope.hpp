@@ -1,9 +1,9 @@
 #pragma once
 
-#include "runtime/context.hpp"
-#include "runtime/tensor.hpp"
 #include "../../weights/weights.hpp"
 #include "rope_scaling_configs.hpp"
+#include "runtime/context.hpp"
+#include "runtime/tensor.hpp"
 #include <cmath>
 #include <memory>
 #include <optional>
@@ -11,20 +11,20 @@
 #include <vector>
 
 namespace infinilm::layers {
-using infinilm::runtime::Tensor;
-using infinilm::runtime::Runtime;
 using infinilm::runtime::DataType;
 using infinilm::runtime::Device;
+using infinilm::runtime::Runtime;
 using infinilm::runtime::Shape;
 using infinilm::runtime::Size;
-
+using infinilm::runtime::Tensor;
 
 class RoPE : public infinilm::weights::ModelWeights {
 public:
     /**
      * @brief RoPE algorithm type
      */
-    enum class Algo { GPT_J = 0, GPT_NEOX = 1 };
+    enum class Algo { GPT_J = 0,
+                      GPT_NEOX = 1 };
 
     /**
      * @brief Construct a RoPE layer
@@ -74,7 +74,6 @@ public:
     std::pair<Tensor, Tensor> forward(Runtime &runtime, const Tensor &q, const Tensor &k, const Tensor &positions) const;
     std::pair<Tensor, Tensor> forward(Runtime &runtime, Tensor q_out, Tensor k_out,
                                       const Tensor &q, const Tensor &k, const Tensor &positions) const;
-
 
     /**
      * @brief Apply MRoPE to q and k into caller-provided outputs.

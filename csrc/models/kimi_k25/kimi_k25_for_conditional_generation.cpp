@@ -1,8 +1,8 @@
-#include "../../layers/rotary_embedding/rope.hpp"
 #include "kimi_k25_for_conditional_generation.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "runtime/runtime.hpp"
 #include <cmath>
 #include <exception>
-#include "runtime/runtime.hpp"
 
 #include "../../global_state/global_state.hpp"
 #include "../models_registry.hpp"
@@ -21,9 +21,9 @@ KimiK25ForConditionalGeneration::KimiK25ForConditionalGeneration(
     const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    model_config_ = model_config;
-    const auto &dtype = model_config->get_dtype();
-    const auto &vision_config = model_config->get_config_json().at("vision_config");
+        model_config_ = model_config;
+        const auto &dtype = model_config->get_dtype();
+        const auto &vision_config = model_config->get_config_json().at("vision_config");
         vision_tower_ = std::make_shared<std::remove_reference_t<decltype(*vision_tower_)>>(
             runtime, vision_config, dtype);
         this->bind_child("vision_tower", vision_tower_);
@@ -34,7 +34,9 @@ KimiK25ForConditionalGeneration::KimiK25ForConditionalGeneration(
             runtime, model_config, rank_info, attention_backend, ep_config);
         this->bind_child("language_model", language_model_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -82,7 +84,7 @@ void KimiK25ForConditionalGeneration::replace_image_embeddings(
         const size_t image_length = static_cast<size_t>(bound[1] - bound[0]);
 
         auto vision_features = vision_tower_->forward(runtime,
-            input.pixel_values->at(image_idx), input.image_grid_thw->at(image_idx));
+                                                      input.pixel_values->at(image_idx), input.image_grid_thw->at(image_idx));
         auto image_embeds = mm_projector_->forward(runtime, vision_features);
         if (image_embeds->size(0) != image_length) {
             throw std::runtime_error("KimiK25ForConditionalGeneration: image token span does not match projector output");
@@ -124,8 +126,9 @@ create_kimi_k25_model_config(std::shared_ptr<infinilm::config::ModelConfig> mode
     }
     config_json["head_dim"] = config_json.at("qk_nope_head_dim").get<size_t>()
                             + config_json.at("qk_rope_head_dim").get<size_t>();
-    if (!config_json.at("head_dim").get<size_t>())
+    if (!config_json.at("head_dim").get<size_t>()) {
         throw std::invalid_argument("kimi_k25 requires nonzero attention head dimension");
+    }
     config_json["partial_rotary_factor"] = static_cast<double>(config_json.at("qk_rope_head_dim").get<size_t>())
                                          / static_cast<double>(config_json.at("head_dim").get<size_t>());
     config_json["num_experts"] = config_json.at("n_routed_experts");
@@ -137,8 +140,9 @@ create_kimi_k25_model_config(std::shared_ptr<infinilm::config::ModelConfig> mode
     // Only metadata consumed by the actual construction branch is required.
     if (model_config->get<int64_t>("hidden_size") <= 0
         || model_config->get<int64_t>("vocab_size") <= 0
-        || model_config->get<int64_t>("num_hidden_layers") < 0)
+        || model_config->get<int64_t>("num_hidden_layers") < 0) {
         throw std::invalid_argument("Invalid kimi_k25 construction dimensions");
+    }
     const size_t num_layers = model_config->get<size_t>("num_hidden_layers");
     const size_t first_dense = model_config->get_or<size_t>("first_k_dense_replace", 0);
     const size_t frequency = model_config->get_or<size_t>("moe_layer_freq", 1);
@@ -148,8 +152,9 @@ create_kimi_k25_model_config(std::shared_ptr<infinilm::config::ModelConfig> mode
                       && i >= first_dense && (frequency == 0 || i % frequency == 0);
         needs_dense = needs_dense || !moe;
     }
-    if (needs_dense && model_config->get<int64_t>("intermediate_size") <= 0)
+    if (needs_dense && model_config->get<int64_t>("intermediate_size") <= 0) {
         throw std::invalid_argument("kimi_k25 dense layers require positive intermediate_size");
+    }
 
     model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
     return model_config;

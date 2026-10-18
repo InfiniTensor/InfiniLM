@@ -1,11 +1,11 @@
-#include <base/flash_attn_with_kvcache.h>
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
+#include "kimi_k25_vision.hpp"
+#include "../../global_state/forward_context.hpp"
 #include "../../layers/linear/dense.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
-#include "../../global_state/forward_context.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
+#include <base/flash_attn_with_kvcache.h>
 #include <exception>
-#include "kimi_k25_vision.hpp"
 
 #include <base/upsample_bicubic2d.h>
 
@@ -25,9 +25,7 @@ namespace {
 std::vector<int64_t> grid_to_cpu(infinilm::runtime::Runtime &runtime,
                                  const infinilm::runtime::Tensor &grid_thw) {
     runtime.assertOwnerThread();
-    if (!grid_thw || grid_thw->numel() != 3 ||
-        (grid_thw->dtype() != infinilm::runtime::DataType::kInt32 &&
-         grid_thw->dtype() != infinilm::runtime::DataType::kInt64)) {
+    if (!grid_thw || grid_thw->numel() != 3 || (grid_thw->dtype() != infinilm::runtime::DataType::kInt32 && grid_thw->dtype() != infinilm::runtime::DataType::kInt64)) {
         throw std::runtime_error("KimiK25VisionTower: grid_thw must contain three int32 or int64 values");
     }
     const auto cpu_device = infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu};
@@ -75,10 +73,12 @@ std::vector<int64_t> grid_to_cpu(infinilm::runtime::Runtime &runtime,
 KimiK25VisionPatchProjection::KimiK25VisionPatchProjection(
     infinilm::runtime::Runtime &runtime,
     size_t hidden_size,
-                                                           size_t patch_size,
+    size_t patch_size,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionPatchProjection construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionPatchProjection construction requires eager Runtime");
+    }
     try {
         patch_size_ = patch_size;
         weight_ = infinilm::weights::Weight(runtime, {hidden_size, 3, patch_size, patch_size}, dtype);
@@ -86,13 +86,15 @@ KimiK25VisionPatchProjection::KimiK25VisionPatchProjection(
         bias_ = infinilm::weights::Weight(runtime, {hidden_size}, dtype);
         this->bind_weight("bias", bias_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionPatchProjection::forward(infinilm::runtime::Runtime &runtime,
-                                                          const infinilm::runtime::Tensor &pixel_values) const {
+                                                                const infinilm::runtime::Tensor &pixel_values) const {
     runtime.assertOwnerThread();
     if (!pixel_values || pixel_values->device() != runtime.device()) {
         throw std::runtime_error("KimiK25VisionPatchProjection: pixel_values device differs from Runtime");
@@ -105,11 +107,13 @@ infinilm::runtime::Tensor KimiK25VisionPatchProjection::forward(infinilm::runtim
 KimiK25VisionPosEmbed::KimiK25VisionPosEmbed(
     infinilm::runtime::Runtime &runtime,
     size_t height,
-                                             size_t width,
-                                             size_t hidden_size,
+    size_t width,
+    size_t hidden_size,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionPosEmbed construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionPosEmbed construction requires eager Runtime");
+    }
     try {
         height_ = height;
         width_ = width;
@@ -117,20 +121,20 @@ KimiK25VisionPosEmbed::KimiK25VisionPosEmbed(
         weight_ = infinilm::weights::Weight(runtime, {height_, width_, hidden_size_}, dtype);
         this->bind_weight("weight", weight_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionPosEmbed::forward(infinilm::runtime::Runtime &runtime,
-                                                  size_t grid_h, size_t grid_w) const {
+                                                         size_t grid_h, size_t grid_w) const {
     runtime.assertOwnerThread();
     if (weight_->device() != runtime.device()) {
         throw std::runtime_error("KimiK25VisionPosEmbed: weight device differs from Runtime");
     }
-    if (!grid_h || !grid_w ||
-        grid_h > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
-        grid_w > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
+    if (!grid_h || !grid_w || grid_h > static_cast<size_t>(std::numeric_limits<int64_t>::max()) || grid_w > static_cast<size_t>(std::numeric_limits<int64_t>::max())) {
         throw std::invalid_argument("KimiK25VisionPosEmbed: invalid grid dimensions");
     }
     if (grid_h == height_ && grid_w == width_) {
@@ -155,9 +159,11 @@ KimiK25VisionPatchEmbed::KimiK25VisionPatchEmbed(
     const nlohmann::json &config,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionPatchEmbed construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionPatchEmbed construction requires eager Runtime");
+    }
     try {
-    const size_t hidden_size = config.at("vt_hidden_size").get<size_t>();
+        const size_t hidden_size = config.at("vt_hidden_size").get<size_t>();
         proj_ = std::make_shared<std::remove_reference_t<decltype(*proj_)>>(
             runtime, hidden_size, config.at("patch_size").get<size_t>(), dtype);
         this->bind_child("proj", proj_);
@@ -165,14 +171,16 @@ KimiK25VisionPatchEmbed::KimiK25VisionPatchEmbed(
             runtime, config.at("init_pos_emb_height").get<size_t>(), config.at("init_pos_emb_width").get<size_t>(), hidden_size, dtype);
         this->bind_child("pos_emb", pos_emb_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionPatchEmbed::forward(infinilm::runtime::Runtime &runtime,
-                                                    const infinilm::runtime::Tensor &pixel_values,
-                                                    const infinilm::runtime::Tensor &grid_thw) const {
+                                                           const infinilm::runtime::Tensor &pixel_values,
+                                                           const infinilm::runtime::Tensor &grid_thw) const {
     const auto grid = grid_to_cpu(runtime, grid_thw);
     if (grid[0] != 1) {
         // TODO(kimi_k25): Add the fixed temporal positional embedding for video inputs.
@@ -193,10 +201,12 @@ infinilm::runtime::Tensor KimiK25VisionPatchEmbed::forward(infinilm::runtime::Ru
 KimiK25VisionMLP::KimiK25VisionMLP(
     infinilm::runtime::Runtime &runtime,
     size_t hidden_size,
-                                   size_t intermediate_size,
+    size_t intermediate_size,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionMLP construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionMLP construction requires eager Runtime");
+    }
     try {
         fc0_ = std::make_shared<std::remove_reference_t<decltype(*fc0_)>>(
             runtime, hidden_size, intermediate_size, true, dtype);
@@ -205,13 +215,15 @@ KimiK25VisionMLP::KimiK25VisionMLP(
             runtime, intermediate_size, hidden_size, true, dtype);
         this->bind_child("fc1", fc1_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionMLP::forward(infinilm::runtime::Runtime &runtime,
-                                             const infinilm::runtime::Tensor &hidden_states) const {
+                                                    const infinilm::runtime::Tensor &hidden_states) const {
     auto mutable_hidden = hidden_states;
     const auto ops_input = fc0_->forward(runtime, mutable_hidden);
     auto intermediate = infinilm::runtime::Tensor::empty(runtime, ops_input->shape(), ops_input->dtype());
@@ -226,12 +238,15 @@ KimiK25VisionBlock::KimiK25VisionBlock(
     std::shared_ptr<infinilm::layers::RoPE> rotary_emb,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionBlock construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionBlock construction requires eager Runtime");
+    }
     try {
         hidden_size_ = config.at("vt_hidden_size").get<size_t>();
         num_heads_ = config.at("vt_num_attention_heads").get<size_t>();
-        if (!hidden_size_ || !num_heads_ || !hidden_size_ || hidden_size_ % num_heads_ != 0)
+        if (!hidden_size_ || !num_heads_ || !hidden_size_ || hidden_size_ % num_heads_ != 0) {
             throw std::invalid_argument("Invalid KimiK25VisionBlock head geometry");
+        }
         head_dim_ = hidden_size_ / num_heads_;
         scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
         rotary_emb_ = std::move(rotary_emb);
@@ -251,15 +266,17 @@ KimiK25VisionBlock::KimiK25VisionBlock(
             runtime, hidden_size_, config.at("vt_intermediate_size").get<size_t>(), dtype);
         this->bind_child("mlp", mlp_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionBlock::forward(infinilm::runtime::Runtime &runtime,
-                                               const infinilm::runtime::Tensor &hidden_states,
-                                               const infinilm::runtime::Tensor &row_positions,
-                                               const infinilm::runtime::Tensor &col_positions) const {
+                                                      const infinilm::runtime::Tensor &hidden_states,
+                                                      const infinilm::runtime::Tensor &row_positions,
+                                                      const infinilm::runtime::Tensor &col_positions) const {
     const size_t seq_len = hidden_states->size(0);
     auto normalized = norm0_->forward(runtime, hidden_states);
     auto qkv = wqkv_->forward(runtime, normalized)->view({seq_len, 3, num_heads_, head_dim_});
@@ -321,39 +338,44 @@ KimiK25VisionEncoder::KimiK25VisionEncoder(
     const nlohmann::json &config,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionEncoder construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionEncoder construction requires eager Runtime");
+    }
     std::shared_ptr<infinilm::layers::RoPE> rotary_emb;
     std::shared_ptr<KimiK25VisionBlock> pending_child;
     try {
-    const size_t hidden_size = config.at("vt_hidden_size").get<size_t>();
-    const size_t num_heads = config.at("vt_num_attention_heads").get<size_t>();
-        if (!hidden_size || !num_heads || !hidden_size || hidden_size % num_heads != 0)
+        const size_t hidden_size = config.at("vt_hidden_size").get<size_t>();
+        const size_t num_heads = config.at("vt_num_attention_heads").get<size_t>();
+        if (!hidden_size || !num_heads || !hidden_size || hidden_size % num_heads != 0) {
             throw std::invalid_argument("Invalid KimiK25VisionEncoder head geometry");
-    const size_t head_dim = hidden_size / num_heads;
+        }
+        const size_t head_dim = hidden_size / num_heads;
         rotary_emb = std::make_shared<infinilm::layers::RoPE>(runtime,
-        head_dim / 2, head_dim / 2, 512, 10000.0,
-            infinilm::layers::RoPE::Algo::GPT_J, dtype, runtime.device());
-    const size_t num_layers = config.at("vt_num_hidden_layers").get<size_t>();
-    blocks_.reserve(num_layers);
-    for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
+                                                              head_dim / 2, head_dim / 2, 512, 10000.0,
+                                                              infinilm::layers::RoPE::Algo::GPT_J, dtype, runtime.device());
+        const size_t num_layers = config.at("vt_num_hidden_layers").get<size_t>();
+        blocks_.reserve(num_layers);
+        for (size_t layer_idx = 0; layer_idx < num_layers; ++layer_idx) {
             pending_child = std::make_shared<KimiK25VisionBlock>(
                 runtime, config, rotary_emb, dtype);
             blocks_.push_back(pending_child);
             this->bind_child("blocks." + std::to_string(layer_idx), pending_child);
-    }
+        }
         final_layernorm_ = std::make_shared<std::remove_reference_t<decltype(*final_layernorm_)>>(
             runtime, hidden_size, 1e-5, dtype);
         this->bind_child("final_layernorm", final_layernorm_);
         runtime.syncStream(); // Local RoPE and children remain alive until completion.
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionEncoder::forward(infinilm::runtime::Runtime &runtime,
-                                                 const infinilm::runtime::Tensor &hidden_states,
-                                                 const infinilm::runtime::Tensor &grid_thw) const {
+                                                        const infinilm::runtime::Tensor &hidden_states,
+                                                        const infinilm::runtime::Tensor &grid_thw) const {
     const auto grid = grid_to_cpu(runtime, grid_thw);
     if (grid.size() != 3 || grid[0] != 1) {
         throw std::runtime_error("KimiK25VisionEncoder: only one image grid is supported per call");
@@ -390,12 +412,14 @@ KimiK25VisionTower::KimiK25VisionTower(
     const nlohmann::json &config,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25VisionTower construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25VisionTower construction requires eager Runtime");
+    }
     try {
         hidden_size_ = config.at("vt_hidden_size").get<size_t>();
-    const auto &kernel = config.at("merge_kernel_size");
-    merge_height_ = kernel.at(0).get<size_t>();
-    merge_width_ = kernel.at(1).get<size_t>();
+        const auto &kernel = config.at("merge_kernel_size");
+        merge_height_ = kernel.at(0).get<size_t>();
+        merge_width_ = kernel.at(1).get<size_t>();
         patch_embed_ = std::make_shared<std::remove_reference_t<decltype(*patch_embed_)>>(
             runtime, config, dtype);
         this->bind_child("patch_embed", patch_embed_);
@@ -403,14 +427,16 @@ KimiK25VisionTower::KimiK25VisionTower(
             runtime, config, dtype);
         this->bind_child("encoder", encoder_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25VisionTower::forward(infinilm::runtime::Runtime &runtime,
-                                               const infinilm::runtime::Tensor &pixel_values,
-                                               const infinilm::runtime::Tensor &grid_thw) const {
+                                                      const infinilm::runtime::Tensor &pixel_values,
+                                                      const infinilm::runtime::Tensor &grid_thw) const {
     const auto grid = grid_to_cpu(runtime, grid_thw);
     if (grid[1] <= 0 || grid[2] <= 0) {
         throw std::runtime_error("KimiK25VisionTower: grid dimensions must be positive");
@@ -434,13 +460,15 @@ KimiK25Projector::KimiK25Projector(
     const nlohmann::json &config,
     const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25Projector construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25Projector construction requires eager Runtime");
+    }
     try {
-    const size_t vision_hidden_size = config.at("mm_hidden_size").get<size_t>();
-    const auto &kernel = config.at("merge_kernel_size");
-    merged_hidden_size_ = vision_hidden_size * kernel.at(0).get<size_t>() * kernel.at(1).get<size_t>();
-    const size_t text_hidden_size = config.at("text_hidden_size").get<size_t>();
-    const double eps = config.at("projector_ln_eps").get<double>();
+        const size_t vision_hidden_size = config.at("mm_hidden_size").get<size_t>();
+        const auto &kernel = config.at("merge_kernel_size");
+        merged_hidden_size_ = vision_hidden_size * kernel.at(0).get<size_t>() * kernel.at(1).get<size_t>();
+        const size_t text_hidden_size = config.at("text_hidden_size").get<size_t>();
+        const double eps = config.at("projector_ln_eps").get<double>();
         pre_norm_ = std::make_shared<std::remove_reference_t<decltype(*pre_norm_)>>(
             runtime, vision_hidden_size, eps, dtype);
         this->bind_child("pre_norm", pre_norm_);
@@ -451,13 +479,15 @@ KimiK25Projector::KimiK25Projector(
             runtime, merged_hidden_size_, text_hidden_size, true, dtype);
         this->bind_child("proj.2", linear_2_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor KimiK25Projector::forward(infinilm::runtime::Runtime &runtime,
-                                             const infinilm::runtime::Tensor &vision_features) const {
+                                                    const infinilm::runtime::Tensor &vision_features) const {
     auto normalized = pre_norm_->forward(runtime, vision_features)
                           ->view({vision_features->size(0), merged_hidden_size_});
     const auto ops_input = linear_0_->forward(runtime, normalized);

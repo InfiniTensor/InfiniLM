@@ -12,14 +12,14 @@ namespace infinilm::models::videonsa {
 class VideoNSAAttention : public infinilm::layers::attention::Attention {
 public:
     VideoNSAAttention(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        size_t layer_idx, const engine::distributed::RankInfo &rank,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep);
+                      std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                      size_t layer_idx, const engine::distributed::RankInfo &rank,
+                      backends::AttentionBackend attention_backend,
+                      const layers::moe::EPConfig &ep);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      global_state::ForwardContext &forward_context) const;
 
     void prepare_paged_owner(global_state::ForwardContext &) const;
     void finish_paged_owner(bool) const;

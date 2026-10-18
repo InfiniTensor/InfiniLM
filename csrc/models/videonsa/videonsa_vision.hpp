@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../../layers/linear/linear.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -17,7 +17,7 @@ public:
                        const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values) const;
+                                      const infinilm::runtime::Tensor &pixel_values) const;
 
 private:
     size_t out_hidden_size_;
@@ -31,8 +31,8 @@ public:
                             const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
 
 private:
     size_t hidden_size_;
@@ -50,7 +50,7 @@ public:
                       const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> gate_proj_;
@@ -64,8 +64,8 @@ public:
                         const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const std::vector<int64_t> *cu_window_seqlens = nullptr) const;
 
 private:
     std::shared_ptr<infinilm::layers::RMSNorm> norm1_;
@@ -80,7 +80,7 @@ public:
                         const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     size_t hidden_size_;
@@ -98,8 +98,8 @@ public:
                         const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 private:
     struct WindowMetadata {
@@ -112,8 +112,8 @@ private:
     WindowMetadata build_window_metadata_(infinilm::runtime::Runtime &runtime,
                                           const infinilm::runtime::Tensor &grid_thw) const;
     infinilm::runtime::Tensor gather_rows_(infinilm::runtime::Runtime &runtime,
-                                    const infinilm::runtime::Tensor &hidden_states,
-                                    const std::vector<int64_t> &row_order) const;
+                                           const infinilm::runtime::Tensor &hidden_states,
+                                           const std::vector<int64_t> &row_order) const;
 
     size_t depth_;
     size_t hidden_size_;

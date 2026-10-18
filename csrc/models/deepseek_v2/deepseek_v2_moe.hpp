@@ -5,8 +5,8 @@
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/mlp/mlp.hpp"
 #include "../../layers/moe/legacy/moe_mlp.hpp"
-#include "runtime/device.hpp"
 #include "../../weights/weights.hpp"
+#include "runtime/device.hpp"
 #include "runtime/tensor.hpp"
 #include <infiniccl/infiniccl.h>
 
@@ -22,7 +22,7 @@ using DeepseekV2ExpertMLP = infinilm::layers::moe::legacy::MoeMLP;
 class DeepseekV2TopKRouter : public infinilm::weights::ModelWeights {
 public:
     DeepseekV2TopKRouter(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config);
+                         std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
         infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
@@ -37,19 +37,19 @@ protected:
 class DeepseekV2Experts : public infinilm::weights::ModelWeights {
 public:
     DeepseekV2Experts(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank_info);
+                      std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                      const engine::distributed::RankInfo &rank_info);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &top_k_index,
-                               const infinilm::runtime::Tensor &top_k_weights) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &top_k_index,
+                                      const infinilm::runtime::Tensor &top_k_weights) const;
 
 protected:
     infinilm::runtime::Tensor forward_cpu_routed_(infinilm::runtime::Runtime &runtime,
-                                           const infinilm::runtime::Tensor &hidden_states,
-                                           const infinilm::runtime::Tensor &top_k_index,
-                                           const infinilm::runtime::Tensor &top_k_weights) const;
+                                                  const infinilm::runtime::Tensor &hidden_states,
+                                                  const infinilm::runtime::Tensor &top_k_index,
+                                                  const infinilm::runtime::Tensor &top_k_weights) const;
 
     std::vector<std::shared_ptr<DeepseekV2ExpertMLP>> experts_;
     std::vector<infinilm::runtime::Tensor> gate_weights_;
@@ -67,11 +67,11 @@ protected:
 class DeepseekV2MoE : public infinilm::weights::ModelWeights {
 public:
     DeepseekV2MoE(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+                  std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                  size_t layer_idx,
+                  const engine::distributed::RankInfo &rank_info,
+                  backends::AttentionBackend attention_backend,
+                  const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 

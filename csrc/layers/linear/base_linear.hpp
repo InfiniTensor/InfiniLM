@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../weights/weights.hpp"
 #include "../quantization/quantization.hpp"
 #include "../quantization/w4_execution.hpp"
-#include "../../weights/weights.hpp"
 #include <infiniccl/infiniccl.h>
 #include <optional>
 
@@ -28,7 +28,7 @@ public:
 
     // Forward pass with residual connection
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input,
-                              infinilm::runtime::Tensor &residual) const;
+                                      infinilm::runtime::Tensor &residual) const;
 
     // Module information
     size_t in_features() const { return in_features_; }

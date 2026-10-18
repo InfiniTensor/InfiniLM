@@ -1,29 +1,31 @@
-#include "../../weights/weights.hpp"
 #include "embedding.hpp"
 #include "../../execution/submit.hpp"
+#include "../../weights/weights.hpp"
 #include "base/embedding.h"
-#include <exception>
 #include "runtime/runtime.hpp"
+#include <exception>
 #include <stdexcept>
 
 namespace infinilm::layers {
-using infinilm::runtime::Tensor;
-using infinilm::runtime::Runtime;
 using infinilm::runtime::DataType;
 using infinilm::runtime::Device;
+using infinilm::runtime::Runtime;
 using infinilm::runtime::Shape;
 using infinilm::runtime::Size;
-
+using infinilm::runtime::Tensor;
 
 Embedding::Embedding(Runtime &runtime, size_t num_embeddings, size_t embedding_dim,
                      std::optional<int64_t> padding_idx, const DataType &dtype)
     : num_embeddings_(num_embeddings), embedding_dim_(embedding_dim),
       padding_idx_(padding_idx), dtype_(dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Embedding construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Embedding construction requires eager Runtime");
+    }
     if (!num_embeddings || !embedding_dim
-        || (padding_idx && (*padding_idx < 0 || static_cast<uint64_t>(*padding_idx) >= num_embeddings)))
+        || (padding_idx && (*padding_idx < 0 || static_cast<uint64_t>(*padding_idx) >= num_embeddings))) {
         throw std::invalid_argument("Invalid explicit Embedding construction geometry");
+    }
     device_ = runtime.device();
     try {
         weight_ = infinilm::weights::Weight(runtime, {num_embeddings, embedding_dim}, dtype_);
@@ -31,7 +33,9 @@ Embedding::Embedding(Runtime &runtime, size_t num_embeddings, size_t embedding_d
         // Same legacy semantics: padding row is not additionally zero-initialized.
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
@@ -49,7 +53,9 @@ Tensor Embedding::forward(Runtime &runtime, const Tensor &indices) const {
     const auto config = infini::ops::Embedding::DefaultConfig(
         runtime.device().type());
     infinilm::execution::submit<infini::ops::Embedding>(runtime, config, input, weights, out);
-    if (device_.type() != Device::Type::kCpu) INFINILM_TRACE_OP(Embedding, out);
+    if (device_.type() != Device::Type::kCpu) {
+        INFINILM_TRACE_OP(Embedding, out);
+    }
     return out;
 }
 

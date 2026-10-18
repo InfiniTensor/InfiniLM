@@ -1,15 +1,15 @@
 #pragma once
 
 #include "../../../backends/attention_backends.hpp"
-#include "../../../global_state/global_state.hpp"
 #include "../../../global_state/forward_context.hpp"
+#include "../../../global_state/global_state.hpp"
 #include "flash_attn.hpp"
-#include "runtime/tensor.hpp"
 #include "paged_attn.hpp"
+#include "runtime/tensor.hpp"
 #include "static_attn.hpp"
+#include <cstdint>
 #include <memory>
 #include <variant>
-#include <cstdint>
 #include <vector>
 
 namespace infinilm::layers::attention {
@@ -40,16 +40,16 @@ public:
 
     infinilm::runtime::Tensor forward(
         infinilm::runtime::Tensor &query,
-                               infinilm::runtime::Tensor &key,
+        infinilm::runtime::Tensor &key,
         infinilm::runtime::Tensor &value,
         infinilm::global_state::ForwardContext &forward_context) const;
 
     // LM composition for eager prefill with live device KV lengths.
     void prefill_paged(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor out,
-                      const infinilm::runtime::Tensor &q, const infinilm::runtime::Tensor &k_cache,
-                      const infinilm::runtime::Tensor &v_cache, const infinilm::runtime::Tensor &block_tables,
-                      const infinilm::runtime::Tensor &kv_lens, const infinilm::runtime::Tensor &cu_q,
-                      float scale) const;
+                       const infinilm::runtime::Tensor &q, const infinilm::runtime::Tensor &k_cache,
+                       const infinilm::runtime::Tensor &v_cache, const infinilm::runtime::Tensor &block_tables,
+                       const infinilm::runtime::Tensor &kv_lens, const infinilm::runtime::Tensor &cu_q,
+                       float scale) const;
 
     inline infinilm::runtime::Tensor get_k_scale() const { return k_scale_; }
     inline infinilm::runtime::Tensor get_v_scale() const { return v_scale_; }

@@ -1,5 +1,5 @@
-#include "../../layers/rotary_embedding/rope.hpp"
 #include "glm4_for_causal_lm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
 #include "../models_registry.hpp"
 #include <stdexcept>
 

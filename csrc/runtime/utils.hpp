@@ -25,7 +25,7 @@ inline struct SpdlogInitializer {
 #define STRINGIZE_(x) #x
 #define STRINGIZE(x) STRINGIZE_(x)
 
-#define INFINILM_CHECK_ERROR(call)                                                     \
+#define INFINILM_CHECK_ERROR(call)                                                       \
     do {                                                                                 \
         SPDLOG_DEBUG("Entering `" #call "` at `" __FILE__ ":" STRINGIZE(__LINE__) "`."); \
         const auto ret = (call);                                                         \
@@ -39,7 +39,7 @@ inline struct SpdlogInitializer {
         }                                                                                \
     } while (false)
 
-#define INFINILM_ASSERT_TENSORS_SAME_DEVICE(FIRST___, ...)                      \
+#define INFINILM_ASSERT_TENSORS_SAME_DEVICE(FIRST___, ...)                        \
     do {                                                                          \
         const auto &first_device___ = (FIRST___)->device();                       \
         for (const auto &tensor___ : {__VA_ARGS__}) {                             \
@@ -54,7 +54,7 @@ inline struct SpdlogInitializer {
         }                                                                         \
     } while (0)
 
-#define INFINILM_ASSERT(CONDITION__)                                                                                                         \
+#define INFINILM_ASSERT(CONDITION__)                                                                                                           \
     do {                                                                                                                                       \
         if (!(CONDITION__)) {                                                                                                                  \
             SPDLOG_ERROR(                                                                                                                      \

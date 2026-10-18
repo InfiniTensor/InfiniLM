@@ -1,15 +1,14 @@
-#include <base/flash_attn_with_kvcache.h>
-#include "../../weights/weights.hpp"
-#include "../../layers/normalization/checks.hpp"
-#include "../../execution/submit.hpp"
-#include "../../layers/rotary_embedding/rope.hpp"
-#include "../../execution/tensor_checks.hpp"
 #include "ernie4_5_vision.hpp"
+#include "../../execution/submit.hpp"
+#include "../../execution/tensor_checks.hpp"
+#include "../../layers/normalization/checks.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/runtime.hpp"
+#include <base/flash_attn_with_kvcache.h>
+#include <base/quick_gelu.h>
 #include <exception>
 #include <limits>
-#include <base/quick_gelu.h>
-
 
 #include <cmath>
 #include <cstdint>
@@ -21,9 +20,10 @@ namespace infinilm::models::ernie4_5_vl {
 namespace {
 
 std::vector<int64_t> tensor_to_i64_vector(infinilm::runtime::Runtime &runtime,
-                                        const infinilm::runtime::Tensor &tensor) {
+                                          const infinilm::runtime::Tensor &tensor) {
     auto cpu_tensor = tensor->device().type() == infinilm::runtime::Device::Type::kCpu
-        ? tensor : tensor->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                        ? tensor
+                        : tensor->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     std::vector<int64_t> values(cpu_tensor->numel());
     if (cpu_tensor->dtype() == infinilm::runtime::DataType::kInt64) {
         const auto *ptr = reinterpret_cast<const int64_t *>(cpu_tensor->data());
@@ -41,7 +41,7 @@ std::vector<int64_t> tensor_to_i64_vector(infinilm::runtime::Runtime &runtime,
 }
 
 infinilm::runtime::Tensor cat_or_single(infinilm::runtime::Runtime &runtime,
-                                std::vector<infinilm::runtime::Tensor> tensors, int dim) {
+                                        std::vector<infinilm::runtime::Tensor> tensors, int dim) {
     if (tensors.empty()) {
         throw std::runtime_error("ERNIE 4.5 VL internal cat received no tensors");
     }
@@ -55,85 +55,101 @@ infinilm::runtime::Tensor cat_or_single(infinilm::runtime::Runtime &runtime,
     auto output = infinilm::runtime::Tensor::empty(runtime, output_shape, (*layout.reference)->dtype());
     infinilm::execution::tensor_checks::cat::validate(runtime, output, inputs, layout);
     inputs.erase(std::remove_if(inputs.begin(), inputs.end(), infinilm::execution::tensor_checks::cat::empty_vector), inputs.end());
-    if (output->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), inputs, static_cast<int64_t>(layout.axis), output);
+    if (output->numel()) {
+        infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), inputs, static_cast<int64_t>(layout.axis), output);
+    }
     return output;
 }
 
 } // namespace
 
 Ernie45VisionLayerNorm::Ernie45VisionLayerNorm(infinilm::runtime::Runtime &runtime,
-        size_t normalized_shape,
+                                               size_t normalized_shape,
                                                double eps,
-                           const infinilm::runtime::DataType &dtype)
+                                               const infinilm::runtime::DataType &dtype)
     : eps_(eps) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-        weight_ = infinilm::weights::Weight(runtime, {normalized_shape}, dtype); this->bind_weight("weight", weight_);
-        bias_ = infinilm::weights::Weight(runtime, {normalized_shape}, dtype); this->bind_weight("bias", bias_);
+        weight_ = infinilm::weights::Weight(runtime, {normalized_shape}, dtype);
+        this->bind_weight("weight", weight_);
+        bias_ = infinilm::weights::Weight(runtime, {normalized_shape}, dtype);
+        this->bind_weight("bias", bias_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionLayerNorm::forward(infinilm::runtime::Runtime &runtime,
-                                                  const infinilm::runtime::Tensor &hidden_states) const {
+                                                          const infinilm::runtime::Tensor &hidden_states) const {
     infinilm::layers::check_layer_norm(runtime, hidden_states, weight_.tensor(), bias_.tensor());
     const auto &bias = bias_.tensor();
     const std::optional<infinilm::runtime::Tensor> ops_bias = bias
-        ? std::optional<infinilm::runtime::Tensor>{bias} : std::nullopt;
+                                                                ? std::optional<infinilm::runtime::Tensor>{bias}
+                                                                : std::nullopt;
     const float epsilon = static_cast<float>(eps_);
     auto y = infinilm::runtime::Tensor::empty(runtime, hidden_states->shape(), hidden_states->dtype());
     infinilm::execution::submit<infini::ops::LayerNorm>(runtime,
-        infini::ops::LayerNorm::DefaultConfig(runtime.device().type()),
-        hidden_states, weight_.tensor(), ops_bias, epsilon, y);
+                                                        infini::ops::LayerNorm::DefaultConfig(runtime.device().type()),
+                                                        hidden_states, weight_.tensor(), ops_bias, epsilon, y);
     INFINILM_TRACE_OP(LayerNorm, y);
     return y;
 }
 
 Ernie45VisionPatchEmbed::Ernie45VisionPatchEmbed(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                            const infinilm::runtime::DataType &dtype) {
+                                                 const nlohmann::json &config,
+                                                 const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    const size_t in_channels = config.value("in_channels", config.value("in_chans", 3));
-    const size_t patch_size = config.value("patch_size", config.value("spatial_patch_size", 14));
-    const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
+        const size_t in_channels = config.value("in_channels", config.value("in_chans", 3));
+        const size_t patch_size = config.value("patch_size", config.value("spatial_patch_size", 14));
+        const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
         proj_ = std::make_shared<std::remove_reference_t<decltype(*proj_)>>(runtime, in_channels * patch_size * patch_size, embed_dim, false, dtype);
         this->bind_child("proj", proj_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionPatchEmbed::forward(infinilm::runtime::Runtime &runtime,
-                                                   const infinilm::runtime::Tensor &hidden_states) const {
+                                                           const infinilm::runtime::Tensor &hidden_states) const {
     auto hidden_states_mutable = hidden_states;
     return proj_->forward(runtime, hidden_states_mutable);
 }
 
 Ernie45VisionAttention::Ernie45VisionAttention(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                           const infinilm::runtime::DataType &dtype) {
+                                               const nlohmann::json &config,
+                                               const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    hidden_size_ = config.value("embed_dim", config.value("hidden_size", 1280));
-    num_heads_ = config.value("num_heads", 16);
-        if (hidden_size_ == 0 || num_heads_ == 0)
+        hidden_size_ = config.value("embed_dim", config.value("hidden_size", 1280));
+        num_heads_ = config.value("num_heads", 16);
+        if (hidden_size_ == 0 || num_heads_ == 0) {
             throw std::invalid_argument("Ernie45VisionAttention requires positive hidden_size and num_heads");
-    if (hidden_size_ % num_heads_ != 0) {
-        throw std::runtime_error("Ernie45VisionAttention: hidden_size must be divisible by num_heads");
-    }
-    head_dim_ = hidden_size_ / num_heads_;
-    if (head_dim_ % 4 != 0) {
-        throw std::runtime_error("Ernie45VisionAttention: head_dim must be divisible by 4 for 2D RoPE");
-    }
-    scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    const size_t axis_head_dim = head_dim_ / 2;
+        }
+        if (hidden_size_ % num_heads_ != 0) {
+            throw std::runtime_error("Ernie45VisionAttention: hidden_size must be divisible by num_heads");
+        }
+        head_dim_ = hidden_size_ / num_heads_;
+        if (head_dim_ % 4 != 0) {
+            throw std::runtime_error("Ernie45VisionAttention: head_dim must be divisible by 4 for 2D RoPE");
+        }
+        scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+        const size_t axis_head_dim = head_dim_ / 2;
         rotary_emb_ = std::make_shared<std::remove_reference_t<decltype(*rotary_emb_)>>(runtime, axis_head_dim, axis_head_dim, 8192, 10000.0, infinilm::layers::RoPE::Algo::GPT_NEOX, dtype, runtime.device());
         this->bind_child("rotary_emb", rotary_emb_);
         qkv_ = std::make_shared<std::remove_reference_t<decltype(*qkv_)>>(runtime, hidden_size_, hidden_size_ * 3, true, dtype);
@@ -141,15 +157,17 @@ Ernie45VisionAttention::Ernie45VisionAttention(infinilm::runtime::Runtime &runti
         proj_ = std::make_shared<std::remove_reference_t<decltype(*proj_)>>(runtime, hidden_size_, hidden_size_, true, dtype);
         this->bind_child("proj", proj_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionAttention::forward(infinilm::runtime::Runtime &runtime,
-                                                   const infinilm::runtime::Tensor &hidden_states,
-                                                   const infinilm::runtime::Tensor &row_position_ids,
-                                                   const infinilm::runtime::Tensor &col_position_ids) const {
+                                                          const infinilm::runtime::Tensor &hidden_states,
+                                                          const infinilm::runtime::Tensor &row_position_ids,
+                                                          const infinilm::runtime::Tensor &col_position_ids) const {
     const size_t seq_len = hidden_states->size(0);
     const size_t axis_head_dim = head_dim_ / 2;
     const size_t axis_pair_dim = axis_head_dim / 2;
@@ -199,33 +217,39 @@ infinilm::runtime::Tensor Ernie45VisionAttention::forward(infinilm::runtime::Run
 }
 
 Ernie45VisionMLP::Ernie45VisionMLP(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                     const infinilm::runtime::DataType &dtype) {
+                                   const nlohmann::json &config,
+                                   const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
+        const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
         const double hidden_dim_value = static_cast<double>(embed_dim) * config.value("mlp_ratio", 4.0);
         if (!std::isfinite(hidden_dim_value) || hidden_dim_value < 1.0
-            || hidden_dim_value >= static_cast<double>(std::numeric_limits<size_t>::max()))
+            || hidden_dim_value >= static_cast<double>(std::numeric_limits<size_t>::max())) {
             throw std::invalid_argument("Ernie45VisionMLP requires representable positive hidden_dim");
+        }
         const size_t hidden_dim = static_cast<size_t>(hidden_dim_value);
         fc1_ = std::make_shared<std::remove_reference_t<decltype(*fc1_)>>(runtime, embed_dim, hidden_dim, true, dtype);
         this->bind_child("fc1", fc1_);
         fc2_ = std::make_shared<std::remove_reference_t<decltype(*fc2_)>>(runtime, hidden_dim, embed_dim, true, dtype);
         this->bind_child("fc2", fc2_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionMLP::forward(infinilm::runtime::Runtime &runtime,
-                                            const infinilm::runtime::Tensor &hidden_states) const {
+                                                    const infinilm::runtime::Tensor &hidden_states) const {
     auto x = fc1_->forward(runtime, const_cast<infinilm::runtime::Tensor &>(hidden_states));
     runtime.assertOwnerThread();
-    if (!x || runtime.device() != x->device())
+    if (!x || runtime.device() != x->device()) {
         throw std::invalid_argument("QuickGelu requires nonnull input on the Runtime device");
+    }
     const auto quick_gelu_config = infini::ops::QuickGelu::DefaultConfig(runtime.device().type());
     auto quick_gelu_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
     infinilm::execution::submit<infini::ops::QuickGelu>(
@@ -236,12 +260,14 @@ infinilm::runtime::Tensor Ernie45VisionMLP::forward(infinilm::runtime::Runtime &
 }
 
 Ernie45VisionBlock::Ernie45VisionBlock(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                       const infinilm::runtime::DataType &dtype) {
+                                       const nlohmann::json &config,
+                                       const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
+        const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
         norm1_ = std::make_shared<std::remove_reference_t<decltype(*norm1_)>>(runtime, embed_dim, 1e-6, dtype);
         this->bind_child("norm1", norm1_);
         norm2_ = std::make_shared<std::remove_reference_t<decltype(*norm2_)>>(runtime, embed_dim, 1e-6, dtype);
@@ -251,15 +277,17 @@ Ernie45VisionBlock::Ernie45VisionBlock(infinilm::runtime::Runtime &runtime,
         mlp_ = std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(runtime, config, dtype);
         this->bind_child("mlp", mlp_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionBlock::forward(infinilm::runtime::Runtime &runtime,
-                                               const infinilm::runtime::Tensor &hidden_states,
-                                               const infinilm::runtime::Tensor &row_position_ids,
-                                               const infinilm::runtime::Tensor &col_position_ids) const {
+                                                      const infinilm::runtime::Tensor &hidden_states,
+                                                      const infinilm::runtime::Tensor &row_position_ids,
+                                                      const infinilm::runtime::Tensor &col_position_ids) const {
     auto attn_out = attn_->forward(runtime, norm1_->forward(runtime, hidden_states), row_position_ids, col_position_ids);
     auto hidden_after_attn = infinilm::runtime::Tensor::empty(runtime, hidden_states->shape(), hidden_states->dtype());
     infinilm::execution::submit<infini::ops::Add>(
@@ -274,31 +302,35 @@ infinilm::runtime::Tensor Ernie45VisionBlock::forward(infinilm::runtime::Runtime
 }
 
 Ernie45VisionModel::Ernie45VisionModel(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                       const infinilm::runtime::DataType &dtype) {
+                                       const nlohmann::json &config,
+                                       const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    const size_t depth = config.value("depth", 32);
-    const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
-    spatial_merge_size_ = config.value("spatial_merge_size", 2);
+        const size_t depth = config.value("depth", 32);
+        const size_t embed_dim = config.value("embed_dim", config.value("hidden_size", 1280));
+        spatial_merge_size_ = config.value("spatial_merge_size", 2);
         patch_embed_ = std::make_shared<std::remove_reference_t<decltype(*patch_embed_)>>(runtime, config, dtype);
         this->bind_child("patch_embed", patch_embed_);
-    blocks_.reserve(depth);
-    for (size_t i = 0; i < depth; ++i) {
+        blocks_.reserve(depth);
+        for (size_t i = 0; i < depth; ++i) {
             blocks_.push_back(std::make_shared<Ernie45VisionBlock>(runtime, config, dtype));
             this->bind_child("blocks." + std::to_string(i), blocks_.back());
-    }
+        }
         ln_ = std::make_shared<std::remove_reference_t<decltype(*ln_)>>(runtime, embed_dim, 1e-6, dtype);
         this->bind_child("ln", ln_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45VisionModel::build_rotary_position_ids(infinilm::runtime::Runtime &runtime,
-                                                               const infinilm::runtime::Tensor &grid_thw) const {
+                                                                        const infinilm::runtime::Tensor &grid_thw) const {
     auto grid = tensor_to_i64_vector(runtime, grid_thw);
     if (grid.size() % 3 != 0) {
         throw std::runtime_error("Ernie45VisionModel: grid_thw must have shape [3] or [num_images, 3]");
@@ -350,8 +382,8 @@ infinilm::runtime::Tensor Ernie45VisionModel::build_rotary_position_ids(infinilm
 }
 
 infinilm::runtime::Tensor Ernie45VisionModel::forward(infinilm::runtime::Runtime &runtime,
-                                               const infinilm::runtime::Tensor &pixel_values,
-                                               const infinilm::runtime::Tensor &grid_thw) const {
+                                                      const infinilm::runtime::Tensor &pixel_values,
+                                                      const infinilm::runtime::Tensor &grid_thw) const {
     auto hidden_states = patch_embed_->forward(runtime, pixel_values);
     auto position_ids = build_rotary_position_ids(runtime, grid_thw);
     auto row_position_ids = position_ids->narrow({{0, 0, 1}})->view({position_ids->size(1)});
@@ -364,18 +396,20 @@ infinilm::runtime::Tensor Ernie45VisionModel::forward(infinilm::runtime::Runtime
 }
 
 Ernie45ResamplerModel::Ernie45ResamplerModel(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
-                          const infinilm::runtime::DataType &dtype) {
+                                             const nlohmann::json &config,
+                                             const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 vision construction requires eager Runtime");
+    }
     try {
-    const size_t pixel_hidden_size = config.value("pixel_hidden_size", 1280);
-    const size_t hidden_size = config.value("hidden_size", 2560);
-    spatial_conv_size_ = config.value("spatial_conv_size", 2);
-    temporal_conv_size_ = config.value("temporal_conv_size", 2);
-    const size_t spatial_dim = pixel_hidden_size * spatial_conv_size_ * spatial_conv_size_;
-    const size_t temporal_dim = spatial_dim * temporal_conv_size_;
-    use_temporal_conv_ = config.value("use_temporal_conv", true);
+        const size_t pixel_hidden_size = config.value("pixel_hidden_size", 1280);
+        const size_t hidden_size = config.value("hidden_size", 2560);
+        spatial_conv_size_ = config.value("spatial_conv_size", 2);
+        temporal_conv_size_ = config.value("temporal_conv_size", 2);
+        const size_t spatial_dim = pixel_hidden_size * spatial_conv_size_ * spatial_conv_size_;
+        const size_t temporal_dim = spatial_dim * temporal_conv_size_;
+        use_temporal_conv_ = config.value("use_temporal_conv", true);
 
         spatial_linear_0_ = std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, spatial_dim, spatial_dim, true, dtype);
         this->bind_child("spatial_linear.0", spatial_linear_0_);
@@ -383,27 +417,29 @@ Ernie45ResamplerModel::Ernie45ResamplerModel(infinilm::runtime::Runtime &runtime
         this->bind_child("spatial_linear.2", spatial_linear_2_);
         spatial_linear_3_ = std::make_shared<Ernie45VisionLayerNorm>(runtime, spatial_dim, 1e-6, dtype);
         this->bind_child("spatial_linear.3", spatial_linear_3_);
-    if (use_temporal_conv_) {
+        if (use_temporal_conv_) {
             temporal_linear_0_ = std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, temporal_dim, spatial_dim, true, dtype);
             this->bind_child("temporal_linear.0", temporal_linear_0_);
             temporal_linear_2_ = std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, spatial_dim, spatial_dim, true, dtype);
             this->bind_child("temporal_linear.2", temporal_linear_2_);
             temporal_linear_3_ = std::make_shared<Ernie45VisionLayerNorm>(runtime, spatial_dim, 1e-6, dtype);
             this->bind_child("temporal_linear.3", temporal_linear_3_);
-    }
+        }
         mlp_ = std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(runtime, spatial_dim, hidden_size, true, dtype);
         this->bind_child("mlp", mlp_);
         after_norm_ = std::make_shared<std::remove_reference_t<decltype(*after_norm_)>>(runtime, hidden_size, config.value("rms_norm_eps", 1e-5), dtype);
         this->bind_child("after_norm", after_norm_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45ResamplerModel::forward(infinilm::runtime::Runtime &runtime,
-                                                  const infinilm::runtime::Tensor &image_features,
-                                                  const infinilm::runtime::Tensor &grid_thw) const {
+                                                         const infinilm::runtime::Tensor &image_features,
+                                                         const infinilm::runtime::Tensor &grid_thw) const {
     auto grid = tensor_to_i64_vector(runtime, grid_thw);
     if (grid.size() != 3) {
         throw std::runtime_error("Ernie45ResamplerModel: this fallback expects one image grid [3]");
@@ -454,7 +490,9 @@ infinilm::runtime::Tensor Ernie45ResamplerModel::forward(infinilm::runtime::Runt
         merged_shape[1] = merged_parts[0]->size(1) + merged_parts[1]->size(1);
         auto merged_tokens = infinilm::runtime::Tensor::empty(runtime, merged_shape, merged_parts[0]->dtype());
         infinilm::execution::tensor_checks::cat::validate(runtime, merged_tokens, merged_parts, {nullptr, 1, 0});
-        if (merged_tokens->numel()) infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), merged_parts, static_cast<int64_t>(1), merged_tokens);
+        if (merged_tokens->numel()) {
+            infinilm::execution::submit<infini::ops::Cat>(runtime, infini::ops::Cat::DefaultConfig(runtime.device().type()), merged_parts, static_cast<int64_t>(1), merged_tokens);
+        }
         x = merged_tokens;
         x = temporal_linear_0_->forward(runtime, x);
         {

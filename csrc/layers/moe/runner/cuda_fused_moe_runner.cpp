@@ -36,8 +36,7 @@ void ensure_tensor(infinilm::runtime::Runtime &runtime,
                    const infinilm::runtime::Shape &shape,
                    infinilm::runtime::DataType dtype,
                    const infinilm::runtime::Device &device) {
-    if (runtime.device().type() != device.type() ||
-        runtime.device().index() != device.index()) {
+    if (runtime.device().type() != device.type() || runtime.device().index() != device.index()) {
         throw std::invalid_argument("MoE workspace device differs from Runtime device");
     }
     if (!same_device(tensor, device) || tensor->dtype() != dtype || tensor->shape() != shape) {
@@ -88,21 +87,22 @@ CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &runtime,
                                      const MoeWeights &weights,
                                      MoeWorkspace &workspace) const {
     runtime.assertOwnerThread();
-    if (!same_device(dispatch_output.hidden_states, runtime.device()) ||
-        !same_device(dispatch_output.topk_output.topk_ids, runtime.device())) {
+    if (!same_device(dispatch_output.hidden_states, runtime.device()) || !same_device(dispatch_output.topk_output.topk_ids, runtime.device())) {
         throw std::invalid_argument("MoE runner inputs must belong to Runtime device");
     }
     if (weights.packed_b13) {
         check_packed_weight_tensor(weights.packed_b13, "bias1", runtime.device(),
-            dispatch_output.hidden_states->dtype(), {num_local_experts_, intermediate_size_per_partition_ * 2});
-        if (!weights.packed_b13->is_contiguous())
+                                   dispatch_output.hidden_states->dtype(), {num_local_experts_, intermediate_size_per_partition_ * 2});
+        if (!weights.packed_b13->is_contiguous()) {
             throw std::invalid_argument("MoE fused dense runner requires contiguous bias1");
+        }
     }
     if (weights.packed_b2) {
         check_packed_weight_tensor(weights.packed_b2, "bias2", runtime.device(),
-            dispatch_output.hidden_states->dtype(), {num_local_experts_, hidden_size_});
-        if (!weights.packed_b2->is_contiguous())
+                                   dispatch_output.hidden_states->dtype(), {num_local_experts_, hidden_size_});
+        if (!weights.packed_b2->is_contiguous()) {
             throw std::invalid_argument("MoE fused dense runner requires contiguous bias2");
+        }
     }
     // Keep the routing/input owners alive throughout exception cleanup.
     // Owner/device prechecks above deliberately remain outside this catch.
@@ -111,12 +111,12 @@ CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &runtime,
     try {
         runner_input = prepare_runner_input(runtime, dispatch_output, workspace);
         auto runner_output = run_fused_core(runtime, runner_input, weights, workspace);
-    return CombineInput{
-        CombineInputFormat::Standard,
-        runner_output.hidden_states,
-        runner_input.topk_output,
-        runner_input.routing_metadata,
-    };
+        return CombineInput{
+            CombineInputFormat::Standard,
+            runner_output.hidden_states,
+            runner_input.topk_output,
+            runner_input.routing_metadata,
+        };
     } catch (...) {
         const auto first_error = std::current_exception();
         try {
@@ -173,8 +173,8 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(infinilm::runti
     }
 
     const auto expert_map = dispatch_output.expert_map
-        ? std::optional<infinilm::runtime::Tensor>{dispatch_output.expert_map}
-        : std::nullopt;
+                              ? std::optional<infinilm::runtime::Tensor>{dispatch_output.expert_map}
+                              : std::nullopt;
     infinilm::execution::submit<infini::ops::MoeAlignBlockSize>(
         runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
         infini::ops::MoeAlignBlockSize::DefaultConfig(topk_ids->device().type()),
@@ -224,9 +224,11 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(infinilm::runtime::R
         runner_input.hidden_states->device());
     workspace.fused_moe_output_tokens_capacity = runner_input.hidden_states->shape()[0];
     const auto bias1 = weights.packed_b13
-        ? std::optional<infinilm::runtime::Tensor>{weights.packed_b13} : std::nullopt;
+                         ? std::optional<infinilm::runtime::Tensor>{weights.packed_b13}
+                         : std::nullopt;
     const auto bias2 = weights.packed_b2
-        ? std::optional<infinilm::runtime::Tensor>{weights.packed_b2} : std::nullopt;
+                         ? std::optional<infinilm::runtime::Tensor>{weights.packed_b2}
+                         : std::nullopt;
     infinilm::execution::submit<infini::ops::MoeFusedDense>(
         runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
         infini::ops::MoeFusedDense::DefaultConfig(workspace.fused_moe_output->device().type()),

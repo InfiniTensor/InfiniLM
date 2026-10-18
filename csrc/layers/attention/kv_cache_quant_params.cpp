@@ -1,9 +1,9 @@
 #include "../../weights/weights.hpp"
 #include "attention.hpp"
 
-#include <stdexcept>
-#include <exception>
 #include "runtime/runtime.hpp"
+#include <exception>
+#include <stdexcept>
 
 namespace infinilm::layers::attention {
 
@@ -13,7 +13,9 @@ void init_kv_cache_quant_params(infinilm::runtime::Runtime &runtime,
                                 infinilm::weights::Weight &kv_cache_v_scale,
                                 infinilm::quantization::KVQuantAlgo kv_quant_scheme) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KV scale construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KV scale construction requires eager Runtime");
+    }
     switch (kv_quant_scheme) {
     case infinilm::quantization::KVQuantAlgo::NONE:
         return;
@@ -25,7 +27,9 @@ void init_kv_cache_quant_params(infinilm::runtime::Runtime &runtime,
             register_fn("kv_cache_v_scale", kv_cache_v_scale);
         } catch (...) {
             // References are caller owning members, not helper-local backing.
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
         return;

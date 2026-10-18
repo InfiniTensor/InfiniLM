@@ -6,9 +6,9 @@ import warnings
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../python"))
 
-from tokenizers import decoders as _dec
 from infinilm import LLM, SamplingParams
 from infinilm.base_config import BaseConfig
+from tokenizers import decoders as _dec
 
 
 def test(

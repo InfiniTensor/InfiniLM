@@ -1,11 +1,11 @@
-#include "../../layers/normalization/rmsnorm.hpp"
-#include "../../execution/submit.hpp"
-#include <base/gemm.h>
 #include "kimi_k3_decoder_layer.hpp"
-#include <exception>
+#include "../../execution/submit.hpp"
+#include "../../global_state/global_state.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 #include "runtime/runtime.hpp"
 #include "runtime/utils.hpp"
-#include "../../global_state/global_state.hpp"
+#include <base/gemm.h>
+#include <exception>
 
 #include <algorithm>
 #include <stdexcept>
@@ -20,44 +20,47 @@ KimiK3DecoderLayer::KimiK3DecoderLayer(
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3DecoderLayer construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK3DecoderLayer construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK3DecoderLayer construction resources");
+    }
     try {
         layer_idx_ = layer_idx;
         hidden_size_ = model_config->get<size_t>("hidden_size");
         attn_res_block_size_ = model_config->get<size_t>("attn_res_block_size");
-    const auto &dtype = model_config->get_dtype();
-    const double eps = model_config->get<double>("rms_norm_eps");
-    const auto kda_layers = model_config->get_config_json()
-                                .at("linear_attn_config")
-                                .at("kda_layers")
-                                .get<std::vector<size_t>>();
-    is_kda_ = std::find(kda_layers.begin(), kda_layers.end(), layer_idx + 1) != kda_layers.end();
-    if (is_kda_) {
+        const auto &dtype = model_config->get_dtype();
+        const double eps = model_config->get<double>("rms_norm_eps");
+        const auto kda_layers = model_config->get_config_json()
+                                    .at("linear_attn_config")
+                                    .at("kda_layers")
+                                    .get<std::vector<size_t>>();
+        is_kda_ = std::find(kda_layers.begin(), kda_layers.end(), layer_idx + 1) != kda_layers.end();
+        if (is_kda_) {
             delta_attn_ = std::make_shared<KimiK3DeltaAttention>(
                 runtime, model_config, layer_idx, rank_info);
             this->bind_child("self_attn", delta_attn_);
-    } else {
+        } else {
             mla_attn_ = std::make_shared<KimiK3MLAAttention>(
                 runtime, model_config, layer_idx, rank_info, attention_backend);
             this->bind_child("self_attn", mla_attn_);
-    }
+        }
 
-    const size_t first_dense_layer = model_config->get<size_t>("first_k_dense_replace");
-    const size_t moe_frequency = model_config->get<size_t>("moe_layer_freq");
-    use_moe_ = layer_idx >= first_dense_layer && layer_idx % moe_frequency == 0;
-    if (use_moe_) {
+        const size_t first_dense_layer = model_config->get<size_t>("first_k_dense_replace");
+        const size_t moe_frequency = model_config->get<size_t>("moe_layer_freq");
+        use_moe_ = layer_idx >= first_dense_layer && layer_idx % moe_frequency == 0;
+        if (use_moe_) {
             block_sparse_moe_ = std::make_shared<std::remove_reference_t<decltype(*block_sparse_moe_)>>(
                 runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             this->bind_child("block_sparse_moe", block_sparse_moe_);
-    } else {
+        } else {
             mlp_ = std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(
                 runtime, model_config, model_config->get<size_t>("intermediate_size"), rank_info);
             this->bind_child("mlp", mlp_);
-    }
+        }
 
         input_layernorm_ = std::make_shared<std::remove_reference_t<decltype(*input_layernorm_)>>(
             runtime, hidden_size_, eps, dtype);
@@ -78,7 +81,9 @@ KimiK3DecoderLayer::KimiK3DecoderLayer(
             runtime, hidden_size_, 1, false, dtype);
         this->bind_child("mlp_res_proj", mlp_res_proj_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

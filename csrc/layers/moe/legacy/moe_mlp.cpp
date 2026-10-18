@@ -1,8 +1,8 @@
-#include "../../mlp/fused_activation.hpp"
 #include "moe_mlp.hpp"
+#include "../../mlp/fused_activation.hpp"
 
-#include "runtime/runtime.hpp"
 #include "../../../engine/distributed/communication_group.hpp"
+#include "runtime/runtime.hpp"
 #include <exception>
 #include <stdexcept>
 
@@ -12,13 +12,19 @@ MoeMLP::MoeMLP(infinilm::runtime::Runtime &runtime,
                std::shared_ptr<infinilm::config::ModelConfig> model_config,
                const engine::distributed::RankInfo &rank_info) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("MoeMLP construction requires eager Runtime");
-    if (!model_config) throw std::invalid_argument("MoeMLP construction requires configuration");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("MoeMLP construction requires eager Runtime");
+    }
+    if (!model_config) {
+        throw std::invalid_argument("MoeMLP construction requires configuration");
+    }
     if (rank_info.device != runtime.device() || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit MoeMLP construction resources");
-    if (model_config->get<int64_t>("hidden_size") <= 0 || model_config->get<int64_t>("moe_intermediate_size") <= 0)
+    }
+    if (model_config->get<int64_t>("hidden_size") <= 0 || model_config->get<int64_t>("moe_intermediate_size") <= 0) {
         throw std::invalid_argument("MoeMLP construction requires positive dimensions");
+    }
     const auto &dtype{model_config->get_dtype()};
     hidden_size_ = model_config->get<size_t>("hidden_size");
     moe_intermediate_size_ = model_config->get<size_t>("moe_intermediate_size");
@@ -26,8 +32,9 @@ MoeMLP::MoeMLP(infinilm::runtime::Runtime &runtime,
 
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
-    if (moe_intermediate_size_ % static_cast<size_t>(tp_size) != 0)
+    if (moe_intermediate_size_ % static_cast<size_t>(tp_size) != 0) {
         throw std::invalid_argument("MoeMLP intermediate size must be divisible by TP size");
+    }
 
     auto quantization_method = model_config->get_quantization_method();
     device_ = runtime.device();
@@ -45,7 +52,9 @@ MoeMLP::MoeMLP(infinilm::runtime::Runtime &runtime,
             use_bias_, dtype, tp_rank, tp_size, rank_info.comm);
         this->bind_child("down_proj", down_proj_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

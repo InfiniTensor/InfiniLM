@@ -1,5 +1,5 @@
-#include "dense.hpp"
 #include "linear.hpp"
+#include "dense.hpp"
 #include "runtime/runtime.hpp"
 #include <stdexcept>
 
@@ -7,10 +7,14 @@ namespace infinilm::nn {
 
 namespace {
 infinilm::runtime::Runtime &checked_row_runtime(infinilm::runtime::Runtime &runtime, infinilm::runtime::Size tp_size,
-                                        infinicclComm_t communicator) {
+                                                infinicclComm_t communicator) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Row Linear construction requires eager Runtime");
-    if (tp_size > 1 && !communicator) throw std::invalid_argument("Row Linear requires its TP communicator");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Row Linear construction requires eager Runtime");
+    }
+    if (tp_size > 1 && !communicator) {
+        throw std::invalid_argument("Row Linear requires its TP communicator");
+    }
     return runtime;
 }
 } // namespace
@@ -77,7 +81,7 @@ RowParallelLinear::RowParallelLinear(infinilm::runtime::Runtime &runtime, size_t
 infinilm::runtime::Tensor RowParallelLinear::forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const {
     if (tp_size_ > 1 && communicator_ != nullptr) {
         return compute_linear_allreduce(runtime, input, communicator_);
-}
+    }
     return BaseLinear::forward(runtime, input);
 }
 

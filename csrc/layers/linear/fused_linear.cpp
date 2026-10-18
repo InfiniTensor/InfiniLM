@@ -1,9 +1,9 @@
 #include "fused_linear.hpp"
 
-#include <spdlog/spdlog.h>
 #include "runtime/runtime.hpp"
 #include <exception>
 #include <limits>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::layers::linear {
@@ -11,9 +11,12 @@ namespace infinilm::layers::linear {
 namespace {
 void validate_fused_rank(infinilm::runtime::Runtime &runtime, const engine::distributed::RankInfo &rank) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Fused Linear construction requires eager Runtime");
-    if (rank.device != runtime.device() || rank.tp_size <= 0 || rank.tp_rank < 0 || rank.tp_rank >= rank.tp_size)
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Fused Linear construction requires eager Runtime");
+    }
+    if (rank.device != runtime.device() || rank.tp_size <= 0 || rank.tp_rank < 0 || rank.tp_rank >= rank.tp_size) {
         throw std::invalid_argument("Invalid explicit fused Linear rank/device");
+    }
 }
 size_t checked_qkv_output(infinilm::runtime::Runtime &runtime, size_t hidden,
                           size_t nq, size_t dq, size_t nk, size_t dk, size_t nv, size_t dv,
@@ -21,25 +24,32 @@ size_t checked_qkv_output(infinilm::runtime::Runtime &runtime, size_t hidden,
     validate_fused_rank(runtime, rank);
     const size_t tp = static_cast<size_t>(rank.tp_size);
     if (!hidden || !nq || !nk || !nv || !dq || !dk || !dv || nq % tp
-        || (nk % tp && tp % nk) || (nv % tp && tp % nv) || qb != kb || kb != vb)
+        || (nk % tp && tp % nk) || (nv % tp && tp % nv) || qb != kb || kb != vb) {
         throw std::invalid_argument("Invalid explicit QKV geometry/bias");
+    }
     const size_t rk = nk % tp == 0 ? 1 : (tp + nk - 1) / nk;
     const size_t rv = nv % tp == 0 ? 1 : (tp + nv - 1) / nv;
     const size_t max = std::numeric_limits<size_t>::max();
     if (nq > max / dq || nk > max / dk || nv > max / dv
-        || nk * dk > max / rk || nv * dv > max / rv)
+        || nk * dk > max / rk || nv * dv > max / rv) {
         throw std::length_error("Explicit QKV output size overflow");
+    }
     const size_t q = nq * dq, k = nk * dk * rk, v = nv * dv * rv;
-    if (q > max - k || q + k > max - v) throw std::length_error("Explicit QKV output size overflow");
+    if (q > max - k || q + k > max - v) {
+        throw std::length_error("Explicit QKV output size overflow");
+    }
     return q + k + v;
 }
 size_t checked_gate_output(infinilm::runtime::Runtime &runtime, size_t hidden, size_t intermediate,
                            bool gate_bias, bool up_bias, const engine::distributed::RankInfo &rank) {
     validate_fused_rank(runtime, rank);
     if (!hidden || !intermediate || intermediate % static_cast<size_t>(rank.tp_size)
-        || gate_bias != up_bias) throw std::invalid_argument("Invalid explicit GateUp geometry/bias");
-    if (intermediate > std::numeric_limits<size_t>::max() / 2)
+        || gate_bias != up_bias) {
+        throw std::invalid_argument("Invalid explicit GateUp geometry/bias");
+    }
+    if (intermediate > std::numeric_limits<size_t>::max() / 2) {
         throw std::length_error("Explicit GateUp output size overflow");
+    }
     return intermediate * 2;
 }
 } // namespace
@@ -66,13 +76,13 @@ QKVParallelLinear::QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t
                                      const infinilm::runtime::DataType &dtype,
                                      engine::distributed::RankInfo rank_info)
     : infinilm::nn::ColumnParallelLinear(
-        runtime, hidden_size,
-        checked_qkv_output(runtime, hidden_size, num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, q_bias, k_bias, v_bias, rank_info),
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        (q_bias || k_bias || v_bias),
-        dtype,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          runtime, hidden_size,
+          checked_qkv_output(runtime, hidden_size, num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, q_bias, k_bias, v_bias, rank_info),
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          (q_bias || k_bias || v_bias),
+          dtype,
+          rank_info.tp_rank,
+          rank_info.tp_size),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -111,20 +121,22 @@ QKVParallelLinear::QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t
                                      engine::distributed::RankInfo rank_info)
     : QKVParallelLinear(runtime, hidden_size, q_dim, k_dim, v_dim, num_q_head, num_k_head, num_v_head, q_bias, k_bias, v_bias, quantization, dtype, rank_info) {
     try {
-    register_fn_ = register_fn;
-    split_infos_ = {
-        {q_name, 0, q_out_size_, 0},
-        {k_name, q_out_size_, k_out_size_, num_k_head_},
-        {v_name, q_out_size_ + k_out_size_, v_out_size_, num_v_head_},
-    };
-    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
-    for (auto &sp : params) {
-        register_fn_(sp.full_name, std::move(sp.param));
-    }
+        register_fn_ = register_fn;
+        split_infos_ = {
+            {q_name, 0, q_out_size_, 0},
+            {k_name, q_out_size_, k_out_size_, num_k_head_},
+            {v_name, q_out_size_ + k_out_size_, v_out_size_, num_v_head_},
+        };
+        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
+        for (auto &sp : params) {
+            register_fn_(sp.full_name, std::move(sp.param));
+        }
 
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
@@ -140,13 +152,13 @@ GateUpParallelLinear::GateUpParallelLinear(infinilm::runtime::Runtime &runtime, 
                                            const infinilm::runtime::DataType &dtype,
                                            engine::distributed::RankInfo rank_info)
     : infinilm::nn::ColumnParallelLinear(
-        runtime, hidden_size,
-        checked_gate_output(runtime, hidden_size, intermediate_size, gate_bias, up_bias, rank_info),
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        gate_bias || up_bias,
-        dtype,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          runtime, hidden_size,
+          checked_gate_output(runtime, hidden_size, intermediate_size, gate_bias, up_bias, rank_info),
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          gate_bias || up_bias,
+          dtype,
+          rank_info.tp_rank,
+          rank_info.tp_size),
       gate_bias_(gate_bias),
       up_bias_(up_bias) {}
 
@@ -159,24 +171,26 @@ GateUpParallelLinear::GateUpParallelLinear(infinilm::runtime::Runtime &runtime, 
                                            engine::distributed::RankInfo rank_info)
     : GateUpParallelLinear(runtime, hidden_size, intermediate_size, quantization, bias, dtype, rank_info) {
     try {
-    const std::string &key_name = local_weights_.count("qweight") ? "qweight" : "weight";
-    const auto &key_param = get_parameter_ref(key_name);
-    int fused_dim = this->get_quantization()->get_fused_split_dim();
-    size_t logical_output = this->get_quantization()->get_logical_dim_size(key_param->size(fused_dim));
-    size_t half_size = logical_output / 2;
-    register_fn_ = register_fn;
-    split_infos_ = {
-        {gate_name, 0, half_size},
-        {up_name, half_size, half_size},
-    };
-    auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
-    for (auto &sp : params) {
-        register_fn_(sp.full_name, std::move(sp.param));
-    }
+        const std::string &key_name = local_weights_.count("qweight") ? "qweight" : "weight";
+        const auto &key_param = get_parameter_ref(key_name);
+        int fused_dim = this->get_quantization()->get_fused_split_dim();
+        size_t logical_output = this->get_quantization()->get_logical_dim_size(key_param->size(fused_dim));
+        size_t half_size = logical_output / 2;
+        register_fn_ = register_fn;
+        split_infos_ = {
+            {gate_name, 0, half_size},
+            {up_name, half_size, half_size},
+        };
+        auto params = this->split_params(split_infos_, tp_rank_, tp_size_, -1);
+        for (auto &sp : params) {
+            register_fn_(sp.full_name, std::move(sp.param));
+        }
 
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
@@ -201,10 +215,12 @@ bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
 
 void QKVParallelLinear::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device_)
+    if (runtime.device() != device_) {
         throw std::invalid_argument("postload Runtime and Linear devices differ");
-    if (pre_transpose && runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+    }
+    if (pre_transpose && runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
         throw std::logic_error("dense pre_transpose requires inactive graph state");
+    }
     // Old aliases and new split views must both outlive catch-side owner drain.
     auto old_parameters = local_weights_;
     auto old_bound = bound_params_;
@@ -212,15 +228,17 @@ void QKVParallelLinear::process_weights_after_loading(infinilm::runtime::Runtime
     std::vector<infinilm::quantization::SplitParam> params;
     try {
         BaseLinear::process_weights_after_loading(runtime, pre_transpose);
-    if (register_fn_ && !split_infos_.empty()) {
+        if (register_fn_ && !split_infos_.empty()) {
             params = this->split_params(split_infos_, tp_rank_, tp_size_, num_k_head_);
-        for (auto &sp : params) {
-            register_fn_(sp.full_name, std::move(sp.param));
+            for (auto &sp : params) {
+                register_fn_(sp.full_name, std::move(sp.param));
+            }
         }
-    }
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
@@ -243,10 +261,12 @@ bool GateUpParallelLinear::has_up_bias() const { return up_bias_; }
 
 void GateUpParallelLinear::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device_)
+    if (runtime.device() != device_) {
         throw std::invalid_argument("postload Runtime and Linear devices differ");
-    if (pre_transpose && runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+    }
+    if (pre_transpose && runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
         throw std::logic_error("dense pre_transpose requires inactive graph state");
+    }
     // Old aliases and new split views must both outlive catch-side owner drain.
     auto old_parameters = local_weights_;
     auto old_bound = bound_params_;
@@ -262,7 +282,9 @@ void GateUpParallelLinear::process_weights_after_loading(infinilm::runtime::Runt
         }
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }

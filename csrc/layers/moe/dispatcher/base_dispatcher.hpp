@@ -4,7 +4,9 @@
 
 #include "runtime/device.hpp"
 
-namespace infinilm::runtime { class Runtime; }
+namespace infinilm::runtime {
+class Runtime;
+}
 
 namespace infinilm::layers::moe {
 
@@ -25,8 +27,8 @@ public:
         = 0;
 
     virtual infinilm::runtime::Tensor combine(infinilm::runtime::Runtime &runtime,
-                                       const CombineInput &combine_input,
-                                       MoeWorkspace &workspace) const
+                                              const CombineInput &combine_input,
+                                              MoeWorkspace &workspace) const
         = 0;
 };
 

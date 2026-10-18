@@ -1,4 +1,4 @@
-from . import _core
+from . import _core as _core
 from . import base_config, cache, distributed, llm
 from .llm import (
     LLM,

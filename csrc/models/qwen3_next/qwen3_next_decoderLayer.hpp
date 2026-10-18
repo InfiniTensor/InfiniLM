@@ -1,6 +1,6 @@
 #pragma once
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 
 #include "qwen3_next_attention.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
@@ -13,16 +13,16 @@ namespace infinilm::models::qwen3_next {
 class Qwen3NextDecoderLayer : public infinilm::weights::ModelWeights {
 public:
     Qwen3NextDecoderLayer(infinilm::runtime::Runtime &runtime,
-                      std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
                           size_t layer_idx,
-                      const engine::distributed::RankInfo &rank_info,
-                      backends::AttentionBackend attention_backend,
-                      const layers::moe::EPConfig &ep_config);
+                          const engine::distributed::RankInfo &rank_info,
+                          backends::AttentionBackend attention_backend,
+                          const layers::moe::EPConfig &ep_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(const infinilm::runtime::Tensor &positions,
-                                                               infinilm::runtime::Tensor &hidden_states,
-                                                               infinilm::runtime::Tensor &residual,
-        infinilm::global_state::ForwardContext &forward_context);
+                                                                             infinilm::runtime::Tensor &hidden_states,
+                                                                             infinilm::runtime::Tensor &residual,
+                                                                             infinilm::global_state::ForwardContext &forward_context);
 
     size_t layer_idx() const { return layer_idx_; }
 

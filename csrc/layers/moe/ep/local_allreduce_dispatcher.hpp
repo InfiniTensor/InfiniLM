@@ -15,9 +15,8 @@ public:
                             MoeWorkspace &workspace) const override;
 
     infinilm::runtime::Tensor combine(infinilm::runtime::Runtime &runtime,
-                               const CombineInput &combine_input,
-                               MoeWorkspace &workspace) const override;
-
+                                      const CombineInput &combine_input,
+                                      MoeWorkspace &workspace) const override;
 };
 
 } // namespace infinilm::layers::moe

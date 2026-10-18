@@ -1,14 +1,14 @@
 #include "videonsa_for_conditional_generation.hpp"
-#include "../../weights/weights.hpp"
 #include "../../execution/tensor_expressions.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../weights/weights.hpp"
 #include "../models_registry.hpp"
-#include <exception>
 #include "runtime/runtime.hpp"
 #include <cstddef>
-#include <vector>
+#include <exception>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace infinilm::models::videonsa {
 
@@ -21,8 +21,9 @@ std::shared_ptr<infinilm::config::ModelConfig> text_config_from(std::shared_ptr<
     if (!text_config_json.contains("torch_dtype") && config_json.contains("torch_dtype")) {
         text_config_json["torch_dtype"] = config_json["torch_dtype"];
     }
-    if (text_config_json["num_attention_heads"].get<int64_t>() <= 0)
+    if (text_config_json["num_attention_heads"].get<int64_t>() <= 0) {
         throw std::invalid_argument("VideoNSA requires positive attention heads");
+    }
     if (!text_config_json.contains("head_dim")) {
         text_config_json["head_dim"] = text_config_json["hidden_size"].get<size_t>() / text_config_json["num_attention_heads"].get<size_t>();
     }
@@ -35,9 +36,12 @@ std::shared_ptr<infinilm::config::ModelConfig> text_config_from(std::shared_ptr<
 // Metadata downloads use the execution owner, never the caller's TLS stream.
 infinilm::runtime::Tensor host_metadata(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input) {
     const auto cpu = infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu};
-    if (input->device() == cpu) return input;
-    if (input->device() != runtime.device())
+    if (input->device() == cpu) {
+        return input;
+    }
+    if (input->device() != runtime.device()) {
         throw std::invalid_argument("VideoNSA metadata belongs to another device");
+    }
     auto dense = input->contiguous(runtime);
     auto storage = std::make_shared<std::vector<std::byte>>(dense->nbytes());
     runtime.memcpyD2H(storage->data(), dense->data(), storage->size());
@@ -47,23 +51,25 @@ infinilm::runtime::Tensor host_metadata(infinilm::runtime::Runtime &runtime, con
 } // namespace
 
 VideoNSAForConditionalGeneration::VideoNSAForConditionalGeneration(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank,
-    backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep) {
+                                                                   std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                                                   const engine::distributed::RankInfo &rank,
+                                                                   backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep) {
     models::validate_runtime_construction(model_config, runtime, rank);
     try {
-    model_config_ = model_config;
-    auto text_config = text_config_from(model_config);
-    const size_t hidden_size = text_config->get<size_t>("hidden_size");
-    const size_t vocab_size = text_config->get<size_t>("vocab_size");
-    const auto &dtype{text_config->get_dtype()};
+        model_config_ = model_config;
+        auto text_config = text_config_from(model_config);
+        const size_t hidden_size = text_config->get<size_t>("hidden_size");
+        const size_t vocab_size = text_config->get<size_t>("vocab_size");
+        const auto &dtype{text_config->get_dtype()};
 
-    model_ = this->bind_child("model", std::make_shared<std::remove_reference_t<decltype(*model_ )>>(runtime, text_config, rank, attention_backend, ep));
-    visual_ = this->bind_child("visual", std::make_shared<std::remove_reference_t<decltype(*visual_ )>>(runtime, model_config->get_config_json()["vision_config"], dtype));
-    lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_ )>>(runtime, hidden_size, vocab_size, false, dtype));
+        model_ = this->bind_child("model", std::make_shared<std::remove_reference_t<decltype(*model_)>>(runtime, text_config, rank, attention_backend, ep));
+        visual_ = this->bind_child("visual", std::make_shared<std::remove_reference_t<decltype(*visual_)>>(runtime, model_config->get_config_json()["vision_config"], dtype));
+        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -166,8 +172,9 @@ infinilm::InfinilmModel::Output VideoNSAForConditionalGeneration::forward(
 void VideoNSAForConditionalGeneration::prepare_paged_owner(global_state::ForwardContext &context) const {
     // Traverse actual Module ownership, only this model's NSA attention type.
     const auto visit = [&](const auto &self, const infinilm::weights::ModelWeights *module) -> void {
-        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module))
+        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module)) {
             attention->prepare_paged_owner(context);
+        }
         for (const auto &[name, child] : module->children()) {
             (void)name;
             self(self, child.get());
@@ -178,8 +185,9 @@ void VideoNSAForConditionalGeneration::prepare_paged_owner(global_state::Forward
 void VideoNSAForConditionalGeneration::finish_paged_owner(bool completed) const {
     // Traverse actual Module ownership, only this model's NSA attention type.
     const auto visit = [&](const auto &self, const infinilm::weights::ModelWeights *module) -> void {
-        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module))
+        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module)) {
             attention->finish_paged_owner(completed);
+        }
         for (const auto &[name, child] : module->children()) {
             (void)name;
             self(self, child.get());
@@ -190,8 +198,9 @@ void VideoNSAForConditionalGeneration::finish_paged_owner(bool completed) const 
 void VideoNSAForConditionalGeneration::invalidate_paged_owner() const noexcept {
     // Traverse actual Module ownership, only this model's NSA attention type.
     const auto visit = [&](const auto &self, const infinilm::weights::ModelWeights *module) -> void {
-        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module))
+        if (const auto *attention = dynamic_cast<const VideoNSAAttention *>(module)) {
             attention->invalidate_paged_owner();
+        }
         for (const auto &[name, child] : module->children()) {
             (void)name;
             self(self, child.get());
@@ -229,8 +238,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_videonsa_model_config(std:
     nlohmann::json &config_json = model_config->get_config_json();
     if (config_json.contains("text_config")) {
         nlohmann::json &text_config_json = config_json["text_config"];
-        if (text_config_json["num_attention_heads"].get<int64_t>() <= 0)
+        if (text_config_json["num_attention_heads"].get<int64_t>() <= 0) {
             throw std::invalid_argument("VideoNSA requires positive attention heads");
+        }
         if (!text_config_json.contains("head_dim")) {
             text_config_json["head_dim"] = text_config_json["hidden_size"].get<size_t>() / text_config_json["num_attention_heads"].get<size_t>();
         }
@@ -241,8 +251,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_videonsa_model_config(std:
             config_json["torch_dtype"] = text_config_json["torch_dtype"];
         }
     } else {
-        if (model_config->get<int64_t>("num_attention_heads") <= 0)
+        if (model_config->get<int64_t>("num_attention_heads") <= 0) {
             throw std::invalid_argument("VideoNSA requires positive attention heads");
+        }
         if (!config_json.contains("head_dim")) {
             config_json["head_dim"] = model_config->get<size_t>("hidden_size") / model_config->get<size_t>("num_attention_heads");
         }
@@ -254,8 +265,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_videonsa_model_config(std:
         const auto &vision = config_json["vision_config"];
         if (vision.value("depth", 32) > 0) {
             const int width = vision.value("hidden_size", 1280), heads = vision.value("num_heads", 16);
-            if (width <= 0 || heads <= 0 || width % heads != 0)
+            if (width <= 0 || heads <= 0 || width % heads != 0) {
                 throw std::invalid_argument("VideoNSA vision head geometry is invalid");
+            }
         }
     }
     return model_config;

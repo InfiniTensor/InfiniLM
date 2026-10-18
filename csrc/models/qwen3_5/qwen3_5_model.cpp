@@ -4,9 +4,9 @@
 
 #include "../qwen3_next/qwen3_next_allocate_kv_cache_tensors.hpp"
 
+#include "runtime/runtime.hpp"
 #include <cstdint>
 #include <cstring>
-#include "runtime/runtime.hpp"
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -40,28 +40,30 @@ std::vector<int32_t> tensor_to_i32_vector(infinilm::runtime::Runtime &runtime, c
         }
     } else {
         throw std::runtime_error("Qwen35Model: expected int32 or int64 tensor");
-        }
-        return values;
+    }
+    return values;
 }
 
 } // namespace
 
 Qwen35ModelBase::Qwen35ModelBase(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config)
+                                 std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                 const engine::distributed::RankInfo &rank_info,
+                                 backends::AttentionBackend attention_backend,
+                                 const layers::moe::EPConfig &ep_config)
     : model_config_(model_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    const auto &dtype{model_config->get_dtype()};
-    nlohmann::json &config_json = model_config->get_config_json();
+        const auto &dtype{model_config->get_dtype()};
+        nlohmann::json &config_json = model_config->get_config_json();
 
-    if (config_json.contains("vision_config") && !config_json["vision_config"].is_null()) {
-            visual_ = this->bind_child("visual", std::make_shared<std::remove_reference_t<decltype(*visual_ )>>(runtime, config_json["vision_config"], dtype));
+        if (config_json.contains("vision_config") && !config_json["vision_config"].is_null()) {
+            visual_ = this->bind_child("visual", std::make_shared<std::remove_reference_t<decltype(*visual_)>>(runtime, config_json["vision_config"], dtype));
         }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

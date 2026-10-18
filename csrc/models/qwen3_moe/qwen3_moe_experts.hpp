@@ -4,7 +4,6 @@
 #include "../../layers/moe/common/moe_types.hpp"
 
 #include "../../weights/weights.hpp"
-#include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
 
 #include <cstddef>
@@ -19,7 +18,7 @@ namespace infinilm::models::qwen3_moe {
 class Qwen3MoeExperts : public infinilm::weights::ModelWeights {
 public:
     Qwen3MoeExperts(infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>,
-        const engine::distributed::RankInfo &, const layers::moe::EPConfig &);
+                    const engine::distributed::RankInfo &, const layers::moe::EPConfig &);
 
     infinilm::layers::moe::MoeWeights moe_weights(infinilm::runtime::Runtime &runtime) const;
 

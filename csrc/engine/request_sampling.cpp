@@ -25,10 +25,12 @@ void sample_request_token(
     using infinilm::runtime::Tensor;
     runtime.assertOwnerThread();
     INFINILM_ASSERT_TENSORS_SAME_DEVICE(indices, logits);
-    if (runtime.device() != logits->device())
+    if (runtime.device() != logits->device()) {
         throw std::invalid_argument("sampling runtime and tensor devices differ");
-    if (runtime.isGraphRecording())
+    }
+    if (runtime.isGraphRecording()) {
         throw std::invalid_argument("sampling cannot be recorded before request RNG is explicit");
+    }
 
     const auto dtype = logits->dtype();
     const auto device_type = logits->device().type();
@@ -87,9 +89,10 @@ void sample_request_token(
         &top_p_value, infini::ops::Tensor::Shape{1}, infini::ops::DataType::kFloat32, cpu);
     int64_t row_index = 0;
     std::optional<infini::ops::Tensor> row_indices;
-    if (indices->dtype() == DataType::kInt64)
+    if (indices->dtype() == DataType::kInt64) {
         row_indices.emplace(
             &row_index, infini::ops::Tensor::Shape{1}, infini::ops::DataType::kInt64, cpu);
+    }
     auto output = indices->as_strided({1}, {1});
     uint32_t random_bits;
     static_assert(sizeof(random_bits) == sizeof(random_value));

@@ -12,12 +12,12 @@ determines the transfer behaviour.
 
 import enum
 import logging
-
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from infinilm.llm.request import InferenceRequest
 from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.llm.request import InferenceRequest
+
 from .. import _core as infinicore
 
 logger = logging.getLogger(__name__)

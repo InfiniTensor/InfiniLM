@@ -3,6 +3,7 @@
 No device readbacks or host-success completion inference. First domain excludes
 connectors, speculative rewrite, multimodal, graphs and shared one-tail prefixes.
 """
+
 from dataclasses import dataclass
 from threading import get_ident
 
@@ -23,6 +24,7 @@ class OwnerClock:
     pool_epoch is a required native pool binding, never id() or constant 1.
     A replacement Scheduler needs a new binding and invalidates old NSA state.
     """
+
     def __init__(self, pool_epoch):
         self.pool_epoch = integer(pool_epoch, 1, U64_MAX, "missing pool epoch")
         self._next = 1
@@ -59,7 +61,7 @@ def allocation_before_reset(clock, block):
     Only actual allocation issues this token. Pin/publish/free retaining a hash
     must not call it.
     """
-    generation, = clock.issue()
+    (generation,) = clock.issue()
     block.allocation_generation = generation
 
 
@@ -104,8 +106,14 @@ def cpu_value(past, total, offsets, tables, slots, cu):
     Adapter must first check CPU/device, int32 lengths/tables/offsets, int64
     slots, ranks/contiguity and exact sizes. Never .to(cpu) device metadata.
     """
-    return CpuUpload(tuple(past), tuple(total), tuple(offsets),
-                     tuple(tuple(row) for row in tables), tuple(slots), tuple(cu))
+    return CpuUpload(
+        tuple(past),
+        tuple(total),
+        tuple(offsets),
+        tuple(tuple(row) for row in tables),
+        tuple(slots),
+        tuple(cu),
+    )
 
 
 def _validate(pool_epoch, page_size, page_count, rows, upload):
@@ -115,7 +123,12 @@ def _validate(pool_epoch, page_size, page_count, rows, upload):
     n = len(rows)
     if n == 0 or not (len(upload.past) == len(upload.total) == len(upload.tables) == n):
         raise ValueError("row count")
-    if page_size % 64 or n > page_count or len(upload.offsets) != n + 1 or len(upload.cu) != n + 1:
+    if (
+        page_size % 64
+        or n > page_count
+        or len(upload.offsets) != n + 1
+        or len(upload.cu) != n + 1
+    ):
         raise ValueError("metadata geometry")
     if upload.offsets[0] != 0 or upload.cu[0] != 0:
         raise ValueError("metadata initial offset")
@@ -160,13 +173,20 @@ def _validate(pool_epoch, page_size, page_count, rows, upload):
                 raise ValueError("duplicate/mismatched active page")
             physical.add(page.physical)
             if one_tail and page.physical in batch_pages:
-                raise ValueError("NSA initial decode domain excludes shared physical prefix pages")
+                raise ValueError(
+                    "NSA initial decode domain excludes shared physical prefix pages"
+                )
             batch_pages.add(page.physical)
         for value in upload.tables[i]:
             integer(value, -1, page_count - 1, "uploaded table value")
-        expected = tuple(row.pages[t // page_size].physical * page_size + t % page_size
-                         for t in range(row.past, row.total))
-        if row.slots != expected or upload.slots[token_count:token_count + len(expected)] != expected:
+        expected = tuple(
+            row.pages[t // page_size].physical * page_size + t % page_size
+            for t in range(row.past, row.total)
+        )
+        if (
+            row.slots != expected
+            or upload.slots[token_count : token_count + len(expected)] != expected
+        ):
             raise ValueError("missing/fabricated/mismatched owner slot")
         if any(slot in raw_writers for slot in expected):
             raise ValueError("overlapping raw writers")
@@ -181,14 +201,27 @@ def _validate(pool_epoch, page_size, page_count, rows, upload):
         raise ValueError("slot upload size mismatch")
 
 
-
 def freeze_snapshot(pool_epoch, page_size, page_count, rows, upload):
     # Reconstruct immutable owner values: never retain mutable request lists.
-    rows = tuple(OwnerRow(r.incarnation, r.revision, r.past, r.total,
-                          tuple(Page(p.physical, p.generation) for p in r.pages),
-                          tuple(r.slots)) for r in rows)
-    upload = cpu_value(upload.past, upload.total, upload.offsets,
-                       upload.tables, upload.slots, upload.cu)
+    rows = tuple(
+        OwnerRow(
+            r.incarnation,
+            r.revision,
+            r.past,
+            r.total,
+            tuple(Page(p.physical, p.generation) for p in r.pages),
+            tuple(r.slots),
+        )
+        for r in rows
+    )
+    upload = cpu_value(
+        upload.past,
+        upload.total,
+        upload.offsets,
+        upload.tables,
+        upload.slots,
+        upload.cu,
+    )
     _validate(pool_epoch, page_size, page_count, rows, upload)
     return Snapshot(pool_epoch, page_size, page_count, rows, upload)
 
@@ -205,11 +238,19 @@ def capture_owner_batch(manager, requests, is_prefill):
     clock = manager._nsa_owner_clock
     if clock is None:
         return None
-    rows = tuple(OwnerRow(
-        r._nsa_incarnation, r._nsa_prefix_revision, r.num_local_cached_tokens,
-        r.get_prompt_length() if is_prefill else r.get_total_length(),
-        tuple(Page(p, manager.blocks[p].allocation_generation) for p in r.block_table),
-        tuple(r.slot_mapping)) for r in requests)
+    rows = tuple(
+        OwnerRow(
+            r._nsa_incarnation,
+            r._nsa_prefix_revision,
+            r.num_local_cached_tokens,
+            r.get_prompt_length() if is_prefill else r.get_total_length(),
+            tuple(
+                Page(p, manager.blocks[p].allocation_generation) for p in r.block_table
+            ),
+            tuple(r.slot_mapping),
+        )
+        for r in requests
+    )
     one_tail = all(r.total == r.past + 1 for r in rows)
     manager.validate_nsa_request_writes(requests, decode=one_tail)
     return OwnerBatch(clock.pool_epoch, manager.block_size, manager.num_blocks, rows)
@@ -219,36 +260,85 @@ def freeze_model_input(engine, batch, model_input, core):
     """Actual processor CPU values; no device readback or request reconstruction."""
     if batch is None or engine.get_nsa_pool_epoch() != batch.pool_epoch:
         raise ValueError("NSA scheduler/worker pool binding absent or stale")
-    if any(model_input.get(k) is not None for k in (
-        "pixel_values", "image_bound", "tgt_sizes", "image_grid_thw",
-        "image_req_ids", "visual_token_ranges", "target_hidden_states",
-        "mamba_init_state_indices", "mamba_final_state_indices")):
+    if any(
+        model_input.get(k) is not None
+        for k in (
+            "pixel_values",
+            "image_bound",
+            "tgt_sizes",
+            "image_grid_thw",
+            "image_req_ids",
+            "visual_token_ranges",
+            "target_hidden_states",
+            "mamba_init_state_indices",
+            "mamba_final_state_indices",
+        )
+    ):
         raise ValueError("NSA owner slice accepts ordinary text inputs only")
     if model_input.get("sample_all_positions", False):
         raise ValueError("NSA owner slice excludes speculative/all-position inputs")
     values = {}
     for key, dtype, rank in (
-        ("past_kv_lengths", core.int32, 1), ("total_kv_lengths", core.int32, 1),
-        ("input_offsets", core.int32, 1), ("cu_seqlens", core.int32, 1),
-        ("block_tables", core.int32, 2), ("slot_mapping", core.int64, 1)):
+        ("past_kv_lengths", core.int32, 1),
+        ("total_kv_lengths", core.int32, 1),
+        ("input_offsets", core.int32, 1),
+        ("cu_seqlens", core.int32, 1),
+        ("block_tables", core.int32, 2),
+        ("slot_mapping", core.int64, 1),
+    ):
         t = model_input.get(key)
-        if (t is None or t.device.type != "cpu" or t.dtype != dtype
-                or t.ndim != rank or not t.is_contiguous()):
+        if (
+            t is None
+            or t.device.type != "cpu"
+            or t.dtype != dtype
+            or t.ndim != rank
+            or not t.is_contiguous()
+        ):
             raise ValueError("NSA requires actual contiguous CPU metadata: " + key)
         values[key] = t.to_numpy().tolist()
-    upload = cpu_value(values["past_kv_lengths"], values["total_kv_lengths"],
-                       values["input_offsets"], values["block_tables"],
-                       values["slot_mapping"], values["cu_seqlens"])
-    s = freeze_snapshot(batch.pool_epoch, batch.page_size, batch.page_count, batch.rows, upload)
-    rows = [(r.incarnation, r.revision, r.past, r.total,
-             [(p.physical, p.generation) for p in r.pages], list(r.slots)) for r in s.rows]
-    native = engine.NsaOwnerSnapshot(s.pool_epoch, s.page_size, s.page_count, rows,
-        list(s.upload.past), list(s.upload.total), list(s.upload.offsets),
-        list(s.upload.cu), [list(t) for t in s.upload.tables], list(s.upload.slots))
+    upload = cpu_value(
+        values["past_kv_lengths"],
+        values["total_kv_lengths"],
+        values["input_offsets"],
+        values["block_tables"],
+        values["slot_mapping"],
+        values["cu_seqlens"],
+    )
+    s = freeze_snapshot(
+        batch.pool_epoch, batch.page_size, batch.page_count, batch.rows, upload
+    )
+    rows = [
+        (
+            r.incarnation,
+            r.revision,
+            r.past,
+            r.total,
+            [(p.physical, p.generation) for p in r.pages],
+            list(r.slots),
+        )
+        for r in s.rows
+    ]
+    native = engine.NsaOwnerSnapshot(
+        s.pool_epoch,
+        s.page_size,
+        s.page_count,
+        rows,
+        list(s.upload.past),
+        list(s.upload.total),
+        list(s.upload.offsets),
+        list(s.upload.cu),
+        [list(t) for t in s.upload.tables],
+        list(s.upload.slots),
+    )
     # Private upload copies after validation; external CPU Tensor aliases are not
     # retained. The native worker repeats original/effective checks on its copies.
-    for key, dtype in (("past_kv_lengths", core.int32), ("total_kv_lengths", core.int32),
-                       ("input_offsets", core.int32), ("cu_seqlens", core.int32),
-                       ("block_tables", core.int32), ("slot_mapping", core.int64)):
+    for key, dtype in (
+        ("past_kv_lengths", core.int32),
+        ("total_kv_lengths", core.int32),
+        ("input_offsets", core.int32),
+        ("cu_seqlens", core.int32),
+        ("block_tables", core.int32),
+        ("slot_mapping", core.int64),
+    ):
         model_input[key] = core.from_list(values[key], dtype=dtype)
     model_input["nsa_owner_snapshot"] = native

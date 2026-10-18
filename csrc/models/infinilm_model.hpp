@@ -78,7 +78,8 @@ public:
 
     virtual ~InfinilmModel() = default;
     virtual Output forward(const Input &input,
-                           global_state::ForwardContext &forward_context) const = 0;
+                           global_state::ForwardContext &forward_context) const
+        = 0;
     virtual void reset_cache(const cache::CacheConfig *cache_config,
                              global_state::ForwardContext &forward_context,
                              backends::AttentionBackend attention_backend,

@@ -1,8 +1,8 @@
-#include "execution/submit.hpp"
-#include "../../layers/normalization/rmsnorm.hpp"
 #include "glm4_decoder_layer.hpp"
-#include "runtime/runtime.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 #include "../models_registry.hpp"
+#include "execution/submit.hpp"
+#include "runtime/runtime.hpp"
 #include <exception>
 
 namespace infinilm::models::glm4 {
@@ -33,10 +33,14 @@ Glm4DecoderLayer::Glm4DecoderLayer(infinilm::runtime::Runtime &runtime,
         this->bind_child("post_self_attn_layernorm", post_self_attn_layernorm_);
         post_mlp_layernorm_ = std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype);
         this->bind_child("post_mlp_layernorm", post_mlp_layernorm_);
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         throw;
     }
@@ -78,6 +82,5 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Glm4DecoderLaye
 
     return std::make_tuple(hidden_states, residual);
 }
-
 
 } // namespace infinilm::models::glm4

@@ -1,14 +1,14 @@
 #include "communication_group.hpp"
+#include "execution/graph/graph.hpp"
+#include "runtime/runtime.hpp"
 #include "tcp_rendezvous.hpp"
 #include <infini/rt/device_guard.h>
-#include "runtime/runtime.hpp"
-#include "execution/graph/graph.hpp"
 
 #include <infini/rt.h>
 #include <spdlog/spdlog.h>
 
-#include <condition_variable>
 #include <algorithm>
+#include <condition_variable>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -27,28 +27,40 @@ using infinilm::runtime::Tensor;
 
 infinicclDataType_t cclDataType(infinilm::runtime::DataType dtype) {
     switch (dtype) {
-    case infinilm::runtime::DataType::kInt8: return infinicclInt8;
-    case infinilm::runtime::DataType::kInt16: return infinicclInt16;
-    case infinilm::runtime::DataType::kInt32: return infinicclInt32;
-    case infinilm::runtime::DataType::kInt64: return infinicclInt64;
-    case infinilm::runtime::DataType::kUInt8: return infinicclUInt8;
-    case infinilm::runtime::DataType::kUInt16: return infinicclUInt16;
-    case infinilm::runtime::DataType::kUInt32: return infinicclUInt32;
-    case infinilm::runtime::DataType::kUInt64: return infinicclUInt64;
-    case infinilm::runtime::DataType::kFloat16: return infinicclFloat16;
-    case infinilm::runtime::DataType::kBFloat16: return infinicclBFloat16;
-    case infinilm::runtime::DataType::kFloat32: return infinicclFloat32;
-    case infinilm::runtime::DataType::kFloat64: return infinicclFloat64;
+    case infinilm::runtime::DataType::kInt8:
+        return infinicclInt8;
+    case infinilm::runtime::DataType::kInt16:
+        return infinicclInt16;
+    case infinilm::runtime::DataType::kInt32:
+        return infinicclInt32;
+    case infinilm::runtime::DataType::kInt64:
+        return infinicclInt64;
+    case infinilm::runtime::DataType::kUInt8:
+        return infinicclUInt8;
+    case infinilm::runtime::DataType::kUInt16:
+        return infinicclUInt16;
+    case infinilm::runtime::DataType::kUInt32:
+        return infinicclUInt32;
+    case infinilm::runtime::DataType::kUInt64:
+        return infinicclUInt64;
+    case infinilm::runtime::DataType::kFloat16:
+        return infinicclFloat16;
+    case infinilm::runtime::DataType::kBFloat16:
+        return infinicclBFloat16;
+    case infinilm::runtime::DataType::kFloat32:
+        return infinicclFloat32;
+    case infinilm::runtime::DataType::kFloat64:
+        return infinicclFloat64;
     }
     throw std::invalid_argument("unsupported data type for InfiniCCL");
-    }
+}
 
 void requireSubmissionPolicy(const Runtime &runtime) {
     runtime.assertOwnerThread();
     if (!runtime.ownerDrainFailStopEnabled()) {
         throw std::logic_error("InfiniCCL submission requires owner drain fail-stop policy");
     }
-    }
+}
 
 void validateTensor(Runtime &runtime, const Tensor &tensor, const char *operation) {
     runtime.assertOwnerThread();
@@ -90,8 +102,8 @@ void validateUniformSplits(Runtime &runtime, const Tensor &output,
             return size == small->shape()[0];
         })) {
         throw std::runtime_error(gather
-            ? "InfiniCCL does not support variable-count all-gather"
-            : "InfiniCCL does not support variable-count reduce-scatter");
+                                     ? "InfiniCCL does not support variable-count all-gather"
+                                     : "InfiniCCL does not support variable-count reduce-scatter");
     }
     if (small->shape()[0] > std::numeric_limits<size_t>::max() / splits.size()
         || large->shape()[0] != small->shape()[0] * splits.size()
@@ -143,8 +155,12 @@ void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
     }
     std::optional<infinilm::execution::graph::GraphTensor> recorded_output;
     std::optional<infinilm::execution::graph::GraphTensor> recorded_input;
-    if (output) recorded_output.emplace(runtime, output);
-    if (input) recorded_input.emplace(runtime, input);
+    if (output) {
+        recorded_output.emplace(runtime, output);
+    }
+    if (input) {
+        recorded_input.emplace(runtime, input);
+    }
     runtime.addGraphOperator(std::make_shared<infinilm::execution::graph::RecordedCall>(
         [runtime_owner = runtime.shared_from_this(),
          recorded_output = std::move(recorded_output),
@@ -154,7 +170,8 @@ void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
                       recorded_output ? static_cast<const Tensor &>(*recorded_output) : Tensor{},
                       recorded_input ? static_cast<const Tensor &>(*recorded_input) : Tensor{},
                       native_call);
-        }, capture_safe));
+        },
+        capture_safe));
 }
 
 template <infini::rt::Device::Type... types>
@@ -232,7 +249,8 @@ void initializeCommunicators(infinilm::runtime::Device::Type device_type,
                             &communicators[local_rank],
                             world_size,
                             unique_id,
-                            rank_offset + static_cast<int>(local_rank)) != infinicclSuccess) {
+                            rank_offset + static_cast<int>(local_rank))
+                        != infinicclSuccess) {
                         std::_Exit(86);
                     }
                 } catch (...) {
@@ -287,9 +305,9 @@ void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
     submitCollective(runtime, output, input, true,
-        [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
-            return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream);
-        });
+                     [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
+                         return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream);
+                     });
     INFINILM_TRACE_OP(AllReduce, output);
 }
 
@@ -304,9 +322,9 @@ void allgather_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
     submitCollective(runtime, output, input, false,
-        [count, dtype, communicator](const void *src, void *dst, void *stream) {
-            return infinicclAllGather(src, dst, count, dtype, communicator, stream);
-        });
+                     [count, dtype, communicator](const void *src, void *dst, void *stream) {
+                         return infinicclAllGather(src, dst, count, dtype, communicator, stream);
+                     });
     INFINILM_TRACE_OP(AllGather, output);
 }
 
@@ -322,36 +340,40 @@ void reduce_scatter_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Ten
     const auto dtype = cclDataType(input->dtype());
     const auto count = output->numel();
     submitCollective(runtime, output, input, false,
-        [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
-            return infinicclReduceScatter(src, dst, count, dtype, op, communicator, stream);
-        });
+                     [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
+                         return infinicclReduceScatter(src, dst, count, dtype, op, communicator, stream);
+                     });
     INFINILM_TRACE_OP(ReduceScatter, output);
 }
 
 void send(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input,
           int peer, infinicclComm_t communicator) {
     validateTensor(runtime, input, "Send");
-    if (input->numel() == 0) throw std::invalid_argument("Send requires a nonempty tensor");
+    if (input->numel() == 0) {
+        throw std::invalid_argument("Send requires a nonempty tensor");
+    }
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
     submitCollective(runtime, {}, input, false,
-        [count, dtype, peer, communicator](const void *src, void *, void *stream) {
-            return infinicclSend(src, count, dtype, peer, communicator, stream);
-        });
+                     [count, dtype, peer, communicator](const void *src, void *, void *stream) {
+                         return infinicclSend(src, count, dtype, peer, communicator, stream);
+                     });
 }
 
 void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
            int peer, infinicclComm_t communicator) {
     validateTensor(runtime, output, "Recv");
-    if (output->numel() == 0) throw std::invalid_argument("Recv requires a nonempty tensor");
+    if (output->numel() == 0) {
+        throw std::invalid_argument("Recv requires a nonempty tensor");
+    }
     requireCommunicator(communicator);
     const auto dtype = cclDataType(output->dtype());
     const auto count = output->numel();
     submitCollective(runtime, output, {}, false,
-        [count, dtype, peer, communicator](const void *, void *dst, void *stream) {
-            return infinicclRecv(dst, count, dtype, peer, communicator, stream);
-        });
+                     [count, dtype, peer, communicator](const void *, void *dst, void *stream) {
+                         return infinicclRecv(dst, count, dtype, peer, communicator, stream);
+                     });
 }
 
 void allgatherv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
@@ -370,7 +392,9 @@ void allgatherv_many_(infinilm::runtime::Runtime &runtime,
     if (outputs.size() != inputs.size() || split_sizes.empty()) {
         throw std::invalid_argument("AllGather batch or split metadata is invalid");
     }
-    if (inputs.empty()) return;
+    if (inputs.empty()) {
+        return;
+    }
     for (size_t i = 0; i < inputs.size(); ++i) {
         validateUniformSplits(runtime, outputs[i], inputs[i], split_sizes, true);
     }
@@ -397,7 +421,9 @@ void reduce_scatterv_many_(infinilm::runtime::Runtime &runtime,
     if (outputs.size() != inputs.size() || split_sizes.empty()) {
         throw std::invalid_argument("ReduceScatter batch or split metadata is invalid");
     }
-    if (inputs.empty()) return;
+    if (inputs.empty()) {
+        return;
+    }
     for (size_t i = 0; i < inputs.size(); ++i) {
         validateUniformSplits(runtime, outputs[i], inputs[i], split_sizes, false);
     }
@@ -447,9 +473,10 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
             if (use_single_node_init_all) {
                 try {
                     if (infinicclCommInitAll(
-            communicators_.data(),
+                            communicators_.data(),
                             static_cast<int>(tp_size),
-                            dist_config_.tp_device_ids.data()) != infinicclSuccess) {
+                            dist_config_.tp_device_ids.data())
+                        != infinicclSuccess) {
                         std::_Exit(86);
                     }
                 } catch (...) {
@@ -466,43 +493,43 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
                     0,
                     communicators_);
             }
-        spdlog::info(
-            "Intra-node TP communicator established: node_rank={}, local_ranks={}",
-            dist_config_.pp_stage,
-                tp_size);
-    }
-
-    if (dist_config_.pp_size > 1) {
-            infinicclUniqueId unique_id{};
-        if (dist_config_.pp_stage == 0) {
-                checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
-        }
-        broadcast_rendezvous_payload(
-            TcpRendezvousConfig{
-                dist_config_.master_addr,
-                dist_config_.master_port,
-                dist_config_.pp_size,
+            spdlog::info(
+                "Intra-node TP communicator established: node_rank={}, local_ranks={}",
                 dist_config_.pp_stage,
-            },
-            &unique_id,
-            sizeof(unique_id));
+                tp_size);
+        }
+
+        if (dist_config_.pp_size > 1) {
+            infinicclUniqueId unique_id{};
+            if (dist_config_.pp_stage == 0) {
+                checkInfiniccl("infinicclGetUniqueId", infinicclGetUniqueId(&unique_id));
+            }
+            broadcast_rendezvous_payload(
+                TcpRendezvousConfig{
+                    dist_config_.master_addr,
+                    dist_config_.master_port,
+                    dist_config_.pp_size,
+                    dist_config_.pp_stage,
+                },
+                &unique_id,
+                sizeof(unique_id));
 
             const int local_tp_size = topology_.tp_size();
             const int pp_world_size = topology_.world_size();
             initializeCommunicators(
                 device_type_,
                 dist_config_.tp_device_ids,
-                                                     pp_world_size,
-                                                     unique_id,
+                pp_world_size,
+                unique_id,
                 topology_.world_rank(0),
                 world_communicators_);
-        spdlog::info(
-            "Global InfiniCCL communicator established: role={}, node_rank={}, nodes={}, local_tp_ranks={}, world_size={}",
-            dist_config_.pp_stage == 0 ? "coordinator" : "participant",
-            dist_config_.pp_stage,
-            dist_config_.pp_size,
+            spdlog::info(
+                "Global InfiniCCL communicator established: role={}, node_rank={}, nodes={}, local_tp_ranks={}, world_size={}",
+                dist_config_.pp_stage == 0 ? "coordinator" : "participant",
+                dist_config_.pp_stage,
+                dist_config_.pp_size,
                 local_tp_size,
-            pp_world_size);
+                pp_world_size);
         }
     } catch (...) {
         destroyCommunicators(

@@ -19,8 +19,8 @@ DispatchOutput DeepEPDispatcher::dispatch(infinilm::runtime::Runtime &runtime,
 }
 
 infinilm::runtime::Tensor DeepEPDispatcher::combine(infinilm::runtime::Runtime &runtime,
-                                             const CombineInput &combine_input,
-                                             MoeWorkspace &workspace) const {
+                                                    const CombineInput &combine_input,
+                                                    MoeWorkspace &workspace) const {
     runtime.assertOwnerThread();
     (void)workspace;
     combine_a(combine_input);

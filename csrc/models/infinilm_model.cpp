@@ -1,24 +1,24 @@
-#include "../weights/weights.hpp"
-#include "../layers/embedding/embedding.hpp"
-#include "../layers/normalization/rmsnorm.hpp"
 #include "infinilm_model.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../global_state/global_state.hpp"
+#include "../layers/embedding/embedding.hpp"
+#include "../layers/normalization/rmsnorm.hpp"
 #include "../utils.hpp"
+#include "../weights/weights.hpp"
 #include "runtime/runtime.hpp"
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
-#include <limits>
 
 #include "../parallel/topology.hpp"
 
 namespace infinilm {
 
 void InfinilmModel::reset_cache(const cache::CacheConfig *cache_config,
-                               global_state::ForwardContext &forward_context,
-                               backends::AttentionBackend attention_backend,
-                               const engine::distributed::RankInfo &rank) {
+                                global_state::ForwardContext &forward_context,
+                                backends::AttentionBackend attention_backend,
+                                const engine::distributed::RankInfo &rank) {
     reset_default_cache(cache_config, forward_context, attention_backend, rank);
 }
 
@@ -65,58 +65,58 @@ std::vector<infinilm::runtime::Tensor> InfinilmModel::default_allocate_kv_cache_
 
     std::vector<infinilm::runtime::Tensor> kv_cache_vec;
     try {
-    switch (attention_backend) {
-    case backends::AttentionBackend::STATIC_ATTN: {
-        auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
-        if (nullptr == static_kv_cache_config) {
-            throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid static kv cache config type");
-        }
-        kv_cache_vec.resize(num_hidden_layers);
+        switch (attention_backend) {
+        case backends::AttentionBackend::STATIC_ATTN: {
+            auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+            if (nullptr == static_kv_cache_config) {
+                throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid static kv cache config type");
+            }
+            kv_cache_vec.resize(num_hidden_layers);
 
-        for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
-            auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
+            for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
+                auto kv_cache = cache::StaticKVCache::create_layer_kv_cache(
                     runtime,
                     rank,
-                head_dim,
-                head_dim,
-                num_key_value_heads,
-                num_key_value_heads,
-                max_position_embeddings,
-                dtype,
-                *static_kv_cache_config);
-            kv_cache_vec[layer_idx] = kv_cache;
+                    head_dim,
+                    head_dim,
+                    num_key_value_heads,
+                    num_key_value_heads,
+                    max_position_embeddings,
+                    dtype,
+                    *static_kv_cache_config);
+                kv_cache_vec[layer_idx] = kv_cache;
+            }
+            break;
         }
-        break;
-    }
-    case backends::AttentionBackend::FLASH_ATTN: {
-        ;
-    }
-    case backends::AttentionBackend::PAGED_ATTN: {
-        auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
-        if (nullptr == paged_kv_cache_config) {
-            throw std::runtime_error(
-                "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
+        case backends::AttentionBackend::FLASH_ATTN: {
+            ;
         }
-        kv_cache_vec.resize(num_hidden_layers);
+        case backends::AttentionBackend::PAGED_ATTN: {
+            auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+            if (nullptr == paged_kv_cache_config) {
+                throw std::runtime_error(
+                    "infinilm::InfinilmModel::default_allocate_kv_cache_tensors: invalid paged kv cache config type");
+            }
+            kv_cache_vec.resize(num_hidden_layers);
 
-        for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
-            auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
+            for (size_t layer_idx = local_layer_begin; layer_idx < local_layer_end; ++layer_idx) {
+                auto kv_cache = cache::PagedKVCache::create_layer_kv_cache(
                     runtime,
                     rank,
-                head_dim,
-                head_dim,
-                num_key_value_heads,
-                num_key_value_heads,
-                dtype,
-                *paged_kv_cache_config);
-            kv_cache_vec[layer_idx] = kv_cache;
-        }
+                    head_dim,
+                    head_dim,
+                    num_key_value_heads,
+                    num_key_value_heads,
+                    dtype,
+                    *paged_kv_cache_config);
+                kv_cache_vec[layer_idx] = kv_cache;
+            }
             runtime.syncStream();
-        break;
-    }
-    default:
-        throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
-    }
+            break;
+        }
+        default:
+            throw std::runtime_error("infinilm::InfinilmModel::default_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
+        }
     } catch (...) {
         // Previously completed layer destinations remain held by the local vector.
         try {
@@ -131,7 +131,11 @@ std::vector<infinilm::runtime::Tensor> InfinilmModel::default_allocate_kv_cache_
 
 namespace {
 using Module = infinilm::weights::ModelWeights;
-void w4_require(bool ok, const char *message) { if (!ok) throw std::invalid_argument(message); }
+void w4_require(bool ok, const char *message) {
+    if (!ok) {
+        throw std::invalid_argument(message);
+    }
+}
 void collect_w4(const Module &owner, quantization::QuantScheme scheme,
                 std::vector<std::shared_ptr<nn::BaseLinear>> &layers,
                 std::vector<std::shared_ptr<nn::BaseLinear>> &dense,
@@ -139,22 +143,26 @@ void collect_w4(const Module &owner, quantization::QuantScheme scheme,
                 std::unordered_set<const Module *> &visited) {
     for (const auto &child : owner.loading_children()) {
         w4_require(bool(child), "Null loading module");
-        if (!visited.insert(child.get()).second) continue;
+        if (!visited.insert(child.get()).second) {
+            continue;
+        }
         if (auto linear = std::dynamic_pointer_cast<nn::BaseLinear>(child)) {
-            if (linear->get_quantization()->get_quant_scheme() == quantization::QuantScheme::NONE)
+            if (linear->get_quantization()->get_quant_scheme() == quantization::QuantScheme::NONE) {
                 dense.push_back(std::move(linear));
-            else {
+            } else {
                 w4_require(linear->get_quantization()->get_quant_scheme() == scheme, "Mixed W4 layer scheme");
                 layers.push_back(std::move(linear));
             }
         } else {
             collect_w4(*child, scheme, layers, dense, hooks, visited);
             // Nested models orchestrate traversal; they have no owner-local hook.
-            if (!std::dynamic_pointer_cast<InfinilmModel>(child)) hooks.push_back(child);
+            if (!std::dynamic_pointer_cast<InfinilmModel>(child)) {
+                hooks.push_back(child);
+            }
         }
     }
 }
-}
+} // namespace
 
 std::unique_ptr<quantization::W4ModelPlan> InfinilmModel::validate_w4_weights(
     infinilm::runtime::Runtime &runtime, bool pre_transpose,
@@ -162,9 +170,9 @@ std::unique_ptr<quantization::W4ModelPlan> InfinilmModel::validate_w4_weights(
     const std::string &ep_backend, size_t ep_size) {
     runtime.assertOwnerThread();
     w4_require(runtime.graphCaptureState() == infinilm::execution::graph::GraphManager::CaptureState::kInactive,
-                "W4 validation requires inactive graph state");
+               "W4 validation requires inactive graph state");
     w4_require(!pre_transpose,
-                "W4 finalization does not support the legacy dense pre_transpose path");
+               "W4 finalization does not support the legacy dense pre_transpose path");
     w4_require(model_config_ != nullptr, "W4 model config is required");
     const auto expected_scheme = model_config_->get_quant_scheme();
     w4_require(runtime.device() == rank.device, "W4 Runtime does not match worker device");
@@ -190,12 +198,15 @@ void InfinilmModel::process_weights_after_loading(infinilm::runtime::Runtime &ru
 void InfinilmModel::process_weights_recursive_(infinilm::weights::ModelWeights *module,
                                                infinilm::runtime::Runtime &runtime, bool pre_transpose,
                                                std::unordered_set<const weights::ModelWeights *> &visited) {
-    if (!module || !visited.insert(module).second) return;
+    if (!module || !visited.insert(module).second) {
+        return;
+    }
     for (const auto &sub : module->loading_children()) {
         process_weights_recursive_(sub.get(), runtime, pre_transpose, visited);
     }
-    if (!dynamic_cast<InfinilmModel *>(module))
+    if (!dynamic_cast<InfinilmModel *>(module)) {
         module->process_weights_after_loading(runtime, pre_transpose);
+    }
 }
 
 } // namespace infinilm

@@ -18,19 +18,20 @@ protected:
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (gate_up_proj_) result.push_back(gate_up_proj_);
+        if (gate_up_proj_) {
+            result.push_back(gate_up_proj_);
+        }
         return result;
     }
 
     Qwen3NextSharedExpert(infinilm::runtime::Runtime &runtime,
-                      std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                      const engine::distributed::RankInfo &rank_info,
-                      backends::AttentionBackend attention_backend,
-                      const layers::moe::EPConfig &ep_config);
+                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          const engine::distributed::RankInfo &rank_info,
+                          backends::AttentionBackend attention_backend,
+                          const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
-
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
@@ -40,14 +41,14 @@ protected:
 class Qwen3NextSparseMoeBlock : public infinilm::weights::ModelWeights {
 public:
     Qwen3NextSparseMoeBlock(infinilm::runtime::Runtime &runtime,
-                        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                            std::shared_ptr<infinilm::config::ModelConfig> model_config,
                             size_t layer_idx,
-                        const engine::distributed::RankInfo &rank_info,
-                        backends::AttentionBackend attention_backend,
-                        const layers::moe::EPConfig &ep_config);
+                            const engine::distributed::RankInfo &rank_info,
+                            backends::AttentionBackend attention_backend,
+                            const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     std::shared_ptr<infinilm::layers::moe::TopKRouter> gate_;

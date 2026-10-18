@@ -1,10 +1,10 @@
-#include "../../weights/weights.hpp"
-#include "../models_registry.hpp"
-#include <exception>
 #include "qwen3_attention.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
+#include "../../weights/weights.hpp"
+#include "../models_registry.hpp"
+#include <exception>
 
 namespace infinilm::models::qwen3 {
 
@@ -13,48 +13,52 @@ Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
 
-    layer_idx_ = layer_idx;
-    hidden_size_ = model_config->get<size_t>("hidden_size");
-    head_dim_ = model_config->get<size_t>("head_dim");
+        layer_idx_ = layer_idx;
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        head_dim_ = model_config->get<size_t>("head_dim");
 
-    const auto &dtype{model_config->get_dtype()};
-    size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
-    bool use_bias = model_config->get_or<bool>("attention_bias", true);
-    bool use_output_bias = model_config->get_or<bool>("attention_output_bias", false);
-    double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        const auto &dtype{model_config->get_dtype()};
+        size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
+        size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
+        bool use_bias = model_config->get_or<bool>("attention_bias", true);
+        bool use_output_bias = model_config->get_or<bool>("attention_output_bias", false);
+        double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-    attention_backend_ = attention_backend;
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
-    num_attention_heads_ = total_num_heads / tp_size;
-    num_key_value_heads_ = total_num_kv_heads < static_cast<size_t>(tp_size)
-                             ? 1
-                             : total_num_kv_heads / tp_size;
+        attention_backend_ = attention_backend;
+        int tp_rank = rank_info.tp_rank;
+        int tp_size = rank_info.tp_size;
+        num_attention_heads_ = total_num_heads / tp_size;
+        num_key_value_heads_ = total_num_kv_heads < static_cast<size_t>(tp_size)
+                                 ? 1
+                                 : total_num_kv_heads / tp_size;
 
-    auto quantization_method = model_config->get_quantization_method();
-    auto register_fn = [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); };
-    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
-        runtime, hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-        "q_proj", "k_proj", "v_proj", register_fn,
-        quantization_method, use_bias, dtype, rank_info);
-    o_proj_ = this->bind_child("o_proj", std::make_shared<layers::linear::RowParallelLinear>(runtime, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias, dtype, tp_rank, tp_size, rank_info.comm));
+        auto quantization_method = model_config->get_quantization_method();
+        auto register_fn = [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); };
+        qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(
+            runtime, hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
+            "q_proj", "k_proj", "v_proj", register_fn,
+            quantization_method, use_bias, dtype, rank_info);
+        o_proj_ = this->bind_child("o_proj", std::make_shared<layers::linear::RowParallelLinear>(runtime, total_num_heads * head_dim_, hidden_size_, quantization_method, use_output_bias, dtype, tp_rank, tp_size, rank_info.comm));
 
-    rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(runtime, model_config, runtime.device());
+        rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(runtime, model_config, runtime.device());
 
-    float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
-                                                                          kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
-                                                                          model_config->get_kv_quant_scheme());
+        float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
+                                                                              kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
+                                                                              model_config->get_kv_quant_scheme());
 
-    q_norm_ = this->bind_child("q_norm", std::make_shared<std::remove_reference_t<decltype(*q_norm_ )>>(runtime, head_dim_, rms_norm_eps, dtype));
-    k_norm_ = this->bind_child("k_norm", std::make_shared<std::remove_reference_t<decltype(*k_norm_ )>>(runtime, head_dim_, rms_norm_eps, dtype));
+        q_norm_ = this->bind_child("q_norm", std::make_shared<std::remove_reference_t<decltype(*q_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
+        k_norm_ = this->bind_child("k_norm", std::make_shared<std::remove_reference_t<decltype(*k_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
 
-    // NONE KV scales remain the original null Parameters; no Device allocation.
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        // NONE KV scales remain the original null Parameters; no Device allocation.
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         throw;
     }
@@ -74,8 +78,8 @@ infinilm::runtime::Tensor Qwen3Attention::forward(
 }
 
 infinilm::runtime::Tensor Qwen3Attention::forward_static_(const infinilm::runtime::Tensor &position_ids,
-                                                   const infinilm::runtime::Tensor &hidden_states,
-                                                   infinilm::global_state::ForwardContext &forward_context) const {
+                                                          const infinilm::runtime::Tensor &hidden_states,
+                                                          infinilm::global_state::ForwardContext &forward_context) const {
 
     // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;
@@ -122,8 +126,8 @@ infinilm::runtime::Tensor Qwen3Attention::forward_static_(const infinilm::runtim
 }
 
 infinilm::runtime::Tensor Qwen3Attention::forward_paged_(const infinilm::runtime::Tensor &position_ids,
-                                                  const infinilm::runtime::Tensor &hidden_states,
-                                                   infinilm::global_state::ForwardContext &forward_context) const {
+                                                         const infinilm::runtime::Tensor &hidden_states,
+                                                         infinilm::global_state::ForwardContext &forward_context) const {
 
     // hidden_states shape: [batch, seq_len, hidden_size]
     auto hidden_states_mutable = hidden_states;

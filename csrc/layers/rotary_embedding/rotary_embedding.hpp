@@ -38,5 +38,4 @@ std::shared_ptr<infinilm::layers::RoPE>
 get_rope(infinilm::runtime::Runtime &runtime, const std::shared_ptr<infinilm::config::ModelConfig> &model_config,
          const infinilm::runtime::Device &device);
 
-
 } // namespace infinilm::layers::rotary_embedding

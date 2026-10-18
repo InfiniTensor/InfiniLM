@@ -1,10 +1,12 @@
 #pragma once
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
 
-namespace infinilm::global_state { struct ForwardContext; }
+namespace infinilm::global_state {
+struct ForwardContext;
+}
 
 namespace infinilm::models::qwen3_next {
 class Qwen3NextCausalConv1D : public infinilm::weights::ModelWeights {
@@ -13,14 +15,14 @@ protected:
 
 public:
     Qwen3NextCausalConv1D(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        size_t layer_idx,
-                      const engine::distributed::RankInfo &rank_info,
-                      backends::AttentionBackend attention_backend,
-                      const layers::moe::EPConfig &ep_config);
+                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          size_t layer_idx,
+                          const engine::distributed::RankInfo &rank_info,
+                          backends::AttentionBackend attention_backend,
+                          const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &qkv,
-                              const infinilm::global_state::ForwardContext &forward_context) const;
+                                      const infinilm::global_state::ForwardContext &forward_context) const;
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
 private:
@@ -46,20 +48,21 @@ protected:
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (in_proj_qkv_) result.push_back(in_proj_qkv_);
+        if (in_proj_qkv_) {
+            result.push_back(in_proj_qkv_);
+        }
         return result;
     }
 
     Qwen3NextGatedDeltaNet(infinilm::runtime::Runtime &runtime,
-                       std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                           std::shared_ptr<infinilm::config::ModelConfig> model_config,
                            size_t layer_idx,
-                       const engine::distributed::RankInfo &rank_info,
-                       backends::AttentionBackend attention_backend,
-                       const layers::moe::EPConfig &ep_config);
+                           const engine::distributed::RankInfo &rank_info,
+                           backends::AttentionBackend attention_backend,
+                           const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                              const infinilm::global_state::ForwardContext &forward_context) const;
-
+                                      const infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;

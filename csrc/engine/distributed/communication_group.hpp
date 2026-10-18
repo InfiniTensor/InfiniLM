@@ -1,7 +1,7 @@
 #pragma once
 
-#include "dist_config.hpp"
 #include "../../parallel/topology.hpp"
+#include "dist_config.hpp"
 
 #include <infiniccl/infiniccl.h>
 #include <runtime/device.hpp>

@@ -10,7 +10,10 @@ from infinilm.lib import _infinilm
 class QuantConfigGuardTest(unittest.TestCase):
     def test_quantized_checkpoint_cannot_silently_use_dense_weights(self):
         cases = (
-            ({"quant_method": "unknown-format"}, "Unsupported quantization method: unknown-format"),
+            (
+                {"quant_method": "unknown-format"},
+                "Unsupported quantization method: unknown-format",
+            ),
             ({}, "nonempty string quant_method"),
             ({"quant_method": 7}, "nonempty string quant_method"),
             ([], "nonempty string quant_method"),

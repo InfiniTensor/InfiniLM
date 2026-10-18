@@ -1,21 +1,20 @@
 #include "videonsa_attention.hpp"
-#include "../../execution/submit.hpp"
 #include "../../execution/paged_cache_checks.hpp"
-#include <base/reshape_and_cache_flash.h>
-#include <base/gemm.h>
+#include "../../execution/submit.hpp"
 #include "../../execution/tensor_expressions.hpp"
-#include <exception>
-#include "runtime/runtime.hpp"
-#include "runtime/utils.hpp"
-#include <limits>
-#include <stdexcept>
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
 #include "runtime/context.hpp"
+#include "runtime/runtime.hpp"
+#include "runtime/utils.hpp"
 #include <algorithm>
 #include <array>
+#include <base/gemm.h>
+#include <base/reshape_and_cache_flash.h>
 #include <cmath>
 #include <cstdint>
+#include <exception>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -35,7 +34,9 @@ void upload_custom_rope_cache(infinilm::runtime::Runtime &runtime, infinilm::run
     } catch (...) {
         const auto failure = std::current_exception();
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         std::rethrow_exception(failure);
     }
@@ -43,12 +44,14 @@ void upload_custom_rope_cache(infinilm::runtime::Runtime &runtime, infinilm::run
 
 // Temporarily creating cache here. Scheduled to be replaced by a revamped mrope module.
 std::pair<infinilm::runtime::Tensor, infinilm::runtime::Tensor> build_mrope_cache(infinilm::runtime::Runtime &runtime, size_t max_seq_len,
-                                                                    size_t rotary_dim,
-                                                                    double theta,
-                                                                    const infinilm::runtime::DataType &dtype,
-                                                                    const infinilm::runtime::Device &device) {
+                                                                                  size_t rotary_dim,
+                                                                                  double theta,
+                                                                                  const infinilm::runtime::DataType &dtype,
+                                                                                  const infinilm::runtime::Device &device) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device) throw std::invalid_argument("VideoNSA MRoPE cache Runtime and device must agree");
+    if (runtime.device() != device) {
+        throw std::invalid_argument("VideoNSA MRoPE cache Runtime and device must agree");
+    }
     if (rotary_dim == 0 || rotary_dim % 2 != 0) {
         throw std::invalid_argument("VideoNSAAttention: invalid mrope rotary_dim");
     }
@@ -106,14 +109,14 @@ std::pair<infinilm::runtime::Tensor, infinilm::runtime::Tensor> build_mrope_cach
 }
 
 std::pair<infinilm::runtime::Tensor, infinilm::runtime::Tensor> apply_mrope(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &q,
-                                                              const infinilm::runtime::Tensor &k,
-                                                              const infinilm::runtime::Tensor &positions,
-                                                              const infinilm::runtime::Tensor &cos_cache,
-                                                              const infinilm::runtime::Tensor &sin_cache,
-                                                              size_t head_dim,
-                                                              size_t rotary_dim,
-                                                              const std::array<int, 3> &section,
-                                                              bool interleaved) {
+                                                                            const infinilm::runtime::Tensor &k,
+                                                                            const infinilm::runtime::Tensor &positions,
+                                                                            const infinilm::runtime::Tensor &cos_cache,
+                                                                            const infinilm::runtime::Tensor &sin_cache,
+                                                                            size_t head_dim,
+                                                                            size_t rotary_dim,
+                                                                            const std::array<int, 3> &section,
+                                                                            bool interleaved) {
     const size_t num_tokens = q->size(0);
     auto q_flat = q->contiguous(runtime)->view({num_tokens, q->size(1) * head_dim});
     auto k_flat = k->contiguous(runtime)->view({num_tokens, k->size(1) * head_dim});
@@ -142,7 +145,9 @@ infinilm::runtime::Tensor mean_pool_blocks(infinilm::runtime::Runtime &runtime, 
         infinilm::execution::submit<infini::ops::Sum>(runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Sum::DefaultConfig(runtime.device().type()), block, std::optional<std::vector<int64_t>>{std::vector<int64_t>(pooling_axes.begin(), pooling_axes.end())}, false, std::optional<infini::ops::DataType>{}, pooled);
         blocks.push_back(pooled->unsqueeze(0));
     }
-    if (blocks.size() == 1) return blocks.front();
+    if (blocks.size() == 1) {
+        return blocks.front();
+    }
     return infinilm::execution::cat_alloc(runtime, blocks, 0);
 }
 
@@ -152,17 +157,19 @@ infinilm::runtime::Tensor repeat_group_tensor(infinilm::runtime::Runtime &runtim
     for (size_t i = 0; i < repeats; ++i) {
         copies.push_back(x);
     }
-    if (copies.size() == 1) return copies.front();
+    if (copies.size() == 1) {
+        return copies.front();
+    }
     return infinilm::execution::cat_alloc(runtime, copies, 0);
 }
 
 infinilm::runtime::Tensor grouped_dense_attention(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &q,
-                                           const infinilm::runtime::Tensor &k,
-                                           const infinilm::runtime::Tensor &v,
-                                           size_t num_heads,
-                                           size_t num_kv_heads,
-                                           size_t head_dim,
-                                           float scale) {
+                                                  const infinilm::runtime::Tensor &k,
+                                                  const infinilm::runtime::Tensor &v,
+                                                  size_t num_heads,
+                                                  size_t num_kv_heads,
+                                                  size_t head_dim,
+                                                  float scale) {
     const size_t seq_len = q->size(0);
     const size_t kv_len = k->size(0);
     const size_t heads_per_group = num_heads / num_kv_heads;
@@ -171,7 +178,7 @@ infinilm::runtime::Tensor grouped_dense_attention(infinilm::runtime::Runtime &ru
     for (size_t g = 0; g < num_kv_heads; ++g) {
         auto q_group = q->narrow({{1, g * heads_per_group, heads_per_group}})
                            ->permute({1, 0, 2})
-                           ->contiguous(runtime);                               // [heads_per_group, seq, dim]
+                           ->contiguous(runtime);                        // [heads_per_group, seq, dim]
         auto k_group = k->narrow({{1, g, 1}})->squeeze(1)->unsqueeze(0); // [1, kv, dim]
         auto v_group = v->narrow({{1, g, 1}})->squeeze(1)->unsqueeze(0); // [1, kv, dim]
         auto k_repeated = repeat_group_tensor(runtime, k_group, heads_per_group);
@@ -198,12 +205,14 @@ infinilm::runtime::Tensor grouped_dense_attention(infinilm::runtime::Runtime &ru
             std::optional<float>{0.0F}, std::optional<int>{}, std::optional<int>{}, out);
         INFINILM_TRACE_OP(Gemm, out);
         out = out
-                       ->view({heads_per_group, seq_len, head_dim})
-                       ->permute({1, 0, 2})
-                       ->contiguous(runtime);
+                  ->view({heads_per_group, seq_len, head_dim})
+                  ->permute({1, 0, 2})
+                  ->contiguous(runtime);
         group_outputs.push_back(out);
     }
-    if (group_outputs.size() == 1) return group_outputs.front();
+    if (group_outputs.size() == 1) {
+        return group_outputs.front();
+    }
     return infinilm::execution::cat_alloc(runtime, group_outputs, 1);
 }
 
@@ -219,7 +228,7 @@ infinilm::runtime::Tensor expand_head_gate(infinilm::runtime::Runtime &runtime, 
     }
     auto indices = infinilm::runtime::Tensor::empty(runtime, {seq_len, num_heads, head_dim}, infinilm::runtime::DataType::kInt64);
     auto host = infinilm::runtime::Tensor::from_blob(expand_indices.data(), indices->shape(), indices->dtype(),
-                                            infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                                                     infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     indices->copy_from(runtime, host); // host vector is consumed before returning
     auto expanded_gate = infinilm::runtime::Tensor::empty(runtime, indices->shape(), flat_gate->dtype());
     infinilm::execution::tensor_checks::take::validate(runtime, expanded_gate, flat_gate, indices);
@@ -240,9 +249,9 @@ std::array<int, 3> read_mrope_section(const std::shared_ptr<infinilm::config::Mo
 }
 
 infinilm::runtime::Tensor local_head_gates(const infinilm::runtime::Tensor &gates,
-                                    size_t head_dim_index,
-                                    size_t total_num_heads,
-                                    size_t local_num_heads, size_t tp_rank) {
+                                           size_t head_dim_index,
+                                           size_t total_num_heads,
+                                           size_t local_num_heads, size_t tp_rank) {
     if (total_num_heads == local_num_heads) {
         return gates;
     }
@@ -252,46 +261,50 @@ infinilm::runtime::Tensor local_head_gates(const infinilm::runtime::Tensor &gate
 } // namespace
 
 VideoNSAAttention::VideoNSAAttention(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    size_t layer_idx, const engine::distributed::RankInfo &rank,
-    backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep)
+                                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                     size_t layer_idx, const engine::distributed::RankInfo &rank,
+                                     backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep)
     : infinilm::layers::attention::Attention(runtime, model_config, layer_idx, rank, attention_backend, ep) {
     try {
-    const auto &dtype{model_config->get_dtype()};
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    total_num_attention_heads_ = total_num_heads;
-    tp_rank_ = static_cast<size_t>(rank.tp_rank);
-    max_position_embeddings_ = model_config->get<size_t>("max_position_embeddings");
+        const auto &dtype{model_config->get_dtype()};
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
+        total_num_attention_heads_ = total_num_heads;
+        tp_rank_ = static_cast<size_t>(rank.tp_rank);
+        max_position_embeddings_ = model_config->get<size_t>("max_position_embeddings");
 
-    mrope_section_ = read_mrope_section(model_config);
-    mrope_rotary_dim_ = 2 * static_cast<size_t>(mrope_section_[0] + mrope_section_[1] + mrope_section_[2]);
-    if (mrope_rotary_dim_ > head_dim_) {
-        throw std::runtime_error("VideoNSAAttention: mrope rotary dim exceeds head dim");
-    }
-    auto mrope_cache = build_mrope_cache(runtime, max_position_embeddings_,
-                                         mrope_rotary_dim_,
-                                         model_config->get<double>("rope_theta"),
-                                         dtype,
-                                         runtime.device());
-    mrope_cache_runtime_owner_ = runtime.shared_from_this();
-    mrope_sin_cache_ = mrope_cache.first;
-    mrope_cos_cache_ = mrope_cache.second;
-    g_proj_1_ = this->bind_child("g_proj_1", std::make_shared<std::remove_reference_t<decltype(*g_proj_1_ )>>(runtime, hidden_size, hidden_size, true, dtype));
-    g_proj_2_ = this->bind_child("g_proj_2", std::make_shared<std::remove_reference_t<decltype(*g_proj_2_ )>>(runtime, hidden_size, 3 * total_num_heads, true, dtype));
+        mrope_section_ = read_mrope_section(model_config);
+        mrope_rotary_dim_ = 2 * static_cast<size_t>(mrope_section_[0] + mrope_section_[1] + mrope_section_[2]);
+        if (mrope_rotary_dim_ > head_dim_) {
+            throw std::runtime_error("VideoNSAAttention: mrope rotary dim exceeds head dim");
+        }
+        auto mrope_cache = build_mrope_cache(runtime, max_position_embeddings_,
+                                             mrope_rotary_dim_,
+                                             model_config->get<double>("rope_theta"),
+                                             dtype,
+                                             runtime.device());
+        mrope_cache_runtime_owner_ = runtime.shared_from_this();
+        mrope_sin_cache_ = mrope_cache.first;
+        mrope_cos_cache_ = mrope_cache.second;
+        g_proj_1_ = this->bind_child("g_proj_1", std::make_shared<std::remove_reference_t<decltype(*g_proj_1_)>>(runtime, hidden_size, hidden_size, true, dtype));
+        g_proj_2_ = this->bind_child("g_proj_2", std::make_shared<std::remove_reference_t<decltype(*g_proj_2_)>>(runtime, hidden_size, 3 * total_num_heads, true, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Tensor &positions,
-                                              const infinilm::runtime::Tensor &hidden_states,
-                                              global_state::ForwardContext &forward_context) const {
+                                                     const infinilm::runtime::Tensor &hidden_states,
+                                                     global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
-    if (mrope_cache_runtime_owner_.get() != &runtime) throw std::invalid_argument("VideoNSA MRoPE cache belongs to another Runtime owner");
+    if (mrope_cache_runtime_owner_.get() != &runtime) {
+        throw std::invalid_argument("VideoNSA MRoPE cache belongs to another Runtime owner");
+    }
     const auto &mm_metadata = forward_context.mm_metadata;
     const bool has_visual_ranges = mm_metadata.visual_token_ranges.has_value() && !mm_metadata.visual_token_ranges->empty();
     const auto &attn_metadata = forward_context.attn_metadata;
@@ -304,15 +317,16 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     const bool is_decode = has_paged_metadata
                         && hidden_states->size(0) == 1
                         && hidden_states->size(1) == attn_metadata.total_sequence_lengths.value()->shape()[0];
-    if (is_paged && (!forward_context.runtime || !forward_context.nsa_owner
-        || forward_context.nsa_owner->runtime != forward_context.runtime
-        || forward_context.nsa_owner->invocation != nsa_prepared_invocation_))
+    if (is_paged && (!forward_context.runtime || !forward_context.nsa_owner || forward_context.nsa_owner->runtime != forward_context.runtime || forward_context.nsa_owner->invocation != nsa_prepared_invocation_)) {
         throw std::invalid_argument("NSA raw write requires complete worker/model preflight");
+    }
     const bool can_use_paged_decode_nsa = is_paged && has_paged_metadata && is_decode;
-    if (can_use_paged_decode_nsa)
+    if (can_use_paged_decode_nsa) {
         throw std::runtime_error("Paged NSA decode requires InfiniOps compressed-cache and attention operators");
-    if (can_use_paged_decode_nsa && !nsa_prepared_tail_)
+    }
+    if (can_use_paged_decode_nsa && !nsa_prepared_tail_) {
         throw std::invalid_argument("NSA one-tail evidence differs from actual model shape");
+    }
     const bool can_use_fast_prefill = is_flash_attn
                                    && has_paged_metadata
                                    && hidden_states->size(0) == 1
@@ -493,7 +507,6 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     auto k_cache_for_nsa = k_cache_layer->permute({0, 2, 1, 3});
     auto v_cache_for_nsa = v_cache_layer->permute({0, 2, 1, 3});
 
-
     auto k_cmp = mean_pool_blocks(runtime, k_reshaped, kNsaBlockSize);
     auto v_cmp = mean_pool_blocks(runtime, v_reshaped, kNsaBlockSize);
     auto nsa_heads = grouped_dense_attention(runtime, q_reshaped, k_cmp, v_cmp, num_attention_heads_, num_key_value_heads_, head_dim_, scale);
@@ -533,54 +546,67 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
 }
 
 void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &context) const {
-    if (!context.runtime || !context.nsa_owner || context.nsa_owner->runtime != context.runtime)
+    if (!context.runtime || !context.nsa_owner || context.nsa_owner->runtime != context.runtime) {
         throw std::invalid_argument("VideoNSA requires worker-scoped owner proof");
+    }
     auto &runtime = *context.runtime;
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording()
         || (attention_backend_ != backends::AttentionBackend::PAGED_ATTN
-            && attention_backend_ != backends::AttentionBackend::FLASH_ATTN))
+            && attention_backend_ != backends::AttentionBackend::FLASH_ATTN)) {
         throw std::invalid_argument("VideoNSA owner requires eager paged attention");
+    }
     const auto &proof = *context.nsa_owner;
     const auto &s = proof.owner;
-    if (!num_key_value_heads_ || !num_attention_heads_ || num_attention_heads_ % num_key_value_heads_)
+    if (!num_key_value_heads_ || !num_attention_heads_ || num_attention_heads_ % num_key_value_heads_) {
         throw std::invalid_argument("VideoNSA local attention heads must be divisible by KV heads");
-    if (layer_idx_ >= context.kv_cache_vec.size() || !context.kv_cache_vec[layer_idx_])
+    }
+    if (layer_idx_ >= context.kv_cache_vec.size() || !context.kv_cache_vec[layer_idx_]) {
         throw std::invalid_argument("VideoNSA raw backing absent");
+    }
     const auto &raw = context.kv_cache_vec[layer_idx_];
     if (raw->device() != runtime.device() || raw->ndim() != 5 || !raw->is_contiguous() || raw->size(0) != 2
         || raw->size(1) != s.page_count || raw->size(2) != s.page_size
-        || raw->size(3) != num_key_value_heads_ || raw->size(4) != head_dim_)
+        || raw->size(3) != num_key_value_heads_ || raw->size(4) != head_dim_) {
         throw std::invalid_argument("VideoNSA raw backing/view does not match owner geometry");
+    }
     if (nsa_backing_epoch_ == s.pool_epoch && nsa_raw_lease_) {
         const auto &old = nsa_raw_lease_.value();
         if (old->data() != raw->data() || old->shape() != raw->shape() || old->strides() != raw->strides()
-            || old->dtype() != raw->dtype() || old->device() != raw->device())
+            || old->dtype() != raw->dtype() || old->device() != raw->device()) {
             throw std::invalid_argument("VideoNSA raw view changed without pool rebind");
+        }
     } else {
         // A new worker-bound epoch is published only AFTER actual old-owner drain.
         // Strong old references survive revoke and are released only at this point.
         nsa_lane_.revoke();
-        nsa_k_cmp_cache_.reset(); nsa_v_cmp_cache_.reset(); nsa_raw_lease_.reset();
+        nsa_k_cmp_cache_.reset();
+        nsa_v_cmp_cache_.reset();
+        nsa_raw_lease_.reset();
         nsa_backing_epoch_ = s.pool_epoch;
     }
     nsa_raw_lease_ = raw;
     nsa_prepared_invocation_ = proof.invocation;
     nsa_prepared_tail_ = false;
-    if (!proof.one_tail) { nsa_lane_.revoke(); return; } // prefill writes invalidate, never seed
+    if (!proof.one_tail) {
+        nsa_lane_.revoke();
+        return;
+    } // prefill writes invalidate, never seed
     const auto cmp_blocks = s.page_count * (s.page_size / 64);
     const bool need = !nsa_k_cmp_cache_ || !nsa_v_cmp_cache_
-        || nsa_k_cmp_cache_.value()->shape() != infinilm::runtime::Shape{cmp_blocks, num_key_value_heads_, head_dim_}
-        || nsa_k_cmp_cache_.value()->dtype() != raw->dtype()
-        || nsa_v_cmp_cache_.value()->shape() != infinilm::runtime::Shape{cmp_blocks, num_key_value_heads_, head_dim_}
-        || nsa_v_cmp_cache_.value()->dtype() != raw->dtype()
-        || nsa_k_cmp_cache_.value()->device() != runtime.device()
-        || nsa_v_cmp_cache_.value()->device() != runtime.device();
+                   || nsa_k_cmp_cache_.value()->shape() != infinilm::runtime::Shape{cmp_blocks, num_key_value_heads_, head_dim_}
+                   || nsa_k_cmp_cache_.value()->dtype() != raw->dtype()
+                   || nsa_v_cmp_cache_.value()->shape() != infinilm::runtime::Shape{cmp_blocks, num_key_value_heads_, head_dim_}
+                   || nsa_v_cmp_cache_.value()->dtype() != raw->dtype()
+                   || nsa_k_cmp_cache_.value()->device() != runtime.device()
+                   || nsa_v_cmp_cache_.value()->device() != runtime.device();
     if (need) {
-        if (nsa_lane_.status() == nsa_serial::Status::QueuedOnOwnerStream)
+        if (nsa_lane_.status() == nsa_serial::Status::QueuedOnOwnerStream) {
             throw std::logic_error("VideoNSA compressed replacement requires actual owner drain");
-        if (nsa_compressed_generation_ == std::numeric_limits<std::uint64_t>::max())
+        }
+        if (nsa_compressed_generation_ == std::numeric_limits<std::uint64_t>::max()) {
             throw std::overflow_error("VideoNSA compressed generation exhausted");
+        }
         ++nsa_compressed_generation_;
         nsa_k_cmp_cache_ = infinilm::runtime::Tensor::empty(runtime, {cmp_blocks, num_key_value_heads_, head_dim_}, raw->dtype());
         nsa_v_cmp_cache_ = infinilm::runtime::Tensor::empty(runtime, {cmp_blocks, num_key_value_heads_, head_dim_}, raw->dtype());
@@ -589,9 +615,10 @@ void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &contex
     evidence.binding = {s.pool_epoch, proof.worker, proof.worker, s.pool_epoch,
                         nsa_compressed_generation_, s.page_count, s.page_size, 64};
     for (const auto &r : s.rows) {
-        nsa_serial::Row row{r.incarnation, r.revision, r.past, r.total,
-                           static_cast<std::uint64_t>(r.slots.front()), {}};
-        for (const auto &p : r.pages) row.pages.push_back({p.first, p.second});
+        nsa_serial::Row row{r.incarnation, r.revision, r.past, r.total, static_cast<std::uint64_t>(r.slots.front()), {}};
+        for (const auto &p : r.pages) {
+            row.pages.push_back({p.first, p.second});
+        }
         evidence.rows.push_back(std::move(row));
     }
     nsa_update_last_only_ = nsa_lane_.begin(std::move(evidence)); // BEFORE ANY layer raw write
@@ -599,19 +626,23 @@ void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &contex
 }
 
 void VideoNSAAttention::finish_paged_owner(bool completed) const {
-    if (nsa_prepared_tail_)
+    if (nsa_prepared_tail_) {
         nsa_lane_.finish(completed ? nsa_serial::Boundary::ExistingOwnerStreamSync
                                    : nsa_serial::Boundary::HostSubmissionOnly);
-    nsa_prepared_tail_ = false; nsa_prepared_invocation_ = 0;
+    }
+    nsa_prepared_tail_ = false;
+    nsa_prepared_invocation_ = 0;
 }
 
 void VideoNSAAttention::invalidate_paged_owner() const noexcept {
-    try { nsa_lane_.revoke(); }
-    catch (...) {
+    try {
+        nsa_lane_.revoke();
+    } catch (...) {
         // A rejected foreign mutation never releases/promotes storage. Worker
         // failure remains terminal and performs the actual Runtime drain.
     }
-    nsa_prepared_tail_ = false; nsa_prepared_invocation_ = 0;
+    nsa_prepared_tail_ = false;
+    nsa_prepared_invocation_ = 0;
     // Keep raw/compressed Tensor leases even when CPU validity is absent.
 }
 

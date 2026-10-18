@@ -31,30 +31,30 @@ KimiK3TextModel::KimiK3TextModel(
         hidden_size_ = model_config->get<size_t>("hidden_size");
         attn_res_block_size_ = model_config->get<size_t>("attn_res_block_size");
         device_ = runtime.device();
-    const size_t num_layers = model_config->get<size_t>("num_hidden_layers");
-    pp_size_ = static_cast<size_t>(rank_info.pp_size);
-    pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
-    tp_size_ = static_cast<size_t>(rank_info.tp_size);
-    tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
+        const size_t num_layers = model_config->get<size_t>("num_hidden_layers");
+        pp_size_ = static_cast<size_t>(rank_info.pp_size);
+        pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
+        tp_size_ = static_cast<size_t>(rank_info.tp_size);
+        tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
         tp_comm_ = rank_info.comm;
         world_comm_ = rank_info.world_comm;
-    std::tie(local_layer_begin_, local_layer_end_) = kimi_k3_pipeline_layer_range(num_layers, pp_size_, pp_stage_);
-    block_residual_capacity_ = (local_layer_end_ + attn_res_block_size_ - 1) / attn_res_block_size_ + 1;
+        std::tie(local_layer_begin_, local_layer_end_) = kimi_k3_pipeline_layer_range(num_layers, pp_size_, pp_stage_);
+        block_residual_capacity_ = (local_layer_end_ + attn_res_block_size_ - 1) / attn_res_block_size_ + 1;
 
-    if (is_first_pp_stage()) {
+        if (is_first_pp_stage()) {
             embed_tokens_ = std::make_shared<std::remove_reference_t<decltype(*embed_tokens_)>>(
                 runtime, model_config->get<size_t>("vocab_size"), hidden_size_, std::nullopt, dtype_);
             this->bind_child("embed_tokens", embed_tokens_);
-    }
-    layers_.reserve(local_layer_end_ - local_layer_begin_);
-    for (size_t layer_idx = local_layer_begin_; layer_idx < local_layer_end_; ++layer_idx) {
+        }
+        layers_.reserve(local_layer_end_ - local_layer_begin_);
+        for (size_t layer_idx = local_layer_begin_; layer_idx < local_layer_end_; ++layer_idx) {
             pending_child = std::make_shared<KimiK3DecoderLayer>(
                 runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             layers_.push_back(pending_child);
             this->bind_child("layers." + std::to_string(layer_idx), pending_child);
-    }
-    if (is_last_pp_stage()) {
-        const double eps = model_config->get<double>("rms_norm_eps");
+        }
+        if (is_last_pp_stage()) {
+            const double eps = model_config->get<double>("rms_norm_eps");
             output_attn_res_norm_ = std::make_shared<std::remove_reference_t<decltype(*output_attn_res_norm_)>>(
                 runtime, hidden_size_, eps, dtype_);
             this->bind_child("output_attn_res_norm", output_attn_res_norm_);
@@ -66,7 +66,9 @@ KimiK3TextModel::KimiK3TextModel(
             this->bind_child("norm", norm_);
         }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -203,8 +205,8 @@ infinilm::runtime::Tensor KimiK3TextModel::forward(
     auto first_hidden = is_first_pp_stage()
                           ? embed_tokens_->forward(runtime, input_ids)
                           : infinilm::runtime::Tensor::empty(
-                              runtime, {input_ids->size(0), input_ids->size(1), hidden_size_},
-                              dtype_);
+                                runtime, {input_ids->size(0), input_ids->size(1), hidden_size_},
+                                dtype_);
     return forward_embeds(first_hidden, forward_context);
 }
 

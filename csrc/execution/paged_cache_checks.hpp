@@ -10,9 +10,12 @@ inline std::optional<infini::ops::Config> validate(
     const infinilm::runtime::Tensor &vc, const infinilm::runtime::Tensor &k,
     const infinilm::runtime::Tensor &v, const infinilm::runtime::Tensor &slots) {
     runtime.assertOwnerThread();
-    for (const auto &tensor : {kc, vc, k, v, slots})
+    for (const auto &tensor : {kc, vc, k, v, slots}) {
         detail::check_owner(runtime, tensor);
-    if (!slots->size(0)) return std::nullopt;
+    }
+    if (!slots->size(0)) {
+        return std::nullopt;
+    }
     return infini::ops::ReshapeAndCacheFlash::DefaultConfig(runtime.device().type());
 }
 

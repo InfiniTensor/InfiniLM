@@ -4,13 +4,12 @@
 #include <optional>
 
 namespace infinilm::layers {
-using infinilm::runtime::Tensor;
-using infinilm::runtime::Runtime;
 using infinilm::runtime::DataType;
 using infinilm::runtime::Device;
+using infinilm::runtime::Runtime;
 using infinilm::runtime::Shape;
 using infinilm::runtime::Size;
-
+using infinilm::runtime::Tensor;
 
 /**
  * @brief Embedding layer that maps indices to dense vectors

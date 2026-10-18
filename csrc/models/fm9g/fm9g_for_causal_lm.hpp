@@ -18,14 +18,16 @@ public:
                   const layers::moe::EPConfig &ep_config)
         : Attention(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config) {
         try {
-        float scale_depth = model_config->get_or<float>("scale_depth", 1.0f);
-        if (scale_depth != 1.0f) {
-            size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-            float scale_output = scale_depth / std::sqrt(static_cast<float>(num_hidden_layers));
-            o_proj_->set_alpha(scale_output);
+            float scale_depth = model_config->get_or<float>("scale_depth", 1.0f);
+            if (scale_depth != 1.0f) {
+                size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+                float scale_output = scale_depth / std::sqrt(static_cast<float>(num_hidden_layers));
+                o_proj_->set_alpha(scale_output);
             }
         } catch (...) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
     }
@@ -42,14 +44,16 @@ public:
             const layers::moe::EPConfig &ep_config)
         : MLP(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config) {
         try {
-        float scale_depth = model_config->get_or<float>("scale_depth", 1.0f);
-        if (scale_depth != 1.0f) {
-            size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-            float scale_down = scale_depth / std::sqrt(static_cast<float>(num_hidden_layers));
-            down_proj_->set_alpha(scale_down);
-        }
+            float scale_depth = model_config->get_or<float>("scale_depth", 1.0f);
+            if (scale_depth != 1.0f) {
+                size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+                float scale_down = scale_depth / std::sqrt(static_cast<float>(num_hidden_layers));
+                down_proj_->set_alpha(scale_down);
+            }
         } catch (...) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
     }
@@ -69,14 +73,18 @@ public:
                     const layers::moe::EPConfig &ep_config)
         : TextCausalLM<FM9GModel>(runtime, model_config, rank_info, attention_backend, ep_config) {
         try {
-        if (model_config->get_config_json().contains("dim_model_base")) {
-            float dim_model_base = model_config->get<float>("dim_model_base");
-            size_t hidden_size = model_config->get<size_t>("hidden_size");
-            float scale_lm_head = dim_model_base / static_cast<float>(hidden_size);
-                if (this->lm_head_) this->lm_head_->set_alpha(scale_lm_head);
+            if (model_config->get_config_json().contains("dim_model_base")) {
+                float dim_model_base = model_config->get<float>("dim_model_base");
+                size_t hidden_size = model_config->get<size_t>("hidden_size");
+                float scale_lm_head = dim_model_base / static_cast<float>(hidden_size);
+                if (this->lm_head_) {
+                    this->lm_head_->set_alpha(scale_lm_head);
+                }
             }
         } catch (...) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
     }

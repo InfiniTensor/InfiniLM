@@ -7,10 +7,10 @@ namespace infinilm::models::ernie4_5_vl {
 class Ernie45ForConditionalGeneration : public InfinilmModel {
 public:
     Ernie45ForConditionalGeneration(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config);
+                                    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                    const engine::distributed::RankInfo &rank_info,
+                                    backends::AttentionBackend attention_backend,
+                                    const layers::moe::EPConfig &ep_config);
 
     Output forward(const Input &input,
                    global_state::ForwardContext &forward_context) const override;

@@ -1,6 +1,6 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
 #include "kimi_k3_moe.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "../../global_state/global_state.hpp"
 #include "runtime/runtime.hpp"
@@ -25,42 +25,45 @@ make_kimi_k3_subconfig(const std::shared_ptr<infinilm::config::ModelConfig> &mod
 KimiK3MLP::KimiK3MLP(
     infinilm::runtime::Runtime &runtime,
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                     size_t intermediate_size,
+    size_t intermediate_size,
     const engine::distributed::RankInfo &rank_info) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3MLP construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK3MLP construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK3MLP construction resources");
+    }
     try {
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const auto &dtype = model_config->get_dtype();
-    situ_beta_ = model_config->get_or<float>("activation_situ_beta", 4.0f);
-    situ_linear_beta_ = model_config->get_or<float>("activation_situ_linear_beta", 25.0f);
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const auto &dtype = model_config->get_dtype();
+        situ_beta_ = model_config->get_or<float>("activation_situ_beta", 4.0f);
+        situ_linear_beta_ = model_config->get_or<float>("activation_situ_linear_beta", 25.0f);
         auto register_fn = [this](const std::string &name, infinilm::weights::Weight parameter) {
             this->bind_weight(name, std::move(parameter));
-    };
-    gate_up_proj_ = std::make_shared<infinilm::layers::linear::GateUpParallelLinear>(
+        };
+        gate_up_proj_ = std::make_shared<infinilm::layers::linear::GateUpParallelLinear>(
             runtime, hidden_size,
-        intermediate_size,
-        "gate_proj",
-        "up_proj",
-        register_fn,
-        model_config->get_quantization_method(),
-        false,
-        dtype,
-        rank_info);
+            intermediate_size,
+            "gate_proj",
+            "up_proj",
+            register_fn,
+            model_config->get_quantization_method(),
+            false,
+            dtype,
+            rank_info);
         down_proj_ = std::make_shared<infinilm::layers::linear::RowParallelLinear>(
             runtime, intermediate_size, hidden_size, model_config->get_quantization_method(), false, dtype, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
         this->bind_child("down_proj", down_proj_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
-
-
 
 infinilm::runtime::Tensor KimiK3MLP::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     throw std::runtime_error("SiTU activation requires an InfiniOps implementation");
@@ -71,25 +74,30 @@ KimiK3Experts::KimiK3Experts(
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
     const engine::distributed::RankInfo &rank_info) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3Experts construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK3Experts construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK3Experts construction resources");
+    }
     try {
         num_experts_ = model_config->get<size_t>("num_experts");
         hidden_size_ = model_config->get<size_t>("hidden_size");
         device_ = runtime.device();
-    tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
-    tp_size_ = static_cast<size_t>(rank_info.tp_size);
-    const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
-    if (intermediate_size % tp_size_ != 0) {
-        throw std::runtime_error("KimiK3Experts: moe_intermediate_size must be divisible by tp_size");
-    }
-    local_intermediate_size_ = intermediate_size / tp_size_;
+        tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
+        tp_size_ = static_cast<size_t>(rank_info.tp_size);
+        const size_t intermediate_size = model_config->get<size_t>("moe_intermediate_size");
+        if (intermediate_size % tp_size_ != 0) {
+            throw std::runtime_error("KimiK3Experts: moe_intermediate_size must be divisible by tp_size");
+        }
+        local_intermediate_size_ = intermediate_size / tp_size_;
         register_mxfp4_experts(runtime);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -153,29 +161,32 @@ const KimiK3Mxfp4MoeWeights &KimiK3Experts::mxfp4_weights() const {
 KimiK3MoE::KimiK3MoE(
     infinilm::runtime::Runtime &runtime,
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                     size_t layer_idx,
+    size_t layer_idx,
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend,
     const layers::moe::EPConfig &ep_config) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3MoE construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK3MoE construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK3MoE construction resources");
+    }
     try {
-    (void)layer_idx;
+        (void)layer_idx;
         (void)attention_backend;
         (void)ep_config; // Preserve the existing custom TP expert path; no new EP policy.
-    const auto &dtype = model_config->get_dtype();
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t routed_hidden_size = model_config->get<size_t>("routed_expert_hidden_size");
-    const size_t expert_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
-    const size_t shared_intermediate_size = expert_intermediate_size
-                                          * model_config->get<size_t>("num_shared_experts");
-    const double eps = model_config->get<double>("rms_norm_eps");
-    tp_size_ = rank_info.tp_size;
-    communicator_ = rank_info.comm;
+        const auto &dtype = model_config->get_dtype();
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t routed_hidden_size = model_config->get<size_t>("routed_expert_hidden_size");
+        const size_t expert_intermediate_size = model_config->get<size_t>("moe_intermediate_size");
+        const size_t shared_intermediate_size = expert_intermediate_size
+                                              * model_config->get<size_t>("num_shared_experts");
+        const double eps = model_config->get<double>("rms_norm_eps");
+        tp_size_ = rank_info.tp_size;
+        communicator_ = rank_info.comm;
 
         gate_ = std::make_shared<std::remove_reference_t<decltype(*gate_)>>(
             runtime, model_config);
@@ -183,8 +194,8 @@ KimiK3MoE::KimiK3MoE(
         routed_expert_down_proj_ = std::make_shared<std::remove_reference_t<decltype(*routed_expert_down_proj_)>>(
             runtime, hidden_size, routed_hidden_size, false, dtype);
         this->bind_child("routed_expert_down_proj", routed_expert_down_proj_);
-    auto expert_config = make_kimi_k3_subconfig(
-        model_config, routed_hidden_size, expert_intermediate_size);
+        auto expert_config = make_kimi_k3_subconfig(
+            model_config, routed_hidden_size, expert_intermediate_size);
         experts_ = std::make_shared<std::remove_reference_t<decltype(*experts_)>>(
             runtime, expert_config, rank_info);
         this->bind_child("experts", experts_);
@@ -198,7 +209,9 @@ KimiK3MoE::KimiK3MoE(
             runtime, model_config, shared_intermediate_size, rank_info);
         this->bind_child("shared_experts", shared_experts_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

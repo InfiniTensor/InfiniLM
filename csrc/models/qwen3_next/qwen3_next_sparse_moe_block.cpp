@@ -1,15 +1,15 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/mlp/fused_activation.hpp"
 #include "qwen3_next_sparse_moe_block.hpp"
+#include "../../layers/mlp/fused_activation.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "runtime/runtime.hpp"
 
 #include "../../engine/distributed/communication_group.hpp"
 
-#include <string>
 #include <exception>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::models::qwen3_next {
 
@@ -22,9 +22,11 @@ Qwen3NextSharedExpert::Qwen3NextSharedExpert(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
-    (void)attention_backend; (void)ep_config;
+    }
+    (void)attention_backend;
+    (void)ep_config;
     device_ = runtime.device();
     const auto dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
@@ -41,20 +43,21 @@ Qwen3NextSharedExpert::Qwen3NextSharedExpert(
         this->bind_child("down_proj", down_proj_);
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
-
-
 infinilm::runtime::Tensor Qwen3NextSharedExpert::forward(infinilm::runtime::Runtime &runtime,
-                                                 const infinilm::runtime::Tensor &hidden_states) const {
+                                                         const infinilm::runtime::Tensor &hidden_states) const {
     auto hidden_states_mutable = hidden_states;
     auto gate_up = gate_up_proj_->forward(runtime, hidden_states_mutable);
     auto activation_shape = gate_up->shape();
-    if (activation_shape.empty() || activation_shape.back() % 2 != 0)
+    if (activation_shape.empty() || activation_shape.back() % 2 != 0) {
         throw std::runtime_error("SiluAndMul input last dim must be even.");
+    }
     activation_shape.back() /= 2;
     auto intermediate = infinilm::runtime::Tensor::empty(runtime, activation_shape, gate_up->dtype());
     infinilm::layers::mlp::packed_activation_into(runtime, intermediate, gate_up);
@@ -70,8 +73,9 @@ Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
+    }
     try {
         gate_ = std::make_shared<infinilm::layers::moe::TopKRouter>(runtime, model_config);
         this->bind_child("gate", gate_);
@@ -86,13 +90,15 @@ Qwen3NextSparseMoeBlock::Qwen3NextSparseMoeBlock(
         this->bind_child("shared_expert_gate", shared_expert_gate_);
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
 infinilm::runtime::Tensor Qwen3NextSparseMoeBlock::forward(infinilm::runtime::Runtime &runtime,
-                                                   const infinilm::runtime::Tensor &hidden_states) const {
+                                                           const infinilm::runtime::Tensor &hidden_states) const {
     ASSERT(hidden_states->ndim() == 3);
 
     auto shape = hidden_states->shape();

@@ -37,53 +37,53 @@ std::vector<infinilm::runtime::Tensor> deepseek_v2_allocate_kv_cache_tensors(
     infinilm::runtime::Tensor kv_cache;
     std::vector<uint8_t> zeros;
     try {
-    switch (attention_backend) {
-    case backends::AttentionBackend::STATIC_ATTN: {
-        auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
-        if (nullptr == static_kv_cache_config) {
-            throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: invalid static kv cache config type");
-        }
-        const size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
-        kv_cache_vec.reserve(num_hidden_layers);
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        switch (attention_backend) {
+        case backends::AttentionBackend::STATIC_ATTN: {
+            auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+            if (nullptr == static_kv_cache_config) {
+                throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: invalid static kv cache config type");
+            }
+            const size_t max_position_embeddings = text_config->get<size_t>("max_position_embeddings");
+            kv_cache_vec.reserve(num_hidden_layers);
+            for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
                 kv_cache = cache::StaticKVCache::create_layer_kv_cache(
                     runtime, rank,
-                mla_head_dim,
-                mla_head_dim,
-                num_mla_kv_heads,
-                num_mla_kv_heads,
-                max_position_embeddings,
-                dtype,
-                *static_kv_cache_config);
-            kv_cache_vec.push_back(kv_cache);
+                    mla_head_dim,
+                    mla_head_dim,
+                    num_mla_kv_heads,
+                    num_mla_kv_heads,
+                    max_position_embeddings,
+                    dtype,
+                    *static_kv_cache_config);
+                kv_cache_vec.push_back(kv_cache);
+            }
+            break;
         }
-        break;
-    }
-    case backends::AttentionBackend::FLASH_ATTN: {
-        ;
-    }
-    case backends::AttentionBackend::PAGED_ATTN: {
-        auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
-        if (nullptr == paged_kv_cache_config) {
-            throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: invalid paged kv cache config type");
+        case backends::AttentionBackend::FLASH_ATTN: {
+            ;
         }
-        const size_t mla_cache_dim = mla_head_dim + kv_lora_rank;
-        kv_cache_vec.reserve(num_hidden_layers);
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+        case backends::AttentionBackend::PAGED_ATTN: {
+            auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+            if (nullptr == paged_kv_cache_config) {
+                throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: invalid paged kv cache config type");
+            }
+            const size_t mla_cache_dim = mla_head_dim + kv_lora_rank;
+            kv_cache_vec.reserve(num_hidden_layers);
+            for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
                 kv_cache = infinilm::runtime::Tensor::empty(
                     runtime,
-                {paged_kv_cache_config->num_blocks(), num_mla_kv_heads, paged_kv_cache_config->block_size(), mla_cache_dim},
+                    {paged_kv_cache_config->num_blocks(), num_mla_kv_heads, paged_kv_cache_config->block_size(), mla_cache_dim},
                     dtype);
                 zeros.assign(kv_cache->nbytes(), 0);
                 runtime.memcpyH2D(kv_cache->data(), zeros.data(), kv_cache->nbytes(), false);
                 runtime.syncStream();
-            kv_cache_vec.push_back(kv_cache);
+                kv_cache_vec.push_back(kv_cache);
+            }
+            break;
         }
-        break;
-    }
-    default:
-        throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
-    }
+        default:
+            throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
+        }
     } catch (...) {
         // Keep local backing (and any host source) alive until completion is known.
         try {

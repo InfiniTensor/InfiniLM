@@ -19,9 +19,9 @@ namespace infinilm::models::kimi_k25 {
 class KimiK25MXFP4Experts : public infinilm::weights::ModelWeights {
 public:
     KimiK25MXFP4Experts(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info);
 
     const infinilm::layers::moe::MoeWeights &moe_weights() const;
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
@@ -39,12 +39,12 @@ protected:
 class KimiK25MoE : public infinilm::weights::ModelWeights {
 public:
     KimiK25MoE(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-               size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 

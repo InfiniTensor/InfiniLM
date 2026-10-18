@@ -1,15 +1,15 @@
-#include <base/flash_attn_with_kvcache.h>
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
+#include "qwen3_5_vision.hpp"
 #include "../../layers/linear/dense.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
-#include "qwen3_5_vision.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
+#include <base/flash_attn_with_kvcache.h>
 
 #include "../../utils.hpp"
 #include "runtime/runtime.hpp"
 #include <cstring>
-#include <memory>
 #include <exception>
+#include <memory>
 
 #include <base/upsample_bilinear2d.h>
 
@@ -26,9 +26,10 @@ namespace infinilm::models::qwen3_5 {
 namespace {
 void check_vision_runtime(infinilm::runtime::Runtime &runtime) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Qwen35 vision construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Qwen35 vision construction requires eager Runtime");
+    }
 }
-
 
 size_t get_size_or_first(const nlohmann::json &config, const char *key, size_t default_value) {
     if (!config.contains(key) || config.at(key).is_null()) {
@@ -45,8 +46,7 @@ std::vector<int64_t> tensor_to_i64_vector(infinilm::runtime::Runtime &runtime, c
     if (!tensor || !tensor->is_contiguous()) {
         throw std::invalid_argument("Qwen35VisionModel: grid_thw must be contiguous");
     }
-    if (tensor->dtype() != infinilm::runtime::DataType::kInt32 &&
-        tensor->dtype() != infinilm::runtime::DataType::kInt64) {
+    if (tensor->dtype() != infinilm::runtime::DataType::kInt32 && tensor->dtype() != infinilm::runtime::DataType::kInt64) {
         throw std::runtime_error("Qwen35VisionModel: grid_thw must be int32 or int64");
     }
     const auto cpu = infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu};
@@ -72,8 +72,8 @@ std::vector<int64_t> tensor_to_i64_vector(infinilm::runtime::Runtime &runtime, c
         if (value <= 0) {
             throw std::invalid_argument("Qwen35VisionModel: grid dimensions must be positive");
         }
-        }
-        return values;
+    }
+    return values;
 }
 
 } // namespace
@@ -88,15 +88,18 @@ Qwen35VisionPatchProj::Qwen35VisionPatchProj(infinilm::runtime::Runtime &runtime
       temporal_patch_size_(temporal_patch_size),
       patch_size_(patch_size) {
     check_vision_runtime(runtime);
-    if (!in_channels_ || !hidden_size_ || !temporal_patch_size_ || !patch_size_)
+    if (!in_channels_ || !hidden_size_ || !temporal_patch_size_ || !patch_size_) {
         throw std::invalid_argument("Qwen35 vision patch dimensions must be positive");
+    }
     try {
         weight_ = infinilm::weights::Weight(runtime, {hidden_size_, in_channels_, temporal_patch_size_, patch_size_, patch_size_}, dtype);
         this->bind_weight("weight", weight_);
         bias_ = infinilm::weights::Weight(runtime, {hidden_size_}, dtype);
         this->bind_weight("bias", bias_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -115,13 +118,15 @@ Qwen35VisionPatchEmbed::Qwen35VisionPatchEmbed(infinilm::runtime::Runtime &runti
                                                const infinilm::runtime::DataType &dtype) {
     check_vision_runtime(runtime);
     try {
-    const size_t in_channels = config.value("in_channels", 3);
-    const size_t hidden_size = config.value("hidden_size", 1152);
-    const size_t temporal_patch_size = get_size_or_first(config, "temporal_patch_size", 2);
-    const size_t patch_size = get_size_or_first(config, "patch_size", 16);
-        proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_ )>>(runtime, in_channels, hidden_size, temporal_patch_size, patch_size, dtype));
+        const size_t in_channels = config.value("in_channels", 3);
+        const size_t hidden_size = config.value("hidden_size", 1152);
+        const size_t temporal_patch_size = get_size_or_first(config, "temporal_patch_size", 2);
+        const size_t patch_size = get_size_or_first(config, "patch_size", 16);
+        proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_)>>(runtime, in_channels, hidden_size, temporal_patch_size, patch_size, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -137,28 +142,32 @@ Qwen35VisionAttention::Qwen35VisionAttention(infinilm::runtime::Runtime &runtime
     try {
         hidden_size_ = config.value("hidden_size", 1152);
         num_heads_ = config.value("num_heads", 16);
-        if (hidden_size_ == 0 || num_heads_ == 0) throw std::invalid_argument("Qwen35 vision requires positive hidden_size and num_heads");
+        if (hidden_size_ == 0 || num_heads_ == 0) {
+            throw std::invalid_argument("Qwen35 vision requires positive hidden_size and num_heads");
+        }
         head_dim_ = hidden_size_ / num_heads_;
         scale_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    if (hidden_size_ % num_heads_ != 0) {
-        throw std::runtime_error("Qwen35VisionAttention: hidden_size must be divisible by num_heads");
-    }
-    if (head_dim_ % 4 != 0) {
-        throw std::runtime_error("Qwen35VisionAttention: head_dim must be divisible by 4 for 2D RoPE");
-    }
-    const size_t axis_head_dim = head_dim_ / 2;
-        rotary_emb_ = this->bind_child("rotary_emb", std::make_shared<std::remove_reference_t<decltype(*rotary_emb_ )>>(runtime, axis_head_dim, axis_head_dim, 8192, 10000.0, infinilm::layers::RoPE::Algo::GPT_NEOX, dtype, runtime.device()));
-        qkv_ = this->bind_child("qkv", std::make_shared<std::remove_reference_t<decltype(*qkv_ )>>(runtime, hidden_size_, hidden_size_ * 3, true, dtype));
-        proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_ )>>(runtime, hidden_size_, hidden_size_, true, dtype));
+        if (hidden_size_ % num_heads_ != 0) {
+            throw std::runtime_error("Qwen35VisionAttention: hidden_size must be divisible by num_heads");
+        }
+        if (head_dim_ % 4 != 0) {
+            throw std::runtime_error("Qwen35VisionAttention: head_dim must be divisible by 4 for 2D RoPE");
+        }
+        const size_t axis_head_dim = head_dim_ / 2;
+        rotary_emb_ = this->bind_child("rotary_emb", std::make_shared<std::remove_reference_t<decltype(*rotary_emb_)>>(runtime, axis_head_dim, axis_head_dim, 8192, 10000.0, infinilm::layers::RoPE::Algo::GPT_NEOX, dtype, runtime.device()));
+        qkv_ = this->bind_child("qkv", std::make_shared<std::remove_reference_t<decltype(*qkv_)>>(runtime, hidden_size_, hidden_size_ * 3, true, dtype));
+        proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_)>>(runtime, hidden_size_, hidden_size_, true, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Qwen35VisionAttention::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                                                  const infinilm::runtime::Tensor &row_position_ids,
-                                                  const infinilm::runtime::Tensor &col_position_ids) const {
+                                                         const infinilm::runtime::Tensor &row_position_ids,
+                                                         const infinilm::runtime::Tensor &col_position_ids) const {
     runtime.assertOwnerThread();
     const size_t seq_len = hidden_states->size(0);
     const size_t axis_head_dim = head_dim_ / 2;
@@ -212,12 +221,14 @@ Qwen35VisionMLP::Qwen35VisionMLP(infinilm::runtime::Runtime &runtime, const nloh
     check_vision_runtime(runtime);
     try {
         activation_ = config.value("hidden_act", "gelu_pytorch_tanh");
-    const size_t hidden_size = config.value("hidden_size", 1152);
-    const size_t intermediate_size = config.value("intermediate_size", 4304);
-        linear_fc1_ = this->bind_child("linear_fc1", std::make_shared<std::remove_reference_t<decltype(*linear_fc1_ )>>(runtime, hidden_size, intermediate_size, true, dtype));
-        linear_fc2_ = this->bind_child("linear_fc2", std::make_shared<std::remove_reference_t<decltype(*linear_fc2_ )>>(runtime, intermediate_size, hidden_size, true, dtype));
+        const size_t hidden_size = config.value("hidden_size", 1152);
+        const size_t intermediate_size = config.value("intermediate_size", 4304);
+        linear_fc1_ = this->bind_child("linear_fc1", std::make_shared<std::remove_reference_t<decltype(*linear_fc1_)>>(runtime, hidden_size, intermediate_size, true, dtype));
+        linear_fc2_ = this->bind_child("linear_fc2", std::make_shared<std::remove_reference_t<decltype(*linear_fc2_)>>(runtime, intermediate_size, hidden_size, true, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -232,12 +243,13 @@ infinilm::runtime::Tensor Qwen35VisionMLP::forward(infinilm::runtime::Runtime &r
             infinilm::execution::submit<infini::ops::Gelu>(
                 runtime, infini::ops::Gelu::DefaultConfig(runtime.device().type()), x, std::string{"none"}, ops_output);
             return ops_output;
-        }() : [&]() {
-            auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
-            infinilm::execution::submit<infini::ops::Gelu>(
-                runtime, infini::ops::Gelu::DefaultConfig(runtime.device().type()), x, std::string{"tanh"}, ops_output);
-            return ops_output;
-        }();
+        }()
+                                  : [&]() {
+                                        auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
+                                        infinilm::execution::submit<infini::ops::Gelu>(
+                                            runtime, infini::ops::Gelu::DefaultConfig(runtime.device().type()), x, std::string{"tanh"}, ops_output);
+                                        return ops_output;
+                                    }();
     } else {
         throw std::runtime_error("Qwen35VisionMLP: unsupported activation " + activation_);
     }
@@ -248,21 +260,23 @@ Qwen35VisionBlock::Qwen35VisionBlock(infinilm::runtime::Runtime &runtime, const 
                                      const infinilm::runtime::DataType &dtype) {
     check_vision_runtime(runtime);
     try {
-    const size_t hidden_size = config.value("hidden_size", 1152);
-    const double norm_eps = config.value("layer_norm_eps", config.value("rms_norm_eps", 1e-6));
-        norm1_ = this->bind_child("norm1", std::make_shared<std::remove_reference_t<decltype(*norm1_ )>>(runtime, hidden_size, norm_eps, dtype));
-        norm2_ = this->bind_child("norm2", std::make_shared<std::remove_reference_t<decltype(*norm2_ )>>(runtime, hidden_size, norm_eps, dtype));
-        attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_ )>>(runtime, config, dtype));
-        mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_ )>>(runtime, config, dtype));
+        const size_t hidden_size = config.value("hidden_size", 1152);
+        const double norm_eps = config.value("layer_norm_eps", config.value("rms_norm_eps", 1e-6));
+        norm1_ = this->bind_child("norm1", std::make_shared<std::remove_reference_t<decltype(*norm1_)>>(runtime, hidden_size, norm_eps, dtype));
+        norm2_ = this->bind_child("norm2", std::make_shared<std::remove_reference_t<decltype(*norm2_)>>(runtime, hidden_size, norm_eps, dtype));
+        attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_)>>(runtime, config, dtype));
+        mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(runtime, config, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Qwen35VisionBlock::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                                              const infinilm::runtime::Tensor &row_position_ids,
-                                              const infinilm::runtime::Tensor &col_position_ids) const {
+                                                     const infinilm::runtime::Tensor &row_position_ids,
+                                                     const infinilm::runtime::Tensor &col_position_ids) const {
     runtime.assertOwnerThread();
     auto x = norm1_->forward(runtime, hidden_states);
     x = attn_->forward(runtime, x, row_position_ids, col_position_ids);
@@ -289,13 +303,15 @@ Qwen35VisionPatchMerger::Qwen35VisionPatchMerger(infinilm::runtime::Runtime &run
     try {
         hidden_size_ = config.value("hidden_size", 1152);
         merged_size_ = hidden_size_ * config.value("spatial_merge_size", 2) * config.value("spatial_merge_size", 2);
-    const size_t out_hidden_size = config.value("out_hidden_size", hidden_size_);
-    const double norm_eps = config.value("layer_norm_eps", config.value("rms_norm_eps", 1e-6));
-        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_ )>>(runtime, hidden_size_, norm_eps, dtype));
-        linear_fc1_ = this->bind_child("linear_fc1", std::make_shared<std::remove_reference_t<decltype(*linear_fc1_ )>>(runtime, merged_size_, merged_size_, true, dtype));
-        linear_fc2_ = this->bind_child("linear_fc2", std::make_shared<std::remove_reference_t<decltype(*linear_fc2_ )>>(runtime, merged_size_, out_hidden_size, true, dtype));
+        const size_t out_hidden_size = config.value("out_hidden_size", hidden_size_);
+        const double norm_eps = config.value("layer_norm_eps", config.value("rms_norm_eps", 1e-6));
+        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_)>>(runtime, hidden_size_, norm_eps, dtype));
+        linear_fc1_ = this->bind_child("linear_fc1", std::make_shared<std::remove_reference_t<decltype(*linear_fc1_)>>(runtime, merged_size_, merged_size_, true, dtype));
+        linear_fc2_ = this->bind_child("linear_fc2", std::make_shared<std::remove_reference_t<decltype(*linear_fc2_)>>(runtime, merged_size_, out_hidden_size, true, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -319,22 +335,26 @@ Qwen35VisionModel::Qwen35VisionModel(infinilm::runtime::Runtime &runtime, const 
     try {
         hidden_size_ = config.value("hidden_size", 1152);
         num_heads_ = config.value("num_heads", 16);
-        if (hidden_size_ == 0 || num_heads_ == 0) throw std::invalid_argument("Qwen35 vision requires positive hidden_size and num_heads");
+        if (hidden_size_ == 0 || num_heads_ == 0) {
+            throw std::invalid_argument("Qwen35 vision requires positive hidden_size and num_heads");
+        }
         head_dim_ = hidden_size_ / num_heads_;
         spatial_merge_size_ = config.value("spatial_merge_size", 2);
         num_grid_per_side_ = static_cast<size_t>(std::sqrt(static_cast<double>(config.value("num_position_embeddings", 2304))));
-    const size_t num_position_embeddings = config.value("num_position_embeddings", 2304);
-    const size_t depth = config.value("depth", config.value("num_hidden_layers", 27));
+        const size_t num_position_embeddings = config.value("num_position_embeddings", 2304);
+        const size_t depth = config.value("depth", config.value("num_hidden_layers", 27));
 
-        patch_embed_ = this->bind_child("patch_embed", std::make_shared<std::remove_reference_t<decltype(*patch_embed_ )>>(runtime, config, dtype));
-        pos_embed_ = this->bind_child("pos_embed", std::make_shared<std::remove_reference_t<decltype(*pos_embed_ )>>(runtime, num_position_embeddings, hidden_size_, std::nullopt, dtype));
-    blocks_.reserve(depth);
-    for (size_t i = 0; i < depth; ++i) {
+        patch_embed_ = this->bind_child("patch_embed", std::make_shared<std::remove_reference_t<decltype(*patch_embed_)>>(runtime, config, dtype));
+        pos_embed_ = this->bind_child("pos_embed", std::make_shared<std::remove_reference_t<decltype(*pos_embed_)>>(runtime, num_position_embeddings, hidden_size_, std::nullopt, dtype));
+        blocks_.reserve(depth);
+        for (size_t i = 0; i < depth; ++i) {
             blocks_.push_back(this->bind_child("blocks." + std::to_string(i), std::make_shared<Qwen35VisionBlock>(runtime, config, dtype)));
-    }
-        merger_ = this->bind_child("merger", std::make_shared<std::remove_reference_t<decltype(*merger_ )>>(runtime, config, dtype));
+        }
+        merger_ = this->bind_child("merger", std::make_shared<std::remove_reference_t<decltype(*merger_)>>(runtime, config, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -364,8 +384,8 @@ infinilm::runtime::Tensor Qwen35VisionModel::fast_pos_embed_interpolate(infinilm
         throw std::invalid_argument("UpsampleBilinear output_size must contain positive H and W");
     }
     auto resized = infinilm::runtime::Tensor::empty(runtime,
-        {pos_nchw->size(0), pos_nchw->size(1), static_cast<size_t>(output_size[0]), static_cast<size_t>(output_size[1])},
-        pos_nchw->dtype());
+                                                    {pos_nchw->size(0), pos_nchw->size(1), static_cast<size_t>(output_size[0]), static_cast<size_t>(output_size[1])},
+                                                    pos_nchw->dtype());
     infinilm::execution::submit<infini::ops::UpsampleBilinear2d>(
         runtime, infinilm::execution::RecordingPolicy::DeviceOnly, infini::ops::Config::Automatic(),
         pos_nchw, output_size, true, std::optional<double>{}, std::optional<double>{}, resized);
@@ -429,7 +449,7 @@ infinilm::runtime::Tensor Qwen35VisionModel::build_rotary_position_ids(infinilm:
         }
     }
     auto host = infinilm::runtime::Tensor::from_blob(position_owner->data(), {2, total_tokens},
-        infinilm::runtime::DataType::kInt64, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu}, position_owner);
+                                                     infinilm::runtime::DataType::kInt64, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu}, position_owner);
     auto device_ids = infinilm::runtime::Tensor::empty(runtime, {2, total_tokens}, infinilm::runtime::DataType::kInt64);
     device_ids->copy_from(runtime, host);
     runtime.syncStream();
@@ -437,18 +457,14 @@ infinilm::runtime::Tensor Qwen35VisionModel::build_rotary_position_ids(infinilm:
 }
 
 infinilm::runtime::Tensor Qwen35VisionModel::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
-                                              const infinilm::runtime::Tensor &image_grid_thw) const {
+                                                     const infinilm::runtime::Tensor &image_grid_thw) const {
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording()) {
         throw std::invalid_argument("Qwen35VisionModel: dynamic visual metadata is not recording-qualified");
     }
     // Read and validate shape metadata before any visual device submission.
     const auto grid = tensor_to_i64_vector(runtime, image_grid_thw);
-    if (grid.size() != 3 || spatial_merge_size_ == 0 ||
-        static_cast<size_t>(grid[1]) % spatial_merge_size_ != 0 ||
-        static_cast<size_t>(grid[2]) % spatial_merge_size_ != 0 ||
-        pixel_values->size(0) != static_cast<size_t>(grid[0]) *
-            static_cast<size_t>(grid[1]) * static_cast<size_t>(grid[2])) {
+    if (grid.size() != 3 || spatial_merge_size_ == 0 || static_cast<size_t>(grid[1]) % spatial_merge_size_ != 0 || static_cast<size_t>(grid[2]) % spatial_merge_size_ != 0 || pixel_values->size(0) != static_cast<size_t>(grid[0]) * static_cast<size_t>(grid[1]) * static_cast<size_t>(grid[2])) {
         throw std::invalid_argument("Qwen35VisionModel: invalid grid or patch count");
     }
     auto hidden_states = patch_embed_->forward(runtime, pixel_values);

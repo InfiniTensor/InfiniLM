@@ -43,17 +43,17 @@ bool is_moe_layer(const nlohmann::json &config, size_t layer_idx) {
 } // namespace
 
 Ernie45DecoderLayer::Ernie45DecoderLayer(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                          size_t layer_idx,
                                          std::shared_ptr<const Ernie45MropeCache> mrope_cache,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config) {
+                                         const engine::distributed::RankInfo &rank_info,
+                                         backends::AttentionBackend attention_backend,
+                                         const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    const auto &dtype = model_config->get_dtype();
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        const auto &dtype = model_config->get_dtype();
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
         input_layernorm_ = std::make_shared<std::remove_reference_t<decltype(*input_layernorm_)>>(runtime, hidden_size, rms_norm_eps, dtype);
         this->bind_child("input_layernorm", input_layernorm_);
@@ -62,26 +62,28 @@ Ernie45DecoderLayer::Ernie45DecoderLayer(infinilm::runtime::Runtime &runtime,
         self_attn_ = std::make_shared<std::remove_reference_t<decltype(*self_attn_)>>(runtime, model_config, layer_idx, std::move(mrope_cache), rank_info, attention_backend);
         this->bind_child("self_attn", self_attn_);
 
-    use_moe_ = is_moe_layer(model_config->get_config_json(), layer_idx);
-    if (use_moe_) {
+        use_moe_ = is_moe_layer(model_config->get_config_json(), layer_idx);
+        if (use_moe_) {
             mlp_ = std::make_shared<Ernie45MoE>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             this->bind_child("mlp", mlp_);
             // ERNIE also defines an unregistered mlp_text path for pure text tokens when multimodal
             // experts are enabled. This first implementation routes all tokens through mlp.
-    } else {
+        } else {
             mlp_ = std::make_shared<infinilm::layers::mlp::MLP>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             this->bind_child("mlp", mlp_);
         }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Ernie45DecoderLayer::forward(const infinilm::runtime::Tensor &positions,
-                                                                                infinilm::runtime::Tensor &hidden_states,
-                                                                                infinilm::runtime::Tensor &residual,
-                                                                                global_state::ForwardContext &forward_context) {
+                                                                                              infinilm::runtime::Tensor &hidden_states,
+                                                                                              infinilm::runtime::Tensor &residual,
+                                                                                              global_state::ForwardContext &forward_context) {
     auto &runtime = forward_context.require_runtime();
     input_layernorm_->forward_inplace(runtime, hidden_states, residual);
     hidden_states = self_attn_->forward(positions, hidden_states, forward_context);

@@ -14,36 +14,38 @@
 namespace infinilm::models::ernie4_5_vl {
 
 Ernie45Model::Ernie45Model(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config)
+                           std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                           const engine::distributed::RankInfo &rank_info,
+                           backends::AttentionBackend attention_backend,
+                           const layers::moe::EPConfig &ep_config)
     : model_config_(model_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    const auto &dtype = model_config->get_dtype();
-    auto &config_json = model_config->get_config_json();
-    if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
+        const auto &dtype = model_config->get_dtype();
+        auto &config_json = model_config->get_config_json();
+        if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
             resampler_model_ = std::make_shared<std::remove_reference_t<decltype(*resampler_model_)>>(runtime, config_json, dtype);
             this->bind_child("resampler_model", resampler_model_);
-    }
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        }
+        const size_t vocab_size = model_config->get<size_t>("vocab_size");
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
         mrope_cache_ = build_ernie45_mrope_cache(runtime, model_config, runtime.device());
 
         embed_tokens_ = std::make_shared<std::remove_reference_t<decltype(*embed_tokens_)>>(runtime, vocab_size, hidden_size, std::nullopt, dtype);
         this->bind_child("embed_tokens", embed_tokens_);
-    layers_.reserve(num_hidden_layers);
-    for (size_t i = 0; i < num_hidden_layers; ++i) {
+        layers_.reserve(num_hidden_layers);
+        for (size_t i = 0; i < num_hidden_layers; ++i) {
             layers_.push_back(std::make_shared<Ernie45DecoderLayer>(runtime, model_config, i, mrope_cache_, rank_info, attention_backend, ep_config));
             this->bind_child("layers." + std::to_string(i), layers_.back());
-    }
+        }
         norm_ = std::make_shared<std::remove_reference_t<decltype(*norm_)>>(runtime, hidden_size, rms_norm_eps, dtype);
         this->bind_child("norm", norm_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -53,7 +55,8 @@ void Ernie45Model::replace_embeddings(infinilm::runtime::Runtime &runtime,
                                       const infinilm::runtime::Tensor &vision_hidden,
                                       const infinilm::runtime::Tensor &image_bound) const {
     auto bounds_cpu = image_bound->device().type() == infinilm::runtime::Device::Type::kCpu
-        ? image_bound : image_bound->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                        ? image_bound
+                        : image_bound->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
     const int64_t start = bounds[0];
     const int64_t end = bounds[1];
@@ -100,15 +103,15 @@ void Ernie45Model::apply_image_embeddings(infinilm::runtime::Tensor inputs_embed
     }
 
     auto input_offsets_cpu = input.input_offsets.value()->device().type() == infinilm::runtime::Device::Type::kCpu
-        ? input.input_offsets.value()
-        : input.input_offsets.value()->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                               ? input.input_offsets.value()
+                               : input.input_offsets.value()->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     auto *offsets = reinterpret_cast<const int32_t *>(input_offsets_cpu->data());
     std::vector<size_t> visual_token_ranges;
     for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
         const size_t req_id = image_req_ids[image_idx];
         auto bounds_cpu = image_bound[image_idx]->device().type() == infinilm::runtime::Device::Type::kCpu
-            ? image_bound[image_idx]
-            : image_bound[image_idx]->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                            ? image_bound[image_idx]
+                            : image_bound[image_idx]->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
         auto bounds = reinterpret_cast<const int64_t *>(bounds_cpu->data());
         const size_t packed_start = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[0]);
         const size_t packed_end = static_cast<size_t>(offsets[req_id]) + static_cast<size_t>(bounds[1]);
@@ -123,8 +126,8 @@ void Ernie45Model::apply_image_embeddings(infinilm::runtime::Tensor inputs_embed
 }
 
 infinilm::runtime::Tensor Ernie45Model::forward_embeds(infinilm::runtime::Tensor hidden_states,
-                                                const infinilm::runtime::Tensor &positions,
-                                                global_state::ForwardContext &forward_context) const {
+                                                       const infinilm::runtime::Tensor &positions,
+                                                       global_state::ForwardContext &forward_context) const {
     infinilm::runtime::Tensor residual;
     for (auto &layer : layers_) {
         layer->forward(positions, hidden_states, residual, forward_context);
@@ -134,8 +137,8 @@ infinilm::runtime::Tensor Ernie45Model::forward_embeds(infinilm::runtime::Tensor
 }
 
 infinilm::runtime::Tensor Ernie45Model::forward(const InfinilmModel::Input &input,
-                                         global_state::ForwardContext &forward_context,
-                                         const Ernie45VisionModel *vision_model) const {
+                                                global_state::ForwardContext &forward_context,
+                                                const Ernie45VisionModel *vision_model) const {
     auto input_ids = input.input_ids.value();
     auto positions = input.position_ids.value();
     auto hidden_states = embed_tokens_->forward(forward_context.require_runtime(), input_ids);

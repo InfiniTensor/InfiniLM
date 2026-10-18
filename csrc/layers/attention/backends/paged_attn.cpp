@@ -1,16 +1,16 @@
+#include "paged_attn.hpp"
 #include "../../../execution/submit.hpp"
 #include "../attention_checks.hpp"
-#include "paged_attn.hpp"
 #include "attention_layer.hpp"
 
 #include "../../../execution/paged_cache_checks.hpp"
 #include "../../../execution/submit.hpp"
-#include <base/reshape_and_cache_flash.h>
-#include <algorithm>
-#include <limits>
 #include "../../../utils.hpp"
-#include <base/flash_attn_varlen_func.h>
 #include "runtime/runtime.hpp"
+#include <algorithm>
+#include <base/flash_attn_varlen_func.h>
+#include <base/reshape_and_cache_flash.h>
+#include <limits>
 
 namespace infinilm::layers::attention::backends {
 
@@ -27,12 +27,12 @@ PagedAttentionImpl::PagedAttentionImpl(size_t num_heads,
       head_dim_(head_size) {}
 
 infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &layer,
-                                               const infinilm::runtime::Tensor &query,
-                                               const infinilm::runtime::Tensor &key,
-                                               const infinilm::runtime::Tensor &value,
-                                               infinilm::runtime::Tensor &kv_cache,
-                                               const infinilm::global_state::AttentionMetadata &attn_metadata,
-                                               infinilm::runtime::Runtime &runtime) const {
+                                                      const infinilm::runtime::Tensor &query,
+                                                      const infinilm::runtime::Tensor &key,
+                                                      const infinilm::runtime::Tensor &value,
+                                                      infinilm::runtime::Tensor &kv_cache,
+                                                      const infinilm::global_state::AttentionMetadata &attn_metadata,
+                                                      infinilm::runtime::Runtime &runtime) const {
     runtime.assertOwnerThread();
     if (runtime.device() != query->device() || runtime.device() != kv_cache->device()) {
         throw std::invalid_argument("Paged Attention Runtime and tensor devices differ");
@@ -60,8 +60,9 @@ infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &laye
         const auto block_width = block_tables.value()->shape().at(1);
         const auto page_size = k_total->shape().at(1);
         const auto max_length = static_cast<size_t>(std::numeric_limits<int64_t>::max());
-        if (seq_len > max_length || (page_size != 0 && block_width > max_length / page_size))
+        if (seq_len > max_length || (page_size != 0 && block_width > max_length / page_size)) {
             throw std::invalid_argument("Paged prefill maximum length exceeds int64");
+        }
         const auto max_seqlen_k = block_width * page_size;
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
@@ -97,11 +98,11 @@ infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &laye
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> PagedAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
-                                                                                          const infinilm::runtime::Tensor key,
-                                                                                          const infinilm::runtime::Tensor value,
-                                                                                          infinilm::runtime::Tensor &kv_cache,
-                                                                                          const infinilm::runtime::Tensor slot_mapping,
-                                                                                          infinilm::runtime::Runtime &runtime) const {
+                                                                                                        const infinilm::runtime::Tensor key,
+                                                                                                        const infinilm::runtime::Tensor value,
+                                                                                                        infinilm::runtime::Tensor &kv_cache,
+                                                                                                        const infinilm::runtime::Tensor slot_mapping,
+                                                                                                        infinilm::runtime::Runtime &runtime) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
     v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});

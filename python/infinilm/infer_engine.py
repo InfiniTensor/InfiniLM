@@ -3,12 +3,11 @@ import os
 import time
 from dataclasses import dataclass
 
-from . import _core as infinicore
-
 from infinilm.cache import PagedKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.lib import _infinilm
 
+from . import _core as infinicore
 from .exception_utils import handle_oom_and_exit
 from .modeling_utils import _declares_tied_embeddings, parse_dtype
 

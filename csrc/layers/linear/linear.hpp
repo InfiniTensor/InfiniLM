@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../weights/weights.hpp"
 #include "../quantization/quantization.hpp"
 #include "base_linear.hpp"
-#include "../../weights/weights.hpp"
 #include <infiniccl/infiniccl.h>
 #include <optional>
 
@@ -19,7 +19,6 @@ public:
            std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
            bool bias = true,
            const infinilm::runtime::DataType &dtype = infinilm::runtime::DataType::kFloat32);
-
 };
 
 class ColumnParallelLinear : public BaseLinear {

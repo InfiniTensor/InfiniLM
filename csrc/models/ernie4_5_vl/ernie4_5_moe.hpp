@@ -16,12 +16,12 @@ namespace infinilm::models::ernie4_5_vl {
 class Ernie45TopKRouter : public infinilm::weights::ModelWeights {
 public:
     Ernie45TopKRouter(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config);
+                      std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(infinilm::runtime::Runtime &runtime,
-                                                               const infinilm::runtime::Tensor &hidden_states,
-                                                               const infinilm::runtime::Tensor &correction_bias = infinilm::runtime::Tensor(),
-                                                               size_t group_idx = 0) const;
+                                                                             const infinilm::runtime::Tensor &hidden_states,
+                                                                             const infinilm::runtime::Tensor &correction_bias = infinilm::runtime::Tensor(),
+                                                                             size_t group_idx = 0) const;
 
 protected:
     infinilm::weights::Weight weight_;
@@ -33,12 +33,12 @@ protected:
 class Ernie45ExpertMLP : public infinilm::weights::ModelWeights {
 public:
     Ernie45ExpertMLP(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t intermediate_size,
-        const engine::distributed::RankInfo &rank_info);
+                     const engine::distributed::RankInfo &rank_info);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
     void set_alpha(float alpha) { down_proj_->set_alpha(alpha); }
 
 protected:
@@ -50,13 +50,13 @@ protected:
 class Ernie45Experts : public infinilm::weights::ModelWeights {
 public:
     Ernie45Experts(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config);
+                   std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &top_k_index,
-                               const infinilm::runtime::Tensor &top_k_weights,
-                               size_t group_idx = 0) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &top_k_index,
+                                      const infinilm::runtime::Tensor &top_k_weights,
+                                      size_t group_idx = 0) const;
 
 protected:
     infinilm::weights::Weight w1_;
@@ -81,18 +81,18 @@ protected:
 class Ernie45MoE : public infinilm::weights::ModelWeights {
 public:
     Ernie45MoE(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        size_t layer_idx,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config);
+               std::shared_ptr<infinilm::config::ModelConfig> model_config,
+               size_t layer_idx,
+               const engine::distributed::RankInfo &rank_info,
+               backends::AttentionBackend attention_backend,
+               const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                               global_state::ForwardContext &forward_context) const;
+                                      global_state::ForwardContext &forward_context) const;
 
 protected:
     infinilm::runtime::Tensor forward_group(infinilm::runtime::Runtime &runtime,
-                                     const infinilm::runtime::Tensor &hidden_states_2d, size_t group_idx) const;
+                                            const infinilm::runtime::Tensor &hidden_states_2d, size_t group_idx) const;
 
     std::shared_ptr<Ernie45TopKRouter> gate_;
     std::shared_ptr<Ernie45Experts> experts_;

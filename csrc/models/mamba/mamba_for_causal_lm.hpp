@@ -4,13 +4,13 @@
 #include "../../cache/kv_cache.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../layers/embedding/embedding.hpp"
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/moe/ep/ep_config.hpp"
-#include "../infinilm_model.hpp"
-#include "../../layers/embedding/embedding.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
-#include <memory>
+#include "../infinilm_model.hpp"
 #include "mamba_state_routing.hpp"
+#include <memory>
 #include <vector>
 
 namespace infinilm::models::mamba {
@@ -23,8 +23,8 @@ public:
                backends::AttentionBackend attention_backend,
                const layers::moe::EPConfig &ep_config);
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                              const global_state::ForwardContext &forward_context,
-                              const state_routing::Plan *route = nullptr) const;
+                                      const global_state::ForwardContext &forward_context,
+                                      const state_routing::Plan *route = nullptr) const;
     void process_weights_after_loading(infinilm::runtime::Runtime &, bool pre_transpose) override {
         // The model traversal has already processed dt_proj and its other children.
         dt_projection_prepacked_ = pre_transpose;
@@ -55,8 +55,8 @@ public:
                backends::AttentionBackend attention_backend,
                const layers::moe::EPConfig &ep_config);
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                              const global_state::ForwardContext &forward_context,
-                              const state_routing::Plan *route = nullptr) const;
+                                      const global_state::ForwardContext &forward_context,
+                                      const state_routing::Plan *route = nullptr) const;
 
 private:
     std::shared_ptr<infinilm::layers::RMSNorm> norm_;
@@ -71,7 +71,7 @@ public:
                backends::AttentionBackend attention_backend,
                const layers::moe::EPConfig &ep_config);
     infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
-                              const global_state::ForwardContext &forward_context) const;
+                                      const global_state::ForwardContext &forward_context) const;
 
 private:
     size_t routing_channels_;

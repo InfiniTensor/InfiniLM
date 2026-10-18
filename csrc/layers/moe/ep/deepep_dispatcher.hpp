@@ -15,8 +15,8 @@ public:
                             MoeWorkspace &workspace) const override;
 
     infinilm::runtime::Tensor combine(infinilm::runtime::Runtime &runtime,
-                               const CombineInput &combine_input,
-                               MoeWorkspace &workspace) const override;
+                                      const CombineInput &combine_input,
+                                      MoeWorkspace &workspace) const override;
 
     void dispatch_a(const infinilm::runtime::Tensor &hidden_states,
                     const TopKOutput &topk_output) const;

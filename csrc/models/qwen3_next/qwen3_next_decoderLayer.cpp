@@ -1,7 +1,7 @@
-#include "../../layers/normalization/rmsnorm.hpp"
 #include "qwen3_next_decoderLayer.hpp"
-#include <exception>
+#include "../../layers/normalization/rmsnorm.hpp"
 #include "runtime/runtime.hpp"
+#include <exception>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -18,15 +18,17 @@ Qwen3NextDecoderLayer::Qwen3NextDecoderLayer(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
+    }
     const auto dtype = model_config->get_dtype();
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
     const auto layer_types = model_config->get<std::vector<std::string>>("layer_types");
     layer_type_ = layer_types.at(layer_idx);
-    if (layer_type_ != "linear_attention" && layer_type_ != "full_attention")
+    if (layer_type_ != "linear_attention" && layer_type_ != "full_attention") {
         throw std::invalid_argument("Qwen3NextDecoderLayer: unsupported layer_type");
+    }
     try {
         input_layernorm_ = std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype);
         this->bind_child("input_layernorm", input_layernorm_);
@@ -35,26 +37,28 @@ Qwen3NextDecoderLayer::Qwen3NextDecoderLayer(
         mlp_ = std::make_shared<Qwen3NextSparseMoeBlock>(
             runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
         this->bind_child("mlp", mlp_);
-    if ("linear_attention" == layer_type_) {
+        if ("linear_attention" == layer_type_) {
             linear_attn_ = std::make_shared<Qwen3NextGatedDeltaNet>(
                 runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             this->bind_child("linear_attn", linear_attn_);
-    } else {
+        } else {
             self_attn_ = std::make_shared<Qwen3NextAttention>(
                 runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
             this->bind_child("self_attn", self_attn_);
         }
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Qwen3NextDecoderLayer::forward(const infinilm::runtime::Tensor &positions,
-                                                                                  infinilm::runtime::Tensor &hidden_states,
-                                                                                  infinilm::runtime::Tensor &residual,
-    infinilm::global_state::ForwardContext &forward_context) {
+                                                                                                infinilm::runtime::Tensor &hidden_states,
+                                                                                                infinilm::runtime::Tensor &residual,
+                                                                                                infinilm::global_state::ForwardContext &forward_context) {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     if (!hidden_states || hidden_states->device() != runtime.device()
@@ -74,6 +78,5 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Qwen3NextDecode
     hidden_states = mlp_->forward(runtime, hidden_states);
     return std::make_tuple(hidden_states, residual);
 }
-
 
 } // namespace infinilm::models::qwen3_next

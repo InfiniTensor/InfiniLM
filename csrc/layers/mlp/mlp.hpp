@@ -2,11 +2,15 @@
 #include <typeinfo>
 
 #include "../../config/model_config.hpp"
-#include "../linear/linear.hpp"
 #include "../../weights/weights.hpp"
+#include "../linear/linear.hpp"
 
-namespace infinilm::backends { enum class AttentionBackend; }
-namespace infinilm::layers::moe { struct EPConfig; }
+namespace infinilm::backends {
+enum class AttentionBackend;
+}
+namespace infinilm::layers::moe {
+struct EPConfig;
+}
 
 namespace infinilm::layers::mlp {
 
@@ -34,15 +38,13 @@ public:
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                              const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
         result.push_back(gate_up_proj_);
         return result;
     }
-
-
 
     // Module information
     size_t hidden_size() const { return hidden_size_; }

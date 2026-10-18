@@ -4,11 +4,11 @@
 
 #include "../../config/model_config.hpp"
 #include "../../global_state/forward_context.hpp"
-#include "runtime/device.hpp"
 #include "../../weights/weights.hpp"
 #include "../normalization/rmsnorm.hpp"
-#include "runtime/tensor.hpp"
+#include "runtime/device.hpp"
 #include "runtime/runtime.hpp"
+#include "runtime/tensor.hpp"
 #include <memory>
 #include <tuple>
 #include <type_traits>
@@ -26,24 +26,27 @@ class TextDecoderLayer : public infinilm::weights::ModelWeights {
 public:
     TextDecoderLayer(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
                      size_t layer_idx, const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) : layer_idx_(layer_idx) {
-    models::validate_runtime_construction(model_config, runtime, rank_info);
+        models::validate_runtime_construction(model_config, runtime, rank_info);
         try {
 
+            const auto &dtype{model_config->get_dtype()};
+            size_t hidden_size = model_config->get<size_t>("hidden_size");
+            double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-        const auto &dtype{model_config->get_dtype()};
-        size_t hidden_size = model_config->get<size_t>("hidden_size");
-        double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+            input_layernorm_ = this->bind_child("input_layernorm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype));
+            post_attention_layernorm_ = this->bind_child("post_attention_layernorm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype));
 
-        input_layernorm_ = this->bind_child("input_layernorm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype));
-        post_attention_layernorm_ = this->bind_child("post_attention_layernorm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size, rms_norm_eps, dtype));
-
-        self_attn_ = this->bind_child("self_attn", std::make_shared<Attention>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
-        static_assert(std::is_constructible_v<MLP, infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>, size_t, const engine::distributed::RankInfo &, backends::AttentionBackend, const layers::moe::EPConfig &>, "selected MLP requires explicit constructor, no Device fallback");
-        mlp_ = this->bind_child("mlp", std::make_shared<MLP>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
-                if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+            self_attn_ = this->bind_child("self_attn", std::make_shared<Attention>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
+            static_assert(std::is_constructible_v<MLP, infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>, size_t, const engine::distributed::RankInfo &, backends::AttentionBackend, const layers::moe::EPConfig &>, "selected MLP requires explicit constructor, no Device fallback");
+            mlp_ = this->bind_child("mlp", std::make_shared<MLP>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
+            if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+                runtime.syncStream();
+            }
         } catch (...) {
             if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-                try { runtime.syncStream(); } catch (...) { std::terminate(); }
+                try {
+                    runtime.syncStream();
+                } catch (...) { std::terminate(); }
             }
             throw;
         }
@@ -51,7 +54,7 @@ public:
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
         const infinilm::runtime::Tensor &positions,
-                                                               infinilm::runtime::Tensor &hidden_states,
+        infinilm::runtime::Tensor &hidden_states,
         infinilm::runtime::Tensor &residual,
         infinilm::global_state::ForwardContext &forward_context) {
         if (forward_context.runtime == nullptr) {

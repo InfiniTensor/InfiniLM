@@ -5,30 +5,32 @@
 #include "kimi_k3_decoder_layer.hpp"
 
 #include "../../layers/embedding/embedding.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
-#include <runtime/tensor.hpp>
+#include "../../weights/weights.hpp"
 #include <infiniccl/infiniccl.h>
+#include <runtime/tensor.hpp>
 
 #include <memory>
 
-namespace infinilm::global_state { struct ForwardContext; }
+namespace infinilm::global_state {
+struct ForwardContext;
+}
 
 namespace infinilm::models::kimi_k3 {
 
 class KimiK3TextModel : public infinilm::weights::ModelWeights {
 public:
     KimiK3TextModel(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
-                              global_state::ForwardContext &forward_context) const;
+                                      global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor forward_embeds(const infinilm::runtime::Tensor &inputs_embeds,
-                                     global_state::ForwardContext &forward_context) const;
+                                             global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor embed_tokens(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input_ids) const;
     bool is_first_pp_stage() const { return pp_stage_ == 0; }
     bool is_last_pp_stage() const { return pp_stage_ + 1 == pp_size_; }
@@ -44,8 +46,8 @@ private:
     void send_pipeline_state(infinilm::runtime::Runtime &runtime, const PipelineState &state) const;
     infinilm::runtime::Tensor recv_sharded_last_dim(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Shape &shape) const;
     infinilm::runtime::Tensor apply_output_attn_res(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                                             const infinilm::runtime::Tensor &block_residual_storage,
-                                             size_t block_residual_count) const;
+                                                    const infinilm::runtime::Tensor &block_residual_storage,
+                                                    size_t block_residual_count) const;
 
     std::shared_ptr<infinilm::layers::Embedding> embed_tokens_;
     std::vector<std::shared_ptr<KimiK3DecoderLayer>> layers_;

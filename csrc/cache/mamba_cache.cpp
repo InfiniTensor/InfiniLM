@@ -1,8 +1,8 @@
 #include "mamba_cache.hpp"
 #include "../execution/submit.hpp"
 
-#include "kv_cache.hpp"
 #include "../engine/distributed/communication_group.hpp"
+#include "kv_cache.hpp"
 #include "runtime/runtime.hpp"
 #include <exception>
 #include <stdexcept>
@@ -31,8 +31,9 @@ infinilm::runtime::Tensor MambaCache::create_layer_conv_state(
     try {
         if (conv_state->nbytes() != 0) {
             if (conv_state->is_contiguous() && !runtime.isGraphRecording()) {
-                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(conv_state)))
+                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(conv_state))) {
                     throw std::invalid_argument("zero-fill output layout or storage is invalid");
+                }
                 runtime.setDeviceMemoryAsync(conv_state->data(), 0, conv_state->nbytes(), runtime.stream());
             } else {
                 infinilm::execution::submit<infini::ops::Fill>(
@@ -44,7 +45,9 @@ infinilm::runtime::Tensor MambaCache::create_layer_conv_state(
         runtime.syncStream();
     } catch (...) {
         const auto primary = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(primary);
     }
     return conv_state;
@@ -70,8 +73,9 @@ infinilm::runtime::Tensor MambaCache::create_layer_ssm_state(
     try {
         if (ssm_state->nbytes() != 0) {
             if (ssm_state->is_contiguous() && !runtime.isGraphRecording()) {
-                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(ssm_state)))
+                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(ssm_state))) {
                     throw std::invalid_argument("zero-fill output layout or storage is invalid");
+                }
                 runtime.setDeviceMemoryAsync(ssm_state->data(), 0, ssm_state->nbytes(), runtime.stream());
             } else {
                 infinilm::execution::submit<infini::ops::Fill>(
@@ -83,7 +87,9 @@ infinilm::runtime::Tensor MambaCache::create_layer_ssm_state(
         runtime.syncStream();
     } catch (...) {
         const auto primary = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(primary);
     }
     return ssm_state;

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../../engine/distributed/communication_group.hpp"
 #include "../ep/ep_config.hpp"
 #include "base_dispatcher.hpp"
-#include "../../../engine/distributed/communication_group.hpp"
 
 #include <cstddef>
 #include <memory>

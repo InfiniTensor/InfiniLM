@@ -1,8 +1,8 @@
 #pragma once
 
-#include <infini/ops.h>
 #include "execution/graph/graph.hpp"
 #include "runtime/runtime.hpp"
+#include <infini/ops.h>
 #include <infini/rt/device_guard.h>
 
 #include <memory>
@@ -15,7 +15,9 @@
 
 namespace infinilm::execution {
 
-enum class RecordingPolicy { AllowHostReplay, DeviceOnly, HostOnly };
+enum class RecordingPolicy { AllowHostReplay,
+                             DeviceOnly,
+                             HostOnly };
 
 namespace detail {
 
@@ -29,7 +31,9 @@ public:
     }
 
     WorkspaceLease acquire_workspace(std::size_t bytes) const override {
-        if (!bytes) return {};
+        if (!bytes) {
+            return {};
+        }
         auto memory = runtime_.allocateMemory(bytes);
         return {std::shared_ptr<void>(memory, memory->data()), memory->size()};
     }
@@ -43,72 +47,89 @@ private:
     infinilm::runtime::Runtime &runtime_;
 };
 
-template<class T> void check_owner(infinilm::runtime::Runtime &, const T &);
+template <class T>
+void check_owner(infinilm::runtime::Runtime &, const T &);
 
 inline void check_owner(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &tensor) {
-    if (!tensor || tensor->device() != runtime.device())
+    if (!tensor || tensor->device() != runtime.device()) {
         throw std::invalid_argument("Ops submission requires tensors on the owning Runtime device");
+    }
 }
-template<class T>
+template <class T>
 void check_owner(infinilm::runtime::Runtime &runtime, const std::optional<T> &tensor) {
-    if (tensor) check_owner(runtime, *tensor);
+    if (tensor) {
+        check_owner(runtime, *tensor);
+    }
 }
-template<class T>
+template <class T>
 void check_owner(infinilm::runtime::Runtime &runtime, const std::vector<T> &tensors) {
-    for (const auto &tensor : tensors) check_owner(runtime, tensor);
+    for (const auto &tensor : tensors) {
+        check_owner(runtime, tensor);
+    }
 }
-template<class T>
+template <class T>
 void check_owner(infinilm::runtime::Runtime &runtime, const T &value) {
-    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>)
+    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>) {
         check_owner(runtime, static_cast<const infinilm::runtime::Tensor &>(value));
+    }
 }
 
 inline auto view(const infinilm::runtime::Tensor &tensor) {
     return infini::ops::Tensor(const_cast<std::byte *>(tensor->data()),
-                              tensor->shape(), tensor->dtype(), tensor->device(),
-                              tensor->strides());
+                               tensor->shape(), tensor->dtype(), tensor->device(),
+                               tensor->strides());
 }
 inline auto view(const infinilm::execution::graph::GraphTensor &tensor) {
     return view(static_cast<const infinilm::runtime::Tensor &>(tensor));
 }
-template<class T> auto view(const T &value) {
-    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>)
+template <class T>
+auto view(const T &value) {
+    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>) {
         return view(static_cast<const infinilm::runtime::Tensor &>(value));
-    else return value;
+    } else {
+        return value;
+    }
 }
-template<class Tensor>
+template <class Tensor>
 auto view(const std::optional<Tensor> &tensor) {
     using View = decltype(view(*tensor));
     return tensor ? std::optional<View>{view(*tensor)} : std::optional<View>{};
 }
-template<class Tensor>
+template <class Tensor>
 auto view(const std::vector<Tensor> &tensors) {
     using View = decltype(view(std::declval<const Tensor &>()));
     std::vector<View> result;
     result.reserve(tensors.size());
-    for (const auto &tensor : tensors) result.push_back(view(tensor));
+    for (const auto &tensor : tensors) {
+        result.push_back(view(tensor));
+    }
     return result;
 }
 
 inline auto snapshot(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &tensor) {
     return infinilm::execution::graph::GraphTensor{runtime, tensor};
 }
-template<class T> auto snapshot(infinilm::runtime::Runtime &runtime, const T &value) {
-    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>)
+template <class T>
+auto snapshot(infinilm::runtime::Runtime &runtime, const T &value) {
+    if constexpr (std::is_base_of_v<infinilm::runtime::Tensor, T>) {
         return snapshot(runtime, static_cast<const infinilm::runtime::Tensor &>(value));
-    else return value;
+    } else {
+        return value;
+    }
 }
-template<class T>
+template <class T>
 auto snapshot(infinilm::runtime::Runtime &runtime, const std::optional<T> &tensor) {
     using Snapshot = decltype(snapshot(runtime, *tensor));
     return tensor ? std::optional<Snapshot>{snapshot(runtime, *tensor)} : std::optional<Snapshot>{};
 }
-template<class T>
+template <class T>
 auto snapshot(infinilm::runtime::Runtime &runtime, const std::vector<T> &tensors) {
     using Snapshot = decltype(snapshot(runtime, std::declval<const T &>()));
     std::vector<Snapshot> result;
     result.reserve(tensors.size());
-    for (const auto &tensor : tensors) result.push_back(snapshot(runtime, tensor));
+    for (const auto &tensor : tensors) {
+        result.push_back(snapshot(runtime, tensor));
+    }
     return result;
 }
 
@@ -116,7 +137,7 @@ auto snapshot(infinilm::runtime::Runtime &runtime, const std::vector<T> &tensors
 
 // This boundary owns submission resources only. Callers allocate outputs and
 // supply the exact public Ops arguments/configuration; Ops owns computation.
-template<class OpsKey, class... Args>
+template <class OpsKey, class... Args>
 void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
             const infini::ops::Config &config,
             const Args &...args) {
@@ -149,12 +170,14 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
             }
             const auto values = std::apply([](const auto &...args) {
                 return std::make_tuple(detail::view(args)...);
-            }, recorded);
+            },
+                                           recorded);
             std::apply([&](const auto &...args) { (*instance)(handle, args...); }, values);
-        }, capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly));
+        },
+        capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly));
 }
 
-template<class OpsKey, class... Args>
+template <class OpsKey, class... Args>
 void submit(infinilm::runtime::Runtime &runtime, const infini::ops::Config &config,
             const Args &...args) {
     submit<OpsKey>(runtime, RecordingPolicy::AllowHostReplay, config, args...);

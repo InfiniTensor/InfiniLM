@@ -1,6 +1,6 @@
-#include "prepare_state_guard.hpp"
 #include "static_batching_compiler.hpp"
 #include "../../cache/cache.hpp"
+#include "prepare_state_guard.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -14,9 +14,9 @@ size_t static_graph_configured_page_size(
     const infinilm::config::ModelConfig &model_config) {
     const size_t configured_page_size = cache_config.max_cache_len();
     return configured_page_size == 0
-               || configured_page_size == std::numeric_limits<size_t>::max()
-           ? model_config.get<size_t>("max_position_embeddings")
-           : configured_page_size;
+                || configured_page_size == std::numeric_limits<size_t>::max()
+             ? model_config.get<size_t>("max_position_embeddings")
+             : configured_page_size;
 }
 
 size_t require_static_graph_local_cache(
@@ -77,62 +77,65 @@ void StaticBatchingCompiler::compile() {
                                         && model_config->get_or<std::string>("model_type", "") == "minicpm_eagle";
     decltype(compiled_map_) candidate;
     std::vector<size_t> batches{1};
-    if (cache_capacity != 1) batches.push_back(cache_capacity);
+    if (cache_capacity != 1) {
+        batches.push_back(cache_capacity);
+    }
     for (size_t b : batches) {
         PrepareStateGuard prepare_state{
             runtime_, forward_context_, static_prepare_views(runtime_, forward_context_)};
         InfinilmModel::Input input;
         try {
-        input.input_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
-        input.position_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
-        input.past_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
-        input.total_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
-        runtime_.setDeviceMemory(input.input_ids.value()->data(), 0, input.input_ids.value()->nbytes());
-        runtime_.setDeviceMemory(input.position_ids.value()->data(), 0, input.position_ids.value()->nbytes());
-        runtime_.setDeviceMemory(input.past_sequence_lengths.value()->data(), 0, input.past_sequence_lengths.value()->nbytes());
-        std::vector<int32_t> total_sequence_lengths_vec(b, 1);
-        runtime_.memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t), false);
-        StaticDecodeMetadata metadata;
-        metadata.prepare(runtime_, b, cache_capacity, cache_page_size);
-        input.block_tables = metadata.block_tables();
-        input.slot_mapping = metadata.slot_mapping();
-        if (uses_target_hidden_states) {
-            input.target_hidden_states = infinilm::runtime::Tensor::empty(
-                runtime_, {b, 1, model_config->get<size_t>("hidden_size")},
-                model_config->get_dtype());
-            runtime_.setDeviceMemory(input.target_hidden_states.value()->data(), 0,
-                                     input.target_hidden_states.value()->nbytes());
-        }
+            input.input_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
+            input.position_ids = infinilm::runtime::Tensor::empty(runtime_, {b, 1}, infinilm::runtime::DataType::kInt64);
+            input.past_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
+            input.total_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
+            runtime_.setDeviceMemory(input.input_ids.value()->data(), 0, input.input_ids.value()->nbytes());
+            runtime_.setDeviceMemory(input.position_ids.value()->data(), 0, input.position_ids.value()->nbytes());
+            runtime_.setDeviceMemory(input.past_sequence_lengths.value()->data(), 0, input.past_sequence_lengths.value()->nbytes());
+            std::vector<int32_t> total_sequence_lengths_vec(b, 1);
+            runtime_.memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t), false);
+            StaticDecodeMetadata metadata;
+            metadata.prepare(runtime_, b, cache_capacity, cache_page_size);
+            input.block_tables = metadata.block_tables();
+            input.slot_mapping = metadata.slot_mapping();
+            if (uses_target_hidden_states) {
+                input.target_hidden_states = infinilm::runtime::Tensor::empty(
+                    runtime_, {b, 1, model_config->get<size_t>("hidden_size")},
+                    model_config->get_dtype());
+                runtime_.setDeviceMemory(input.target_hidden_states.value()->data(), 0,
+                                         input.target_hidden_states.value()->nbytes());
+            }
 
-        forward_context_.attn_metadata = {
-            input.past_sequence_lengths,
-            input.total_sequence_lengths,
-            input.input_offsets,
-            input.cu_seqlens,
-            input.block_tables,
-            input.slot_mapping,
-        };
-        forward_context_.attn_metadata.first_past_sequence_length = 0;
-        forward_context_.attn_metadata.first_total_sequence_length = 1;
-        forward_context_.attn_metadata.static_decode_host =
-            global_state::StaticDecodeHostDescription{true, true};
+            forward_context_.attn_metadata = {
+                input.past_sequence_lengths,
+                input.total_sequence_lengths,
+                input.input_offsets,
+                input.cu_seqlens,
+                input.block_tables,
+                input.slot_mapping,
+            };
+            forward_context_.attn_metadata.first_past_sequence_length = 0;
+            forward_context_.attn_metadata.first_total_sequence_length = 1;
+            forward_context_.attn_metadata.static_decode_host = global_state::StaticDecodeHostDescription{true, true};
 
-        barrier_->wait();
-        (void)model_->forward(input, forward_context_);
-        runtime_.syncStream();
+            barrier_->wait();
+            (void)model_->forward(input, forward_context_);
+            runtime_.syncStream();
 
-        GraphRecordingGuard recording{runtime_};
-        auto output = model_->forward(input, forward_context_);
-        auto graph = recording.finish();
-        barrier_->wait();
+            GraphRecordingGuard recording{runtime_};
+            auto output = model_->forward(input, forward_context_);
+            auto graph = recording.finish();
+            barrier_->wait();
 
-        auto shared_output = snapshot_output(output);
+            auto shared_output = snapshot_output(output);
 
-        prepare_state.restore();
-        candidate[std::make_tuple(b, 1)] = CompiledResult{
-            std::move(input), std::make_tuple(graph, shared_output), std::move(metadata)};
+            prepare_state.restore();
+            candidate[std::make_tuple(b, 1)] = CompiledResult{
+                std::move(input), std::make_tuple(graph, shared_output), std::move(metadata)};
         } catch (...) {
-            try { runtime_.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime_.syncStream();
+            } catch (...) { std::terminate(); }
             throw;
         }
     }
@@ -153,8 +156,7 @@ StaticBatchingCompiler::Compiled StaticBatchingCompiler::get_compiled(
         } else {
             auto &graph_input = result->second.input;
             const auto copy_source_device_allowed = [this](const infinilm::runtime::Tensor &source) {
-                return source && (source->device() == runtime_.device()
-                    || source->device().type() == infinilm::runtime::Device::Type::kCpu);
+                return source && (source->device() == runtime_.device() || source->device().type() == infinilm::runtime::Device::Type::kCpu);
             };
             const bool graph_has_target_hidden_states = graph_input.target_hidden_states.has_value();
             const bool input_has_target_hidden_states = input.target_hidden_states.has_value();

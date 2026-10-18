@@ -3,8 +3,8 @@
 
 #include "../../layers/common_modules.hpp"
 #include "../../layers/normalization/layer_norm.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
 #include <memory>
 #include <nlohmann/json.hpp>
@@ -13,12 +13,12 @@ namespace infinilm::models::ernie4_5_vl {
 class Ernie45VisionLayerNorm : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionLayerNorm(infinilm::runtime::Runtime &runtime,
-        size_t normalized_shape,
+                           size_t normalized_shape,
                            double eps,
                            const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     infinilm::weights::Weight weight_;
@@ -29,11 +29,11 @@ private:
 class Ernie45VisionPatchEmbed : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionPatchEmbed(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                            const nlohmann::json &config,
                             const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> proj_;
@@ -42,13 +42,13 @@ private:
 class Ernie45VisionAttention : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionAttention(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                           const nlohmann::json &config,
                            const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &row_position_ids,
-                               const infinilm::runtime::Tensor &col_position_ids) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &row_position_ids,
+                                      const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
     size_t hidden_size_{1280};
@@ -64,11 +64,11 @@ private:
 class Ernie45VisionMLP : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionMLP(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                     const nlohmann::json &config,
                      const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc1_;
@@ -78,13 +78,13 @@ private:
 class Ernie45VisionBlock : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionBlock(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                       const nlohmann::json &config,
                        const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &row_position_ids,
-                               const infinilm::runtime::Tensor &col_position_ids) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &row_position_ids,
+                                      const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
     std::shared_ptr<Ernie45VisionLayerNorm> norm1_;
@@ -96,16 +96,16 @@ private:
 class Ernie45VisionModel : public infinilm::weights::ModelWeights {
 public:
     Ernie45VisionModel(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                       const nlohmann::json &config,
                        const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 private:
     infinilm::runtime::Tensor build_rotary_position_ids(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &grid_thw) const;
+                                                        const infinilm::runtime::Tensor &grid_thw) const;
 
     size_t spatial_merge_size_{2};
 
@@ -117,12 +117,12 @@ private:
 class Ernie45ResamplerModel : public infinilm::weights::ModelWeights {
 public:
     Ernie45ResamplerModel(infinilm::runtime::Runtime &runtime,
-        const nlohmann::json &config,
+                          const nlohmann::json &config,
                           const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &image_features,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &image_features,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> spatial_linear_0_;

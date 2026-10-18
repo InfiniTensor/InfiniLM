@@ -1,8 +1,8 @@
-#include "execution/submit.hpp"
 #include "minicpm4_for_causal_lm.hpp"
 #include "../../global_state/global_state.hpp"
-#include "runtime/runtime.hpp"
 #include "../models_registry.hpp"
+#include "execution/submit.hpp"
+#include "runtime/runtime.hpp"
 
 #include <cmath>
 #include <exception>
@@ -24,61 +24,67 @@ float residual_scale(const std::shared_ptr<infinilm::config::ModelConfig> &model
 } // namespace
 
 MiniCPM4Attention::MiniCPM4Attention(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                      size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config)
+                                     const engine::distributed::RankInfo &rank_info,
+                                     backends::AttentionBackend attention_backend,
+                                     const layers::moe::EPConfig &ep_config)
     : Attention(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config) {
     try {
-    o_proj_->set_alpha(residual_scale(model_config));
+        o_proj_->set_alpha(residual_scale(model_config));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 MiniCPM4MLP::MiniCPM4MLP(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config)
+                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                         size_t layer_idx,
+                         const engine::distributed::RankInfo &rank_info,
+                         backends::AttentionBackend attention_backend,
+                         const layers::moe::EPConfig &ep_config)
     : MLP(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config) {
     try {
-    down_proj_->set_alpha(residual_scale(model_config));
+        down_proj_->set_alpha(residual_scale(model_config));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 MiniCPM4DecoderLayer::MiniCPM4DecoderLayer(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                           std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                            size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config) {
+                                           const engine::distributed::RankInfo &rank_info,
+                                           backends::AttentionBackend attention_backend,
+                                           const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    const auto &dtype = model_config->get_dtype();
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        const auto &dtype = model_config->get_dtype();
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-        input_layernorm_ = this->bind_child("input_layernorm", std::make_shared<std::remove_reference_t<decltype(*input_layernorm_ )>>(runtime, hidden_size, rms_norm_eps, dtype));
-        self_attn_ = this->bind_child("self_attn", std::make_shared<std::remove_reference_t<decltype(*self_attn_ )>>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
-        post_attention_layernorm_ = this->bind_child("post_attention_layernorm", std::make_shared<std::remove_reference_t<decltype(*post_attention_layernorm_ )>>(runtime, hidden_size, rms_norm_eps, dtype));
-        mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_ )>>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
+        input_layernorm_ = this->bind_child("input_layernorm", std::make_shared<std::remove_reference_t<decltype(*input_layernorm_)>>(runtime, hidden_size, rms_norm_eps, dtype));
+        self_attn_ = this->bind_child("self_attn", std::make_shared<std::remove_reference_t<decltype(*self_attn_)>>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
+        post_attention_layernorm_ = this->bind_child("post_attention_layernorm", std::make_shared<std::remove_reference_t<decltype(*post_attention_layernorm_)>>(runtime, hidden_size, rms_norm_eps, dtype));
+        mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(runtime, model_config, layer_idx, rank_info, attention_backend, ep_config));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> MiniCPM4DecoderLayer::forward(const infinilm::runtime::Tensor &positions,
-                                                                                 infinilm::runtime::Tensor &hidden_states,
-                                                                                 infinilm::runtime::Tensor &residual,
-                                                                                 global_state::ForwardContext &forward_context) {
+                                                                                               infinilm::runtime::Tensor &hidden_states,
+                                                                                               infinilm::runtime::Tensor &residual,
+                                                                                               global_state::ForwardContext &forward_context) {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     input_layernorm_->forward_inplace(runtime, hidden_states, residual);
@@ -89,8 +95,8 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> MiniCPM4Decoder
 }
 
 infinilm::runtime::Tensor MiniCPM4DecoderLayer::forward(const infinilm::runtime::Tensor &positions,
-                                                 infinilm::runtime::Tensor &hidden_states,
-                                                 global_state::ForwardContext &forward_context) {
+                                                        infinilm::runtime::Tensor &hidden_states,
+                                                        global_state::ForwardContext &forward_context) {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto residual = hidden_states;
@@ -118,32 +124,34 @@ infinilm::runtime::Tensor MiniCPM4DecoderLayer::forward(const infinilm::runtime:
 }
 
 MiniCPM4Model::MiniCPM4Model(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config) {
+                             std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                             const engine::distributed::RankInfo &rank_info,
+                             backends::AttentionBackend attention_backend,
+                             const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    const auto &dtype = model_config->get_dtype();
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        const auto &dtype = model_config->get_dtype();
+        const size_t vocab_size = model_config->get<size_t>("vocab_size");
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-        embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<std::remove_reference_t<decltype(*embed_tokens_ )>>(runtime, vocab_size, hidden_size, std::nullopt, dtype));
-    layers_.reserve(num_hidden_layers);
-    for (size_t i = 0; i < num_hidden_layers; ++i) {
+        embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<std::remove_reference_t<decltype(*embed_tokens_)>>(runtime, vocab_size, hidden_size, std::nullopt, dtype));
+        layers_.reserve(num_hidden_layers);
+        for (size_t i = 0; i < num_hidden_layers; ++i) {
             layers_.push_back(this->bind_child("layers." + std::to_string(i), std::make_shared<MiniCPM4DecoderLayer>(runtime, model_config, i, rank_info, attention_backend, ep_config)));
-    }
-        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_ )>>(runtime, hidden_size, rms_norm_eps, dtype));
+        }
+        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_)>>(runtime, hidden_size, rms_norm_eps, dtype));
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor MiniCPM4Model::forward(const infinilm::InfinilmModel::Input &input,
-                                      global_state::ForwardContext &forward_context) const {
+                                                 global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto input_ids = input.input_ids.value();
@@ -160,26 +168,28 @@ infinilm::runtime::Tensor MiniCPM4Model::forward(const infinilm::InfinilmModel::
 }
 
 MiniCPM4ForCausalLM::MiniCPM4ForCausalLM(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config) {
+                                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                         const engine::distributed::RankInfo &rank_info,
+                                         backends::AttentionBackend attention_backend,
+                                         const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    model_config_ = model_config;
-    const auto &dtype = model_config->get_dtype();
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
+        model_config_ = model_config;
+        const auto &dtype = model_config->get_dtype();
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t vocab_size = model_config->get<size_t>("vocab_size");
 
-        model_ = this->bind_child("model", std::make_shared<std::remove_reference_t<decltype(*model_ )>>(runtime, model_config, rank_info, attention_backend, ep_config));
-        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_ )>>(runtime, hidden_size, vocab_size, false, dtype));
+        model_ = this->bind_child("model", std::make_shared<std::remove_reference_t<decltype(*model_)>>(runtime, model_config, rank_info, attention_backend, ep_config));
+        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype));
 
-    if (model_config->get_config_json().contains("dim_model_base")) {
-        const float dim_model_base = model_config->get<float>("dim_model_base");
-        lm_head_->set_alpha(dim_model_base / static_cast<float>(hidden_size));
-    }
+        if (model_config->get_config_json().contains("dim_model_base")) {
+            const float dim_model_base = model_config->get<float>("dim_model_base");
+            lm_head_->set_alpha(dim_model_base / static_cast<float>(hidden_size));
+        }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

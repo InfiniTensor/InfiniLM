@@ -3,19 +3,19 @@
 #undef NDEBUG
 #endif
 
-#include "../../csrc/models/minicpm4/minicpm4_for_causal_lm.hpp"
 #include "../../csrc/global_state/global_state.hpp"
-#include "runtime/runtime.hpp"
+#include "../../csrc/models/minicpm4/minicpm4_for_causal_lm.hpp"
 #include "runtime/context.hpp"
+#include "runtime/runtime.hpp"
 
 #include "../../csrc/layers/linear/base_linear.hpp"
-#include <exception>
-#include <thread>
 #include <cassert>
 #include <cstdio>
+#include <exception>
 #include <map>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -89,18 +89,16 @@ void check(bool transpose, infinilm::runtime::Runtime &runtime,
            const std::shared_ptr<infinilm::global_state::InfinilmConfig> &settings,
            const infinilm::engine::distributed::RankInfo &rank) {
     auto config = std::make_shared<infinilm::config::ModelConfig>(nlohmann::json{
-        {"model_type", "minicpm4"}, {"dtype", "float32"},
-        {"hidden_size", 32}, {"vocab_size", 64}, {"head_dim", 16}, {"intermediate_size", 48},
-        {"num_attention_heads", 2}, {"num_key_value_heads", 1},
-        {"num_hidden_layers", 1}, {"max_position_embeddings", 64},
-        {"rms_norm_eps", 1e-5}, {"rope_theta", 10000.0},
-        {"attention_bias", false}, {"mlp_bias", false}});
+        {"model_type", "minicpm4"}, {"dtype", "float32"}, {"hidden_size", 32}, {"vocab_size", 64}, {"head_dim", 16}, {"intermediate_size", 48}, {"num_attention_heads", 2}, {"num_key_value_heads", 1}, {"num_hidden_layers", 1}, {"max_position_embeddings", 64}, {"rms_norm_eps", 1e-5}, {"rope_theta", 10000.0}, {"attention_bias", false}, {"mlp_bias", false}});
     settings->model_config = config;
     // The explicit post-load argument, not the opposite configuration value, selects the layout.
     settings->pre_transpose = !transpose;
     ModelProbe model{runtime, config, rank, settings->attention_backend, infinilm::layers::moe::EPConfig{}};
 
-    struct Weight { infinilm::runtime::Shape shape; std::vector<float> values; };
+    struct Weight {
+        infinilm::runtime::Shape shape;
+        std::vector<float> values;
+    };
     std::map<std::string, Weight> originals;
     for (auto [name, tensor] : model.state_dict()) {
         auto contiguous = tensor->contiguous(runtime);
@@ -154,16 +152,21 @@ public:
         infinilm::runtime::Runtime &runtime, infinilm::quantization::ParamsMap &params,
         bool transpose, int split_dim) const override {
         ++typed_calls;
-        if (fail_) throw FirstQuantError();
+        if (fail_) {
+            throw FirstQuantError();
+        }
         return NoneQuantization::process_weights_after_loading(runtime, params, transpose, split_dim);
     }
     mutable size_t typed_calls = 0;
+
 private:
     bool fail_;
 };
 
 void typed_require(bool ok, const char *message) {
-    if (!ok) throw std::runtime_error(message);
+    if (!ok) {
+        throw std::runtime_error(message);
+    }
 }
 
 void check_forward_context_dispatch() {
@@ -199,9 +202,12 @@ void typed_load(infinilm::runtime::Runtime &runtime, infinilm::nn::BaseLinear &l
     runtime.memcpyH2D(linear.bias()->data(), bias, sizeof(bias), false);
 }
 
-template<class Fn> void typed_rejected(Fn &&fn) {
+template <class Fn>
+void typed_rejected(Fn &&fn) {
     bool rejected = false;
-    try { fn(); } catch (const std::exception &) { rejected = true; }
+    try {
+        fn();
+    } catch (const std::exception &) { rejected = true; }
     typed_require(rejected, "typed operation unexpectedly accepted");
 }
 
@@ -213,8 +219,8 @@ void typed_success_case(infinilm::runtime::Runtime &runtime, bool first_mode, bo
     module->process_weights_after_loading(runtime, first_mode);
     runtime.syncStream();
     const std::vector<float> expected_weight = first_mode
-        ? std::vector<float>{1, 3, 5, 2, 4, 6}
-        : std::vector<float>{1, 2, 3, 4, 5, 6};
+                                                 ? std::vector<float>{1, 3, 5, 2, 4, 6}
+                                                 : std::vector<float>{1, 2, 3, 4, 5, 6};
     typed_require(linear.weight()->shape() == (first_mode ? infinilm::runtime::Shape{2, 3} : infinilm::runtime::Shape{3, 2}), "typed NONE shape");
     typed_require(typed_read(runtime, linear.weight()) == expected_weight, "typed NONE raw markers");
     typed_require(typed_read(runtime, linear.bias()) == std::vector<float>{7, 8, 9}, "typed NONE bias changed");
@@ -237,8 +243,9 @@ void typed_throw_case(infinilm::runtime::Runtime &runtime) {
     typed_load(runtime, linear);
     infinilm::weights::ModelWeights *module = &linear;
     bool original_error = false;
-    try { module->process_weights_after_loading(runtime, false); }
-    catch (const FirstQuantError &error) { original_error = std::string(error.what()) == "typed-postload-first-quant-error"; }
+    try {
+        module->process_weights_after_loading(runtime, false);
+    } catch (const FirstQuantError &error) { original_error = std::string(error.what()) == "typed-postload-first-quant-error"; }
     typed_require(original_error && quant->typed_calls == 1, "first quant exception replaced");
     typed_rejected([&] { module->process_weights_after_loading(runtime, true); });
     typed_require(quant->typed_calls == 1, "failed attempt latch did not stop re-entry");
@@ -266,8 +273,11 @@ void typed_no_matching_tls() {
             int previous_index = 0;
             const bool had_device = infini::rt::runtime::GetDevice(&previous_index) == infini::rt::runtime::kSuccess;
             auto runtime = infinilm::runtime::Runtime::create(Device{Device::Type::kNvidia, 0});
-            for (bool first : {false, true}) for (bool repeat : {false, true})
-                typed_success_case(*runtime, first, repeat);
+            for (bool first : {false, true}) {
+                for (bool repeat : {false, true}) {
+                    typed_success_case(*runtime, first, repeat);
+                }
+            }
             typed_throw_case(*runtime);
             typed_preflight_case(*runtime);
             runtime->syncStream();
@@ -275,12 +285,15 @@ void typed_no_matching_tls() {
             if (had_device) {
                 int current_index = -1;
                 typed_require(infini::rt::runtime::GetDevice(&current_index) == infini::rt::runtime::kSuccess
-                    && current_index == previous_index, "typed path changed RT device index");
+                                  && current_index == previous_index,
+                              "typed path changed RT device index");
             }
         } catch (...) { failure = std::current_exception(); }
     });
     worker.join();
-    if (failure) std::rethrow_exception(failure);
+    if (failure) {
+        std::rethrow_exception(failure);
+    }
     std::puts("typed post-load Module dispatch NONE false/true repeat/throw/preflight no-Runtime-binding PASS");
 }
 

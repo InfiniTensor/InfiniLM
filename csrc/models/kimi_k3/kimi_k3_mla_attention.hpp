@@ -15,14 +15,14 @@ namespace infinilm::models::kimi_k3 {
 class KimiK3MLAAttention : public infinilm::weights::ModelWeights {
 public:
     KimiK3MLAAttention(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                               global_state::ForwardContext &forward_context) const;
+                                      global_state::ForwardContext &forward_context) const;
 
 private:
     size_t layer_idx_{0};

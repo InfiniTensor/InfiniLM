@@ -9,10 +9,10 @@ namespace infinilm::models::qwen3_5 {
 class Qwen35ForCausalLM : public InfinilmModel {
 public:
     Qwen35ForCausalLM(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+                      std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                      const engine::distributed::RankInfo &rank_info,
+                      backends::AttentionBackend attention_backend,
+                      const layers::moe::EPConfig &ep_config);
 
     Output forward(const Input &input,
                    global_state::ForwardContext &forward_context) const override;

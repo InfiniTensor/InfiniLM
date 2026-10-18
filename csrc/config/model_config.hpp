@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../utils.hpp"
 #include "../layers/rotary_embedding/rope.hpp"
+#include "../utils.hpp"
 #include "quant_config.hpp"
 #include <fstream>
 #include <functional>

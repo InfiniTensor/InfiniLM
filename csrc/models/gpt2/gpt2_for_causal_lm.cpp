@@ -1,12 +1,12 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/embedding/embedding.hpp"
-#include "../../layers/normalization/layer_norm.hpp"
 #include "gpt2_for_causal_lm.hpp"
 #include "../../global_state/forward_context.hpp"
-#include "runtime/runtime.hpp"
 #include "../../layers/attention/attention.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../weights/weights.hpp"
 #include "../models_registry.hpp"
+#include "execution/submit.hpp"
+#include "runtime/runtime.hpp"
 #include <cmath>
 #include <exception>
 #include <limits>
@@ -17,10 +17,13 @@ void validate_gpt2_resources(infinilm::runtime::Runtime &runtime,
                              const std::shared_ptr<config::ModelConfig> &config,
                              const engine::distributed::RankInfo &rank) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("GPT2 construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("GPT2 construction requires eager Runtime");
+    }
     if (!config || rank.device != runtime.device() || rank.tp_size <= 0
-        || rank.tp_rank < 0 || rank.tp_rank >= rank.tp_size || (rank.tp_size > 1 && !rank.comm))
+        || rank.tp_rank < 0 || rank.tp_rank >= rank.tp_size || (rank.tp_size > 1 && !rank.comm)) {
         throw std::invalid_argument("Invalid explicit GPT2 construction resources");
+    }
 }
 } // namespace
 
@@ -39,35 +42,48 @@ create_gpt2_model_config(std::shared_ptr<infinilm::config::ModelConfig> config) 
     j["num_attention_heads"] = j.value("num_attention_heads", j.value("n_head", 12));
     const auto hidden = config->get<int64_t>("hidden_size");
     const auto heads = config->get<int64_t>("num_attention_heads");
-    if (hidden <= 0 || heads <= 0 || hidden % heads != 0 || config->get<int64_t>("num_hidden_layers") < 0)
+    if (hidden <= 0 || heads <= 0 || hidden % heads != 0 || config->get<int64_t>("num_hidden_layers") < 0) {
         throw std::invalid_argument("GPT2 requires valid hidden/head/layer dimensions");
-    if (static_cast<size_t>(hidden) > std::numeric_limits<size_t>::max() / 4)
+    }
+    if (static_cast<size_t>(hidden) > std::numeric_limits<size_t>::max() / 4) {
         throw std::length_error("GPT2 default intermediate size overflow");
+    }
     j["num_key_value_heads"] = j["num_attention_heads"];
     j["head_dim"] = j["hidden_size"].get<size_t>() / j["num_attention_heads"].get<size_t>();
     j["max_position_embeddings"] = j.value("max_position_embeddings", j.value("n_positions", 1024));
     j["intermediate_size"] = !j.contains("n_inner") || j.at("n_inner").is_null()
-        ? nlohmann::json(4 * j["hidden_size"].get<size_t>()) : j.at("n_inner");
+                               ? nlohmann::json(4 * j["hidden_size"].get<size_t>())
+                               : j.at("n_inner");
     j["layer_norm_eps"] = j.value("layer_norm_epsilon", 1e-5);
     j["attention_bias"] = true;
     j["attention_output_bias"] = false;
     j["mlp_bias"] = true;
-    for (const char *key : {"vocab_size", "max_position_embeddings", "intermediate_size"})
-        if (config->get<int64_t>(key) <= 0) throw std::invalid_argument(std::string("GPT2 requires positive ") + key);
+    for (const char *key : {"vocab_size", "max_position_embeddings", "intermediate_size"}) {
+        if (config->get<int64_t>(key) <= 0) {
+            throw std::invalid_argument(std::string("GPT2 requires positive ") + key);
+        }
+    }
     const double epsilon = config->get<double>("layer_norm_eps");
-    if (!std::isfinite(epsilon) || epsilon <= 0) throw std::invalid_argument("GPT2 requires valid LayerNorm epsilon");
+    if (!std::isfinite(epsilon) || epsilon <= 0) {
+        throw std::invalid_argument("GPT2 requires valid LayerNorm epsilon");
+    }
     j["activation_function"] = j.value("activation_function", std::string("gelu_new"));
     const auto activation = config->get<std::string>("activation_function");
-    if (activation != "gelu_new" && activation != "gelu_tanh" && activation != "gelu")
+    if (activation != "gelu_new" && activation != "gelu_tanh" && activation != "gelu") {
         throw std::invalid_argument("GPT2 does not implement activation " + activation);
-    if (j.value("add_cross_attention", false))
+    }
+    if (j.value("add_cross_attention", false)) {
         throw std::invalid_argument("GPT2 does not implement add_cross_attention");
-    if (!j.value("scale_attn_weights", true))
+    }
+    if (!j.value("scale_attn_weights", true)) {
         throw std::invalid_argument("GPT2 requires scale_attn_weights=true");
-    if (j.value("scale_attn_by_inverse_layer_idx", false))
+    }
+    if (j.value("scale_attn_by_inverse_layer_idx", false)) {
         throw std::invalid_argument("GPT2 does not implement scale_attn_by_inverse_layer_idx");
-    if (j.value("reorder_and_upcast_attn", false))
+    }
+    if (j.value("reorder_and_upcast_attn", false)) {
         throw std::invalid_argument("GPT2 does not implement reorder_and_upcast_attn");
+    }
 
     return config;
 }
@@ -81,8 +97,9 @@ GPT2Attention::GPT2Attention(infinilm::runtime::Runtime &runtime,
     (void)ep;
     if (backend != backends::AttentionBackend::STATIC_ATTN
         && backend != backends::AttentionBackend::PAGED_ATTN
-        && backend != backends::AttentionBackend::FLASH_ATTN)
+        && backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit GPT2 Attention backend");
+    }
     const auto &dtype = config->get_dtype();
     hidden_size_ = config->get<size_t>("hidden_size");
     num_heads_ = config->get<size_t>("num_attention_heads");
@@ -98,14 +115,14 @@ GPT2Attention::GPT2Attention(infinilm::runtime::Runtime &runtime,
 
     num_heads_ = total_num_heads / tp_size;
     num_kv_heads_ = total_num_kv_heads < static_cast<size_t>(tp_size)
-        ? 1
-        : total_num_kv_heads / tp_size;
+                      ? 1
+                      : total_num_kv_heads / tp_size;
 
     auto register_fn = [this](const std::string &name, infinilm::weights::Weight param) {
         this->bind_weight(name, std::move(param));
     };
     try {
-    qkv_proj_ = std::make_shared<infinilm::layers::linear::QKVParallelLinear>(
+        qkv_proj_ = std::make_shared<infinilm::layers::linear::QKVParallelLinear>(
             runtime, hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
             "q_proj", "k_proj", "v_proj", register_fn, quantization_method, use_bias, dtype, rank_info);
         o_proj_ = std::make_shared<infinilm::layers::linear::RowParallelLinear>(
@@ -115,23 +132,25 @@ GPT2Attention::GPT2Attention(infinilm::runtime::Runtime &runtime,
         o_proj_bias_ = infinilm::weights::Weight(runtime, {hidden_size_}, dtype);
         this->bind_weight("o_proj_bias", o_proj_bias_);
 
-    infinilm::layers::attention::init_kv_cache_quant_params(
+        infinilm::layers::attention::init_kv_cache_quant_params(
             runtime, register_fn, kv_cache_k_scale_, kv_cache_v_scale_, config->get_kv_quant_scheme());
 
-    const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+        const float scale = 1.0f / std::sqrt(static_cast<float>(head_dim_));
         attention_backend_ = backend;
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
             num_heads_, head_dim_, scale, num_kv_heads_, layer_idx_, kv_cache_k_scale_, kv_cache_v_scale_,
             attention_backend_, config->get_kv_quant_scheme());
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor GPT2Attention::forward(const infinilm::runtime::Tensor &positions,
-                                          const infinilm::runtime::Tensor &hidden_states,
-                                          infinilm::global_state::ForwardContext &forward_context) const {
+                                                 const infinilm::runtime::Tensor &hidden_states,
+                                                 infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     (void)positions;
@@ -195,13 +214,15 @@ GPT2MLP::GPT2MLP(infinilm::runtime::Runtime &runtime,
         c_proj_bias_ = infinilm::weights::Weight(runtime, {hidden_size}, dtype);
         this->bind_weight("c_proj_bias", c_proj_bias_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor GPT2MLP::forward(infinilm::runtime::Runtime &runtime,
-                                   const infinilm::runtime::Tensor &hidden_states) const {
+                                           const infinilm::runtime::Tensor &hidden_states) const {
     runtime.assertOwnerThread();
     auto x = hidden_states;
     x = c_fc_->forward(runtime, x);
@@ -251,14 +272,16 @@ GPT2Block::GPT2Block(infinilm::runtime::Runtime &runtime,
         mlp_ = std::make_shared<GPT2MLP>(runtime, config, rank);
         this->bind_child("mlp", mlp_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor GPT2Block::forward(const infinilm::runtime::Tensor &positions,
-                                      const infinilm::runtime::Tensor &hidden_states,
-                                      infinilm::global_state::ForwardContext &forward_context) const {
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto residual = hidden_states;
@@ -299,21 +322,23 @@ GPT2Model::GPT2Model(infinilm::runtime::Runtime &runtime,
         this->bind_child("embed_tokens", embed_tokens_);
         embed_positions_ = std::make_shared<infinilm::layers::Embedding>(runtime, max_position_embeddings, hidden_size, std::nullopt, dtype);
         this->bind_child("embed_positions", embed_positions_);
-    layers_.reserve(num_hidden_layers);
-    for (size_t i = 0; i < num_hidden_layers; ++i) {
+        layers_.reserve(num_hidden_layers);
+        for (size_t i = 0; i < num_hidden_layers; ++i) {
             layers_.push_back(std::make_shared<GPT2Block>(runtime, config, i, rank, backend, ep));
             this->bind_child("layers." + std::to_string(i), layers_.back());
-    }
+        }
         norm_ = std::make_shared<infinilm::layers::LayerNorm>(runtime, hidden_size, layer_norm_eps, dtype);
         this->bind_child("norm", norm_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor GPT2Model::forward(const infinilm::InfinilmModel::Input &input,
-                                     infinilm::global_state::ForwardContext &forward_context) const {
+                                             infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto input_ids = input.input_ids.value();
@@ -352,7 +377,9 @@ GPT2ForCausalLM::GPT2ForCausalLM(infinilm::runtime::Runtime &runtime,
         lm_head_ = std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, hidden_size, vocab_size, false, dtype);
         this->bind_child("lm_head", lm_head_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

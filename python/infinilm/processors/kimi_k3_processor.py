@@ -1,11 +1,11 @@
 import json
 import os
 
-from .. import _core as infinicore
 import torch
 from transformers import AutoProcessor, AutoTokenizer
 from typing_extensions import override
 
+from .. import _core as infinicore
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor

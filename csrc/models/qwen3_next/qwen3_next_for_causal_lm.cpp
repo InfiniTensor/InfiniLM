@@ -1,11 +1,11 @@
 #include "qwen3_next_for_causal_lm.hpp"
 #include "../../global_state/forward_context.hpp"
+#include "../models_registry.hpp"
+#include "qwen3_next_allocate_kv_cache_tensors.hpp"
 #include "runtime/runtime.hpp"
 #include <cmath>
 #include <exception>
 #include <limits>
-#include "../models_registry.hpp"
-#include "qwen3_next_allocate_kv_cache_tensors.hpp"
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -27,8 +27,9 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(
         if (type == "full_attention") {
             const size_t heads = model_config->get<size_t>("num_attention_heads");
             const size_t kv = model_config->get<size_t>("num_key_value_heads");
-            if (heads % tp || (kv >= tp ? kv % tp : tp % kv))
+            if (heads % tp || (kv >= tp ? kv % tp : tp % kv)) {
                 throw std::invalid_argument("Qwen3Next: invalid full-attention TP geometry");
+            }
         } else if (model_config->get<size_t>("linear_num_key_heads") % tp
                    || model_config->get<size_t>("linear_num_value_heads") % tp) {
             throw std::invalid_argument("Qwen3Next: invalid linear-attention TP geometry");
@@ -36,8 +37,9 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(
     }
     if (model_config->get<size_t>("shared_expert_intermediate_size") % tp
         || (ep_config.backend == layers::moe::EPBackend::Disabled
-            && model_config->get<size_t>("moe_intermediate_size") % tp))
+            && model_config->get<size_t>("moe_intermediate_size") % tp)) {
         throw std::invalid_argument("Qwen3Next: invalid expert TP geometry");
+    }
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const size_t vocab_size = model_config->get<size_t>("vocab_size");
     const auto dtype = model_config->get_dtype();
@@ -50,7 +52,9 @@ Qwen3NextForCausalLM::Qwen3NextForCausalLM(
         this->bind_child("lm_head", lm_head_);
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
@@ -93,13 +97,16 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
         throw std::runtime_error("infinilm::models::qwen3_next::create_qwen3_next_model_config: model_type is not qwen3_next");
     }
     const auto positive = [&model_config](const char *key) {
-        if (model_config->get<int64_t>(key) <= 0)
+        if (model_config->get<int64_t>(key) <= 0) {
             throw std::invalid_argument(std::string("Qwen3Next requires positive ") + key);
+        }
         return model_config->get<size_t>(key);
     };
     const size_t limit = std::numeric_limits<size_t>::max();
     const auto product = [limit](size_t a, size_t b) {
-        if (b && a > limit / b) throw std::length_error("Qwen3Next construction size overflow");
+        if (b && a > limit / b) {
+            throw std::length_error("Qwen3Next construction size overflow");
+        }
         return a * b;
     };
     const size_t hidden = positive("hidden_size");
@@ -107,52 +114,64 @@ std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_next_model_config(st
     (void)product(hidden, positive("vocab_size"));
     const auto dtype = model_config->get_dtype();
     if (dtype != infinilm::runtime::DataType::kFloat32 && dtype != infinilm::runtime::DataType::kFloat16
-        && dtype != infinilm::runtime::DataType::kBFloat16)
+        && dtype != infinilm::runtime::DataType::kBFloat16) {
         throw std::invalid_argument("Qwen3Next requires floating model dtype");
+    }
     const double eps = model_config->get<double>("rms_norm_eps");
-    if (!std::isfinite(eps) || eps <= 0)
+    if (!std::isfinite(eps) || eps <= 0) {
         throw std::invalid_argument("Qwen3Next requires finite positive rms_norm_eps");
+    }
 
     nlohmann::json &config_json = model_config->get_config_json();
     if (!config_json.contains("layer_types")) {
         const size_t interval = positive("full_attention_interval");
         std::vector<std::string> layer_types;
         layer_types.reserve(layers);
-        for (size_t i = 0; i < layers; i++)
+        for (size_t i = 0; i < layers; i++) {
             layer_types.push_back(bool((i + 1) % interval) ? "linear_attention" : "full_attention");
-        config_json["layer_types"] = std::move(layer_types);
         }
+        config_json["layer_types"] = std::move(layer_types);
+    }
     const auto layer_types = model_config->get<std::vector<std::string>>("layer_types");
-    if (layer_types.size() != layers)
+    if (layer_types.size() != layers) {
         throw std::invalid_argument("Qwen3Next layer_types must match num_hidden_layers");
+    }
     for (const auto &type : layer_types) {
         if (type == "full_attention") {
             const size_t heads = positive("num_attention_heads"), kv = positive("num_key_value_heads");
             const size_t dim = positive("head_dim");
-            if (heads % kv || dim < 2)
+            if (heads % kv || dim < 2) {
                 throw std::invalid_argument("Qwen3Next full-attention head geometry is invalid");
+            }
             (void)positive("max_position_embeddings");
             (void)product(product(heads, dim), hidden);
         } else if (type == "linear_attention") {
             const size_t key_heads = positive("linear_num_key_heads"), value_heads = positive("linear_num_value_heads");
             const size_t key_dim = product(key_heads, positive("linear_key_head_dim"));
             const size_t value_dim = product(value_heads, positive("linear_value_head_dim"));
-            if (value_heads % key_heads || key_dim > (limit - value_dim) / 2)
+            if (value_heads % key_heads || key_dim > (limit - value_dim) / 2) {
                 throw std::invalid_argument("Qwen3Next linear-attention head geometry is invalid");
+            }
             const int64_t kernel = model_config->get<int64_t>("linear_conv_kernel_dim");
-            if (kernel < 0) throw std::invalid_argument("Qwen3Next requires nonnegative linear_conv_kernel_dim");
+            if (kernel < 0) {
+                throw std::invalid_argument("Qwen3Next requires nonnegative linear_conv_kernel_dim");
+            }
             (void)product(key_dim * 2 + value_dim, static_cast<size_t>(kernel));
             (void)product(hidden, key_dim * 2 + value_dim);
             (void)product(hidden, value_dim);
         } else {
             throw std::invalid_argument("Qwen3Next unsupported layer_type: " + type);
-    }
+        }
     }
     const size_t experts = positive("num_experts"), topk = positive("num_experts_per_tok");
-    if (topk > experts) throw std::invalid_argument("Qwen3Next top-k exceeds num_experts");
+    if (topk > experts) {
+        throw std::invalid_argument("Qwen3Next top-k exceeds num_experts");
+    }
     (void)product(product(positive("moe_intermediate_size"), 2), hidden);
     (void)product(product(positive("shared_expert_intermediate_size"), 2), hidden);
-    if (!config_json.contains("attention_bias")) config_json["attention_bias"] = false;
+    if (!config_json.contains("attention_bias")) {
+        config_json["attention_bias"] = false;
+    }
     return model_config;
 }
 

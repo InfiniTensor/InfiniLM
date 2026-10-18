@@ -1,5 +1,5 @@
-#include "execution/submit.hpp"
 #include "../../models/models_registry.hpp"
+#include "execution/submit.hpp"
 #include <exception>
 #pragma once
 
@@ -57,36 +57,39 @@ namespace infinilm::layers::causal_lm_templates {
 template <typename Model>
 class TextCausalLM : public InfinilmModel {
 public:
-
     TextCausalLM(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
-                     const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info);
+                 const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
+        models::validate_runtime_construction(model_config, runtime, rank_info);
         const auto head_output_dtype = detail::prepare_lm_head_output_dtype(
             *model_config, runtime.device(), model_config->get_dtype());
         int32_t shift_value = -1;
         infinilm::runtime::Tensor shift_host; // Live until BODY catch drain or successful fence.
         try {
 
-        model_config_ = model_config;
+            model_config_ = model_config;
 
-        size_t hidden_size = model_config->get<size_t>("hidden_size");
-        size_t vocab_size = model_config->get<size_t>("vocab_size");
-        const auto &dtype{model_config->get_dtype()};
-        pp_size_ = static_cast<size_t>(rank_info.pp_size);
-        pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
+            size_t hidden_size = model_config->get<size_t>("hidden_size");
+            size_t vocab_size = model_config->get<size_t>("vocab_size");
+            const auto &dtype{model_config->get_dtype()};
+            pp_size_ = static_cast<size_t>(rank_info.pp_size);
+            pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
 
-        model_ = this->bind_child("model", std::make_shared<Model>(runtime, model_config, rank_info, attention_backend, ep_config));
-        if (is_last_pp_stage()) {
-            lm_head_ = this->bind_child("lm_head", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, hidden_size, vocab_size, false, dtype, head_output_dtype));
-            shift_host = infinilm::runtime::Tensor::from_blob(&shift_value, {1}, infinilm::runtime::DataType::kInt32,
-                infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
-            last_token_shift_ = infinilm::runtime::Tensor::empty(runtime, {1}, infinilm::runtime::DataType::kInt32);
-            last_token_shift_->copy_from(runtime, shift_host);
-        }
-                if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+            model_ = this->bind_child("model", std::make_shared<Model>(runtime, model_config, rank_info, attention_backend, ep_config));
+            if (is_last_pp_stage()) {
+                lm_head_ = this->bind_child("lm_head", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, hidden_size, vocab_size, false, dtype, head_output_dtype));
+                shift_host = infinilm::runtime::Tensor::from_blob(&shift_value, {1}, infinilm::runtime::DataType::kInt32,
+                                                                  infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                last_token_shift_ = infinilm::runtime::Tensor::empty(runtime, {1}, infinilm::runtime::DataType::kInt32);
+                last_token_shift_->copy_from(runtime, shift_host);
+            }
+            if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+                runtime.syncStream();
+            }
         } catch (...) {
             if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-                try { runtime.syncStream(); } catch (...) { std::terminate(); }
+                try {
+                    runtime.syncStream();
+                } catch (...) { std::terminate(); }
             }
             throw;
         }
@@ -140,7 +143,7 @@ public:
     }
 
     infinilm::runtime::Tensor logits_from_hidden(infinilm::runtime::Runtime &runtime,
-                                         const infinilm::runtime::Tensor &hidden_states) const {
+                                                 const infinilm::runtime::Tensor &hidden_states) const {
         if (!lm_head_) {
             throw std::runtime_error("TextCausalLM::logits_from_hidden called on a non-last pipeline stage");
         }

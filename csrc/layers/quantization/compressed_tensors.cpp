@@ -1,6 +1,6 @@
 #include "compressed_tensors.hpp"
-#include "runtime/runtime.hpp"
 #include "execution/submit.hpp"
+#include "runtime/runtime.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -47,28 +47,29 @@ infinilm::runtime::Tensor CompressedTensors::forward(
     }
 
     for (const auto &tensor : {input, weight, weight_scale}) {
-        if (!tensor || tensor->device() != runtime.device())
+        if (!tensor || tensor->device() != runtime.device()) {
             throw std::invalid_argument("W8A8 tensors must belong to the supplied Runtime");
+        }
     }
-    if (bias_opt && (!*bias_opt || (*bias_opt)->device() != runtime.device()))
+    if (bias_opt && (!*bias_opt || (*bias_opt)->device() != runtime.device())) {
         throw std::invalid_argument("W8A8 bias must belong to the supplied Runtime");
+    }
     infinilm::runtime::Tensor input_contiguous;
     auto effective_weight_scale = weight_scale;
     infinilm::runtime::Tensor output, input_packed, input_scale;
     try {
         input_contiguous = input->contiguous(runtime);
-    if (std::fabs(alpha - 1.0f) > 1e-7f) {
+        if (std::fabs(alpha - 1.0f) > 1e-7f) {
             effective_weight_scale = infinilm::runtime::Tensor::empty(runtime, weight_scale->shape(), weight_scale->dtype());
             infinilm::execution::submit<infini::ops::MulScalar>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::MulScalar::DefaultConfig(runtime.device().type()),
                 weight_scale, static_cast<double>(alpha), effective_weight_scale);
             INFINILM_TRACE_OP(MulScalar, effective_weight_scale);
-    }
-        if (input_contiguous->ndim() == 0 || weight->ndim() != 2 ||
-            input_contiguous->size(input_contiguous->ndim() - 1) != weight->size(1) ||
-            weight->size(1) == 0)
+        }
+        if (input_contiguous->ndim() == 0 || weight->ndim() != 2 || input_contiguous->size(input_contiguous->ndim() - 1) != weight->size(1) || weight->size(1) == 0) {
             throw std::invalid_argument("W8A8 input and weight geometry differ");
+        }
         const auto out_features = weight->size(0);
         const auto in_features = weight->size(1);
         auto output_shape = input_contiguous->shape();
@@ -82,20 +83,22 @@ infinilm::runtime::Tensor CompressedTensors::forward(
             batch = 0;
         } else {
             for (auto dim = shape.begin(); dim != last; ++dim) {
-                if (batch > std::numeric_limits<infinilm::runtime::Size>::max() / *dim)
+                if (batch > std::numeric_limits<infinilm::runtime::Size>::max() / *dim) {
                     throw std::length_error("W8A8 batch size overflows");
+                }
                 batch *= *dim;
             }
         }
         input_packed = infinilm::runtime::Tensor::empty(runtime,
-            {batch, in_features}, infinilm::runtime::DataType::kInt8);
+                                                        {batch, in_features}, infinilm::runtime::DataType::kInt8);
         input_scale = infinilm::runtime::Tensor::empty(runtime,
-            {batch, 1}, infinilm::runtime::DataType::kFloat32);
+                                                       {batch, 1}, infinilm::runtime::DataType::kFloat32);
         auto input_view = input_contiguous->view({batch, in_features});
         auto output_view = output->view({batch, out_features});
         auto weight_view = weight->permute({1, 0});
-        if (bias_opt)
+        if (bias_opt) {
             bias_opt = std::make_optional(bias_opt.value()->as_strided({batch, out_features}, {0, 1}));
+        }
         try {
             infinilm::execution::submit<infini::ops::PerChannelQuantI8>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
@@ -110,14 +113,18 @@ infinilm::runtime::Tensor CompressedTensors::forward(
         } catch (...) {
             // Keep submitted operands alive through the original failure-only drain.
             const auto failure = std::current_exception();
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
             std::rethrow_exception(failure);
         }
         return output;
     } catch (...) {
         // Glue temporaries remain owned while previously submitted work drains.
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }

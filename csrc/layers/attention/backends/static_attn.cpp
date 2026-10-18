@@ -1,17 +1,17 @@
-#include "../../../execution/submit.hpp"
-#include "../../../execution/paged_cache_checks.hpp"
-#include <base/reshape_and_cache_flash.h>
-#include <algorithm>
-#include <base/gemm.h>
 #include "static_attn.hpp"
+#include "../../../execution/paged_cache_checks.hpp"
+#include "../../../execution/submit.hpp"
 #include "../../../utils.hpp"
-#include "attention_layer.hpp"
-#include <base/flash_attn_varlen_func.h>
-#include "runtime/runtime.hpp"
 #include "../attention_checks.hpp"
+#include "attention_layer.hpp"
+#include "runtime/runtime.hpp"
+#include <algorithm>
+#include <base/flash_attn_varlen_func.h>
+#include <base/gemm.h>
+#include <base/reshape_and_cache_flash.h>
 #include <cstring>
-#include <stdexcept>
 #include <limits>
+#include <stdexcept>
 
 namespace infinilm::layers::attention::backends {
 namespace {
@@ -59,12 +59,12 @@ StaticAttentionImpl::StaticAttentionImpl(size_t num_heads,
       head_dim_(head_size), kv_quant_scheme_(kv_quant_scheme) {}
 
 infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
-                                                infinilm::runtime::Tensor &q_rope,
-                                                infinilm::runtime::Tensor &k_reshaped,
-                                                infinilm::runtime::Tensor &v_reshaped,
-                                                infinilm::runtime::Tensor &kv_cache,
-                                                const infinilm::global_state::AttentionMetadata &attn_metadata,
-                                                infinilm::runtime::Runtime &runtime) const {
+                                                       infinilm::runtime::Tensor &q_rope,
+                                                       infinilm::runtime::Tensor &k_reshaped,
+                                                       infinilm::runtime::Tensor &v_reshaped,
+                                                       infinilm::runtime::Tensor &kv_cache,
+                                                       const infinilm::global_state::AttentionMetadata &attn_metadata,
+                                                       infinilm::runtime::Runtime &runtime) const {
     runtime.assertOwnerThread();
     if (runtime.device() != q_rope->device() || runtime.device() != kv_cache->device()) {
         throw std::invalid_argument("Static Attention Runtime and tensor devices differ");
@@ -94,12 +94,10 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     const auto &window_size = layer.window_size();
     const bool finite_window = window_size[0] >= 0;
     bool varlen_candidate = finite_window;
-    varlen_candidate = varlen_candidate || (prefill && seq_len > 1
-        && kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE
-        && (q_rope->dtype() == infinilm::runtime::DataType::kFloat16
-            || q_rope->dtype() == infinilm::runtime::DataType::kBFloat16));
-    if (finite_window && seq_len > 1 && !prefill)
+    varlen_candidate = varlen_candidate || (prefill && seq_len > 1 && kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE && (q_rope->dtype() == infinilm::runtime::DataType::kFloat16 || q_rope->dtype() == infinilm::runtime::DataType::kBFloat16));
+    if (finite_window && seq_len > 1 && !prefill) {
         throw std::invalid_argument("Static finite window requires validated prefill row/past/total metadata");
+    }
     if (prefill) {
         if (seq_len <= 1 || batch_size != prefill->batch_size
             || seq_len != prefill->query_length
@@ -126,8 +124,9 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             && use_cache_decode_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata, runtime, window_size)) {
             return forward_decode_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata, runtime, window_size);
         }
-        if (finite_window)
+        if (finite_window) {
             throw std::invalid_argument("Static finite window decode has no supported cache provider; global fallback is forbidden");
+        }
         const auto &host = attn_metadata.static_decode_host;
         if (batch_size != kv_cache->size(1)
             || (host && (!host->identity_rows || !host->uniform_lengths))) {
@@ -147,27 +146,27 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         runtime,
         attn_metadata.first_total_sequence_length,
         attn_metadata.total_sequence_lengths);
-    if (varlen_candidate && (batch_size == 0 || total_seq_len == 0
-        || seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size
-        || total_seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size))
+    if (varlen_candidate && (batch_size == 0 || total_seq_len == 0 || seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size || total_seq_len > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch_size)) {
         throw std::invalid_argument("Static finite window cumulative lengths exceed int32");
+    }
 
     // update static kv cache
     // k_total:  [bs, n_kv_head, max_seq_len, head_dim]
     // v_total : [bs, n_kv_head, max_seq_len, head_dim]
     auto cache_for_update = prefill && batch_size == 1
-        ? kv_cache->narrow({{1, prefill->physical_row, 1}}) : kv_cache;
+                              ? kv_cache->narrow({{1, prefill->physical_row, 1}})
+                              : kv_cache;
     auto [k_total, v_total] = do_kv_cache_update(
         layer, k_permuted, v_permuted, cache_for_update, cache_pos, runtime);
 
-        if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
-            infinilm::KVQuantUtils::dequantize(
+    if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
+        infinilm::KVQuantUtils::dequantize(
             runtime, k_total, v_total,
-                this->kv_quant_scheme_,
-                k_scale,
-                v_scale,
-                q_reshaped);
-        }
+            this->kv_quant_scheme_,
+            k_scale,
+            v_scale,
+            q_reshaped);
+    }
 
     k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
     v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
@@ -188,15 +187,17 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         V = V->view({batch_size * total_seq_len, num_kv_heads_, value_head_dim});
         if (!cu_q) {
             q_offsets.resize(batch_size + 1);
-            for (size_t i = 0; i <= batch_size; ++i)
+            for (size_t i = 0; i <= batch_size; ++i) {
                 q_offsets[i] = static_cast<int32_t>(i * seq_len);
+            }
             cu_q = infinilm::runtime::Tensor::empty(runtime, {batch_size + 1}, infinilm::runtime::DataType::kInt32);
             runtime.memcpyH2D((*cu_q)->data(), q_offsets.data(), q_offsets.size() * sizeof(int32_t), false);
         }
         if (!cu_k) {
             k_offsets.resize(batch_size + 1);
-            for (size_t i = 0; i <= batch_size; ++i)
+            for (size_t i = 0; i <= batch_size; ++i) {
                 k_offsets[i] = static_cast<int32_t>(i * total_seq_len);
+            }
             cu_k = infinilm::runtime::Tensor::empty(runtime, {batch_size + 1}, infinilm::runtime::DataType::kInt32);
             runtime.memcpyH2D((*cu_k)->data(), k_offsets.data(), k_offsets.size() * sizeof(int32_t), false);
         }
@@ -211,24 +212,26 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             0.0, std::optional<double>{scale_}, true, window_size, 0.0, false, false,
             out, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
         const bool supported = finite_window || std::apply([&](const auto &...args) {
-            return infini::ops::FlashAttnVarlenFunc::CanMake(
-                config, infinilm::execution::detail::view(args)...);
-        }, arguments);
+                                   return infini::ops::FlashAttnVarlenFunc::CanMake(
+                                       config, infinilm::execution::detail::view(args)...);
+                               },
+                                                           arguments);
         if (supported) {
             std::apply([&](const auto &...args) {
                 infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
                     runtime, infinilm::execution::RecordingPolicy::DeviceOnly, config, args...);
-            }, arguments);
+            },
+                       arguments);
             INFINILM_TRACE_OP(MultiheadAttentionVarlen, out);
             return out->view({batch_size, seq_len, num_heads_ * value_head_dim});
         }
     }
 
     // Compute attention.
-        size_t ngroup = num_heads_ / num_kv_heads_;
+    size_t ngroup = num_heads_ / num_kv_heads_;
     auto Q = q_reshaped->contiguous(runtime)->view({batch_size * num_kv_heads_, ngroup * seq_len, head_dim_});
-        auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
-        auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, value_head_dim});
+    auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
+    auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, value_head_dim});
 
     auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
@@ -237,12 +240,12 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     const auto gemm_device = runtime.device().type();
     const auto selected = infini::ops::Gemm::DefaultConfig(gemm_device);
     const bool full_fp32 = q_reshaped->dtype() == infinilm::runtime::DataType::kFloat32
-        && !infini::ops::Gemm::active_implementation_indices(gemm_device).empty()
-        && infini::ops::GemmConfig::SupportsFp32Precision(gemm_device, selected.implementation_index(),
-            infini::ops::GemmConfig::Fp32Precision::FullFp32);
+                        && !infini::ops::Gemm::active_implementation_indices(gemm_device).empty()
+                        && infini::ops::GemmConfig::SupportsFp32Precision(gemm_device, selected.implementation_index(),
+                                                                          infini::ops::GemmConfig::Fp32Precision::FullFp32);
     infini::ops::GemmConfig gemm_config{full_fp32
-        ? infini::ops::GemmConfig::Fp32Precision::FullFp32
-        : infini::ops::GemmConfig::Fp32Precision::DefaultFast};
+                                            ? infini::ops::GemmConfig::Fp32Precision::FullFp32
+                                            : infini::ops::GemmConfig::Fp32Precision::DefaultFast};
     gemm_config.set_implementation_index(selected.implementation_index());
     auto attn_weight_shape = Q->shape();
     attn_weight_shape[Q->ndim() - 1] = K_transposed->size(Q->ndim() - 1);
@@ -254,14 +257,16 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         std::optional<float>{0.0F}, std::optional<int>{}, std::optional<int>{}, attn_weight);
     INFINILM_TRACE_OP(Gemm, attn_weight); // [bs * n_kv_head, ng * seq_len, total_seq_len]
 
-        auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, seq_len, total_seq_len});
+    auto attn_weight_softmax = attn_weight->view({batch_size * num_heads_, seq_len, total_seq_len});
     {
-        if (seq_len > total_seq_len)
+        if (seq_len > total_seq_len) {
             throw std::invalid_argument("causal_softmax has unsupported shape or dtype");
+        }
         std::optional<infinilm::runtime::Tensor> causal_mask;
-        if (seq_len != 1)
+        if (seq_len != 1) {
             causal_mask = infinilm::runtime::Tensor::empty(
                 runtime, {seq_len, total_seq_len}, attn_weight_softmax->dtype());
+        }
         const auto causal_device = runtime.device().type();
         constexpr auto causal_policy = infinilm::execution::RecordingPolicy::DeviceOnly;
         if (causal_mask) {
@@ -299,10 +304,10 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     INFINILM_TRACE_OP(Gemm, out); // [bs * n_kv_head, ng * seq_len, value_head_dim]
 
     return out->view({batch_size, num_heads_, seq_len, value_head_dim})
-                          ->permute({0, 2, 1, 3})
+        ->permute({0, 2, 1, 3})
         ->contiguous(runtime)
         ->view({batch_size, seq_len, num_heads_ * value_head_dim}); // [bs, seq_len, n_q_head * value_head_dim]
-    }
+}
 
 bool StaticAttentionImpl::use_cache_decode_(
     const infinilm::runtime::Tensor &query, const infinilm::runtime::Tensor &key,
@@ -332,12 +337,12 @@ bool StaticAttentionImpl::use_cache_decode_(
         throw std::invalid_argument("Invalid static decode metadata layout");
     }
     bool matches = decode_choice_ && decode_choice_->runtime == &runtime
-        && decode_choice_->window_size == window_size;
+                && decode_choice_->window_size == window_size;
     for (size_t i = 0; matches && i < tensors.size(); ++i) {
         const auto &tensor = *tensors[i];
         const auto &layout = decode_choice_->layouts[i];
         matches = layout.shape == tensor->shape() && layout.strides == tensor->strides()
-            && layout.dtype == tensor->dtype();
+               && layout.dtype == tensor->dtype();
     }
     if (matches) {
         return decode_choice_->fused;
@@ -350,7 +355,9 @@ bool StaticAttentionImpl::use_cache_decode_(
     };
     DecodeChoice choice{{layout(query), layout(key), layout(value), layout(kv_cache),
                          layout(lengths), layout(blocks), layout(slots)},
-                        &runtime, window_size, false};
+                        &runtime,
+                        window_size,
+                        false};
     auto k_cache = kv_cache->narrow({{0, 0, 1}})->squeeze(0)->permute({0, 2, 1, 3});
     auto v_cache = kv_cache->narrow({{0, 1, 1}})->squeeze(0)->permute({0, 2, 1, 3});
     auto k = key->permute({0, 2, 1, 3})->squeeze(1);
@@ -378,16 +385,18 @@ bool StaticAttentionImpl::use_cache_decode_(
             int64_t{0}, false, infinilm::execution::detail::view(out), kv_none);
     }
     choice.fused = attention_supported
-        && [&]() {
-            if (infini::ops::ReshapeAndCacheFlash::active_implementation_indices(runtime.device().type()).empty()) return false;
-            const auto config = infini::ops::ReshapeAndCacheFlash::DefaultConfig(runtime.device().type());
-            const infini::ops::Tensor unused{nullptr, {1}, infinilm::runtime::DataType::kFloat32, runtime.device()};
-            const std::string mode{"auto"};
-            return infini::ops::ReshapeAndCacheFlash::CanMake(
-                config, infinilm::execution::detail::view(k), infinilm::execution::detail::view(v),
-                infinilm::execution::detail::view(*metadata.slot_mapping), unused, unused, mode,
-                infinilm::execution::detail::view(k_cache), infinilm::execution::detail::view(v_cache));
-        }();
+                && [&]() {
+                       if (infini::ops::ReshapeAndCacheFlash::active_implementation_indices(runtime.device().type()).empty()) {
+                           return false;
+                       }
+                       const auto config = infini::ops::ReshapeAndCacheFlash::DefaultConfig(runtime.device().type());
+                       const infini::ops::Tensor unused{nullptr, {1}, infinilm::runtime::DataType::kFloat32, runtime.device()};
+                       const std::string mode{"auto"};
+                       return infini::ops::ReshapeAndCacheFlash::CanMake(
+                           config, infinilm::execution::detail::view(k), infinilm::execution::detail::view(v),
+                           infinilm::execution::detail::view(*metadata.slot_mapping), unused, unused, mode,
+                           infinilm::execution::detail::view(k_cache), infinilm::execution::detail::view(v_cache));
+                   }();
     decode_choice_ = std::move(choice);
     return decode_choice_->fused;
 }
@@ -456,11 +465,11 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward_decode_(
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> StaticAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
-                                                                                           const infinilm::runtime::Tensor key,
-                                                                                           const infinilm::runtime::Tensor value,
-                                                                                           infinilm::runtime::Tensor &kv_cache,
-                                                                                           size_t cache_pos,
-                                                                                           infinilm::runtime::Runtime &runtime) const {
+                                                                                                         const infinilm::runtime::Tensor key,
+                                                                                                         const infinilm::runtime::Tensor value,
+                                                                                                         infinilm::runtime::Tensor &kv_cache,
+                                                                                                         size_t cache_pos,
+                                                                                                         infinilm::runtime::Runtime &runtime) const {
 
     auto batch_size = key->size(0);
     auto update_len = key->size(2);

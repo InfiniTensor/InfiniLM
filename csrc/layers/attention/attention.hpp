@@ -3,21 +3,25 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
-#include "../linear/linear.hpp"
-#include "backends/attention_layer.hpp"
 #include "../../weights/weights.hpp"
+#include "../linear/linear.hpp"
 #include "../rotary_embedding/rope.hpp"
+#include "backends/attention_layer.hpp"
 #include "runtime/tensor.hpp"
 #include <memory>
 
-namespace infinilm::layers::moe { struct EPConfig; }
+namespace infinilm::layers::moe {
+struct EPConfig;
+}
 
 namespace infinilm::layers::attention {
 class Attention : public infinilm::weights::ModelWeights {
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (qkv_proj_) result.push_back(qkv_proj_);
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
         return result;
     }
 
@@ -32,8 +36,6 @@ public:
         const infinilm::runtime::Tensor &hidden_states,
         infinilm::global_state::ForwardContext &forward_context) const;
 
-
-
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
     size_t num_kv_heads() const { return num_key_value_heads_; }
@@ -42,12 +44,12 @@ public:
 
 private:
     infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &positions,
-                                       const infinilm::runtime::Tensor &hidden_states,
-                                       infinilm::global_state::ForwardContext &forward_context) const;
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              infinilm::global_state::ForwardContext &forward_context) const;
 
     infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &positions,
-                                      const infinilm::runtime::Tensor &hidden_states,
-                                      infinilm::global_state::ForwardContext &forward_context) const;
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             infinilm::global_state::ForwardContext &forward_context) const;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;

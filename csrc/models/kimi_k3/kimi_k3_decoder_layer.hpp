@@ -4,38 +4,40 @@
 #include "kimi_k3_mla_attention.hpp"
 #include "kimi_k3_moe.hpp"
 
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include <runtime/tensor.hpp>
 
 #include <memory>
 #include <utility>
 
-namespace infinilm::global_state { struct ForwardContext; }
+namespace infinilm::global_state {
+struct ForwardContext;
+}
 
 namespace infinilm::models::kimi_k3 {
 
 class KimiK3DecoderLayer : public infinilm::weights::ModelWeights {
 public:
     KimiK3DecoderLayer(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &block_residual_storage,
-                              size_t &block_residual_count,
-                              global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &block_residual_storage,
+                                      size_t &block_residual_count,
+                                      global_state::ForwardContext &forward_context) const;
 
 private:
     infinilm::runtime::Tensor apply_attn_res(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &prefix_sum,
-                                      const infinilm::runtime::Tensor &block_residual_storage,
-                                      size_t block_residual_count,
-                                      const std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> &proj,
-                                      const std::shared_ptr<infinilm::layers::RMSNorm> &norm) const;
+                                             const infinilm::runtime::Tensor &block_residual_storage,
+                                             size_t block_residual_count,
+                                             const std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> &proj,
+                                             const std::shared_ptr<infinilm::layers::RMSNorm> &norm) const;
 
     size_t layer_idx_{0};
     size_t hidden_size_{0};

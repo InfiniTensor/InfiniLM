@@ -22,9 +22,9 @@ protected:
 
 public:
     FusedMoeExperts(infinilm::runtime::Runtime &runtime,
-                   std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                   const engine::distributed::RankInfo &rank_info,
-                   const EPConfig &ep_config);
+                    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                    const engine::distributed::RankInfo &rank_info,
+                    const EPConfig &ep_config);
 
     const MoeWeights &moe_weights() const;
 

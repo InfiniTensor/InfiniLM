@@ -1,14 +1,14 @@
 #pragma once
 
-#include "../../config/model_config.hpp"
 #include "../../backends/attention_backends.hpp"
-#include "../../layers/moe/common/moe_types.hpp"
+#include "../../config/model_config.hpp"
 #include "../../layers/linear/linear.hpp"
+#include "../../layers/moe/common/moe_types.hpp"
 #include "../../layers/moe/router/topk_router.hpp"
 
-#include <infiniccl/infiniccl.h>
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
+#include <infiniccl/infiniccl.h>
 #include <runtime/tensor.hpp>
 
 #include <memory>
@@ -26,18 +26,19 @@ class KimiK3MLP : public infinilm::weights::ModelWeights {
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (gate_up_proj_) result.push_back(gate_up_proj_);
+        if (gate_up_proj_) {
+            result.push_back(gate_up_proj_);
+        }
         return result;
     }
 
     KimiK3MLP(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-              size_t intermediate_size,
-    const engine::distributed::RankInfo &rank_info);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t intermediate_size,
+        const engine::distributed::RankInfo &rank_info);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
-
 
 private:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
@@ -50,9 +51,9 @@ private:
 class KimiK3Experts : public infinilm::weights::ModelWeights {
 public:
     KimiK3Experts(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info);
 
     const KimiK3Mxfp4MoeWeights &mxfp4_weights() const;
 
@@ -71,12 +72,12 @@ private:
 class KimiK3MoE : public infinilm::weights::ModelWeights {
 public:
     KimiK3MoE(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-              size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const;
 

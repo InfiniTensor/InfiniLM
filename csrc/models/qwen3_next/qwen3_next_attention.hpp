@@ -1,7 +1,7 @@
 #pragma once
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
 
@@ -14,21 +14,22 @@ protected:
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (qkv_proj_) result.push_back(qkv_proj_);
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
         return result;
     }
 
     Qwen3NextAttention(infinilm::runtime::Runtime &runtime,
-                   std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                       std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        size_t layer_idx,
-                   const engine::distributed::RankInfo &rank_info,
-                   backends::AttentionBackend attention_backend,
-                   const layers::moe::EPConfig &ep_config);
+                       const engine::distributed::RankInfo &rank_info,
+                       backends::AttentionBackend attention_backend,
+                       const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               infinilm::global_state::ForwardContext &forward_context) const;
-
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
@@ -38,11 +39,11 @@ public:
 
 protected:
     infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &position_ids,
-                                       const infinilm::runtime::Tensor &hidden_states,
-                                       infinilm::global_state::ForwardContext &forward_context) const;
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              infinilm::global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &position_ids,
-                                      const infinilm::runtime::Tensor &hidden_states,
-                                      infinilm::global_state::ForwardContext &forward_context) const;
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             infinilm::global_state::ForwardContext &forward_context) const;
 
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;

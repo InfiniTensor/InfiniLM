@@ -1,8 +1,8 @@
+#include "topk_router.hpp"
+#include "../../../execution/submit.hpp"
 #include "../../../weights/weights.hpp"
 #include "../../linear/dense.hpp"
-#include "../../../execution/submit.hpp"
 #include <base/topk_softmax.h>
-#include "topk_router.hpp"
 
 #include "runtime/runtime.hpp"
 
@@ -48,11 +48,17 @@ std::string router_backend_name(const std::shared_ptr<infinilm::config::ModelCon
 TopKRouter::TopKRouter(infinilm::runtime::Runtime &runtime,
                        std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("TopKRouter construction requires eager Runtime");
-    if (!model_config) throw std::invalid_argument("TopKRouter construction requires configuration");
-    for (const char *key : {"num_experts", "num_experts_per_tok", "hidden_size"})
-        if (model_config->get<int64_t>(key) <= 0)
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("TopKRouter construction requires eager Runtime");
+    }
+    if (!model_config) {
+        throw std::invalid_argument("TopKRouter construction requires configuration");
+    }
+    for (const char *key : {"num_experts", "num_experts_per_tok", "hidden_size"}) {
+        if (model_config->get<int64_t>(key) <= 0) {
             throw std::invalid_argument("TopKRouter construction requires positive dimensions");
+        }
+    }
 
     num_experts_ = model_config->get<size_t>("num_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
@@ -65,23 +71,30 @@ TopKRouter::TopKRouter(infinilm::runtime::Runtime &runtime,
     apply_routed_scaling_factor_on_output_ = model_config->get_or<bool>("apply_routed_scaling_factor_on_output", false);
     router_backend_ = parse_router_backend(router_backend_name(model_config));
     use_correction_bias_ = model_config->get_or<bool>({"e_score_correction_bias", "moe_router_use_correction_bias"}, false) || router_backend_ == TopKRouterBackend::FusedGate;
-    if (num_experts_per_tok_ > num_experts_)
+    if (num_experts_per_tok_ > num_experts_) {
         throw std::invalid_argument("TopKRouter requires num_experts_per_tok <= num_experts");
+    }
     if (router_backend_ == TopKRouterBackend::FusedGate) {
-        if (!use_correction_bias_) throw std::runtime_error("fused_gate MoE router requires correction bias");
-        if (num_expert_group_ == 0 || topk_group_ == 0)
+        if (!use_correction_bias_) {
+            throw std::runtime_error("fused_gate MoE router requires correction bias");
+        }
+        if (num_expert_group_ == 0 || topk_group_ == 0) {
             throw std::runtime_error("fused_gate MoE router requires num_expert_group/n_group and topk_group");
-        if (num_experts_ % num_expert_group_ != 0)
+        }
+        if (num_experts_ % num_expert_group_ != 0) {
             throw std::runtime_error("fused_gate MoE router requires num_experts divisible by num_expert_group");
-        if (num_experts_per_tok_ <= num_fused_shared_experts_)
+        }
+        if (num_experts_per_tok_ <= num_fused_shared_experts_) {
             throw std::runtime_error("fused_gate MoE router requires num_experts_per_tok > num_fused_shared_experts");
         }
+    }
     const size_t hidden_size = model_config->get<size_t>("hidden_size");
     const auto dtype = model_config->get_dtype();
     const size_t bytes = infinilm::runtime::dsize(dtype), limit = std::numeric_limits<size_t>::max();
     if (!bytes || num_experts_ > limit / hidden_size || num_experts_ * hidden_size > limit / bytes
-        || (use_correction_bias_ && num_experts_ > limit / infinilm::runtime::dsize(infinilm::runtime::DataType::kFloat32)))
+        || (use_correction_bias_ && num_experts_ > limit / infinilm::runtime::dsize(infinilm::runtime::DataType::kFloat32))) {
         throw std::length_error("TopKRouter parameter size overflow");
+    }
     device_ = runtime.device();
     try {
         weight_ = infinilm::weights::Weight(runtime, {num_experts_, hidden_size}, dtype);
@@ -91,7 +104,9 @@ TopKRouter::TopKRouter(infinilm::runtime::Runtime &runtime,
             this->bind_weight("e_score_correction_bias", e_score_correction_bias_);
         }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -115,8 +130,8 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> TopKRouter::for
         topk_config.set_implementation_index(
             infini::ops::TopkSoftmax::DefaultConfig(runtime.device().type()).implementation_index());
         const auto topk_bias = correction_bias
-            ? std::optional<infinilm::runtime::Tensor>{correction_bias}
-            : std::optional<infinilm::runtime::Tensor>{};
+                                 ? std::optional<infinilm::runtime::Tensor>{correction_bias}
+                                 : std::optional<infinilm::runtime::Tensor>{};
         infinilm::execution::submit<infini::ops::TopkSoftmax>(
             runtime, infinilm::execution::RecordingPolicy::AllowHostReplay, topk_config,
             router_logits, topk_bias, std::optional<infinilm::runtime::Tensor>{},
@@ -128,8 +143,8 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> TopKRouter::for
         auto token_expert_indices = infinilm::runtime::Tensor::empty(
             runtime, router_scores->shape(), infinilm::runtime::DataType::kInt32);
         const auto sigmoid_bias = correction_bias
-            ? std::optional<infinilm::runtime::Tensor>{correction_bias}
-            : std::optional<infinilm::runtime::Tensor>{};
+                                    ? std::optional<infinilm::runtime::Tensor>{correction_bias}
+                                    : std::optional<infinilm::runtime::Tensor>{};
         infinilm::execution::submit<infini::ops::TopkSigmoid>(
             runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
             infini::ops::TopkSigmoid::DefaultConfig(runtime.device().type()),

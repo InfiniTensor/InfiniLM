@@ -5,9 +5,9 @@
 #include "../global_state/global_state.hpp"
 #include "../models/infinilm_model.hpp"
 #include "distributed/distributed.hpp"
-#include "runtime/tensor.hpp"
 #include "rank_barrier.hpp"
 #include "rank_worker.hpp"
+#include "runtime/tensor.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -72,7 +72,10 @@ public:
     std::unique_ptr<cache::CacheConfig> get_cache_config() const;
 
 protected:
-    enum class WeightState { Loading, Finalizing, Ready, Failed };
+    enum class WeightState { Loading,
+                             Finalizing,
+                             Ready,
+                             Failed };
     void compile_workers();
 
     std::vector<std::unique_ptr<RankWorker>> workers_;

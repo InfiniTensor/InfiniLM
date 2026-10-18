@@ -1,38 +1,43 @@
-#include "../../weights/weights.hpp"
-#include "../../layers/linear/dense.hpp"
-#include "../../execution/submit.hpp"
-#include <base/topk_softmax.h>
-#include "../models_registry.hpp"
-#include <exception>
 #include "qwen3_moe_topk_router.hpp"
+#include "../../execution/submit.hpp"
+#include "../../layers/linear/dense.hpp"
+#include "../../weights/weights.hpp"
+#include "../models_registry.hpp"
+#include <base/topk_softmax.h>
+#include <exception>
 
-#include "runtime/runtime.hpp"
 #include "../../layers/moe/ep/ep_config.hpp"
+#include "runtime/runtime.hpp"
 #include <exception>
 #include <stdexcept>
 
 namespace infinilm::models::qwen3_moe {
 
 Qwen3MoeTopKRouter::Qwen3MoeTopKRouter(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info, const layers::moe::EPConfig &ep_config) {
+                                       const engine::distributed::RankInfo &rank_info, const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
 
-    runtime_borrowed_ = &runtime; // caller/worker retains the actual owner.
-    const auto &dtype{model_config->get_dtype()};
+        runtime_borrowed_ = &runtime; // caller/worker retains the actual owner.
+        const auto &dtype{model_config->get_dtype()};
 
-    size_t hidden_size = model_config->get<size_t>("hidden_size");
-    size_t num_experts = model_config->get<size_t>("num_experts");
-    num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
-    norm_topk_prob_ = model_config->get<bool>("norm_topk_prob");
+        size_t hidden_size = model_config->get<size_t>("hidden_size");
+        size_t num_experts = model_config->get<size_t>("num_experts");
+        num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
+        norm_topk_prob_ = model_config->get<bool>("norm_topk_prob");
 
-    ASSERT((num_experts > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts));
+        ASSERT((num_experts > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts));
 
-    weight_ = infinilm::weights::Weight(runtime, {num_experts, hidden_size}, dtype); this->bind_weight("weight", weight_);
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        weight_ = infinilm::weights::Weight(runtime, {num_experts, hidden_size}, dtype);
+        this->bind_weight("weight", weight_);
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         throw;
     }
@@ -40,9 +45,15 @@ Qwen3MoeTopKRouter::Qwen3MoeTopKRouter(infinilm::runtime::Runtime &runtime, std:
 
 void Qwen3MoeTopKRouter::validate_runtime(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     runtime.assertOwnerThread();
-    if (&runtime != runtime_borrowed_) throw std::invalid_argument("Legacy MoE router Runtime differs from construction owner");
-    if (!hidden_states || hidden_states->device() != runtime.device() || weight_->device() != runtime.device()) throw std::invalid_argument("Legacy MoE router input/weight device mismatch");
-    if (runtime.isGraphRecording()) throw std::logic_error("Legacy MoE requires eager execution");
+    if (&runtime != runtime_borrowed_) {
+        throw std::invalid_argument("Legacy MoE router Runtime differs from construction owner");
+    }
+    if (!hidden_states || hidden_states->device() != runtime.device() || weight_->device() != runtime.device()) {
+        throw std::invalid_argument("Legacy MoE router input/weight device mismatch");
+    }
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Legacy MoE requires eager execution");
+    }
 }
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Qwen3MoeTopKRouter::forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     validate_runtime(runtime, hidden_states);
@@ -66,8 +77,15 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> Qwen3MoeTopKRou
         runtime.syncStream();
         return std::make_tuple(scores, indices);
     } catch (...) {
-        if (runtime.isGraphRecording()) { runtime.cancelGraphRecording(); if (runtime.isGraphRecording()) std::terminate(); }
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        if (runtime.isGraphRecording()) {
+            runtime.cancelGraphRecording();
+            if (runtime.isGraphRecording()) {
+                std::terminate();
+            }
+        }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

@@ -1,15 +1,15 @@
-#include "../weights/weights.hpp"
 #include "infer_engine.hpp"
-#include "runtime/runtime.hpp"
 #include "../cache/kv_cache.hpp"
 #include "../config/config_factory.hpp"
+#include "../weights/weights.hpp"
+#include "runtime/runtime.hpp"
 #include "spdlog/spdlog.h"
 #include <algorithm>
 #include <atomic>
-#include <limits>
 #include <cmath>
 #include <cstdint>
 #include <future>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -22,20 +22,22 @@ std::uint64_t issue_nsa_pool_epoch() {
     static std::atomic<std::uint64_t> next{1};
     auto value = next.load(std::memory_order_relaxed);
     for (;;) {
-        if (value == std::numeric_limits<std::uint64_t>::max())
+        if (value == std::numeric_limits<std::uint64_t>::max()) {
             throw std::overflow_error("NSA native pool epoch exhausted");
-        if (next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed))
+        }
+        if (next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed)) {
             return value;
+        }
     }
 }
-
-
 
 std::string weight_key_error(const char *kind, std::vector<std::string> keys) {
     std::sort(keys.begin(), keys.end());
     std::string result = std::string(kind) + " key(s) in state_dict: ";
     for (size_t i = 0; i < keys.size(); ++i) {
-        if (i) result += ", ";
+        if (i) {
+            result += ", ";
+        }
         result += '"' + keys[i] + '"';
     }
     return result;
@@ -157,8 +159,7 @@ InferEngine::InferEngine(
         this->model_config_->set_kv_quant_scheme(kv_cache_dtype.value());
     }
     if (model_config_->get<std::string>("model_type") == "videonsa"
-        && dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get()) != nullptr)
-    {
+        && dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get()) != nullptr) {
         nsa_pool_epoch_ = issue_nsa_pool_epoch();
     }
     // Create one RankWorker per rank
@@ -167,17 +168,17 @@ InferEngine::InferEngine(
     workers_.reserve(local_tp_size);
     try {
         for (int r = 0; r < local_tp_size; ++r) {
-        workers_.emplace_back(std::make_unique<RankWorker>(
-            infinilm_config,
-            communication_group_.get_rank_info(r),
-            cache_config_ != nullptr ? cache_config_.get() : nullptr,
-            barrier_.get(),
-            enable_graph_compiling,
+            workers_.emplace_back(std::make_unique<RankWorker>(
+                infinilm_config,
+                communication_group_.get_rank_info(r),
+                cache_config_ != nullptr ? cache_config_.get() : nullptr,
+                barrier_.get(),
+                enable_graph_compiling,
                 attention_backend_, nsa_pool_epoch_));
-    }
+        }
 
-    for (auto &worker : workers_) {
-        worker->wait_for_init();
+        for (auto &worker : workers_) {
+            worker->wait_for_init();
         }
     } catch (...) {
         const auto error = std::current_exception();
@@ -209,8 +210,8 @@ void InferEngine::load_param(const std::string &name, const infinilm::runtime::T
         if (loaded_weight_keys_.count(name)) {
             throw std::runtime_error(weight_key_error("Duplicate", {name}));
         }
-    for (auto &worker : workers_) {
-        worker->load_param(name, param);
+        for (auto &worker : workers_) {
+            worker->load_param(name, param);
         }
         loaded_weight_keys_.insert(name);
     } catch (...) {
@@ -230,25 +231,27 @@ void InferEngine::load_params(const std::unordered_map<std::string, infinilm::ru
     try {
         std::vector<std::string> duplicates;
         for (const auto &[key, _] : params) {
-            if (loaded_weight_keys_.count(key)) duplicates.push_back(key);
+            if (loaded_weight_keys_.count(key)) {
+                duplicates.push_back(key);
+            }
         }
         if (!duplicates.empty()) {
             throw std::runtime_error(weight_key_error("Duplicate", std::move(duplicates)));
         }
-    if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
-        for (auto &worker : workers_) {
-            worker->load_params(params, strict);
-        }
+        if (workers_.size() <= 1 || weight_load_mode_ == "sync") {
+            for (auto &worker : workers_) {
+                worker->load_params(params, strict);
+            }
         } else {
-    std::vector<std::future<void>> futures;
-    futures.reserve(workers_.size());
-    for (auto &worker : workers_) {
+            std::vector<std::future<void>> futures;
+            futures.reserve(workers_.size());
+            for (auto &worker : workers_) {
                 futures.emplace_back(std::async(std::launch::async, [worker_ptr = worker.get(), &params, strict] {
                     worker_ptr->load_params(params, strict);
-        }));
-    }
-    for (auto &future : futures) {
-        future.get();
+                }));
+            }
+            for (auto &future : futures) {
+                future.get();
             }
         }
         for (const auto &[key, _] : params) {
@@ -276,7 +279,9 @@ void InferEngine::process_weights_after_loading() {
         std::vector<std::string> unexpected;
         std::unordered_set<std::string> required;
         for (auto &worker : workers_) {
-            for (const auto &key : worker->state_required_keys()) required.insert(key);
+            for (const auto &key : worker->state_required_keys()) {
+                required.insert(key);
+            }
         }
         for (const auto &key : required) {
             if (!loaded_weight_keys_.count(key)) {
@@ -284,26 +289,37 @@ void InferEngine::process_weights_after_loading() {
             }
         }
         for (const auto &key : loaded_weight_keys_) {
-            if (!expected.count(key)) unexpected.push_back(key);
+            if (!expected.count(key)) {
+                unexpected.push_back(key);
+            }
         }
         if (!missing.empty() || !unexpected.empty()) {
             std::string message = "Error(s) in loading state_dict";
-            if (!unexpected.empty()) message += "\n" + weight_key_error("Unexpected", std::move(unexpected));
-            if (!missing.empty()) message += "\n" + weight_key_error("Missing", std::move(missing));
+            if (!unexpected.empty()) {
+                message += "\n" + weight_key_error("Unexpected", std::move(unexpected));
+            }
+            if (!missing.empty()) {
+                message += "\n" + weight_key_error("Missing", std::move(missing));
+            }
             throw std::runtime_error(message);
         }
         const auto scheme = model_config_->get_quant_scheme();
-        if (scheme == infinilm::quantization::QuantScheme::AWQ_W4A16 ||
-            scheme == infinilm::quantization::QuantScheme::GPTQ_W4A16) {
+        if (scheme == infinilm::quantization::QuantScheme::AWQ_W4A16 || scheme == infinilm::quantization::QuantScheme::GPTQ_W4A16) {
             // Every worker rejects unsupported/mixed coverage before ANY stage.
-            for (auto &worker : workers_) worker->validate_w4_weights();
-            for (auto &worker : workers_) worker->prepare_w4_weights();
+            for (auto &worker : workers_) {
+                worker->validate_w4_weights();
+            }
+            for (auto &worker : workers_) {
+                worker->prepare_w4_weights();
+            }
             // All prepare calls acknowledge successful owner sync/trim/seal.
-            for (auto &worker : workers_) worker->commit_w4_weights();
+            for (auto &worker : workers_) {
+                worker->commit_w4_weights();
+            }
         } else {
-    for (auto &worker : workers_) {
-        worker->process_weights_after_loading();
-    }
+            for (auto &worker : workers_) {
+                worker->process_weights_after_loading();
+            }
         }
         compile_workers();
         weight_state_ = WeightState::Ready;
@@ -359,11 +375,14 @@ InferEngine::Input::to_model_input(
 
     forward_context.nsa_owner = std::move(nsa_owner);
     auto &runtime = forward_context.require_runtime();
-    if (device.type() != infinilm::runtime::Device::Type::kCpu && runtime.device() != device)
+    if (device.type() != infinilm::runtime::Device::Type::kCpu && runtime.device() != device) {
         throw std::invalid_argument("input transfer Runtime and target device differ");
+    }
     auto to_device = [&](const std::optional<infinilm::runtime::Tensor> &t)
         -> std::optional<infinilm::runtime::Tensor> {
-        if (!t.has_value() || t.value()->device() == device) return t;
+        if (!t.has_value() || t.value()->device() == device) {
+            return t;
+        }
         if (t.value()->device().type() == infinilm::runtime::Device::Type::kCpu
             && device.type() != infinilm::runtime::Device::Type::kCpu) {
             auto result = infinilm::runtime::Tensor::empty(runtime, t.value()->shape(), t.value()->dtype());
@@ -371,10 +390,12 @@ InferEngine::Input::to_model_input(
             return result;
         }
         auto source = t.value()->allocation_owner();
-        if (!source || source->device() != t.value()->device())
+        if (!source || source->device() != t.value()->device()) {
             source = infinilm::runtime::context::resolveRuntime(t.value()->device());
+        }
         return device.type() == infinilm::runtime::Device::Type::kCpu
-            ? t.value()->to(*source, device) : t.value()->to(*source, runtime);
+                 ? t.value()->to(*source, device)
+                 : t.value()->to(*source, runtime);
     };
     auto to_device_vec = [&](const std::optional<std::vector<infinilm::runtime::Tensor>> &vec)
         -> std::optional<std::vector<infinilm::runtime::Tensor>> {
@@ -503,7 +524,9 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     auto output = workers_[0]->get_output();
     // Completed worker output remains a mutable borrowed view, not a snapshot.
     const auto completed_view = [](infinilm::runtime::Tensor tensor) {
-        if (!tensor) return tensor;
+        if (!tensor) {
+            return tensor;
+        }
         return infinilm::runtime::Tensor::strided_from_blob(
             tensor->data(), tensor->shape(), tensor->strides(),
             tensor->dtype(), tensor->device(), tensor->shared_from_this());
@@ -512,12 +535,13 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     output.logits = completed_view(output.logits);
     output.hidden_states = completed_view(output.hidden_states);
     return output;
-
 }
 
 void InferEngine::compile() {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (nsa_pool_epoch_) throw std::invalid_argument("NSA owner slice excludes COMPILE before state mutation");
+    if (nsa_pool_epoch_) {
+        throw std::invalid_argument("NSA owner slice excludes COMPILE before state mutation");
+    }
     if (weight_state_ == WeightState::Loading) {
         return;
     }
@@ -533,7 +557,9 @@ void InferEngine::compile() {
 }
 
 void InferEngine::compile_workers() {
-    if (nsa_pool_epoch_) return; // weight finalization/reset must not enter COMPILE
+    if (nsa_pool_epoch_) {
+        return; // weight finalization/reset must not enter COMPILE
+    }
     for (auto &worker : workers_) {
         worker->compile();
     }
@@ -588,18 +614,19 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
         const auto *paged = dynamic_cast<const cache::PagedKVCacheConfig *>(new_config);
         if (!paged || !paged->block_size() || paged->block_size() % 64 || !paged->num_blocks()
             || paged->block_size() > 2147483647u || paged->num_blocks() > 2147483647u
-            || (attention_backend_ == backends::AttentionBackend::FLASH_ATTN && paged->block_size() % 256))
+            || (attention_backend_ == backends::AttentionBackend::FLASH_ATTN && paged->block_size() % 256)) {
             throw std::invalid_argument("NSA reset requires supported paged geometry before owner mutation");
+        }
     }
     const auto replacement_epoch = nsa_pool_epoch_ ? issue_nsa_pool_epoch() : 0;
     try {
-    for (auto &worker : workers_) {
+        for (auto &worker : workers_) {
             worker->reset_cache(new_config, replacement_epoch);
-    }
-    for (auto &worker : workers_) {
-        worker->wait();
-    }
-    cache_config_ = new_config->unique_copy();
+        }
+        for (auto &worker : workers_) {
+            worker->wait();
+        }
+        cache_config_ = new_config->unique_copy();
         nsa_pool_epoch_ = replacement_epoch; // publish only after all workers succeeded
         if (weight_state_ == WeightState::Loading) {
             return;
@@ -613,17 +640,22 @@ void InferEngine::reset_cache(const cache::CacheConfig *new_config) {
 
 std::uint64_t InferEngine::get_nsa_pool_epoch() {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (!nsa_pool_epoch_ || workers_.empty() || weight_state_ == WeightState::Failed)
+    if (!nsa_pool_epoch_ || workers_.empty() || weight_state_ == WeightState::Failed) {
         throw std::logic_error("NSA pool query requires a live VideoNSA engine");
-    for (const auto &worker : workers_)
-        if (worker->get_nsa_pool_epoch() != nsa_pool_epoch_)
+    }
+    for (const auto &worker : workers_) {
+        if (worker->get_nsa_pool_epoch() != nsa_pool_epoch_) {
             throw std::logic_error("NSA engine/worker pool epoch mismatch");
+        }
+    }
     return nsa_pool_epoch_;
 }
 
 std::vector<std::vector<infinilm::runtime::Tensor>> InferEngine::get_kv_cache() {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (nsa_pool_epoch_) throw std::invalid_argument("NSA borrowed KV writers are outside owner slice");
+    if (nsa_pool_epoch_) {
+        throw std::invalid_argument("NSA borrowed KV writers are outside owner slice");
+    }
     std::vector<std::vector<infinilm::runtime::Tensor>> kv_cache_list;
     if (workers_.empty()) {
         throw std::runtime_error("InferEngine::get_cache_vec: no workers");

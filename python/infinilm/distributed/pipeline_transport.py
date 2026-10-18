@@ -21,8 +21,9 @@ import time
 import traceback
 from typing import Any
 
-from .. import _core as infinicore
 import numpy as np
+
+from .. import _core as infinicore
 from .._core.utils import infinicore_to_numpy_dtype
 
 _FRAME_HEADER = struct.Struct("!Q")
@@ -88,9 +89,7 @@ def _send_payload(
             segments[0] = segments[0][sent:]
 
 
-def _recv_payload(
-    sock: socket.socket, deadline: float | None = None
-) -> bytearray:
+def _recv_payload(sock: socket.socket, deadline: float | None = None) -> bytearray:
     (size,) = _FRAME_HEADER.unpack(_recv_exact(sock, _FRAME_HEADER.size, deadline))
     if size > _MAX_CONTROL_FRAME_BYTES:
         raise ValueError("pipeline control message exceeds the maximum frame size")
@@ -100,7 +99,9 @@ def _recv_payload(
 def _send_message(
     sock: socket.socket, message: Any, deadline: float | None = None
 ) -> None:
-    _send_payload(sock, pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL), deadline)
+    _send_payload(
+        sock, pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL), deadline
+    )
 
 
 def _recv_message(sock: socket.socket, deadline: float | None = None) -> Any:
@@ -206,7 +207,10 @@ class PipelineControlServer:
     """Stage-0 control plane for persistent PP worker processes."""
 
     def __init__(
-        self, pp_size: int, master_port: int, *,
+        self,
+        pp_size: int,
+        master_port: int,
+        *,
         bind_addr: str = "0.0.0.0",
         startup_timeout_s: float = _STARTUP_TIMEOUT_S,
         forward_timeout_s: float = _FORWARD_TIMEOUT_S,
@@ -240,7 +244,9 @@ class PipelineControlServer:
                     try:
                         connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                         ready = _recv_message(connection, deadline)
-                        stage = ready.get("pp_stage") if isinstance(ready, dict) else None
+                        stage = (
+                            ready.get("pp_stage") if isinstance(ready, dict) else None
+                        )
                         if (
                             not isinstance(ready, dict)
                             or ready.get("status") != "ready"
@@ -252,7 +258,8 @@ class PipelineControlServer:
                                 f"invalid pipeline worker registration: {ready!r}"
                             )
                         _send_message(
-                            connection, {"status": "registered", "pp_stage": stage},
+                            connection,
+                            {"status": "registered", "pp_stage": stage},
                             deadline,
                         )
                         connection.settimeout(None)
@@ -310,9 +317,12 @@ class PipelineControlServer:
                 if not isinstance(response, dict) or not response.get("ok", False):
                     detail = (
                         response.get("error", "unknown error")
-                        if isinstance(response, dict) else repr(response)
+                        if isinstance(response, dict)
+                        else repr(response)
                     )
-                    raise RuntimeError("pipeline worker forward failed:\n" + str(detail))
+                    raise RuntimeError(
+                        "pipeline worker forward failed:\n" + str(detail)
+                    )
         except BaseException:
             self.abort()
             raise
@@ -363,7 +373,8 @@ class PipelineWorkerClient:
         self._connection = _connect_with_retry(endpoint)
         try:
             _send_message(
-                self._connection, {"status": "ready", "pp_stage": self._pp_stage},
+                self._connection,
+                {"status": "ready", "pp_stage": self._pp_stage},
                 deadline,
             )
             response = _recv_message(self._connection, deadline)

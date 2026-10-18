@@ -1,7 +1,7 @@
 #include "allgather_reduce_scatter_dispatcher.hpp"
 
-#include "runtime/runtime.hpp"
 #include "../../../engine/distributed/communication_group.hpp"
+#include "runtime/runtime.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -52,8 +52,7 @@ void AllGatherReduceScatterDispatcher::all_gather_dim0_many_(
     for (size_t i = 0; i < inputs.size(); ++i) {
         const auto &input = inputs[i];
         const auto &output = outputs[i];
-        if (!input || !output || input->device() != runtime.device() ||
-            output->device() != runtime.device()) {
+        if (!input || !output || input->device() != runtime.device() || output->device() != runtime.device()) {
             throw std::invalid_argument("MoE AG/RS all_gather_many tensor device differs from Runtime device");
         }
         if (input->ndim() == 0) {
@@ -104,8 +103,7 @@ DispatchOutput AllGatherReduceScatterDispatcher::dispatch(
     if (hidden_states && runtime.device() != hidden_states->device()) {
         throw std::invalid_argument("MoE AG/RS input device differs from Runtime device");
     }
-    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) ||
-        (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
+    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) || (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
         throw std::invalid_argument("MoE AG/RS routing device differs from Runtime device");
     }
     if (config_.ep_size == 1) {

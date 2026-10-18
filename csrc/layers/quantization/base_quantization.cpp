@@ -1,5 +1,5 @@
-#include "execution/submit.hpp"
 #include "base_quantization.hpp"
+#include "execution/submit.hpp"
 
 #include "../../engine/distributed/communication_group.hpp"
 

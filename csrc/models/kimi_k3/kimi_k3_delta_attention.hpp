@@ -4,13 +4,15 @@
 #include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/linear/linear.hpp"
 
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include <runtime/tensor.hpp>
 
 #include <memory>
 
-namespace infinilm::global_state { struct ForwardContext; }
+namespace infinilm::global_state {
+struct ForwardContext;
+}
 
 namespace infinilm::models::kimi_k3 {
 
@@ -38,7 +40,9 @@ protected:
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (qkv_proj_) result.push_back(qkv_proj_);
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
         return result;
     }
 
@@ -48,7 +52,7 @@ public:
                          const engine::distributed::RankInfo &rank_info);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
-                              global_state::ForwardContext &forward_context) const;
+                                      global_state::ForwardContext &forward_context) const;
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
 private:

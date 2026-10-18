@@ -2,11 +2,11 @@
 #include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
+#include "../../layers/embedding/embedding.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
 #include "../infinilm_model.hpp"
 #include "ernie4_5_decoder_layer.hpp"
 #include "ernie4_5_vision.hpp"
-#include "../../layers/embedding/embedding.hpp"
-#include "../../layers/normalization/rmsnorm.hpp"
 
 #include <vector>
 
@@ -15,17 +15,17 @@ namespace infinilm::models::ernie4_5_vl {
 class Ernie45Model : public infinilm::weights::ModelWeights {
 public:
     Ernie45Model(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config);
+                 std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                 const engine::distributed::RankInfo &rank_info,
+                 backends::AttentionBackend attention_backend,
+                 const layers::moe::EPConfig &ep_config);
 
     infinilm::runtime::Tensor forward(const InfinilmModel::Input &input,
-                               global_state::ForwardContext &forward_context,
-                               const Ernie45VisionModel *vision_model = nullptr) const;
+                                      global_state::ForwardContext &forward_context,
+                                      const Ernie45VisionModel *vision_model = nullptr) const;
     infinilm::runtime::Tensor forward_embeds(infinilm::runtime::Tensor hidden_states,
-                                      const infinilm::runtime::Tensor &positions,
-                                      global_state::ForwardContext &forward_context) const;
+                                             const infinilm::runtime::Tensor &positions,
+                                             global_state::ForwardContext &forward_context) const;
 
 protected:
     std::shared_ptr<Ernie45ResamplerModel> resampler_model_;

@@ -13,11 +13,11 @@ using KimiK3LanguageModel = infinilm::layers::causal_lm_templates::TextCausalLM<
 class KimiK3ForConditionalGeneration : public infinilm::InfinilmModel {
 public:
     KimiK3ForConditionalGeneration(
-    infinilm::runtime::Runtime &runtime,
+        infinilm::runtime::Runtime &runtime,
         std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     Output forward(const Input &input, global_state::ForwardContext &forward_context) const override;
     void reset_cache(const cache::CacheConfig *cache_config,

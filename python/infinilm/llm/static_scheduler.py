@@ -35,11 +35,16 @@ class StaticSchedulerOutput:
         physical_rows: Optional[List[int]] = None,
     ):
         rows = [physical_row] if physical_rows is None else list(physical_rows)
-        if (not scheduled_requests or len(rows) != len(scheduled_requests)
-                or len(set(rows)) != len(rows)
-                or any(row < 0 or row >= cache_capacity for row in rows)
-                or (is_prefill and len(rows) != 1)):
-            raise ValueError("static scheduler output requires one unique cache row per request")
+        if (
+            not scheduled_requests
+            or len(rows) != len(scheduled_requests)
+            or len(set(rows)) != len(rows)
+            or any(row < 0 or row >= cache_capacity for row in rows)
+            or (is_prefill and len(rows) != 1)
+        ):
+            raise ValueError(
+                "static scheduler output requires one unique cache row per request"
+            )
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
@@ -79,7 +84,11 @@ class StaticScheduler:
         cache_capacity: int = 1,
         on_aborted_request=None,
     ):
-        if isinstance(cache_capacity, bool) or not isinstance(cache_capacity, int) or cache_capacity < 1:
+        if (
+            isinstance(cache_capacity, bool)
+            or not isinstance(cache_capacity, int)
+            or cache_capacity < 1
+        ):
             raise ValueError("static cache capacity must be a positive integer")
         self.waiting_queue = janus.Queue()
         self._queued_request_ids: set[int] = set()
@@ -98,33 +107,47 @@ class StaticScheduler:
 
     def _owned_lease(self, request: InferenceRequest) -> Optional[_RowLease]:
         return next(
-            (lease for lease in self._leases_by_row.values()
-             if self._owns_row(lease, request)),
+            (
+                lease
+                for lease in self._leases_by_row.values()
+                if self._owns_row(lease, request)
+            ),
             None,
         )
 
     def _release_row(self, request: InferenceRequest) -> None:
         lease = self._owned_lease(request)
         if lease is None or lease.in_flight:
-            raise RuntimeError("static cache row cannot be released before its forward completes")
+            raise RuntimeError(
+                "static cache row cannot be released before its forward completes"
+            )
         request._static_cache_lease_generation = None
         del self._leases_by_row[lease.row]
 
     @staticmethod
     def _owns_row(lease: _RowLease, request: InferenceRequest) -> bool:
-        return (lease.request is request
-                and getattr(request, "_static_cache_lease_generation", None)
-                == lease.generation)
+        return (
+            lease.request is request
+            and getattr(request, "_static_cache_lease_generation", None)
+            == lease.generation
+        )
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
-            if (id(request) in self._queued_request_ids
-                    or any(lease.request is request
-                           for lease in self._leases_by_row.values())):
-                raise RuntimeError("static request object is already queued or owns a cache row")
-            if (request.status != RequestStatus.WAITING
-                    or request.is_finished() or request.is_aborted()):
-                raise ValueError("static scheduler requires a new, non-aborted waiting request")
+            if id(request) in self._queued_request_ids or any(
+                lease.request is request for lease in self._leases_by_row.values()
+            ):
+                raise RuntimeError(
+                    "static request object is already queued or owns a cache row"
+                )
+            if (
+                request.status != RequestStatus.WAITING
+                or request.is_finished()
+                or request.is_aborted()
+            ):
+                raise ValueError(
+                    "static scheduler requires a new, non-aborted waiting request"
+                )
             # TODO: Remove the multimodal exclusion once media-aware prefix
             # hashing and model-side cache-boundary handling are supported.
             request.initialize_block_hashes(
@@ -145,8 +168,9 @@ class StaticScheduler:
                 raise RuntimeError("static cache row has an unresolved failed forward")
             # A call to schedule while any forward is unresolved means the
             # synchronous runner failed. Do not guess which row stayed valid.
-            unresolved = [lease.row for lease in self._leases_by_row.values()
-                          if lease.in_flight]
+            unresolved = [
+                lease.row for lease in self._leases_by_row.values() if lease.in_flight
+            ]
             if unresolved:
                 self._poisoned_rows.update(unresolved)
                 raise RuntimeError("static cache row has an unresolved forward")
@@ -158,16 +182,22 @@ class StaticScheduler:
                 # its cancellation queue. The engine callback owns terminal
                 # status/final output; never schedule this row again.
                 if req.is_aborted() or req.is_finished():
-                    if (req.is_aborted() and not req.is_finished()
-                            and self._on_aborted_request is not None):
+                    if (
+                        req.is_aborted()
+                        and not req.is_finished()
+                        and self._on_aborted_request is not None
+                    ):
                         self._on_aborted_request(req)
                     self._release_row(req)
                     continue
                 if req.get_total_length() > self.max_cache_len:
                     with req._terminal_lock:
                         if req.is_aborted() or req.is_finished():
-                            if (req.is_aborted() and not req.is_finished()
-                                    and self._on_aborted_request is not None):
+                            if (
+                                req.is_aborted()
+                                and not req.is_finished()
+                                and self._on_aborted_request is not None
+                            ):
                                 self._on_aborted_request(req)
                             self._release_row(req)
                             continue
@@ -178,8 +208,10 @@ class StaticScheduler:
                         req.mark_failed(FinishReason.LENGTH)
                         self._release_row(req)
                         output = TokenOutput(
-                            request_id=req.request_id, token_id=-1,
-                            token_text="", finished=True,
+                            request_id=req.request_id,
+                            token_id=-1,
+                            token_text="",
+                            finished=True,
                             finish_reason=req.finish_reason,
                             generated_text=req.generated_text,
                         )
@@ -190,8 +222,11 @@ class StaticScheduler:
                                 f"Failed to put completion token for {req.request_id}: {e}. "
                                 "Likely due to client disconnecting or request cancelation."
                             )
-            free_rows = [row for row in range(self.cache_capacity)
-                         if row not in self._leases_by_row]
+            free_rows = [
+                row
+                for row in range(self.cache_capacity)
+                if row not in self._leases_by_row
+            ]
             # A steady stream of short prefills must not starve an existing
             # decoder. Give the row at the round-robin cursor its turn first.
             if free_rows and self._next_row not in self._leases_by_row:
@@ -203,8 +238,11 @@ class StaticScheduler:
                 if req is not None:
                     self._queued_request_ids.remove(id(req))
                     if req.is_aborted() or req.is_finished():
-                        if (req.is_aborted() and not req.is_finished()
-                                and self._on_aborted_request is not None):
+                        if (
+                            req.is_aborted()
+                            and not req.is_finished()
+                            and self._on_aborted_request is not None
+                        ):
                             self._on_aborted_request(req)
                         self._dequeued_request = None
                         continue
@@ -212,8 +250,11 @@ class StaticScheduler:
                     if prompt_len > self.max_cache_len:
                         with req._terminal_lock:
                             if req.is_aborted() or req.is_finished():
-                                if (req.is_aborted() and not req.is_finished()
-                                        and self._on_aborted_request is not None):
+                                if (
+                                    req.is_aborted()
+                                    and not req.is_finished()
+                                    and self._on_aborted_request is not None
+                                ):
                                     self._on_aborted_request(req)
                                 self._dequeued_request = None
                                 continue
@@ -223,8 +264,10 @@ class StaticScheduler:
                             )
                             req.mark_failed(FinishReason.LENGTH)
                             output = TokenOutput(
-                                request_id=req.request_id, token_id=-1,
-                                token_text="", finished=True,
+                                request_id=req.request_id,
+                                token_id=-1,
+                                token_text="",
+                                finished=True,
                                 finish_reason=req.finish_reason,
                                 generated_text=req.generated_text,
                             )
@@ -253,22 +296,28 @@ class StaticScheduler:
                     matched = match_count(row)
                     cached = self._cached_block_hashes_by_row[row]
                     del cached[matched:]
-                    prefix_hit_len = min(matched * _BLOCK_SIZE,
-                                         max(prompt_len - 1, 0))
+                    prefix_hit_len = min(matched * _BLOCK_SIZE, max(prompt_len - 1, 0))
                     logger.info(
                         "Prefill cache match: %s/%s blocks (%s tokens reused) in row %s",
-                        matched, len(req.block_hashes), prefix_hit_len, row,
+                        matched,
+                        len(req.block_hashes),
+                        prefix_hit_len,
+                        row,
                     )
                     req.status = RequestStatus.RUNNING
                     self._next_generation += 1
                     req._static_cache_lease_generation = self._next_generation
-                    self._leases_by_row[row] = _RowLease(row, self._next_generation, req)
+                    self._leases_by_row[row] = _RowLease(
+                        row, self._next_generation, req
+                    )
                     self._dequeued_request = None
                     self._next_row = (row + 1) % self.cache_capacity
                     return StaticSchedulerOutput(
-                        scheduled_requests=[req], cache_row_length=self.max_cache_len,
+                        scheduled_requests=[req],
+                        cache_row_length=self.max_cache_len,
                         is_prefill=True,
-                        prefix_hit_len=prefix_hit_len, physical_row=row,
+                        prefix_hit_len=prefix_hit_len,
+                        physical_row=row,
                         cache_capacity=self.cache_capacity,
                     )
 
@@ -286,25 +335,37 @@ class StaticScheduler:
             self._next_row = (first_row + 1) % self.cache_capacity
             return StaticSchedulerOutput(
                 scheduled_requests=requests,
-                cache_row_length=self.max_cache_len, is_prefill=False,
-                physical_row=first_row, physical_rows=decode_rows,
+                cache_row_length=self.max_cache_len,
+                is_prefill=False,
+                physical_row=first_row,
+                physical_rows=decode_rows,
                 cache_capacity=self.cache_capacity,
             )
 
     def accept_model_output(self, requests, generations, physical_rows) -> None:
         """Confirm all returned row leases before publishing any one of them."""
-        if (physical_rows is None or len(requests) != len(generations)
-                or len(requests) != len(physical_rows)
-                or len({id(req) for req in requests}) != len(requests)
-                or len(set(physical_rows)) != len(physical_rows)):
+        if (
+            physical_rows is None
+            or len(requests) != len(generations)
+            or len(requests) != len(physical_rows)
+            or len({id(req) for req in requests}) != len(requests)
+            or len(set(physical_rows)) != len(physical_rows)
+        ):
             raise RuntimeError("static model output has conflicting row bindings")
         leases = []
         for req, generation, row in zip(requests, generations, physical_rows):
             lease = self._leases_by_row.get(row)
-            if (lease is None or not self._owns_row(lease, req)
-                    or lease.generation != generation or not lease.in_flight
-                    or lease.forward_returned or row in self._poisoned_rows):
-                raise RuntimeError("static model output does not own its active row lease")
+            if (
+                lease is None
+                or not self._owns_row(lease, req)
+                or lease.generation != generation
+                or not lease.in_flight
+                or lease.forward_returned
+                or row in self._poisoned_rows
+            ):
+                raise RuntimeError(
+                    "static model output does not own its active row lease"
+                )
             leases.append(lease)
         for lease in leases:
             lease.forward_returned = True
@@ -315,11 +376,15 @@ class StaticScheduler:
         """Publish KV only after the synchronous model forward has returned."""
         lease = self._owned_lease(request)
         if lease is None or not self._owns_row(lease, request) or not lease.in_flight:
-            raise RuntimeError("static cache prefix commit requires the active request lease")
+            raise RuntimeError(
+                "static cache prefix commit requires the active request lease"
+            )
         if num_computed_tokens < 0:
             raise ValueError("computed token count must be nonnegative")
         if not lease.forward_returned:
-            raise RuntimeError("static prefix commit requires a qualified returned batch")
+            raise RuntimeError(
+                "static prefix commit requires a qualified returned batch"
+            )
         cached_block_hashes = self._cached_block_hashes_by_row[lease.row]
         if not self.enable_prefix_caching:
             cached_block_hashes.clear()
@@ -350,9 +415,13 @@ class StaticScheduler:
         for req in requests:
             lease = self._owned_lease(req)
             if lease is None:
-                raise RuntimeError("static cache completion requires the active request lease")
+                raise RuntimeError(
+                    "static cache completion requires the active request lease"
+                )
             if not lease.in_flight or not lease.forward_returned:
-                raise RuntimeError("static cache completion requires a returned forward")
+                raise RuntimeError(
+                    "static cache completion requires a returned forward"
+                )
             leases.append((req, lease))
         for req, lease in leases:
             lease.in_flight = False
@@ -411,10 +480,12 @@ class StaticScheduler:
 
     def get_cache_stats(self) -> dict:
         """Get cache statistics."""
-        cached_by_row = {row: len(blocks)
-                         for row, blocks in self._cached_block_hashes_by_row.items()}
-        running_by_row = {row: lease.request.request_id
-                          for row, lease in self._leases_by_row.items()}
+        cached_by_row = {
+            row: len(blocks) for row, blocks in self._cached_block_hashes_by_row.items()
+        }
+        running_by_row = {
+            row: lease.request.request_id for row, lease in self._leases_by_row.items()
+        }
         return {
             "max_cache_len": self.max_cache_len,
             "cache_capacity": self.cache_capacity,

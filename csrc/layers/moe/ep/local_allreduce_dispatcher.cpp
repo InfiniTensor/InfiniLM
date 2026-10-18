@@ -1,7 +1,7 @@
 #include "local_allreduce_dispatcher.hpp"
 
-#include "runtime/runtime.hpp"
 #include "../../../engine/distributed/communication_group.hpp"
+#include "runtime/runtime.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -22,8 +22,7 @@ DispatchOutput LocalAllReduceDispatcher::dispatch(
     if (hidden_states && runtime.device() != hidden_states->device()) {
         throw std::invalid_argument("MoE local-allreduce input device differs from Runtime device");
     }
-    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) ||
-        (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
+    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) || (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
         throw std::invalid_argument("MoE local-allreduce routing device differs from Runtime device");
     }
     (void)workspace;
@@ -59,8 +58,8 @@ infinilm::runtime::Tensor LocalAllReduceDispatcher::combine(
     }
     if (combine_input.hidden_states) {
         infinilm::engine::distributed::allreduce_(runtime, combine_input.hidden_states,
-                                              combine_input.hidden_states,
-                                              infinicclSum, communicator_);
+                                                  combine_input.hidden_states,
+                                                  infinicclSum, communicator_);
     }
     return combine_input.hidden_states;
 }

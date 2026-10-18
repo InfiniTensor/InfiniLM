@@ -1,36 +1,40 @@
-#include "../../weights/weights.hpp"
-#include "runtime/utils.hpp"
-#include "../../layers/linear/dense.hpp"
 #include "mamba_for_causal_lm.hpp"
 #include "../../execution/submit.hpp"
+#include "../../layers/linear/dense.hpp"
+#include "../../weights/weights.hpp"
 #include "../models_registry.hpp"
-#include "runtime/runtime.hpp"
 #include "base/mamba_selective_scan.h"
-#include <stdexcept>
-#include <exception>
-#include <cstring>
-#include <type_traits>
-#include <limits>
+#include "runtime/runtime.hpp"
+#include "runtime/utils.hpp"
 #include <cmath>
+#include <cstring>
+#include <exception>
+#include <limits>
+#include <stdexcept>
+#include <type_traits>
 
 namespace infinilm::models::mamba {
 
 namespace {
-template<class Owner>
+template <class Owner>
 void safe_metadata_d2h(Owner &owner, void *dst, const void *src, size_t bytes) {
-    try { owner.memcpyD2H(dst, src, bytes); }
-    catch (...) {
-        try { owner.syncStream(); } catch (...) { std::terminate(); }
+    try {
+        owner.memcpyD2H(dst, src, bytes);
+    } catch (...) {
+        try {
+            owner.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 std::optional<std::vector<int64_t>> read_metadata(
     infinilm::runtime::Runtime &runtime, const std::optional<infinilm::runtime::Tensor> &value) {
-    if (!value) return std::nullopt;
+    if (!value) {
+        return std::nullopt;
+    }
     const auto &tensor = *value;
-    if (!tensor || tensor->ndim() != 1 || !tensor->is_contiguous() ||
-        (tensor->dtype() != infinilm::runtime::DataType::kInt32 && tensor->dtype() != infinilm::runtime::DataType::kInt64)) {
+    if (!tensor || tensor->ndim() != 1 || !tensor->is_contiguous() || (tensor->dtype() != infinilm::runtime::DataType::kInt32 && tensor->dtype() != infinilm::runtime::DataType::kInt64)) {
         throw std::invalid_argument("Mamba metadata requires contiguous rank-one signed I32/I64");
     }
     if (tensor->device() != runtime.device() && tensor->device().type() != infinilm::runtime::Device::Type::kCpu) {
@@ -47,10 +51,15 @@ std::optional<std::vector<int64_t>> read_metadata(
                 safe_metadata_d2h(runtime, values.data(), tensor->data(), values.size() * sizeof(T));
             }
         }
-        for (size_t i = 0; i < result.size(); ++i) result[i] = values[i];
+        for (size_t i = 0; i < result.size(); ++i) {
+            result[i] = values[i];
+        }
     };
-    if (tensor->dtype() == infinilm::runtime::DataType::kInt32) read(static_cast<int32_t *>(nullptr));
-    else read(static_cast<int64_t *>(nullptr));
+    if (tensor->dtype() == infinilm::runtime::DataType::kInt32) {
+        read(static_cast<int32_t *>(nullptr));
+    } else {
+        read(static_cast<int64_t *>(nullptr));
+    }
     return result;
 }
 
@@ -64,13 +73,7 @@ void validate_pools(infinilm::runtime::Runtime &runtime,
     for (size_t i = 0; i < layers; ++i) {
         const auto &conv = context.kv_cache_vec[2 * i];
         const auto &scan = context.kv_cache_vec[2 * i + 1];
-        if (!conv || !scan || conv->device() != runtime.device() || scan->device() != runtime.device() ||
-            conv->ndim() != 3 || scan->ndim() != 3 || !conv->is_contiguous() || !scan->is_contiguous() ||
-            conv->dtype() != dtype || scan->dtype() != infinilm::runtime::DataType::kFloat32 ||
-            conv->size(1) != channels || conv->size(2) != history ||
-            scan->size(1) != channels || scan->size(2) != states ||
-            conv->size(0) != scan->size(0) ||
-            conv->size(0) != context.kv_cache_vec[0]->size(0)) {
+        if (!conv || !scan || conv->device() != runtime.device() || scan->device() != runtime.device() || conv->ndim() != 3 || scan->ndim() != 3 || !conv->is_contiguous() || !scan->is_contiguous() || conv->dtype() != dtype || scan->dtype() != infinilm::runtime::DataType::kFloat32 || conv->size(1) != channels || conv->size(2) != history || scan->size(1) != channels || scan->size(2) != states || conv->size(0) != scan->size(0) || conv->size(0) != context.kv_cache_vec[0]->size(0)) {
             throw std::invalid_argument("Mamba paired state pools have incompatible layout/device/dtype");
         }
     }
@@ -94,10 +97,12 @@ void validate_pools(infinilm::runtime::Runtime &runtime,
 }
 
 void copy_state_row(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor destination,
-                     const infinilm::runtime::Tensor &source) {
+                    const infinilm::runtime::Tensor &source) {
     // Validated equal-layout contiguous rows: preserve even nonfinite state
     // bits, and avoid adding a dtype conversion or new operator dependency.
-    if (source->nbytes()) runtime.memcpyD2D(destination->data(), source->data(), source->nbytes());
+    if (source->nbytes()) {
+        runtime.memcpyD2D(destination->data(), source->data(), source->nbytes());
+    }
 }
 } // namespace
 
@@ -109,12 +114,15 @@ create_mamba_model_config(std::shared_ptr<infinilm::config::ModelConfig> config)
     }
     const size_t limit = std::numeric_limits<size_t>::max();
     const auto product = [limit](size_t a, size_t b) {
-        if (b && a > limit / b) throw std::length_error("Mamba construction size overflow");
+        if (b && a > limit / b) {
+            throw std::length_error("Mamba construction size overflow");
+        }
         return a * b;
     };
     const auto positive = [&config](const char *key) {
-        if (config->get<int64_t>(key) <= 0)
+        if (config->get<int64_t>(key) <= 0) {
             throw std::invalid_argument(std::string("Mamba constructor requires positive ") + key);
+        }
         return config->get<size_t>(key);
     };
     // Original Mamba normalization reads these effective operands as int.
@@ -124,17 +132,23 @@ create_mamba_model_config(std::shared_ptr<infinilm::config::ModelConfig> config)
         if (!json.contains(key)
             || (std::string(key) == "d_model" && json.contains("hidden_size"))
             || (std::string(key) == "n_layer" && json.contains("num_hidden_layers"))
-            || (std::string(key) == "expand" && json.contains("intermediate_size"))) continue;
+            || (std::string(key) == "expand" && json.contains("intermediate_size"))) {
+            continue;
+        }
         const auto value = config->get<int64_t>(key);
-        if (value <= 0 || value > std::numeric_limits<int>::max())
+        if (value <= 0 || value > std::numeric_limits<int>::max()) {
             throw std::invalid_argument(std::string("Mamba requires a positive int-representable ") + key);
+        }
     }
     const auto default_hidden = config->get_or<int64_t>("hidden_size", config->get_or<int64_t>("d_model", 2048));
-    if (default_hidden <= 0 || static_cast<uint64_t>(default_hidden) > limit - 15)
+    if (default_hidden <= 0 || static_cast<uint64_t>(default_hidden) > limit - 15) {
         throw std::invalid_argument("Mamba requires valid hidden_size before default arithmetic");
+    }
     if (!config->get_config_json().contains("intermediate_size")) {
         const auto expand = config->get_or<int64_t>("expand", 2);
-        if (expand <= 0) throw std::invalid_argument("Mamba requires positive expansion");
+        if (expand <= 0) {
+            throw std::invalid_argument("Mamba requires positive expansion");
+        }
         (void)product(static_cast<size_t>(default_hidden), static_cast<size_t>(expand));
     }
     auto &j = config->get_config_json();
@@ -159,7 +173,9 @@ create_mamba_model_config(std::shared_ptr<infinilm::config::ModelConfig> config)
         if (j.contains(key) && !j[key].is_boolean()) {
             throw std::invalid_argument(std::string("Mamba requires boolean ") + key);
         }
-        if (!j.contains(key)) j[key] = true;
+        if (!j.contains(key)) {
+            j[key] = true;
+        }
     }
     j["use_bias"] = j.value("use_bias", false);
     j["use_conv_bias"] = j.value("use_conv_bias", true);
@@ -168,10 +184,13 @@ create_mamba_model_config(std::shared_ptr<infinilm::config::ModelConfig> config)
     const size_t hidden = positive("hidden_size"), vocab = positive("vocab_size"), layers = positive("num_hidden_layers");
     const size_t mid = positive("intermediate_size"), states = positive("state_size"), time_rank = positive("time_step_rank");
     const size_t kernel = positive("conv_kernel"), twice_states = product(states, 2);
-    if (time_rank > limit - twice_states) throw std::length_error("Mamba packed state projection size overflow");
+    if (time_rank > limit - twice_states) {
+        throw std::length_error("Mamba packed state projection size overflow");
+    }
     const auto dtype = config->get_dtype();
-    if (dtype != infinilm::runtime::DataType::kFloat32 && dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16)
+    if (dtype != infinilm::runtime::DataType::kFloat32 && dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16) {
         throw std::invalid_argument("Mamba requires floating model dtype");
+    }
     const size_t bytes = infinilm::runtime::dsize(dtype);
     (void)product(product(vocab, hidden), bytes);
     (void)product(product(hidden, product(mid, 2)), bytes);
@@ -183,7 +202,9 @@ create_mamba_model_config(std::shared_ptr<infinilm::config::ModelConfig> config)
     (void)product(mid, bytes);
     (void)product(layers, sizeof(std::shared_ptr<infinilm::weights::ModelWeights>));
     const double epsilon = config->get<double>("layer_norm_epsilon");
-    if (!std::isfinite(epsilon) || epsilon <= 0) throw std::invalid_argument("Mamba requires finite positive norm epsilon");
+    if (!std::isfinite(epsilon) || epsilon <= 0) {
+        throw std::invalid_argument("Mamba requires finite positive norm epsilon");
+    }
     return config;
 }
 
@@ -204,27 +225,35 @@ MambaMixer::MambaMixer(infinilm::runtime::Runtime &runtime,
     const bool use_conv_bias = config->get_or<bool>("use_conv_bias", true);
 
     try {
-        in_proj_ = this->bind_child("in_proj", std::make_shared<std::remove_reference_t<decltype(*in_proj_ )>>(runtime, hidden_size, intermediate_size_ * 2, use_bias, dtype));
-        x_proj_ = this->bind_child("x_proj", std::make_shared<std::remove_reference_t<decltype(*x_proj_ )>>(runtime, intermediate_size_, time_step_rank_ + state_size_ * 2, false, dtype));
-        dt_proj_ = this->bind_child("dt_proj", std::make_shared<std::remove_reference_t<decltype(*dt_proj_ )>>(runtime, time_step_rank_, intermediate_size_, true, dtype));
-        out_proj_ = this->bind_child("out_proj", std::make_shared<std::remove_reference_t<decltype(*out_proj_ )>>(runtime, intermediate_size_, hidden_size, use_bias, dtype));
-        conv1d_weight_ = infinilm::weights::Weight(runtime, {intermediate_size_, 1, conv_kernel_}, dtype); this->bind_weight("conv1d_weight", conv1d_weight_);
-    if (use_conv_bias) {
-            conv1d_bias_ = infinilm::weights::Weight(runtime, {intermediate_size_}, dtype); this->bind_weight("conv1d_bias", conv1d_bias_);
-    }
-        A_log_ = infinilm::weights::Weight(runtime, {intermediate_size_, state_size_}, dtype); this->bind_weight("A_log", A_log_);
-        D_ = infinilm::weights::Weight(runtime, {intermediate_size_}, dtype); this->bind_weight("D", D_);
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        in_proj_ = this->bind_child("in_proj", std::make_shared<std::remove_reference_t<decltype(*in_proj_)>>(runtime, hidden_size, intermediate_size_ * 2, use_bias, dtype));
+        x_proj_ = this->bind_child("x_proj", std::make_shared<std::remove_reference_t<decltype(*x_proj_)>>(runtime, intermediate_size_, time_step_rank_ + state_size_ * 2, false, dtype));
+        dt_proj_ = this->bind_child("dt_proj", std::make_shared<std::remove_reference_t<decltype(*dt_proj_)>>(runtime, time_step_rank_, intermediate_size_, true, dtype));
+        out_proj_ = this->bind_child("out_proj", std::make_shared<std::remove_reference_t<decltype(*out_proj_)>>(runtime, intermediate_size_, hidden_size, use_bias, dtype));
+        conv1d_weight_ = infinilm::weights::Weight(runtime, {intermediate_size_, 1, conv_kernel_}, dtype);
+        this->bind_weight("conv1d_weight", conv1d_weight_);
+        if (use_conv_bias) {
+            conv1d_bias_ = infinilm::weights::Weight(runtime, {intermediate_size_}, dtype);
+            this->bind_weight("conv1d_bias", conv1d_bias_);
+        }
+        A_log_ = infinilm::weights::Weight(runtime, {intermediate_size_, state_size_}, dtype);
+        this->bind_weight("A_log", A_log_);
+        D_ = infinilm::weights::Weight(runtime, {intermediate_size_}, dtype);
+        this->bind_weight("D", D_);
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
         // BODY catch: all Parameters are still members here.
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor MambaMixer::forward(const infinilm::runtime::Tensor &hidden_states,
-                                      const global_state::ForwardContext &forward_context,
-                                      const state_routing::Plan *route) const {
+                                              const global_state::ForwardContext &forward_context,
+                                              const state_routing::Plan *route) const {
     if (!forward_context.runtime) {
         throw std::runtime_error("Mamba: explicit forward requires a Runtime");
     }
@@ -270,10 +299,12 @@ infinilm::runtime::Tensor MambaMixer::forward(const infinilm::runtime::Tensor &h
     const auto &conv_weight = conv1d_weight_.tensor();
     const auto &conv_bias_tensor = conv1d_bias_.tensor();
     const std::optional<infinilm::runtime::Tensor> conv_bias = conv_bias_tensor
-        ? std::optional<infinilm::runtime::Tensor>{conv_bias_tensor} : std::nullopt;
+                                                                 ? std::optional<infinilm::runtime::Tensor>{conv_bias_tensor}
+                                                                 : std::nullopt;
     const std::optional<infinilm::runtime::Tensor> no_conv_tensor;
-    if (!conv_state || !conv_weight)
+    if (!conv_state || !conv_weight) {
         throw std::invalid_argument("causal conv required tensor missing");
+    }
     infinilm::execution::submit<infini::ops::CausalConv1d>(
         runtime, infinilm::execution::RecordingPolicy::HostOnly,
         infini::ops::CausalConv1d::DefaultConfig(runtime.device().type()),
@@ -326,21 +357,26 @@ MambaBlock::MambaBlock(infinilm::runtime::Runtime &runtime,
     const auto &dtype = config->get_dtype();
     const size_t hidden_size = config->get<size_t>("hidden_size");
     const double eps = config->get<double>("layer_norm_epsilon");
-    if (config->get_or<bool>("residual_in_fp32", true) && dtype != infinilm::runtime::DataType::kFloat32)
+    if (config->get_or<bool>("residual_in_fp32", true) && dtype != infinilm::runtime::DataType::kFloat32) {
         throw std::invalid_argument("MambaBlock FP32 residual accumulation is not implemented for reduced-precision hidden states");
+    }
     try {
-        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_ )>>(runtime, hidden_size, eps, dtype));
-        mixer_ = this->bind_child("mixer", std::make_shared<std::remove_reference_t<decltype(*mixer_ )>>(runtime, config, layer_idx, rank_info, attention_backend, ep_config));
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        norm_ = this->bind_child("norm", std::make_shared<std::remove_reference_t<decltype(*norm_)>>(runtime, hidden_size, eps, dtype));
+        mixer_ = this->bind_child("mixer", std::make_shared<std::remove_reference_t<decltype(*mixer_)>>(runtime, config, layer_idx, rank_info, attention_backend, ep_config));
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor MambaBlock::forward(const infinilm::runtime::Tensor &hidden_states,
-                                      const global_state::ForwardContext &forward_context,
-                                      const state_routing::Plan *route) const {
+                                              const global_state::ForwardContext &forward_context,
+                                              const state_routing::Plan *route) const {
     if (!forward_context.runtime) {
         throw std::runtime_error("Mamba: explicit forward requires a Runtime");
     }
@@ -372,21 +408,25 @@ MambaModel::MambaModel(infinilm::runtime::Runtime &runtime,
     routing_history_ = config->get<size_t>("conv_kernel") - 1;
     routing_dtype_ = dtype;
     try {
-        embeddings_ = this->bind_child("embeddings", std::make_shared<std::remove_reference_t<decltype(*embeddings_ )>>(runtime, vocab_size, hidden_size, std::nullopt, dtype));
-    layers_.reserve(num_hidden_layers);
-    for (size_t i = 0; i < num_hidden_layers; ++i) {
+        embeddings_ = this->bind_child("embeddings", std::make_shared<std::remove_reference_t<decltype(*embeddings_)>>(runtime, vocab_size, hidden_size, std::nullopt, dtype));
+        layers_.reserve(num_hidden_layers);
+        for (size_t i = 0; i < num_hidden_layers; ++i) {
             layers_.push_back(this->bind_child("layers." + std::to_string(i), std::make_shared<MambaBlock>(runtime, config, i, rank_info, attention_backend, ep_config)));
-    }
-        norm_f_ = this->bind_child("norm_f", std::make_shared<std::remove_reference_t<decltype(*norm_f_ )>>(runtime, hidden_size, eps, dtype));
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        }
+        norm_f_ = this->bind_child("norm_f", std::make_shared<std::remove_reference_t<decltype(*norm_f_)>>(runtime, hidden_size, eps, dtype));
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor MambaModel::forward(const infinilm::InfinilmModel::Input &input,
-                                      const global_state::ForwardContext &forward_context) const {
+                                              const global_state::ForwardContext &forward_context) const {
     if (!forward_context.runtime) {
         throw std::runtime_error("Mamba: explicit forward requires a Runtime");
     }
@@ -410,10 +450,10 @@ infinilm::runtime::Tensor MambaModel::forward(const infinilm::InfinilmModel::Inp
             throw std::invalid_argument("Mamba indexed/packed routing requires eager execution");
         }
         plan = state_routing::make_plan(input_ids->size(0), input_ids->size(1),
-            forward_context.kv_cache_vec.empty() ? 0 : forward_context.kv_cache_vec[0]->size(0),
-            read_metadata(runtime, metadata.input_offsets),
-            read_metadata(runtime, metadata.init_state_indices),
-            read_metadata(runtime, metadata.final_state_indices));
+                                        forward_context.kv_cache_vec.empty() ? 0 : forward_context.kv_cache_vec[0]->size(0),
+                                        read_metadata(runtime, metadata.input_offsets),
+                                        read_metadata(runtime, metadata.init_state_indices),
+                                        read_metadata(runtime, metadata.final_state_indices));
     }
     const auto requests = plan ? plan->requests : input_ids->size(0);
     if (!forward_context.kv_cache_vec.empty() && requests > forward_context.kv_cache_vec[0]->size(0)) {
@@ -445,17 +485,21 @@ MambaForCausalLM::MambaForCausalLM(infinilm::runtime::Runtime &runtime,
     const size_t hidden_size = config->get<size_t>("hidden_size");
     const size_t vocab_size = config->get<size_t>("vocab_size");
     try {
-        backbone_ = this->bind_child("backbone", std::make_shared<std::remove_reference_t<decltype(*backbone_ )>>(runtime, config, rank_info, attention_backend, ep_config));
-        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_ )>>(runtime, hidden_size, vocab_size, false, dtype));
-        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+        backbone_ = this->bind_child("backbone", std::make_shared<std::remove_reference_t<decltype(*backbone_)>>(runtime, config, rank_info, attention_backend, ep_config));
+        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype));
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 InfinilmModel::Output MambaForCausalLM::forward(const InfinilmModel::Input &input,
-                                             global_state::ForwardContext &forward_context) const {
+                                                global_state::ForwardContext &forward_context) const {
     if (!forward_context.runtime) {
         throw std::runtime_error("Mamba: explicit forward requires a Runtime");
     }
@@ -498,11 +542,12 @@ void MambaForCausalLM::reset_cache(
     cache_vec.reserve(num_layers * 2);
     infinilm::runtime::Tensor conv_state, ssm_state;
     try {
-    for (size_t i = 0; i < num_layers; ++i) {
+        for (size_t i = 0; i < num_layers; ++i) {
             conv_state = infinilm::runtime::Tensor::empty(runtime, {max_batch_size, intermediate, conv_kernel - 1}, dtype);
             if (conv_state->is_contiguous() && !runtime.isGraphRecording()) {
-                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(conv_state)))
+                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(conv_state))) {
                     throw std::invalid_argument("zero-fill output layout or storage is invalid");
+                }
                 runtime.setDeviceMemoryAsync(conv_state->data(), 0, conv_state->nbytes(), runtime.stream());
             } else {
                 infinilm::execution::submit<infini::ops::Fill>(
@@ -513,8 +558,9 @@ void MambaForCausalLM::reset_cache(
             cache_vec.push_back(conv_state);
             ssm_state = infinilm::runtime::Tensor::empty(runtime, {max_batch_size, intermediate, state_size}, infinilm::runtime::DataType::kFloat32);
             if (ssm_state->is_contiguous() && !runtime.isGraphRecording()) {
-                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(ssm_state)))
+                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(ssm_state))) {
                     throw std::invalid_argument("zero-fill output layout or storage is invalid");
+                }
                 runtime.setDeviceMemoryAsync(ssm_state->data(), 0, ssm_state->nbytes(), runtime.stream());
             } else {
                 infinilm::execution::submit<infini::ops::Fill>(
@@ -527,7 +573,9 @@ void MambaForCausalLM::reset_cache(
     } catch (...) {
         // FC retains earlier entries; the pending tensors retain this iteration.
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }

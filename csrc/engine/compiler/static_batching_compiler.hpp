@@ -1,7 +1,7 @@
 #pragma once
 
-#include "graph_compiler.hpp"
 #include "../static_decode_metadata.hpp"
+#include "graph_compiler.hpp"
 
 #include <unordered_map>
 

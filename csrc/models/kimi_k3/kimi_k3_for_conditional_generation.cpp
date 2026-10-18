@@ -3,9 +3,9 @@
 #include <exception>
 
 #include "../../global_state/global_state.hpp"
-#include "runtime/runtime.hpp"
 #include "../models_registry.hpp"
 #include "kimi_k3_allocate_cache.hpp"
+#include "runtime/runtime.hpp"
 
 #include <cstdint>
 #include <stdexcept>
@@ -22,22 +22,26 @@ KimiK3ForConditionalGeneration::KimiK3ForConditionalGeneration(
     const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    model_config_ = model_config;
-        owner_tp_size_=rank_info.tp_size;owner_pp_size_=rank_info.pp_size;owner_pp_stage_=rank_info.pp_stage;
-    if (rank_info.pp_stage == 0) {
-        const auto &vision_config = model_config->get_config_json().at("vision_config");
+        model_config_ = model_config;
+        owner_tp_size_ = rank_info.tp_size;
+        owner_pp_size_ = rank_info.pp_size;
+        owner_pp_stage_ = rank_info.pp_stage;
+        if (rank_info.pp_stage == 0) {
+            const auto &vision_config = model_config->get_config_json().at("vision_config");
             vision_tower_ = std::make_shared<std::remove_reference_t<decltype(*vision_tower_)>>(
                 runtime, vision_config, model_config->get_dtype());
             this->bind_child("vision_tower", vision_tower_);
             mm_projector_ = std::make_shared<std::remove_reference_t<decltype(*mm_projector_)>>(
                 runtime, vision_config, model_config->get_dtype());
             this->bind_child("mm_projector", mm_projector_);
-    }
+        }
         language_model_ = std::make_shared<std::remove_reference_t<decltype(*language_model_)>>(
             runtime, model_config, rank_info, attention_backend, ep_config);
         this->bind_child("language_model", language_model_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -62,13 +66,13 @@ void KimiK3ForConditionalGeneration::replace_image_embeddings(
         throw std::runtime_error("KimiK3: image request metadata does not match pixel_values");
     }
     auto offsets_cpu = input.input_offsets.value()->device().type() == infinilm::runtime::Device::Type::kCpu
-        ? input.input_offsets.value()
-        : input.input_offsets.value()->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                         ? input.input_offsets.value()
+                         : input.input_offsets.value()->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
     const auto *offsets = reinterpret_cast<const int32_t *>(offsets_cpu->data());
     for (size_t image_idx = 0; image_idx < input.pixel_values->size(); ++image_idx) {
         auto bound_cpu = input.image_bound->at(image_idx)->device().type() == infinilm::runtime::Device::Type::kCpu
-            ? input.image_bound->at(image_idx)
-            : input.image_bound->at(image_idx)->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+                           ? input.image_bound->at(image_idx)
+                           : input.image_bound->at(image_idx)->to(runtime, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
         const auto *bound = reinterpret_cast<const int64_t *>(bound_cpu->data());
         const size_t request_start = static_cast<size_t>(offsets[request_ids->at(image_idx)]);
         const size_t image_start = static_cast<size_t>(bound[0]);
@@ -108,7 +112,9 @@ void KimiK3ForConditionalGeneration::reset_cache(
     if (cache_config == nullptr) {
         return;
     }
-    if(!forward_context.runtime) throw std::invalid_argument("K3 reset needs explicit worker Runtime");
+    if (!forward_context.runtime) {
+        throw std::invalid_argument("K3 reset needs explicit worker Runtime");
+    }
     auto &runtime = *forward_context.runtime;
     cache::validate_cache_runtime(runtime, rank_info);
     if (owner_tp_size_ != static_cast<size_t>(rank_info.tp_size)
@@ -121,7 +127,7 @@ void KimiK3ForConditionalGeneration::reset_cache(
         cache_config,
         model_config_,
         attention_backend);
-    cache_config_=cache_config->unique_copy();
+    cache_config_ = cache_config->unique_copy();
     forward_context.kv_cache_vec = std::move(allocated.kv_cache_tensors);
     forward_context.conv_state_vec = std::move(allocated.conv_state_tensors);
     forward_context.ssm_state_vec = std::move(allocated.ssm_state_tensors);
@@ -156,35 +162,42 @@ create_kimi_k3_model_config(std::shared_ptr<infinilm::config::ModelConfig> model
     if (model_config->get<int64_t>("hidden_size") <= 0
         || model_config->get<int64_t>("vocab_size") <= 0
         || model_config->get<int64_t>("num_hidden_layers") < 0
-        || model_config->get<int64_t>("attn_res_block_size") <= 0)
+        || model_config->get<int64_t>("attn_res_block_size") <= 0) {
         throw std::invalid_argument("Invalid kimi_k3 construction dimensions");
+    }
 
     const size_t num_layers = config.at("num_hidden_layers").get<size_t>();
     std::vector<std::string> layer_types(num_layers, "full_attention");
     for (const size_t one_based_layer_idx :
          config.at("linear_attn_config").at("kda_layers").get<std::vector<size_t>>()) {
-        if (!one_based_layer_idx || one_based_layer_idx > num_layers)
+        if (!one_based_layer_idx || one_based_layer_idx > num_layers) {
             throw std::invalid_argument("kimi_k3 KDA layer index is outside the one-based layer range");
+        }
         layer_types.at(one_based_layer_idx - 1) = "linear_attention";
     }
     const size_t first_dense = num_layers ? model_config->get<size_t>("first_k_dense_replace") : 0;
     const size_t frequency = num_layers ? model_config->get<size_t>("moe_layer_freq") : 0;
-    if (first_dense < num_layers && frequency == 0)
+    if (first_dense < num_layers && frequency == 0) {
         throw std::invalid_argument("kimi_k3 active MoE selection requires nonzero moe_layer_freq");
+    }
     bool needs_dense = false;
     bool needs_mla = false;
     for (size_t i = 0; i < num_layers; ++i) {
         needs_dense = needs_dense || !(i >= first_dense && i % frequency == 0);
         needs_mla = needs_mla || layer_types[i] == "full_attention";
     }
-    if (needs_dense && model_config->get<int64_t>("intermediate_size") <= 0)
+    if (needs_dense && model_config->get<int64_t>("intermediate_size") <= 0) {
         throw std::invalid_argument("kimi_k3 dense layers require positive intermediate_size");
+    }
     if (needs_mla) {
-        for (const char *key : {"num_attention_heads", "q_lora_rank", "kv_lora_rank", "v_head_dim"})
-            if (model_config->get<int64_t>(key) <= 0)
+        for (const char *key : {"num_attention_heads", "q_lora_rank", "kv_lora_rank", "v_head_dim"}) {
+            if (model_config->get<int64_t>(key) <= 0) {
                 throw std::invalid_argument("kimi_k3 MLA requires positive projection dimensions");
-        if (!config.at("head_dim").get<size_t>())
+            }
+        }
+        if (!config.at("head_dim").get<size_t>()) {
             throw std::invalid_argument("kimi_k3 MLA requires nonzero head dimension");
+        }
     }
     config["layer_types"] = std::move(layer_types);
     return model_config;

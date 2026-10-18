@@ -388,8 +388,9 @@ class Qwen35Processor(BasicLLMProcessor):
         req.mrope_position_delta = self._compute_mrope_delta(req)
 
     def _append_qwen35_position_ids(self, model_inputs: dict, scheduler_output) -> None:
-        from .. import _core as infinicore
         import torch
+
+        from .. import _core as infinicore
 
         position_chunks = []
         for req in scheduler_output.scheduled_requests:
@@ -413,8 +414,9 @@ class Qwen35Processor(BasicLLMProcessor):
     def _append_qwen35_mm_inputs(
         self, model_inputs: dict, scheduler_output: SchedulerOutput
     ) -> None:
-        from .. import _core as infinicore
         import torch
+
+        from .. import _core as infinicore
 
         pixel_values = []
         image_grid_thw = []

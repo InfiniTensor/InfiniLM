@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../../../config/model_config.hpp"
-#include "../../linear/linear.hpp"
 #include "../../../weights/weights.hpp"
+#include "../../linear/linear.hpp"
 
 namespace infinilm::layers::moe::legacy {
 

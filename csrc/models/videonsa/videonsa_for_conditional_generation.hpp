@@ -13,10 +13,10 @@ using VideoNSATextModel = infinilm::layers::causal_lm_templates::TextModel<Video
 class VideoNSAForConditionalGeneration : public InfinilmModel {
 public:
     VideoNSAForConditionalGeneration(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep);
+                                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                     const engine::distributed::RankInfo &rank,
+                                     backends::AttentionBackend attention_backend,
+                                     const layers::moe::EPConfig &ep);
 
     Output forward(const Input &input, global_state::ForwardContext &forward_context) const override;
     void prepare_paged_owner(global_state::ForwardContext &) const override;

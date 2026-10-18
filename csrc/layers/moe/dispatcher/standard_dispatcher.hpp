@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../../engine/distributed/communication_group.hpp"
 #include "../common/moe_types.hpp"
 #include "base_dispatcher.hpp"
-#include "../../../engine/distributed/communication_group.hpp"
 #include <memory>
 
 #include <infiniccl/infiniccl.h>
@@ -20,8 +20,8 @@ public:
                             MoeWorkspace &workspace) const override;
 
     infinilm::runtime::Tensor combine(infinilm::runtime::Runtime &runtime,
-                               const CombineInput &combine_input,
-                               MoeWorkspace &workspace) const override;
+                                      const CombineInput &combine_input,
+                                      MoeWorkspace &workspace) const override;
 
 private:
     void assertInitializedRuntime(infinilm::runtime::Runtime &runtime) const;

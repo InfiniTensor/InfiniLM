@@ -46,8 +46,7 @@ DispatchOutput StandardDispatcher::dispatch(infinilm::runtime::Runtime &runtime,
     if (hidden_states && runtime.device() != hidden_states->device()) {
         throw std::invalid_argument("MoE standard input device differs from Runtime device");
     }
-    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) ||
-        (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
+    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) || (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
         throw std::invalid_argument("MoE standard routing device differs from Runtime device");
     }
     (void)workspace;
@@ -60,8 +59,8 @@ DispatchOutput StandardDispatcher::dispatch(infinilm::runtime::Runtime &runtime,
 }
 
 infinilm::runtime::Tensor StandardDispatcher::combine(infinilm::runtime::Runtime &runtime,
-                                               const CombineInput &combine_input,
-                                               MoeWorkspace &workspace) const {
+                                                      const CombineInput &combine_input,
+                                                      MoeWorkspace &workspace) const {
     assertInitializedRuntime(runtime);
     if (combine_input.hidden_states && runtime.device() != combine_input.hidden_states->device()) {
         throw std::invalid_argument("MoE standard combine device differs from Runtime device");

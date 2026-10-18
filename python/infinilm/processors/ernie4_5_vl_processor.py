@@ -263,8 +263,9 @@ class Ernie45VLProcessor(BasicLLMProcessor):
         raise RuntimeError("ERNIE 4.5 VL position_ids must have shape [1, seq, 3]")
 
     def _append_ernie_position_ids(self, model_inputs: dict, scheduler_output) -> None:
-        from .. import _core as infinicore
         import torch
+
+        from .. import _core as infinicore
 
         position_chunks = []
         has_3d = False
@@ -322,8 +323,9 @@ class Ernie45VLProcessor(BasicLLMProcessor):
         model_inputs: dict,
         scheduler_output: SchedulerOutput | StaticSchedulerOutput,
     ) -> None:
-        from .. import _core as infinicore
         import torch
+
+        from .. import _core as infinicore
 
         pixel_values = []
         image_bound = []

@@ -1,5 +1,5 @@
-#include "../layers/rotary_embedding/rope.hpp"
 #include "model_config.hpp"
+#include "../layers/rotary_embedding/rope.hpp"
 
 namespace infinilm::config {
 ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {

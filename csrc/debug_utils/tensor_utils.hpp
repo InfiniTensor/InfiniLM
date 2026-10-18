@@ -1,11 +1,11 @@
 #pragma once
 
 #include "runtime/tensor.hpp"
-#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <numeric>
-#include <vector>
+#include <spdlog/spdlog.h>
 #include <string>
+#include <vector>
 
 namespace infinilm::models::debug_utils {
 
@@ -39,14 +39,14 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
 
         if (numel > 0) {
             if (dtype == infinilm::runtime::DataType::kFloat32) {
-                float *data = reinterpret_cast<float*>(raw_data);
+                float *data = reinterpret_cast<float *>(raw_data);
                 float min_val = *std::min_element(data, data + numel);
                 float max_val = *std::max_element(data, data + numel);
                 float sum = std::accumulate(data, data + numel, 0.0f);
                 float mean_val = sum / static_cast<float>(numel);
 
                 SPDLOG_INFO("    Stats: min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
-                           min_val, max_val, mean_val, numel);
+                            min_val, max_val, mean_val, numel);
 
                 // Log sample values at specific positions
                 if (log_samples && numel > 0) {
@@ -58,7 +58,7 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
                 }
             } else if (dtype == infinilm::runtime::DataType::kFloat16) {
                 // F16 is typically uint16_t, need to convert to float for logging
-                uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
+                uint16_t *data = reinterpret_cast<uint16_t *>(raw_data);
                 std::vector<float> float_data(numel);
                 for (size_t i = 0; i < numel; ++i) {
                     // Simple F16 to F32 conversion (approximate)
@@ -67,7 +67,7 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
                     uint32_t exp = (h >> 10) & 0x1F;
                     uint32_t mant = h & 0x3FF;
                     uint32_t f32 = (sign << 31) | ((exp + 112) << 23) | (mant << 13);
-                    float_data[i] = *reinterpret_cast<float*>(&f32);
+                    float_data[i] = *reinterpret_cast<float *>(&f32);
                 }
                 float min_val = *std::min_element(float_data.begin(), float_data.end());
                 float max_val = *std::max_element(float_data.begin(), float_data.end());
@@ -75,7 +75,7 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
                 float mean_val = sum / static_cast<float>(numel);
 
                 SPDLOG_INFO("    Stats (F16): min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
-                           min_val, max_val, mean_val, numel);
+                            min_val, max_val, mean_val, numel);
 
                 if (log_samples && numel > 0) {
                     size_t sample_count = std::min(max_samples, numel);
@@ -86,13 +86,13 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
                 }
             } else if (dtype == infinilm::runtime::DataType::kBFloat16) {
                 // BF16 is typically uint16_t, need to convert to float for logging
-                uint16_t *data = reinterpret_cast<uint16_t*>(raw_data);
+                uint16_t *data = reinterpret_cast<uint16_t *>(raw_data);
                 std::vector<float> float_data(numel);
                 for (size_t i = 0; i < numel; ++i) {
                     // BF16 to F32 conversion
                     uint16_t b = data[i];
                     uint32_t f32 = (static_cast<uint32_t>(b) << 16);
-                    float_data[i] = *reinterpret_cast<float*>(&f32);
+                    float_data[i] = *reinterpret_cast<float *>(&f32);
                 }
                 float min_val = *std::min_element(float_data.begin(), float_data.end());
                 float max_val = *std::max_element(float_data.begin(), float_data.end());
@@ -100,7 +100,7 @@ inline void log_tensor_stats(const infinilm::runtime::Tensor &tensor, const std:
                 float mean_val = sum / static_cast<float>(numel);
 
                 SPDLOG_INFO("    Stats (BF16): min={:.6e}, max={:.6e}, mean={:.6e}, numel={}",
-                           min_val, max_val, mean_val, numel);
+                            min_val, max_val, mean_val, numel);
 
                 if (log_samples && numel > 0) {
                     size_t sample_count = std::min(max_samples, numel);
@@ -136,13 +136,13 @@ inline void log_tensor_positions(const infinilm::runtime::Tensor &tensor, const 
     if (dtype == infinilm::runtime::DataType::kFloat32) {
         auto cpu_tensor = tensor->to(infinilm::runtime::Device(infinilm::runtime::Device::Type::kCpu, 0));
         std::byte *raw_data = cpu_tensor->data();
-        float *data = reinterpret_cast<float*>(raw_data);
+        float *data = reinterpret_cast<float *>(raw_data);
 
         SPDLOG_INFO("  {}: Logging specific positions:", name);
         for (const auto &pos : positions) {
             if (pos.size() != shape.size()) {
                 SPDLOG_INFO("    Position {}: dimension mismatch (expected {} dims, got {})",
-                           pos.size(), shape.size());
+                            pos.size(), shape.size());
                 continue;
             }
 

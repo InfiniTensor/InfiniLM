@@ -1,6 +1,6 @@
 #pragma once
-#include "../../weights/weights.hpp"
 #include "../../engine/distributed/communication_group.hpp"
+#include "../../weights/weights.hpp"
 #include "../quantization/quantization.hpp"
 #include "linear.hpp"
 #include <functional>

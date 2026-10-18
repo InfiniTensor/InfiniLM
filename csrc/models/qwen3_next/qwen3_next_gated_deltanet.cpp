@@ -1,15 +1,14 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/normalization/rmsnorm.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "../../global_state/forward_context.hpp"
 #include "runtime/runtime.hpp"
 #include "runtime/utils.hpp"
 
-
-#include <cstdint>
 #include <array>
+#include <cstdint>
 #include <exception>
 #include <limits>
 #include <optional>
@@ -27,9 +26,11 @@ Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
-    (void)attention_backend; (void)ep_config;
+    }
+    (void)attention_backend;
+    (void)ep_config;
     device_ = runtime.device();
     layer_idx_ = layer_idx;
     const auto dtype = model_config->get_dtype();
@@ -56,19 +57,24 @@ Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(
         this->bind_weight("weight", weight_);
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
 void Qwen3NextCausalConv1D::process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool /*pre_transpose*/) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device_ || !weight_ || weight_->device() != device_)
+    if (runtime.device() != device_ || !weight_ || weight_->device() != device_) {
         throw std::invalid_argument("Qwen3NextCausalConv1D: postload Runtime/weight device mismatch");
-    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+    }
+    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
         throw std::logic_error("Qwen3NextCausalConv1D: postload requires inactive graph state");
-    if (postload_failed_)
+    }
+    if (postload_failed_) {
         throw std::logic_error("Qwen3NextCausalConv1D: failed postload cannot be retried");
+    }
 
     const size_t max = std::numeric_limits<size_t>::max();
     if (!tp_size_ || tp_rank_ >= tp_size_ || !conv_kernel_dim_ || !local_qk_dim_ || !local_v_dim_
@@ -76,25 +82,30 @@ void Qwen3NextCausalConv1D::process_weights_after_loading(infinilm::runtime::Run
         || local_qk_dim_ > (max - local_v_dim_) / 2
         || full_qk_dim_ % tp_size_ || full_v_dim_ % tp_size_
         || full_qk_dim_ / tp_size_ != local_qk_dim_ || full_v_dim_ / tp_size_ != local_v_dim_
-        || local_conv_dim_ != local_qk_dim_ * 2 + local_v_dim_)
+        || local_conv_dim_ != local_qk_dim_ * 2 + local_v_dim_) {
         throw std::invalid_argument("Qwen3NextCausalConv1D: unsupported TP slicing geometry");
+    }
 
     const size_t expected_full_conv_dim = full_qk_dim_ * 2 + full_v_dim_;
     const auto &shape = weight_->shape();
     if (weight_->dtype() != weight_dtype_ || shape.size() != 3 || shape[1] != 1
         || shape[2] != conv_kernel_dim_
-        || (shape[0] != expected_full_conv_dim && shape[0] != local_conv_dim_))
+        || (shape[0] != expected_full_conv_dim && shape[0] != local_conv_dim_)) {
         throw std::invalid_argument("Qwen3NextCausalConv1D: expected [full/local channels,1,kernel] weight and model dtype");
+    }
     auto alias = local_weights_.find("weight");
-    if (alias == local_weights_.end())
+    if (alias == local_weights_.end()) {
         throw std::logic_error("Qwen3NextCausalConv1D: missing registered weight");
+    }
     // Complete validation also applies to TP1 and an already-local weight.
-    if (tp_size_ == 1 || shape[0] == local_conv_dim_) return;
+    if (tp_size_ == 1 || shape[0] == local_conv_dim_) {
+        return;
+    }
 
     auto old_weight = weight_;
     auto old_alias = alias->second;
     auto local_weight = infinilm::runtime::Tensor::empty(runtime,
-        {local_conv_dim_, 1, conv_kernel_dim_}, weight_dtype_);
+                                                         {local_conv_dim_, 1, conv_kernel_dim_}, weight_dtype_);
     infinilm::weights::Weight pending_weight(local_weight);
 
     const size_t src_qk0_offset = tp_rank_ * local_qk_dim_;
@@ -118,13 +129,15 @@ void Qwen3NextCausalConv1D::process_weights_after_loading(infinilm::runtime::Run
     for (size_t i = 0; i < sources.size(); ++i) {
         if (sources[i]->shape() != destinations[i]->shape()
             || sources[i]->dtype() != destinations[i]->dtype()
-            || sources[i]->device() != runtime.device() || destinations[i]->device() != runtime.device())
+            || sources[i]->device() != runtime.device() || destinations[i]->device() != runtime.device()) {
             throw std::invalid_argument("Qwen3NextCausalConv1D: invalid TP copy operands");
+        }
     }
     postload_failed_ = true; // A possibly submitted failed attempt is fail-stop.
     try {
-        for (size_t i = 0; i < sources.size(); ++i)
+        for (size_t i = 0; i < sources.size(); ++i) {
             destinations[i]->copy_from(runtime, sources[i]);
+        }
         // Outer worker completion is too late for these local view owners.
         runtime.syncStream();
         weight_ = pending_weight;
@@ -132,21 +145,24 @@ void Qwen3NextCausalConv1D::process_weights_after_loading(infinilm::runtime::Run
         postload_failed_ = false;
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
 infinilm::runtime::Tensor Qwen3NextCausalConv1D::forward(const infinilm::runtime::Tensor &qkv,
-                                               const infinilm::global_state::ForwardContext &forward_context) const {
+                                                         const infinilm::global_state::ForwardContext &forward_context) const {
     if (!forward_context.runtime) {
         throw std::invalid_argument("Qwen3NextCausalConv1D forward requires its worker Runtime");
     }
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     if (runtime.device() != device_ || !qkv || qkv->device() != device_
-        || !weight_ || weight_->device() != device_)
+        || !weight_ || weight_->device() != device_) {
         throw std::invalid_argument("Qwen3NextCausalConv1D forward Runtime/input/weight device mismatch");
+    }
     const auto &mamba_metadata = forward_context.mamba_metadata;
 
     const auto &conv_state = forward_context.conv_state_vec[layer_idx_];
@@ -155,10 +171,12 @@ infinilm::runtime::Tensor Qwen3NextCausalConv1D::forward(const infinilm::runtime
     const auto &conv_initial = mamba_metadata.init_state_indices.value();
     const auto &conv_final = mamba_metadata.final_state_indices.value();
     if (!conv_state || qkv->ndim() != 3 || conv_state->ndim() != 3 || conv_weight->ndim() != 3
-        || conv_state->device() != runtime.device())
+        || conv_state->device() != runtime.device()) {
         throw std::invalid_argument("causal conv required input shape/device mismatch");
-    if (!conv_offsets || conv_offsets->ndim() != 1 || conv_offsets->numel() < 2)
+    }
+    if (!conv_offsets || conv_offsets->ndim() != 1 || conv_offsets->numel() < 2) {
         throw std::invalid_argument("causal conv cu_seqlens shape mismatch");
+    }
     auto conv_out = infinilm::runtime::Tensor::empty(runtime, qkv->shape(), qkv->dtype());
     const std::optional<infinilm::runtime::Tensor> no_conv_tensor;
     infinilm::execution::submit<infini::ops::CausalConv1d>(
@@ -183,8 +201,9 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
+    }
     device_ = runtime.device();
     layer_idx_ = layer_idx;
     const auto dtype = model_config->get_dtype();
@@ -197,8 +216,9 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(
     const auto tp_rank = rank_info.tp_rank;
     // These existing local-head expressions divide, rather than replicate.
     if (!linear_num_key_heads || !linear_num_value_heads || linear_num_key_heads % tp_size
-        || linear_num_value_heads % tp_size || linear_num_value_heads % linear_num_key_heads)
+        || linear_num_value_heads % tp_size || linear_num_value_heads % linear_num_key_heads) {
         throw std::invalid_argument("Qwen3NextGatedDeltaNet: unsupported TP head geometry");
+    }
     local_num_value_heads_ = linear_num_value_heads / tp_size;
     local_num_key_heads_ = linear_num_key_heads / tp_size;
     key_head_dim_ = linear_key_head_dim;
@@ -213,7 +233,7 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(
             runtime, model_config, layer_idx, rank_info, attention_backend, ep_config);
         this->bind_child("conv1d", conv1d_);
         auto register_fn = [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); };
-    in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
+        in_proj_qkv_ = std::make_shared<layers::linear::QKVParallelLinear>(
             runtime, hidden_size, linear_key_head_dim, linear_key_head_dim, linear_value_head_dim,
             linear_num_key_heads, linear_num_key_heads, linear_num_value_heads, false, false, false,
             "in_proj_q", "in_proj_k", "in_proj_v", register_fn, quantization_method, dtype, rank_info);
@@ -238,12 +258,12 @@ Qwen3NextGatedDeltaNet::Qwen3NextGatedDeltaNet(
         this->bind_child("out_proj", out_proj_);
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
-
-
 
 infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
     const infinilm::runtime::Tensor &hidden_states,
@@ -254,8 +274,9 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
     }
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
-    if (runtime.device() != device_ || !hidden_states || hidden_states->device() != device_)
+    if (runtime.device() != device_ || !hidden_states || hidden_states->device() != device_) {
         throw std::invalid_argument("Qwen3NextGatedDeltaNet forward Runtime/input device mismatch");
+    }
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
     size_t batch_size = shape[0];
@@ -295,15 +316,18 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
             {b->stride(1), b->stride(0), 1});
         const auto &gating_A_log = A_log_.tensor();
         const auto &gating_dt_bias = dt_bias_.tensor();
-        if (!a_heads || a_heads->device() != runtime.device())
+        if (!a_heads || a_heads->device() != runtime.device()) {
             throw std::invalid_argument("gating input device mismatch");
+        }
         auto g = infinilm::runtime::Tensor::empty(runtime, a_heads->shape(), infinilm::runtime::DataType::kFloat32);
         auto beta = infinilm::runtime::Tensor::empty(runtime, a_heads->shape(), infinilm::runtime::DataType::kFloat32);
         const std::array<infinilm::runtime::Tensor, 6> gating_tensors{
             gating_A_log, a_heads, b_heads, gating_dt_bias, g, beta};
-        for (const auto &gating_tensor : gating_tensors)
-            if (!gating_tensor || gating_tensor->device() != runtime.device())
+        for (const auto &gating_tensor : gating_tensors) {
+            if (!gating_tensor || gating_tensor->device() != runtime.device()) {
                 throw std::invalid_argument("gating Runtime/tensor device mismatch");
+            }
+        }
         infinilm::execution::submit<infini::ops::FusedGatedDeltaNetGating>(
             runtime, infinilm::execution::RecordingPolicy::HostOnly,
             infini::ops::FusedGatedDeltaNetGating::DefaultConfig(runtime.device().type()),
@@ -316,9 +340,11 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
         const std::array<infinilm::runtime::Tensor, 8> delta_inputs{
             q_delta, k_delta, v_delta, g, beta, ssm_state,
             delta_initial_indices, delta_final_indices};
-        for (const auto &delta_input : delta_inputs)
-            if (!delta_input || delta_input->device() != runtime.device())
+        for (const auto &delta_input : delta_inputs) {
+            if (!delta_input || delta_input->device() != runtime.device()) {
                 throw std::invalid_argument("recurrent delta Runtime/tensor device mismatch");
+            }
+        }
         infinilm::execution::submit<infini::ops::RecurrentGatedDeltaRule>(
             runtime, infinilm::execution::RecordingPolicy::HostOnly,
             infini::ops::RecurrentGatedDeltaRule::DefaultConfig(runtime.device().type()),
@@ -350,15 +376,18 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
             {b->stride(0), b->stride(1), 1});
         const auto &gating_A_log = A_log_.tensor();
         const auto &gating_dt_bias = dt_bias_.tensor();
-        if (!a_heads || a_heads->device() != runtime.device())
+        if (!a_heads || a_heads->device() != runtime.device()) {
             throw std::invalid_argument("gating input device mismatch");
+        }
         auto g = infinilm::runtime::Tensor::empty(runtime, a_heads->shape(), infinilm::runtime::DataType::kFloat32);
         auto beta = infinilm::runtime::Tensor::empty(runtime, a_heads->shape(), infinilm::runtime::DataType::kFloat32);
         const std::array<infinilm::runtime::Tensor, 6> gating_tensors{
             gating_A_log, a_heads, b_heads, gating_dt_bias, g, beta};
-        for (const auto &gating_tensor : gating_tensors)
-            if (!gating_tensor || gating_tensor->device() != runtime.device())
+        for (const auto &gating_tensor : gating_tensors) {
+            if (!gating_tensor || gating_tensor->device() != runtime.device()) {
                 throw std::invalid_argument("gating Runtime/tensor device mismatch");
+            }
+        }
         infinilm::execution::submit<infini::ops::FusedGatedDeltaNetGating>(
             runtime, infinilm::execution::RecordingPolicy::HostOnly,
             infini::ops::FusedGatedDeltaNetGating::DefaultConfig(runtime.device().type()),
@@ -369,15 +398,18 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
         const auto &chunk_initial = mamba_metadata.init_state_indices.value();
         const auto &chunk_final = mamba_metadata.final_state_indices.value();
         if (!q_delta || !k_delta || !v_delta || !ssm_state
-            || q_delta->ndim() != 4 || k_delta->ndim() != 4 || v_delta->ndim() != 4)
+            || q_delta->ndim() != 4 || k_delta->ndim() != 4 || v_delta->ndim() != 4) {
             throw std::invalid_argument("chunk delta required sequence rank mismatch");
-        if (!chunk_offsets || chunk_offsets->ndim() != 1 || chunk_offsets->numel() < 2)
+        }
+        if (!chunk_offsets || chunk_offsets->ndim() != 1 || chunk_offsets->numel() < 2) {
             throw std::invalid_argument("chunk delta cu shape mismatch");
+        }
         delta_out = infinilm::runtime::Tensor::empty(runtime, v_delta->shape(), v_delta->dtype());
         for (const auto &chunk_input : {q_delta, k_delta, v_delta, g, beta, ssm_state,
-                                       chunk_offsets, chunk_initial, chunk_final}) {
-            if (!chunk_input || chunk_input->device() != runtime.device())
+                                        chunk_offsets, chunk_initial, chunk_final}) {
+            if (!chunk_input || chunk_input->device() != runtime.device()) {
                 throw std::invalid_argument("chunk delta Runtime/tensor device mismatch");
+            }
         }
         const std::optional<infinilm::runtime::Tensor> no_chunk_final_state;
         infinilm::execution::submit<infini::ops::ChunkGatedDeltaRule>(

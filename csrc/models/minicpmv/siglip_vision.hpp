@@ -2,8 +2,8 @@
 
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
-#include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/embedding/embedding.hpp"
+#include "../../layers/linear/fused_linear.hpp"
 #include "../../layers/normalization/layer_norm.hpp"
 #include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
@@ -35,7 +35,7 @@ public:
                            const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &tgt_sizes) const;
+                                      const infinilm::runtime::Tensor &tgt_sizes) const;
 
 private:
     size_t hidden_size_;
@@ -50,7 +50,9 @@ class SiglipAttention : public infinilm::weights::ModelWeights {
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (qkv_proj_) result.push_back(qkv_proj_);
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
         return result;
     }
 
@@ -58,8 +60,8 @@ public:
                     const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
-                               backends::AttentionBackend attention_backend) const;
+                                      const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                                      backends::AttentionBackend attention_backend) const;
 
 private:
     size_t embed_dim_;
@@ -90,8 +92,8 @@ public:
                        const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
-                               backends::AttentionBackend attention_backend) const;
+                                      const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                                      backends::AttentionBackend attention_backend) const;
 
 private:
     std::shared_ptr<infinilm::layers::LayerNorm> layer_norm1_;
@@ -106,8 +108,8 @@ public:
                   const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                               const std::optional<infinilm::runtime::Tensor> &attention_mask,
-                               backends::AttentionBackend attention_backend) const;
+                                      const std::optional<infinilm::runtime::Tensor> &attention_mask,
+                                      backends::AttentionBackend attention_backend) const;
 
 private:
     std::vector<std::shared_ptr<SiglipEncoderLayer>> layers_;
@@ -120,8 +122,8 @@ public:
                       bool drop_last_layer);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &tgt_sizes,
-                               backends::AttentionBackend attention_backend) const;
+                                      const infinilm::runtime::Tensor &tgt_sizes,
+                                      backends::AttentionBackend attention_backend) const;
 
 private:
     nlohmann::json config_;

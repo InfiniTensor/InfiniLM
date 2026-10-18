@@ -8,7 +8,7 @@
 namespace infinilm::layers::moe {
 
 BaseEPDispatcher::BaseEPDispatcher(EPConfig ep_config, size_t num_experts,
-                                  const engine::distributed::RankInfo &rank_info)
+                                   const engine::distributed::RankInfo &rank_info)
     : config_(std::move(ep_config)),
       num_experts_(num_experts), device_(rank_info.device) {
     if (static_cast<int>(device_.type()) < 0

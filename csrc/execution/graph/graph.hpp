@@ -112,23 +112,23 @@ private:
 // Trace one op invocation into the global ring. Op type is resolved by
 // stringified class name through `opTypeFromName`, so new graph ops are
 // automatically discoverable without modifying the op header.
-#define INFINILM_TRACE_OP(__OP_NAME__, __TRACE_TENSOR__)                    \
-    do {                                                                       \
+#define INFINILM_TRACE_OP(__OP_NAME__, __TRACE_TENSOR__)                             \
+    do {                                                                             \
         auto __op_type = ::infinilm::execution::trace::opTypeFromName(#__OP_NAME__); \
-        auto &&__trace_tensor = (__TRACE_TENSOR__);                            \
-        if (__trace_tensor) {                                                  \
-            const auto &__trace_shape = __trace_tensor->shape();               \
-            const auto __trace_device = __trace_tensor->device();              \
+        auto &&__trace_tensor = (__TRACE_TENSOR__);                                  \
+        if (__trace_tensor) {                                                        \
+            const auto &__trace_shape = __trace_tensor->shape();                     \
+            const auto __trace_device = __trace_tensor->device();                    \
             ::infinilm::execution::trace::traceOp(                                   \
-                __op_type,                                                     \
-                __trace_shape.data(),                                          \
-                __trace_shape.size(),                                          \
-                static_cast<uint8_t>(__trace_tensor->dtype()),                 \
-                static_cast<uint8_t>(__trace_device.type()),                   \
-                static_cast<int8_t>(__trace_device.index()));                  \
-        } else {                                                               \
+                __op_type,                                                           \
+                __trace_shape.data(),                                                \
+                __trace_shape.size(),                                                \
+                static_cast<uint8_t>(__trace_tensor->dtype()),                       \
+                static_cast<uint8_t>(__trace_device.type()),                         \
+                static_cast<int8_t>(__trace_device.index()));                        \
+        } else {                                                                     \
             ::infinilm::execution::trace::traceOp(__op_type, nullptr, 0, 0, 0, -1);  \
-        }                                                                      \
+        }                                                                            \
     } while (0)
 #else
 #define INFINILM_TRACE_OP(__OP_NAME__, __TRACE_TENSOR__) ((void)0)

@@ -4,15 +4,17 @@
 #include "../../../layers/quantization/kv_quant.hpp"
 #include "../../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
-#include <tuple>
 #include <array>
 #include <cstdint>
+#include <tuple>
 #include <vector>
 
 namespace infinilm::layers::attention {
 class AttentionLayer;
 }
-namespace infinilm::runtime { class Runtime; }
+namespace infinilm::runtime {
+class Runtime;
+}
 
 namespace infinilm::layers::attention::backends {
 
@@ -26,19 +28,19 @@ public:
                         infinilm::quantization::KVQuantAlgo kv_quant_scheme);
 
     infinilm::runtime::Tensor forward(const AttentionLayer &layer,
-                               infinilm::runtime::Tensor &q_reshaped, // query
-                               infinilm::runtime::Tensor &k_permuted, // key
-                               infinilm::runtime::Tensor &v_permuted, // value
-                               infinilm::runtime::Tensor &kv_cache,
-                               const infinilm::global_state::AttentionMetadata &attn_metadata,
-                               infinilm::runtime::Runtime &runtime) const;
+                                      infinilm::runtime::Tensor &q_reshaped, // query
+                                      infinilm::runtime::Tensor &k_permuted, // key
+                                      infinilm::runtime::Tensor &v_permuted, // value
+                                      infinilm::runtime::Tensor &kv_cache,
+                                      const infinilm::global_state::AttentionMetadata &attn_metadata,
+                                      infinilm::runtime::Runtime &runtime) const;
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> do_kv_cache_update(const AttentionLayer &layer,
-                                                                          const infinilm::runtime::Tensor key,
-                                                                          const infinilm::runtime::Tensor value,
-                                                                          infinilm::runtime::Tensor &kv_cache,
-                                                                          size_t cache_pos,
-                                                                          infinilm::runtime::Runtime &runtime) const;
+                                                                                        const infinilm::runtime::Tensor key,
+                                                                                        const infinilm::runtime::Tensor value,
+                                                                                        infinilm::runtime::Tensor &kv_cache,
+                                                                                        size_t cache_pos,
+                                                                                        infinilm::runtime::Runtime &runtime) const;
 
 private:
     infinilm::runtime::Tensor forward_decode_(

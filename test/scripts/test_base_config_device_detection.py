@@ -15,11 +15,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-
 SOURCE = Path(__file__).resolve().parents[2] / "python/infinilm/base_config.py"
 tree = ast.parse(SOURCE.read_text(encoding="utf-8"), filename=str(SOURCE))
 nodes = [
-    node for node in tree.body
+    node
+    for node in tree.body
     if isinstance(node, (ast.FunctionDef, ast.ClassDef))
     and node.name in {"parse_list", "BaseConfig"}
 ]
@@ -47,11 +47,18 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
 
     def test_native_priority_and_single_auto_probe(self):
         order = (
-            "cambricon", "ascend", "moore", "metax", "hygon",
-            "iluvatar", "nvidia",
+            "cambricon",
+            "ascend",
+            "moore",
+            "metax",
+            "hygon",
+            "iluvatar",
+            "nvidia",
         )
         aliases = {
-            "cambricon": "mlu", "ascend": "npu", "moore": "musa",
+            "cambricon": "mlu",
+            "ascend": "npu",
+            "moore": "musa",
             "nvidia": "cuda",
         }
         for backend in ("cpp", "infinilm", "python"):
@@ -61,17 +68,27 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
 
                     def get_device_count(name):
                         calls.append(name)
-                        return int(name == chosen or name in order[index + 1:])
+                        return int(name == chosen or name in order[index + 1 :])
 
                     native = SimpleNamespace(get_device_count=get_device_count)
-                    with patch.object(importlib, "import_module", return_value=native) as load, \
-                         patch.object(shutil, "which", side_effect=AssertionError("CLI probe")), \
-                         patch.object(os, "getenv", side_effect=AssertionError("env probe")):
+                    with (
+                        patch.object(
+                            importlib, "import_module", return_value=native
+                        ) as load,
+                        patch.object(
+                            shutil, "which", side_effect=AssertionError("CLI probe")
+                        ),
+                        patch.object(
+                            os, "getenv", side_effect=AssertionError("env probe")
+                        ),
+                    ):
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             config = self.config("--backend", backend)
-                        self.assertEqual(self.device_string(config), aliases.get(chosen, chosen))
-                    self.assertEqual(calls, list(order[:index + 1]))
+                        self.assertEqual(
+                            self.device_string(config), aliases.get(chosen, chosen)
+                        )
+                    self.assertEqual(calls, list(order[: index + 1]))
                     load.assert_called_once_with("infinilm._core")
 
     def test_native_none_is_cpu_and_never_imports_torch(self):
@@ -81,11 +98,15 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
         def load(name):
             modules.append(name)
             self.assertEqual(name, "infinilm._core")
-            return SimpleNamespace(get_device_count=lambda device: names.append(device) or 0)
+            return SimpleNamespace(
+                get_device_count=lambda device: names.append(device) or 0
+            )
 
-        with patch.object(importlib, "import_module", side_effect=load), \
-             patch.object(shutil, "which", side_effect=AssertionError("CLI probe")), \
-             patch.object(os, "getenv", side_effect=AssertionError("env probe")):
+        with (
+            patch.object(importlib, "import_module", side_effect=load),
+            patch.object(shutil, "which", side_effect=AssertionError("CLI probe")),
+            patch.object(os, "getenv", side_effect=AssertionError("env probe")),
+        ):
             config = self.config()
             self.assertEqual(self.device_string(config), "cpu")
         self.assertEqual(modules, ["infinilm._core"])
@@ -98,31 +119,43 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
         native = SimpleNamespace(get_device_count=fail)
         with patch.object(importlib, "import_module", return_value=native):
             with self.assertRaisesRegex(RuntimeError, "RT enumeration failed"):
-                self.config()
+                self.device_string(self.config())
 
     def test_missing_native_extension_does_not_fall_back(self):
-        with patch.object(importlib, "import_module", side_effect=ImportError("missing native")) as load, \
-             patch.object(shutil, "which", side_effect=AssertionError("CLI probe")), \
-             patch.object(os, "getenv", side_effect=AssertionError("env probe")):
+        with (
+            patch.object(
+                importlib, "import_module", side_effect=ImportError("missing native")
+            ) as load,
+            patch.object(shutil, "which", side_effect=AssertionError("CLI probe")),
+            patch.object(os, "getenv", side_effect=AssertionError("env probe")),
+        ):
             with self.assertRaisesRegex(ImportError, "missing native"):
-                self.config()
+                self.device_string(self.config())
         load.assert_called_once_with("infinilm._core")
 
     def test_explicit_device_does_not_probe(self):
-        with patch.object(importlib, "import_module", side_effect=AssertionError("import")), \
-             patch.object(shutil, "which", side_effect=AssertionError("CLI probe")):
+        with (
+            patch.object(
+                importlib, "import_module", side_effect=AssertionError("import")
+            ),
+            patch.object(shutil, "which", side_effect=AssertionError("CLI probe")),
+        ):
             for backend in ("cpp", "torch", "transformers", "vllm"):
                 with self.subTest(backend=backend):
                     config = self.config("--backend", backend, "--device", "nvidia")
                     self.assertEqual(self.device_string(config), "cuda")
 
     def test_unknown_explicit_device_is_rejected(self):
-        with patch.object(importlib, "import_module", side_effect=AssertionError("import")):
+        with patch.object(
+            importlib, "import_module", side_effect=AssertionError("import")
+        ):
             config = self.config("--device", "unknown-device")
-            with self.assertRaisesRegex(ValueError, "unsupported device platform 'unknown-device'"):
+            with self.assertRaisesRegex(
+                ValueError, "unsupported device platform 'unknown-device'"
+            ):
                 self.device_string(config)
 
-    def test_auto_metax_forces_sync_and_uses_cached_choice(self):
+    def test_auto_metax_preserves_load_mode_and_uses_cached_choice(self):
         counts = []
 
         def get_device_count(name):
@@ -131,9 +164,9 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
 
         native = SimpleNamespace(get_device_count=get_device_count)
         with patch.object(importlib, "import_module", return_value=native) as load:
-            with self.assertWarnsRegex(UserWarning, "Auto-detected Metax"):
-                config = self.config()
-            self.assertEqual(config.weight_load_mode, "sync")
+            config = self.config()
+            self.assertEqual(config.weight_load_mode, "async")
+            self.assertEqual(self.device_string(config), "metax")
             self.assertEqual(self.device_string(config), "metax")
         self.assertEqual(counts, ["cambricon", "ascend", "moore", "metax"])
         load.assert_called_once_with("infinilm._core")
@@ -160,9 +193,15 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
                 self.assertEqual(modules, ["torch_mlu", "torch", "torch_npu", "torch"])
 
     def test_reference_cli_fallback_remains_available_without_torch(self):
-        with patch.object(importlib, "import_module", side_effect=ImportError("no torch")), \
-             patch.object(os, "getenv", return_value=None), \
-             patch.object(shutil, "which", side_effect=lambda name: name == "nvidia-smi"):
+        with (
+            patch.object(
+                importlib, "import_module", side_effect=ImportError("no torch")
+            ),
+            patch.object(os, "getenv", return_value=None),
+            patch.object(
+                shutil, "which", side_effect=lambda name: name == "nvidia-smi"
+            ),
+        ):
             config = self.config("--backend", "transformers")
             self.assertEqual(self.device_string(config), "cuda")
 

@@ -1,16 +1,16 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
 #include "../../models/models_registry.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 #include <exception>
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../engine/distributed/communication_group.hpp"
 #include "../../global_state/forward_context.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../../parallel/topology.hpp"
 #include "../embedding/embedding.hpp"
 #include "../normalization/rmsnorm.hpp"
-#include "../../engine/distributed/communication_group.hpp"
 #include "runtime/tensor.hpp"
 #include <memory>
 #include <stdexcept>
@@ -36,46 +36,51 @@ public:
     static constexpr bool kv_only_prepare = KvOnlyPrepare;
 
     TextModel(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
-                     const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info);
+              const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
+        models::validate_runtime_construction(model_config, runtime, rank_info);
         try {
 
-        const auto &dtype{model_config->get_dtype()};
-        dtype_ = dtype;
-        size_t vocab_size = model_config->get<size_t>("vocab_size");
-        hidden_size_ = model_config->get<size_t>("hidden_size");
-        size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
-        double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+            const auto &dtype{model_config->get_dtype()};
+            dtype_ = dtype;
+            size_t vocab_size = model_config->get<size_t>("vocab_size");
+            hidden_size_ = model_config->get<size_t>("hidden_size");
+            size_t num_hidden_layers = model_config->get<size_t>("num_hidden_layers");
+            double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
-        pp_size_ = static_cast<size_t>(rank_info.pp_size);
-        pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
-        tp_size_ = static_cast<size_t>(rank_info.tp_size);
-        tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
-        tp_comm_ = rank_info.comm;
-        world_comm_ = rank_info.world_comm;
-        // Contiguous layer ranges are assigned proportionally so uneven layer
-        // counts differ by at most one layer between adjacent PP stages.
-        const auto local_layers = parallel::Topology(tp_size_, rank_info.pp_size,
-                                                     rank_info.pp_stage).layer_range(num_hidden_layers);
-        local_layer_begin_ = local_layers.first;
-        local_layer_end_ = local_layers.second;
+            pp_size_ = static_cast<size_t>(rank_info.pp_size);
+            pp_stage_ = static_cast<size_t>(rank_info.pp_stage);
+            tp_size_ = static_cast<size_t>(rank_info.tp_size);
+            tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
+            tp_comm_ = rank_info.comm;
+            world_comm_ = rank_info.world_comm;
+            // Contiguous layer ranges are assigned proportionally so uneven layer
+            // counts differ by at most one layer between adjacent PP stages.
+            const auto local_layers = parallel::Topology(tp_size_, rank_info.pp_size,
+                                                         rank_info.pp_stage)
+                                          .layer_range(num_hidden_layers);
+            local_layer_begin_ = local_layers.first;
+            local_layer_end_ = local_layers.second;
 
-        if (is_first_pp_stage()) {
-            embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<infinilm::layers::Embedding>(runtime, vocab_size, hidden_size_, std::nullopt, dtype));
-        }
+            if (is_first_pp_stage()) {
+                embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<infinilm::layers::Embedding>(runtime, vocab_size, hidden_size_, std::nullopt, dtype));
+            }
 
-        layers_.reserve(local_layer_end_ - local_layer_begin_);
-        for (size_t i = local_layer_begin_; i < local_layer_end_; ++i) {
-            layers_.push_back(this->bind_child("layers." + std::to_string(i), std::make_shared<DecoderLayer>(runtime, model_config, i, rank_info, attention_backend, ep_config)));
-        }
+            layers_.reserve(local_layer_end_ - local_layer_begin_);
+            for (size_t i = local_layer_begin_; i < local_layer_end_; ++i) {
+                layers_.push_back(this->bind_child("layers." + std::to_string(i), std::make_shared<DecoderLayer>(runtime, model_config, i, rank_info, attention_backend, ep_config)));
+            }
 
-        if (is_last_pp_stage()) {
-            norm_ = this->bind_child("norm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size_, rms_norm_eps, dtype));
-        }
-                if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) runtime.syncStream();
+            if (is_last_pp_stage()) {
+                norm_ = this->bind_child("norm", std::make_shared<infinilm::layers::RMSNorm>(runtime, hidden_size_, rms_norm_eps, dtype));
+            }
+            if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+                runtime.syncStream();
+            }
         } catch (...) {
             if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-                try { runtime.syncStream(); } catch (...) { std::terminate(); }
+                try {
+                    runtime.syncStream();
+                } catch (...) { std::terminate(); }
             }
             throw;
         }
@@ -100,10 +105,10 @@ public:
             throw std::invalid_argument("text model forward_embeds requires an explicit Runtime");
         }
         auto hidden_states = is_first_pp_stage()
-            ? inputs_embeds
-            : recv_pipeline_hidden(inputs_embeds->shape()[0], inputs_embeds->shape()[1],
-                                   inputs_embeds->dtype(), inputs_embeds->device(),
-                                   *forward_context.runtime);
+                               ? inputs_embeds
+                               : recv_pipeline_hidden(inputs_embeds->shape()[0], inputs_embeds->shape()[1],
+                                                      inputs_embeds->dtype(), inputs_embeds->device(),
+                                                      *forward_context.runtime);
         return forward_hidden(position_ids, std::move(hidden_states), forward_context);
     }
 
@@ -171,10 +176,10 @@ private:
     }
 
     infinilm::runtime::Tensor recv_pipeline_hidden(size_t batch_size,
-                                            size_t seq_len,
-                                            const infinilm::runtime::DataType &dtype_hint,
-                                            const infinilm::runtime::Device &device,
-                                            infinilm::runtime::Runtime &runtime) const {
+                                                   size_t seq_len,
+                                                   const infinilm::runtime::DataType &dtype_hint,
+                                                   const infinilm::runtime::Device &device,
+                                                   infinilm::runtime::Runtime &runtime) const {
         (void)dtype_hint;
         if (hidden_size_ % tp_size_ != 0) {
             throw std::runtime_error("TextModel PP recv requires hidden_size divisible by tp_size");
@@ -229,8 +234,8 @@ private:
     }
 
     infinilm::runtime::Tensor materialize_hidden_states(infinilm::runtime::Tensor &hidden_states,
-                                                 infinilm::runtime::Tensor &residual,
-                                                 infinilm::runtime::Runtime &runtime) const {
+                                                        infinilm::runtime::Tensor &residual,
+                                                        infinilm::runtime::Runtime &runtime) const {
         if (!residual) {
             return hidden_states;
         }

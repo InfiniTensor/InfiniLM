@@ -5,8 +5,8 @@
 
 #include "../../layers/embedding/embedding.hpp"
 #include "../../layers/normalization/layer_norm.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
 #include <nlohmann/json.hpp>
 #include <string>
@@ -51,8 +51,8 @@ public:
                           const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &row_position_ids,
-                               const infinilm::runtime::Tensor &col_position_ids) const;
+                                      const infinilm::runtime::Tensor &row_position_ids,
+                                      const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
     size_t hidden_size_;
@@ -84,8 +84,8 @@ public:
                       const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &row_position_ids,
-                               const infinilm::runtime::Tensor &col_position_ids) const;
+                                      const infinilm::runtime::Tensor &row_position_ids,
+                                      const infinilm::runtime::Tensor &col_position_ids) const;
 
 private:
     std::shared_ptr<infinilm::layers::LayerNorm> norm1_;
@@ -115,7 +115,7 @@ public:
                       const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &image_grid_thw) const;
+                                      const infinilm::runtime::Tensor &image_grid_thw) const;
 
 private:
     infinilm::runtime::Tensor fast_pos_embed_interpolate(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &image_grid_thw) const;

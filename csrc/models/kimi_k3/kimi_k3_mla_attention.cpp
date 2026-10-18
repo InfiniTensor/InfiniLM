@@ -1,11 +1,10 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
 #include "kimi_k3_mla_attention.hpp"
-#include <exception>
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 #include "runtime/runtime.hpp"
+#include <exception>
 
 #include "../../global_state/global_state.hpp"
-
 
 #include <cmath>
 #include <stdexcept>
@@ -52,36 +51,41 @@ KimiK3MLAAttention::KimiK3MLAAttention(
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK3MLAAttention construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK3MLAAttention construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK3MLAAttention construction resources");
+    }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
         && attention_backend != backends::AttentionBackend::PAGED_ATTN
-        && attention_backend != backends::AttentionBackend::FLASH_ATTN)
+        && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Invalid KimiK3MLAAttention attention backend");
-    if (attention_backend == backends::AttentionBackend::STATIC_ATTN)
+    }
+    if (attention_backend == backends::AttentionBackend::STATIC_ATTN) {
         throw std::runtime_error("KimiK3MLAAttention does not support static attention");
+    }
     try {
         layer_idx_ = layer_idx;
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    q_lora_rank_ = model_config->get<size_t>("q_lora_rank");
-    kv_lora_rank_ = model_config->get<size_t>("kv_lora_rank");
-    qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
-    qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
-    q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
-    v_head_dim_ = model_config->get<size_t>("v_head_dim");
-    const size_t num_heads = model_config->get<size_t>("num_attention_heads");
-    if (!model_config->get<bool>("mla_use_nope")) {
-        throw std::runtime_error("KimiK3MLAAttention only supports K3's NoPE MLA");
-    }
-    if (num_heads % static_cast<size_t>(rank_info.tp_size) != 0) {
-        throw std::runtime_error("KimiK3MLAAttention: num_attention_heads must be divisible by tp_size");
-    }
-    local_num_heads_ = num_heads / static_cast<size_t>(rank_info.tp_size);
-    const auto &dtype = model_config->get_dtype();
-    const double eps = model_config->get<double>("rms_norm_eps");
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        q_lora_rank_ = model_config->get<size_t>("q_lora_rank");
+        kv_lora_rank_ = model_config->get<size_t>("kv_lora_rank");
+        qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
+        qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
+        q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
+        v_head_dim_ = model_config->get<size_t>("v_head_dim");
+        const size_t num_heads = model_config->get<size_t>("num_attention_heads");
+        if (!model_config->get<bool>("mla_use_nope")) {
+            throw std::runtime_error("KimiK3MLAAttention only supports K3's NoPE MLA");
+        }
+        if (num_heads % static_cast<size_t>(rank_info.tp_size) != 0) {
+            throw std::runtime_error("KimiK3MLAAttention: num_attention_heads must be divisible by tp_size");
+        }
+        local_num_heads_ = num_heads / static_cast<size_t>(rank_info.tp_size);
+        const auto &dtype = model_config->get_dtype();
+        const double eps = model_config->get<double>("rms_norm_eps");
 
         q_a_proj_ = std::make_shared<std::remove_reference_t<decltype(*q_a_proj_)>>(
             runtime, hidden_size, q_lora_rank_, false, dtype);
@@ -108,7 +112,7 @@ KimiK3MLAAttention::KimiK3MLAAttention(
             runtime, num_heads * v_head_dim_, hidden_size, false, dtype, rank_info.tp_rank, rank_info.tp_size, rank_info.comm);
         this->bind_child("o_proj", o_proj_);
 
-    softmax_scale_ = 1.0f / std::sqrt(static_cast<float>(q_head_dim_));
+        softmax_scale_ = 1.0f / std::sqrt(static_cast<float>(q_head_dim_));
         infinilm::layers::attention::init_kv_cache_quant_params(
             runtime,
             [this](const std::string &name, infinilm::weights::Weight parameter) {
@@ -117,13 +121,15 @@ KimiK3MLAAttention::KimiK3MLAAttention(
             kv_cache_k_scale_,
             kv_cache_v_scale_,
             model_config->get_kv_quant_scheme());
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
-        local_num_heads_, q_head_dim_, softmax_scale_, local_num_heads_, layer_idx_,
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
+            local_num_heads_, q_head_dim_, softmax_scale_, local_num_heads_, layer_idx_,
             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend,
             model_config->get_kv_quant_scheme());
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }

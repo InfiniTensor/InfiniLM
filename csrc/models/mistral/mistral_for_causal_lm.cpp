@@ -5,7 +5,9 @@
 namespace infinilm::models::mistral {
 
 std::shared_ptr<infinilm::config::ModelConfig> create_mistral_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
-    if (!model_config) throw std::invalid_argument("Mistral configuration is required");
+    if (!model_config) {
+        throw std::invalid_argument("Mistral configuration is required");
+    }
     const std::string &model_type = model_config->get<std::string>("model_type");
     if ("mistral" != model_type) {
         throw std::runtime_error(
@@ -20,17 +22,19 @@ std::shared_ptr<infinilm::config::ModelConfig> create_mistral_model_config(std::
         const auto &window = config_json.at("sliding_window");
         if (!window.is_number_integer() || window.is_boolean()
             || window.get<int64_t>() <= 0
-            || window.get<int64_t>() > std::numeric_limits<int>::max() - 126LL)
+            || window.get<int64_t>() > std::numeric_limits<int>::max() - 126LL) {
             throw std::invalid_argument("Mistral sliding_window must be null or a positive bounded integer");
+        }
         left = window.get<int64_t>() - 1;
     }
     config_json["infinilm_window_size"] = {left, left < 0 ? -1 : 0};
 
-    if (model_config->get<int64_t>("num_attention_heads") <= 0 || model_config->get<int64_t>("hidden_size") <= 0)
+    if (model_config->get<int64_t>("num_attention_heads") <= 0 || model_config->get<int64_t>("hidden_size") <= 0) {
         throw std::invalid_argument("Mistral head/hidden must be positive before division");
+    }
     if (!config_json.contains("head_dim")) {
         size_t head_dim = model_config->get<size_t>("hidden_size")
-            / model_config->get<size_t>("num_attention_heads");
+                        / model_config->get<size_t>("num_attention_heads");
         config_json["head_dim"] = head_dim;
     }
 

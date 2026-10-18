@@ -6,7 +6,7 @@ namespace infinilm::quantization {
 class AWQ : public BaseQuantization {
 public:
     explicit AWQ(const nlohmann::json &quant_config)
-        : BaseQuantization(quant_config){};
+        : BaseQuantization(quant_config) {};
 
     QuantScheme get_quant_scheme() const override {
         return QuantScheme::AWQ_W4A16;
@@ -14,7 +14,9 @@ public:
 
     int get_packing_num() const {
         const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
-        if (bits != 4) throw std::invalid_argument("W4 packing requires exactly four bits");
+        if (bits != 4) {
+            throw std::invalid_argument("W4 packing requires exactly four bits");
+        }
         return 8;
     }
 

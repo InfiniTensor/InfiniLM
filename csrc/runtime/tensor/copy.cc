@@ -1,9 +1,9 @@
+#include "execution/submit.hpp"
 #include "runtime/context.hpp"
 #include "runtime/dtype.hpp"
-#include "execution/submit.hpp"
-#include "runtime/tensor.hpp"
-#include "runtime/runtime.hpp"
 #include "runtime/owner_drain_fail_stop.hpp"
+#include "runtime/runtime.hpp"
+#include "runtime/tensor.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -46,7 +46,9 @@ Tensor TensorImpl::to(Device device) const {
         return Tensor(const_cast<TensorImpl *>(this)->shared_from_this());
     }
     auto source = allocation_owner();
-    if (!source || source->device() != this->device()) source = context::resolveRuntime(this->device());
+    if (!source || source->device() != this->device()) {
+        source = context::resolveRuntime(this->device());
+    }
     auto destination = context::resolveRuntime(device);
     return to(*source, *destination);
 }
@@ -54,12 +56,15 @@ Tensor TensorImpl::to(Device device) const {
 Tensor TensorImpl::to(Runtime &source_runtime, Runtime &destination_runtime) const {
     source_runtime.assertOwnerThread();
     destination_runtime.assertOwnerThread();
-    if (device().type() != Device::Type::kCpu && source_runtime.device() != device())
+    if (device().type() != Device::Type::kCpu && source_runtime.device() != device()) {
         throw std::invalid_argument("to Runtime and source tensor devices differ");
-    if (&source_runtime == &destination_runtime && device() == destination_runtime.device())
+    }
+    if (&source_runtime == &destination_runtime && device() == destination_runtime.device()) {
         return Tensor(const_cast<TensorImpl *>(this)->shared_from_this());
-    if (device().type() != Device::Type::kCpu && destination_runtime.device().type() == Device::Type::kCpu)
+    }
+    if (device().type() != Device::Type::kCpu && destination_runtime.device().type() == Device::Type::kCpu) {
         return to(source_runtime, destination_runtime.device());
+    }
     auto result = Tensor::empty(destination_runtime, shape(), dtype());
     result->copy_from(destination_runtime, source_runtime,
                       Tensor(const_cast<TensorImpl *>(this)->shared_from_this()));
@@ -88,24 +93,32 @@ Tensor TensorImpl::to(Runtime &runtime, Device target) const {
 }
 
 void TensorImpl::copy_from(Tensor src) {
-    if (!src) throw std::invalid_argument("copy_from requires a source tensor");
+    if (!src) {
+        throw std::invalid_argument("copy_from requires a source tensor");
+    }
     auto source = src->allocation_owner();
     auto destination = allocation_owner();
     const bool external_gpu = !source && src->device().type() != Device::Type::kCpu
-        && device().type() != Device::Type::kCpu;
+                           && device().type() != Device::Type::kCpu;
     // CPU execution is independent of a pinned allocation's accelerator owner.
     // Ownerless external data is already completed by the frontend/caller.
-    if (!source || source->device() != src->device()) source = context::resolveRuntime(src->device());
-    if (!destination || destination->device() != device()) destination = context::resolveRuntime(device());
+    if (!source || source->device() != src->device()) {
+        source = context::resolveRuntime(src->device());
+    }
+    if (!destination || destination->device() != device()) {
+        destination = context::resolveRuntime(device());
+    }
     if (external_gpu) {
-        if (destination->graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+        if (destination->graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
             throw std::logic_error("completed external GPU copies are not allowed during graph recording");
+        }
         try {
             copy_from(*destination, *source, src);
             destination->syncStream();
         } catch (...) {
-            try { destination->syncStream(); }
-            catch (...) { detail::require_proven_owner_drain(true, false); }
+            try {
+                destination->syncStream();
+            } catch (...) { detail::require_proven_owner_drain(true, false); }
             throw;
         }
     } else {
@@ -116,12 +129,16 @@ void TensorImpl::copy_from(Tensor src) {
 void TensorImpl::copy_from(Runtime &destination, Runtime &source, Tensor src) {
     destination.assertOwnerThread();
     source.assertOwnerThread();
-    if (!src) throw std::invalid_argument("copy_from requires a source tensor");
+    if (!src) {
+        throw std::invalid_argument("copy_from requires a source tensor");
+    }
     if ((device().type() != Device::Type::kCpu && destination.device() != device())
-        || (src->device().type() != Device::Type::kCpu && source.device() != src->device()))
+        || (src->device().type() != Device::Type::kCpu && source.device() != src->device())) {
         throw std::invalid_argument("copy_from explicit owners and tensor devices differ");
-    if (src->shape() != shape() || src->dtype() != dtype())
+    }
+    if (src->shape() != shape() || src->dtype() != dtype()) {
         throw std::runtime_error("Cannot copy from tensor with different shape or dtype");
+    }
     if (src->device().type() == Device::Type::kCpu) {
         copy_from(destination, std::move(src));
     } else if (device().type() == Device::Type::kCpu) {
@@ -130,16 +147,18 @@ void TensorImpl::copy_from(Runtime &destination, Runtime &source, Tensor src) {
         copy_from(destination, std::move(src));
     } else {
         if (source.graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive
-            || destination.graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+            || destination.graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
             throw std::logic_error("cross-owner copies are not allowed during graph recording");
+        }
         if (source.device() == destination.device()) {
             source.syncStream();
             try {
                 copy_from(destination, src);
                 destination.syncStream(); // Do not return src to another pool before its read completes.
             } catch (...) {
-                try { destination.syncStream(); }
-                catch (...) { detail::require_proven_owner_drain(true, false); }
+                try {
+                    destination.syncStream();
+                } catch (...) { detail::require_proven_owner_drain(true, false); }
                 throw;
             }
         } else {
@@ -156,18 +175,22 @@ Tensor TensorImpl::contiguous() const {
     } else {
         auto runtime = allocation_owner();
         const bool external_gpu = !runtime && device().type() != Device::Type::kCpu;
-        if (!runtime || runtime->device() != device()) runtime = context::resolveRuntime(device());
+        if (!runtime || runtime->device() != device()) {
+            runtime = context::resolveRuntime(device());
+        }
         if (external_gpu) {
-            if (runtime->graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive)
+            if (runtime->graphCaptureState() != ::infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
                 throw std::logic_error("completed external GPU materialization is not allowed during graph recording");
+            }
             auto source = Tensor(const_cast<TensorImpl *>(this)->shared_from_this());
             try {
                 auto result = contiguous(*runtime);
                 runtime->syncStream();
                 return result;
             } catch (...) {
-                try { runtime->syncStream(); }
-                catch (...) { detail::require_proven_owner_drain(true, false); }
+                try {
+                    runtime->syncStream();
+                } catch (...) { detail::require_proven_owner_drain(true, false); }
                 throw;
             }
         }
@@ -203,11 +226,9 @@ void TensorImpl::copy_from(Runtime &runtime, Tensor src) {
         throw std::invalid_argument("copy_from requires a source tensor");
     }
     const bool d2h = this->device().type() == Device::Type::kCpu
-        && src->device().type() != Device::Type::kCpu;
+                  && src->device().type() != Device::Type::kCpu;
     if ((d2h && runtime.device() != src->device())
-        || (!d2h && (runtime.device() != this->device()
-            || (src->device() != this->device()
-                && src->device().type() != Device::Type::kCpu)))) {
+        || (!d2h && (runtime.device() != this->device() || (src->device() != this->device() && src->device().type() != Device::Type::kCpu)))) {
         throw std::invalid_argument("copy_from Runtime and tensor devices differ");
     }
     if (src->shape() != this->shape()) {
@@ -285,49 +306,49 @@ void TensorImpl::copy_from(Runtime &runtime, Tensor src) {
     std::vector<std::byte> gathered;
     Tensor local_src;
     try {
-    if (this->is_contiguous()
-        && this->device().type() == Device::Type::kNvidia
-        && runtime.graphCaptureState() == ::infinilm::execution::graph::GraphManager::CaptureState::kInactive
-        && (src->dtype() == DataType::kFloat32
-            || src->dtype() == DataType::kFloat16
-            || src->dtype() == DataType::kBFloat16)
-        && src->ndim() == 2 && src->shape()[0] > 1 && src->shape()[1] > 1
-        && src->strides()[0] == 1 && src->strides()[1] > 0
-        && static_cast<size_t>(src->strides()[1]) >= src->shape()[0]) {
-        const auto span = storage_span_bytes(src->shape(), src->strides(), src->element_size());
-        if (src->data_.offset > src->data_.memory->size()
-            || span > src->data_.memory->size() - src->data_.offset) {
-            throw std::out_of_range("strided H2D source exceeds underlying storage");
+        if (this->is_contiguous()
+            && this->device().type() == Device::Type::kNvidia
+            && runtime.graphCaptureState() == ::infinilm::execution::graph::GraphManager::CaptureState::kInactive
+            && (src->dtype() == DataType::kFloat32
+                || src->dtype() == DataType::kFloat16
+                || src->dtype() == DataType::kBFloat16)
+            && src->ndim() == 2 && src->shape()[0] > 1 && src->shape()[1] > 1
+            && src->strides()[0] == 1 && src->strides()[1] > 0
+            && static_cast<size_t>(src->strides()[1]) >= src->shape()[0]) {
+            const auto span = storage_span_bytes(src->shape(), src->strides(), src->element_size());
+            if (src->data_.offset > src->data_.memory->size()
+                || span > src->data_.memory->size() - src->data_.offset) {
+                throw std::out_of_range("strided H2D source exceeds underlying storage");
+            }
+            // ceil(span / 3) avoids overflowing the three-times-logical bound.
+            if (span / 3 + (span % 3 != 0) <= src->nbytes()) {
+                local_src = Tensor::strided_empty(runtime, src->shape(), src->strides(), src->dtype());
+                runtime.memcpyH2D(local_src->data(), src->data(), span, false);
+                infinilm::execution::submit<infini::ops::Copy>(
+                    runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
+                    local_src, false, dst);
+                runtime.syncStream(); // Keep src/dst/local_src alive through completion.
+                return;
+            }
         }
-        // ceil(span / 3) avoids overflowing the three-times-logical bound.
-        if (span / 3 + (span % 3 != 0) <= src->nbytes()) {
-            local_src = Tensor::strided_empty(runtime, src->shape(), src->strides(), src->dtype());
-            runtime.memcpyH2D(local_src->data(), src->data(), span, false);
+        const std::byte *host_data = src->data();
+        if (!src->is_contiguous()) {
+            gathered.resize(this->nbytes());
+            auto contiguous = Tensor::from_blob(
+                gathered.data(), src->shape(), src->dtype(), src->device());
+            copyCpuStrided(contiguous->data(), src->data(), src->shape(),
+                           contiguous->strides(), src->strides(), src->element_size());
+            host_data = gathered.data();
+        }
+        if (this->is_contiguous()) {
+            runtime.memcpyH2D(this->data(), host_data, this->nbytes(), false);
+        } else {
+            local_src = Tensor::empty(runtime, this->shape(), this->dtype());
+            runtime.memcpyH2D(local_src->data(), host_data, this->nbytes(), false);
             infinilm::execution::submit<infini::ops::Copy>(
                 runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
                 local_src, false, dst);
-            runtime.syncStream(); // Keep src/dst/local_src alive through completion.
-            return;
         }
-    }
-    const std::byte *host_data = src->data();
-    if (!src->is_contiguous()) {
-        gathered.resize(this->nbytes());
-        auto contiguous = Tensor::from_blob(
-            gathered.data(), src->shape(), src->dtype(), src->device());
-        copyCpuStrided(contiguous->data(), src->data(), src->shape(),
-                       contiguous->strides(), src->strides(), src->element_size());
-        host_data = gathered.data();
-    }
-    if (this->is_contiguous()) {
-        runtime.memcpyH2D(this->data(), host_data, this->nbytes(), false);
-    } else {
-        local_src = Tensor::empty(runtime, this->shape(), this->dtype());
-        runtime.memcpyH2D(local_src->data(), host_data, this->nbytes(), false);
-        infinilm::execution::submit<infini::ops::Copy>(
-            runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
-            local_src, false, dst);
-    }
     } catch (...) {
         // Keep host gather and device temporary alive until completion is known.
         try {

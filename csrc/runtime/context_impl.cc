@@ -23,7 +23,8 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
 
 thread_local std::shared_ptr<Runtime> ContextImpl::current_runtime_;
 thread_local std::array<std::vector<std::weak_ptr<Runtime>>,
-                        static_cast<size_t>(Device::Type::kCount)> ContextImpl::thread_runtimes_;
+                        static_cast<size_t>(Device::Type::kCount)>
+    ContextImpl::thread_runtimes_;
 
 std::shared_ptr<Runtime> ContextImpl::resolveRuntime(Device device) {
     const auto type_index = static_cast<size_t>(device.type());
@@ -54,7 +55,9 @@ void ContextImpl::initializeDeviceType() {
         // Query only the selected backend without changing the caller's RT
         // selection. CPU loading must not initialize an unrelated GPU driver.
         INFINILM_CHECK_ERROR(infini::rt::runtime::GetDeviceCount(device_type, &device_count));
-        if (device_count < 0) throw std::runtime_error("runtime returned a negative device count");
+        if (device_count < 0) {
+            throw std::runtime_error("runtime returned a negative device count");
+        }
         device_counts_[static_cast<size_t>(device_type)] = static_cast<size_t>(device_count);
     }
 }
@@ -64,17 +67,36 @@ void ContextImpl::initializeDeviceTypeLocked(Device::Type type) {
     if (type_index >= device_counts_.size()) {
         throw std::invalid_argument("invalid device type");
     }
-    if (device_types_initialized_[type_index]) return;
+    if (device_types_initialized_[type_index]) {
+        return;
+    }
     switch (type) {
-    case Device::Type::kCpu: initializeDeviceType<Device::Type::kCpu>(); break;
-    case Device::Type::kNvidia: initializeDeviceType<Device::Type::kNvidia>(); break;
-    case Device::Type::kCambricon: initializeDeviceType<Device::Type::kCambricon>(); break;
-    case Device::Type::kAscend: initializeDeviceType<Device::Type::kAscend>(); break;
-    case Device::Type::kMetax: initializeDeviceType<Device::Type::kMetax>(); break;
-    case Device::Type::kMoore: initializeDeviceType<Device::Type::kMoore>(); break;
-    case Device::Type::kIluvatar: initializeDeviceType<Device::Type::kIluvatar>(); break;
-    case Device::Type::kHygon: initializeDeviceType<Device::Type::kHygon>(); break;
-    default: break;
+    case Device::Type::kCpu:
+        initializeDeviceType<Device::Type::kCpu>();
+        break;
+    case Device::Type::kNvidia:
+        initializeDeviceType<Device::Type::kNvidia>();
+        break;
+    case Device::Type::kCambricon:
+        initializeDeviceType<Device::Type::kCambricon>();
+        break;
+    case Device::Type::kAscend:
+        initializeDeviceType<Device::Type::kAscend>();
+        break;
+    case Device::Type::kMetax:
+        initializeDeviceType<Device::Type::kMetax>();
+        break;
+    case Device::Type::kMoore:
+        initializeDeviceType<Device::Type::kMoore>();
+        break;
+    case Device::Type::kIluvatar:
+        initializeDeviceType<Device::Type::kIluvatar>();
+        break;
+    case Device::Type::kHygon:
+        initializeDeviceType<Device::Type::kHygon>();
+        break;
+    default:
+        break;
     }
     // A failed probe is not cached as an unavailable device. A caller that
     // explicitly asks for that backend still receives the original error.

@@ -1,12 +1,12 @@
-#include "../../weights/weights.hpp"
 #include "ernie4_5_attention.hpp"
+#include "../../weights/weights.hpp"
 #include "../models_registry.hpp"
 #include "runtime/runtime.hpp"
 #include <exception>
 
+#include "../../execution/submit.hpp"
 #include "../../global_state/forward_context.hpp"
 #include "../../utils.hpp"
-#include "../../execution/submit.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -26,22 +26,26 @@ void upload_custom_rope_cache(infinilm::runtime::Runtime &runtime, infinilm::run
     } catch (...) {
         const auto failure = std::current_exception();
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
-            try { runtime.syncStream(); } catch (...) { std::terminate(); }
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
         }
         std::rethrow_exception(failure);
     }
 }
 
 infinilm::runtime::Tensor build_group_rope_cache(infinilm::runtime::Runtime &runtime, size_t max_seq_len,
-                                                                         size_t rotary_dim,
-                                                                         size_t group_pairs,
-                                                                         size_t first_pair_idx,
-                                                                         size_t pair_stride,
-                                                                         double theta,
-                                                                         const infinilm::runtime::DataType &dtype,
-                                                                         const infinilm::runtime::Device &device) {
+                                                 size_t rotary_dim,
+                                                 size_t group_pairs,
+                                                 size_t first_pair_idx,
+                                                 size_t pair_stride,
+                                                 double theta,
+                                                 const infinilm::runtime::DataType &dtype,
+                                                 const infinilm::runtime::Device &device) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device) throw std::invalid_argument("Ernie grouped RoPE cache Runtime and device must agree");
+    if (runtime.device() != device) {
+        throw std::invalid_argument("Ernie grouped RoPE cache Runtime and device must agree");
+    }
     const size_t cache_dim = group_pairs * 2;
     const size_t numel = max_seq_len * cache_dim;
     std::vector<float> cache_data(numel);
@@ -158,13 +162,17 @@ void apply_ernie_grouped_mrope(infinilm::runtime::Runtime &runtime, infinilm::ru
 
 void Ernie45MropeCache::require_owner(infinilm::runtime::Runtime &runtime) const {
     runtime.assertOwnerThread();
-    if (runtime_owner.get() != &runtime) throw std::invalid_argument("Ernie grouped RoPE cache belongs to another Runtime owner");
+    if (runtime_owner.get() != &runtime) {
+        throw std::invalid_argument("Ernie grouped RoPE cache belongs to another Runtime owner");
+    }
 }
 
 std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(infinilm::runtime::Runtime &runtime, std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                                                    const infinilm::runtime::Device &device) {
     runtime.assertOwnerThread();
-    if (runtime.device() != device) throw std::invalid_argument("Ernie grouped RoPE cache Runtime and device must agree");
+    if (runtime.device() != device) {
+        throw std::invalid_argument("Ernie grouped RoPE cache Runtime and device must agree");
+    }
     auto cache = std::make_shared<Ernie45MropeCache>();
     cache->runtime_owner = runtime.shared_from_this();
     const size_t rotary_dim = model_config->get_rotary_dim();
@@ -198,46 +206,52 @@ std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(infinilm::run
 }
 
 Ernie45Attention::Ernie45Attention(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                   std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                    size_t layer_idx,
                                    std::shared_ptr<const Ernie45MropeCache> mrope_cache,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend)
+                                   const engine::distributed::RankInfo &rank_info,
+                                   backends::AttentionBackend attention_backend)
     : layer_idx_(layer_idx),
       mrope_cache_(std::move(mrope_cache)) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("Ernie45 construction requires eager Runtime");
-    if (!model_config) throw std::invalid_argument("Ernie45 construction requires configuration");
-    if (rank_info.device != runtime.device() || rank_info.tp_size <= 0 || rank_info.tp_rank < 0
-        || rank_info.tp_rank >= rank_info.tp_size || (rank_info.tp_size > 1 && !rank_info.comm))
-        throw std::invalid_argument("Invalid explicit Ernie45 construction resources");
-    try {
-    hidden_size_ = model_config->get<size_t>("hidden_size");
-    head_dim_ = model_config->get_head_dim();
-    rotary_dim_ = model_config->get_rotary_dim();
-    if (!mrope_cache_) {
-        throw std::runtime_error("infinilm::models::ernie4_5_vl::Ernie45Attention: mrope_cache is required");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("Ernie45 construction requires eager Runtime");
     }
+    if (!model_config) {
+        throw std::invalid_argument("Ernie45 construction requires configuration");
+    }
+    if (rank_info.device != runtime.device() || rank_info.tp_size <= 0 || rank_info.tp_rank < 0
+        || rank_info.tp_rank >= rank_info.tp_size || (rank_info.tp_size > 1 && !rank_info.comm)) {
+        throw std::invalid_argument("Invalid explicit Ernie45 construction resources");
+    }
+    try {
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        head_dim_ = model_config->get_head_dim();
+        rotary_dim_ = model_config->get_rotary_dim();
+        if (!mrope_cache_) {
+            throw std::runtime_error("infinilm::models::ernie4_5_vl::Ernie45Attention: mrope_cache is required");
+        }
 
         mrope_cache_->require_owner(runtime);
-    const auto &dtype = model_config->get_dtype();
-    const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    const size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
-    const bool use_bias = model_config->get_or<bool>("use_bias", false);
+        const auto &dtype = model_config->get_dtype();
+        const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
+        const size_t total_num_kv_heads = model_config->get<size_t>("num_key_value_heads");
+        const bool use_bias = model_config->get_or<bool>("use_bias", false);
 
         attention_backend_ = attention_backend;
-    const int tp_rank = rank_info.tp_rank;
-    const int tp_size = rank_info.tp_size;
-        if (head_dim_ == 0 || total_num_heads == 0)
+        const int tp_rank = rank_info.tp_rank;
+        const int tp_size = rank_info.tp_size;
+        if (head_dim_ == 0 || total_num_heads == 0) {
             throw std::invalid_argument("Ernie45Attention requires positive head geometry");
-    if ((total_num_kv_heads < static_cast<size_t>(tp_size)) || (0 != (total_num_kv_heads % static_cast<size_t>(tp_size)))) {
-        throw std::runtime_error("infinilm::models::ernie4_5_vl::Ernie45Attention: num_key_value_heads must be divisible by tp_size");
-    }
+        }
+        if ((total_num_kv_heads < static_cast<size_t>(tp_size)) || (0 != (total_num_kv_heads % static_cast<size_t>(tp_size)))) {
+            throw std::runtime_error("infinilm::models::ernie4_5_vl::Ernie45Attention: num_key_value_heads must be divisible by tp_size");
+        }
 
-    num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
-    num_key_value_heads_ = total_num_kv_heads / static_cast<size_t>(tp_size);
+        num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
+        num_key_value_heads_ = total_num_kv_heads / static_cast<size_t>(tp_size);
 
-    auto quantization_method = model_config->get_quantization_method();
+        auto quantization_method = model_config->get_quantization_method();
         q_proj_ = std::make_shared<std::remove_reference_t<decltype(*q_proj_)>>(runtime, hidden_size_, total_num_heads * head_dim_, quantization_method, use_bias, dtype, tp_rank, tp_size);
         this->bind_child("q_proj", q_proj_);
         k_proj_ = std::make_shared<std::remove_reference_t<decltype(*k_proj_)>>(runtime, hidden_size_, total_num_kv_heads * head_dim_, quantization_method, use_bias, dtype, tp_rank, tp_size);
@@ -252,19 +266,21 @@ Ernie45Attention::Ernie45Attention(infinilm::runtime::Runtime &runtime,
         infinilm::layers::attention::init_kv_cache_quant_params(runtime, register_fn, kv_cache_k_scale_, kv_cache_v_scale_,
                                                                 model_config->get_kv_quant_scheme());
 
-    const float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
+        const float scaling = 1.0f / std::sqrt(static_cast<float>(head_dim_));
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(num_attention_heads_, head_dim_, scaling, num_key_value_heads_, layer_idx_,
                                                                               kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
                                                                               model_config->get_kv_quant_scheme());
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor Ernie45Attention::forward(const infinilm::runtime::Tensor &positions,
-                                             const infinilm::runtime::Tensor &hidden_states,
-                                             global_state::ForwardContext &forward_context) const {
+                                                    const infinilm::runtime::Tensor &hidden_states,
+                                                    global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     mrope_cache_->require_owner(runtime);
@@ -275,8 +291,8 @@ infinilm::runtime::Tensor Ernie45Attention::forward(const infinilm::runtime::Ten
 }
 
 infinilm::runtime::Tensor Ernie45Attention::forward_static_(const infinilm::runtime::Tensor &position_ids,
-                                                     const infinilm::runtime::Tensor &hidden_states,
-                                                     global_state::ForwardContext &forward_context) const {
+                                                            const infinilm::runtime::Tensor &hidden_states,
+                                                            global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     auto hidden_states_mutable = hidden_states;
     const auto shape = hidden_states->shape();
@@ -317,8 +333,8 @@ infinilm::runtime::Tensor Ernie45Attention::forward_static_(const infinilm::runt
 }
 
 infinilm::runtime::Tensor Ernie45Attention::forward_paged_(const infinilm::runtime::Tensor &position_ids,
-                                                    const infinilm::runtime::Tensor &hidden_states,
-                                                    global_state::ForwardContext &forward_context) const {
+                                                           const infinilm::runtime::Tensor &hidden_states,
+                                                           global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     auto hidden_states_mutable = hidden_states;
     const auto shape = hidden_states->shape();

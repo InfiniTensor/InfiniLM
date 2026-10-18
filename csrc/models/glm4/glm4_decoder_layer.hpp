@@ -2,8 +2,8 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/common_modules.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 
 namespace infinilm::models::glm4 {
 

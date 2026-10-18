@@ -1,11 +1,11 @@
 #pragma once
 
 #include "../../backends/attention_backends.hpp"
-#include "../../layers/linear/fused_linear.hpp"
-#include "../../layers/attention/backends/attention_layer.hpp"
-#include "../../layers/moe/ep/ep_config.hpp"
 #include "../../config/model_config.hpp"
+#include "../../layers/attention/backends/attention_layer.hpp"
 #include "../../layers/embedding/embedding.hpp"
+#include "../../layers/linear/fused_linear.hpp"
+#include "../../layers/moe/ep/ep_config.hpp"
 #include "../../layers/normalization/layer_norm.hpp"
 #include "../../weights/weights.hpp"
 
@@ -15,7 +15,9 @@ class GPT2Attention : public infinilm::weights::ModelWeights {
 public:
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
-        if (qkv_proj_) result.push_back(qkv_proj_);
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
         return result;
     }
 
@@ -25,8 +27,8 @@ public:
                   backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               infinilm::global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
@@ -51,7 +53,7 @@ public:
             const engine::distributed::RankInfo &rank);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 private:
     std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> c_fc_;
@@ -68,8 +70,8 @@ public:
               backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               infinilm::global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     std::shared_ptr<infinilm::layers::LayerNorm> ln_1_;
@@ -86,7 +88,7 @@ public:
               backends::AttentionBackend backend, const layers::moe::EPConfig &ep);
 
     infinilm::runtime::Tensor forward(const infinilm::InfinilmModel::Input &input,
-                               infinilm::global_state::ForwardContext &forward_context) const;
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     std::shared_ptr<infinilm::layers::Embedding> embed_tokens_;

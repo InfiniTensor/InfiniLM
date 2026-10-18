@@ -5,11 +5,11 @@
 
 #include <infini/rt/device_guard.h>
 
-#include <exception>
-#include <stdexcept>
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <limits>
+#include <stdexcept>
 
 namespace infinilm::runtime {
 namespace {
@@ -94,7 +94,6 @@ Runtime::~Runtime() noexcept {
     graph_manager_.reset();
     device_memory_allocator_.reset();
     stream_ = nullptr; // Pool state drains/frees/destroys after its last lease.
-
 }
 
 Runtime *Runtime::activate() {
@@ -123,7 +122,9 @@ void Runtime::enableOwnerDrainFailStop() {
     owner_drain_fail_stop_ = true;
 }
 void Runtime::drainBeforeHostCopyUnwind() noexcept {
-    if (!owner_drain_fail_stop_) return;
+    if (!owner_drain_fail_stop_) {
+        return;
+    }
     try {
         assertOwnerThread();
         infini::rt::DeviceGuard guard{device_.type(), device_.index(), true};
@@ -162,7 +163,6 @@ void Runtime::syncStreamForCleanup() noexcept {
             warn_runtime_cleanup_failure("synchronizing the graph runtime stream", "unknown error");
         }
     }
-
 }
 
 void Runtime::trimMemory() {
@@ -201,7 +201,6 @@ void Runtime::releaseDeviceMemory(std::byte *ptr) noexcept {
             warn_runtime_cleanup_failure("releasing device memory", "unknown error");
         }
     }
-
 }
 
 std::shared_ptr<Memory> Runtime::allocateMemory(size_t size) {
@@ -250,7 +249,9 @@ std::shared_ptr<Memory> Runtime::allocatePinnedHostMemory(size_t size) {
             static_cast<std::byte *>(data_ptr), size, Device{Device::Type::kCpu},
             [runtime](std::byte *p) {
                 infini::rt::DeviceGuard guard{runtime->device_.type(), runtime->device_.index()};
-                if (!guard.active() || p == nullptr) return;
+                if (!guard.active() || p == nullptr) {
+                    return;
+                }
                 try {
                     INFINILM_CHECK_ERROR(infini::rt::runtime::FreeHost(p));
                 } catch (const std::exception &error) {
@@ -258,7 +259,8 @@ std::shared_ptr<Memory> Runtime::allocatePinnedHostMemory(size_t size) {
                 } catch (...) {
                     warn_runtime_cleanup_failure("releasing pinned host memory", "unknown error");
                 }
-            }, true, false, runtime);
+            },
+            true, false, runtime);
     } catch (...) {
         if (data_ptr != nullptr) {
             INFINILM_CHECK_ERROR(infini::rt::runtime::FreeHost(data_ptr));
@@ -303,18 +305,18 @@ bool Runtime::retainGraphMemory(const std::shared_ptr<Memory> &memory) {
 
 void Runtime::memcpyH2D(void *dst, const void *src, size_t size, bool async) {
     try {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    if (device_.type() == Device::Type::kCpu) {
-        INFINILM_CHECK_ERROR(infini::rt::runtime::Memcpy(dst, src, size, infini::rt::runtime::kMemcpyHostToDevice));
-        return;
-    }
+        infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
+        if (device_.type() == Device::Type::kCpu) {
+            INFINILM_CHECK_ERROR(infini::rt::runtime::Memcpy(dst, src, size, infini::rt::runtime::kMemcpyHostToDevice));
+            return;
+        }
 
-    const auto current_stream = stream();
-    INFINILM_CHECK_ERROR(
-        infini::rt::runtime::MemcpyAsync(dst, src, size, infini::rt::runtime::kMemcpyHostToDevice, current_stream));
-    if (!async) {
-        syncStream();
-    }
+        const auto current_stream = stream();
+        INFINILM_CHECK_ERROR(
+            infini::rt::runtime::MemcpyAsync(dst, src, size, infini::rt::runtime::kMemcpyHostToDevice, current_stream));
+        if (!async) {
+            syncStream();
+        }
     } catch (...) {
         drainBeforeHostCopyUnwind(); // before deep host buffer destructors
         throw;
@@ -323,16 +325,16 @@ void Runtime::memcpyH2D(void *dst, const void *src, size_t size, bool async) {
 
 void Runtime::memcpyD2H(void *dst, const void *src, size_t size) {
     try {
-    infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
-    if (device_.type() == Device::Type::kCpu) {
-        INFINILM_CHECK_ERROR(infini::rt::runtime::Memcpy(dst, src, size, infini::rt::runtime::kMemcpyDeviceToHost));
-        return;
-    }
+        infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
+        if (device_.type() == Device::Type::kCpu) {
+            INFINILM_CHECK_ERROR(infini::rt::runtime::Memcpy(dst, src, size, infini::rt::runtime::kMemcpyDeviceToHost));
+            return;
+        }
 
-    const auto current_stream = stream();
-    INFINILM_CHECK_ERROR(
-        infini::rt::runtime::MemcpyAsync(dst, src, size, infini::rt::runtime::kMemcpyDeviceToHost, current_stream));
-    syncStream();
+        const auto current_stream = stream();
+        INFINILM_CHECK_ERROR(
+            infini::rt::runtime::MemcpyAsync(dst, src, size, infini::rt::runtime::kMemcpyDeviceToHost, current_stream));
+        syncStream();
     } catch (...) {
         drainBeforeHostCopyUnwind(); // before deep host buffer destructors
         throw;

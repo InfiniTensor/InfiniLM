@@ -1,8 +1,8 @@
 #include "graph_manager.hpp"
 
 #include "runtime/runtime.hpp"
-#include <infini/rt/device_guard.h>
 #include "runtime/utils.hpp"
+#include <infini/rt/device_guard.h>
 
 #ifdef USE_INFINIRT_GRAPH
 #include <infini/rt.h>
@@ -93,8 +93,8 @@ GraphTensor::GraphTensor(::infinilm::runtime::Runtime &runtime, const ::infinilm
 
 GraphTensor::GraphTensor(::infinilm::runtime::Runtime &runtime, const ::infinilm::runtime::Tensor &tensor, SnapshotPolicy policy)
     : ::infinilm::runtime::Tensor(policy == SnapshotPolicy::kBlob || runtime.isGraphRecording()
-                 ? tensor->to_blob_(runtime)
-                 : tensor) {
+                                      ? tensor->to_blob_(runtime)
+                                      : tensor) {
     runtime.assertOwnerThread();
 }
 
@@ -186,26 +186,26 @@ void Graph::run() const {
     // Owner validation above is pre-submission and must not retire a
     // valid plan. Exceptions from its recorded execution path do retire it.
     try {
-      if (segments_.empty()) {
-          for (const auto &op : op_list_) {
-              op->run();
-          }
-          return;
-      }
-      const Segment *previous = nullptr;
-      for (const auto &segment : segments_) {
-#ifdef USE_INFINIRT_GRAPH
-        if (!segment->capture_safe && previous != nullptr
-            && previous->device_graph_ != nullptr
-            && previous->device_graph_->exec != nullptr) {
-            // Host code may inspect the preceding device result. Later device
-            // work is submitted on the same stream, so it stays ordered.
-            previous->device_graph_->synchronize();
+        if (segments_.empty()) {
+            for (const auto &op : op_list_) {
+                op->run();
+            }
+            return;
         }
+        const Segment *previous = nullptr;
+        for (const auto &segment : segments_) {
+#ifdef USE_INFINIRT_GRAPH
+            if (!segment->capture_safe && previous != nullptr
+                && previous->device_graph_ != nullptr
+                && previous->device_graph_->exec != nullptr) {
+                // Host code may inspect the preceding device result. Later device
+                // work is submitted on the same stream, so it stays ordered.
+                previous->device_graph_->synchronize();
+            }
 #endif
-        segment->run();
-        previous = segment.get();
-      }
+            segment->run();
+            previous = segment.get();
+        }
     } catch (...) {
         replay_failed_ = true;
         // Preserve the original error and all backing leases. Existing graph
@@ -261,7 +261,7 @@ void Graph::instantiate() {
         op_list_.begin(), op_list_.end(),
         [](const auto &op) {
             return !op->is_device_graph_capture_safe()
-                   && !op->is_explicit_host_replay();
+                && !op->is_explicit_host_replay();
         });
     if (first_unqualified != op_list_.end()) {
         const auto index = std::distance(op_list_.begin(), first_unqualified);
@@ -310,7 +310,7 @@ void Graph::instantiate() {
         auto begin_status = capture_guard.begin();
         if (begin_status != rt_runtime::kSuccess) {
             throw std::runtime_error("device graph segment capture could not begin (RT error "
-                + std::to_string(static_cast<int>(begin_status)) + ")");
+                                     + std::to_string(static_cast<int>(begin_status)) + ")");
         }
 
         // Running the segment records only capture-safe operators.
@@ -331,7 +331,7 @@ void Graph::instantiate() {
             segment->device_graph_->graph);
         if (instantiate_status != rt_runtime::kSuccess) {
             throw std::runtime_error("device graph segment instantiation failed (RT error "
-                + std::to_string(static_cast<int>(instantiate_status)) + ")");
+                                     + std::to_string(static_cast<int>(instantiate_status)) + ")");
         }
     }
 

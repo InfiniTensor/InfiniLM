@@ -1,15 +1,15 @@
 #pragma once
 #include "../../weights/weights.hpp"
-#include "runtime/tensor.hpp"
 #include "nlohmann/json.hpp"
 #include "quantization_scheme.hpp"
+#include "runtime/tensor.hpp"
+#include <cstdint>
 #include <infiniccl/infiniccl.h>
-#include <string>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <vector>
-#include <optional>
-#include <cstdint>
 
 namespace infinilm::quantization {
 
@@ -43,7 +43,7 @@ struct SplitParam {
 
 class BaseQuantization : public std::enable_shared_from_this<BaseQuantization> {
 public:
-    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config){};
+    explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config) {};
     virtual ~BaseQuantization() = default;
 
     const nlohmann::json &get_config() const { return quant_config_; }

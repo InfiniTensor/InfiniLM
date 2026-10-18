@@ -6,8 +6,8 @@
 #include "../../layers/common_modules.hpp"
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
-#include "runtime/device.hpp"
 #include "../../weights/weights.hpp"
+#include "runtime/device.hpp"
 #include "runtime/tensor.hpp"
 
 #include <memory>
@@ -30,23 +30,23 @@ std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(infinilm::run
 class Ernie45Attention : public infinilm::weights::ModelWeights {
 public:
     Ernie45Attention(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
                      std::shared_ptr<const Ernie45MropeCache> mrope_cache,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend);
+                     const engine::distributed::RankInfo &rank_info,
+                     backends::AttentionBackend attention_backend);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      global_state::ForwardContext &forward_context) const;
 
 private:
     infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &positions,
-                                       const infinilm::runtime::Tensor &hidden_states,
-                                       global_state::ForwardContext &forward_context) const;
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &positions,
-                                      const infinilm::runtime::Tensor &hidden_states,
-                                      global_state::ForwardContext &forward_context) const;
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             global_state::ForwardContext &forward_context) const;
 
     size_t layer_idx_{0};
     size_t hidden_size_{0};

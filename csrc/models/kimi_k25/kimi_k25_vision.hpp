@@ -3,10 +3,10 @@
 #include "../../layers/linear/linear.hpp"
 
 #include "../../layers/normalization/layer_norm.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
-#include <runtime/tensor.hpp>
+#include "../../weights/weights.hpp"
 #include <nlohmann/json.hpp>
+#include <runtime/tensor.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -14,16 +14,15 @@
 
 namespace infinilm::models::kimi_k25 {
 
-
 class KimiK25VisionPatchProjection : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionPatchProjection(
-    infinilm::runtime::Runtime &runtime,
-    size_t hidden_size,
-                                 size_t patch_size,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        size_t hidden_size,
+        size_t patch_size,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values) const;
+                                      const infinilm::runtime::Tensor &pixel_values) const;
 
 protected:
     size_t patch_size_{0};
@@ -34,11 +33,11 @@ protected:
 class KimiK25VisionPosEmbed : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionPosEmbed(
-    infinilm::runtime::Runtime &runtime,
-    size_t height,
-                          size_t width,
-                          size_t hidden_size,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        size_t height,
+        size_t width,
+        size_t hidden_size,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, size_t grid_h, size_t grid_w) const;
 
 protected:
@@ -51,12 +50,12 @@ protected:
 class KimiK25VisionPatchEmbed : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionPatchEmbed(
-    infinilm::runtime::Runtime &runtime,
-    const nlohmann::json &config,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
     std::shared_ptr<KimiK25VisionPatchProjection> proj_;
@@ -66,12 +65,12 @@ protected:
 class KimiK25VisionMLP : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionMLP(
-    infinilm::runtime::Runtime &runtime,
-    size_t hidden_size,
-                     size_t intermediate_size,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        size_t hidden_size,
+        size_t intermediate_size,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states) const;
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc0_;
@@ -81,14 +80,14 @@ protected:
 class KimiK25VisionBlock : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionBlock(
-    infinilm::runtime::Runtime &runtime,
-    const nlohmann::json &config,
-    std::shared_ptr<infinilm::layers::RoPE> rotary_emb,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        std::shared_ptr<infinilm::layers::RoPE> rotary_emb,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &row_positions,
-                               const infinilm::runtime::Tensor &col_positions) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &row_positions,
+                                      const infinilm::runtime::Tensor &col_positions) const;
 
 protected:
     size_t hidden_size_{0};
@@ -107,12 +106,12 @@ protected:
 class KimiK25VisionEncoder : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionEncoder(
-    infinilm::runtime::Runtime &runtime,
-    const nlohmann::json &config,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
     std::vector<std::shared_ptr<KimiK25VisionBlock>> blocks_;
@@ -122,12 +121,12 @@ protected:
 class KimiK25VisionTower : public infinilm::weights::ModelWeights {
 public:
     KimiK25VisionTower(
-    infinilm::runtime::Runtime &runtime,
-    const nlohmann::json &config,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &pixel_values,
-                               const infinilm::runtime::Tensor &grid_thw) const;
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
     size_t merge_height_{2};
@@ -140,11 +139,11 @@ protected:
 class KimiK25Projector : public infinilm::weights::ModelWeights {
 public:
     KimiK25Projector(
-    infinilm::runtime::Runtime &runtime,
-    const nlohmann::json &config,
-    const infinilm::runtime::DataType &dtype);
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
-                               const infinilm::runtime::Tensor &vision_features) const;
+                                      const infinilm::runtime::Tensor &vision_features) const;
 
 protected:
     size_t merged_hidden_size_{0};

@@ -8,8 +8,12 @@
 #include <limits>
 #include <memory>
 
-namespace infinilm::runtime { class Runtime; }
-namespace infinilm::engine::distributed { struct RankInfo; }
+namespace infinilm::runtime {
+class Runtime;
+}
+namespace infinilm::engine::distributed {
+struct RankInfo;
+}
 
 namespace infinilm::cache {
 void validate_cache_runtime(infinilm::runtime::Runtime &runtime,

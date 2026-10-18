@@ -1,9 +1,9 @@
-from ... import _core as infinicore
-
 from infinilm.cache.cache import StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import InferEngine
 from infinilm.modeling_utils import load_model_state_dict_by_file
+
+from ... import _core as infinicore
 
 
 class SpeculativeRunner:
@@ -130,11 +130,19 @@ class SpeculativeRunner:
                 verify_output = self.target_model_engine.forward_raw(**verify_input)
                 verify_token_ids = verify_output["output_ids"].to_numpy().tolist()
                 reservation.mark_completed()
-                expected_count = sum(len(row["draft_tokens"]) for row in verify_candidates)
+                expected_count = sum(
+                    len(row["draft_tokens"]) for row in verify_candidates
+                )
                 if len(verify_token_ids) != expected_count:
-                    raise RuntimeError("verification output count does not match the batch")
-                if any(type(token) is not int or token < 0 for token in verify_token_ids):
-                    raise RuntimeError("verification output requires non-negative integer token IDs")
+                    raise RuntimeError(
+                        "verification output count does not match the batch"
+                    )
+                if any(
+                    type(token) is not int or token < 0 for token in verify_token_ids
+                ):
+                    raise RuntimeError(
+                        "verification output requires non-negative integer token IDs"
+                    )
                 keep_lengths = []
                 accepted_total = 0
                 offset = 0
@@ -160,7 +168,7 @@ class SpeculativeRunner:
                     if not req.sampling_params.ignore_eos:
                         for index, token in enumerate(output_tokens):
                             if token in req.eos_token_ids:
-                                output_tokens = output_tokens[:index + 1]
+                                output_tokens = output_tokens[: index + 1]
                                 break
                     accepted = min(accepted, len(output_tokens))
                     accepted_total += accepted

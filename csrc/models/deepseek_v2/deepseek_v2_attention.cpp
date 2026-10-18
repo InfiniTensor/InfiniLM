@@ -1,6 +1,6 @@
 #include "deepseek_v2_attention.hpp"
-#include "../../weights/weights.hpp"
 #include "../../execution/tensor_expressions.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/runtime.hpp"
 #include <exception>
 
@@ -14,63 +14,68 @@
 namespace infinilm::models::deepseek_v2 {
 
 DeepseekV2Attention::DeepseekV2Attention(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
                                          size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend) {
+                                         const engine::distributed::RankInfo &rank_info,
+                                         backends::AttentionBackend attention_backend) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("DeepseekV2Attention construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("DeepseekV2Attention construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit Deepseek construction resources");
+    }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
         && attention_backend != backends::AttentionBackend::PAGED_ATTN
-        && attention_backend != backends::AttentionBackend::FLASH_ATTN)
+        && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit Deepseek attention backend");
-    try {
-    layer_idx_ = layer_idx;
-    hidden_size_ = model_config->get<size_t>("hidden_size");
-    qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
-    qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
-    q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
-    v_head_dim_ = model_config->get<size_t>("v_head_dim");
-
-        if (v_head_dim_ > q_head_dim_)
-            throw std::invalid_argument("DeepseekV2Attention: v_head_dim exceeds q_head_dim");
-    const auto &dtype{model_config->get_dtype()};
-    const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    const size_t kv_lora_rank = model_config->get<size_t>("kv_lora_rank");
-    const bool attention_bias = model_config->get_or<bool>("attention_bias", false);
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
-
-    const int tp_rank = rank_info.tp_rank;
-    const int tp_size = rank_info.tp_size;
-    if ((total_num_heads < static_cast<size_t>(tp_size)) || (total_num_heads % static_cast<size_t>(tp_size) != 0)) {
-        throw std::runtime_error("DeepseekV2Attention: num_attention_heads must be divisible by tp_size");
     }
-    num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
+    try {
+        layer_idx_ = layer_idx;
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
+        qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
+        q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
+        v_head_dim_ = model_config->get<size_t>("v_head_dim");
+
+        if (v_head_dim_ > q_head_dim_) {
+            throw std::invalid_argument("DeepseekV2Attention: v_head_dim exceeds q_head_dim");
+        }
+        const auto &dtype{model_config->get_dtype()};
+        const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
+        const size_t kv_lora_rank = model_config->get<size_t>("kv_lora_rank");
+        const bool attention_bias = model_config->get_or<bool>("attention_bias", false);
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+
+        const int tp_rank = rank_info.tp_rank;
+        const int tp_size = rank_info.tp_size;
+        if ((total_num_heads < static_cast<size_t>(tp_size)) || (total_num_heads % static_cast<size_t>(tp_size) != 0)) {
+            throw std::runtime_error("DeepseekV2Attention: num_attention_heads must be divisible by tp_size");
+        }
+        num_attention_heads_ = total_num_heads / static_cast<size_t>(tp_size);
         attention_backend_ = attention_backend;
 
-    auto quantization_method = model_config->get_quantization_method();
-        q_proj_ = this->bind_child("q_proj", std::make_shared<std::remove_reference_t<decltype(*q_proj_ )>>(runtime, hidden_size_, total_num_heads * q_head_dim_, quantization_method, false, dtype, tp_rank, tp_size));
-        kv_a_proj_with_mqa_ = this->bind_child("kv_a_proj_with_mqa", std::make_shared<std::remove_reference_t<decltype(*kv_a_proj_with_mqa_ )>>(runtime, hidden_size_, kv_lora_rank + qk_rope_head_dim_, attention_bias, dtype));
-        kv_a_layernorm_ = this->bind_child("kv_a_layernorm", std::make_shared<std::remove_reference_t<decltype(*kv_a_layernorm_ )>>(runtime, kv_lora_rank, rms_norm_eps, dtype));
-        kv_b_proj_ = this->bind_child("kv_b_proj", std::make_shared<std::remove_reference_t<decltype(*kv_b_proj_ )>>(runtime, kv_lora_rank, total_num_heads * (qk_nope_head_dim_ + v_head_dim_), quantization_method, false, dtype, tp_rank, tp_size));
-        o_proj_ = this->bind_child("o_proj", std::make_shared<std::remove_reference_t<decltype(*o_proj_ )>>(runtime, total_num_heads * v_head_dim_, hidden_size_, quantization_method, attention_bias, dtype, tp_rank, tp_size, rank_info.comm));
+        auto quantization_method = model_config->get_quantization_method();
+        q_proj_ = this->bind_child("q_proj", std::make_shared<std::remove_reference_t<decltype(*q_proj_)>>(runtime, hidden_size_, total_num_heads * q_head_dim_, quantization_method, false, dtype, tp_rank, tp_size));
+        kv_a_proj_with_mqa_ = this->bind_child("kv_a_proj_with_mqa", std::make_shared<std::remove_reference_t<decltype(*kv_a_proj_with_mqa_)>>(runtime, hidden_size_, kv_lora_rank + qk_rope_head_dim_, attention_bias, dtype));
+        kv_a_layernorm_ = this->bind_child("kv_a_layernorm", std::make_shared<std::remove_reference_t<decltype(*kv_a_layernorm_)>>(runtime, kv_lora_rank, rms_norm_eps, dtype));
+        kv_b_proj_ = this->bind_child("kv_b_proj", std::make_shared<std::remove_reference_t<decltype(*kv_b_proj_)>>(runtime, kv_lora_rank, total_num_heads * (qk_nope_head_dim_ + v_head_dim_), quantization_method, false, dtype, tp_rank, tp_size));
+        o_proj_ = this->bind_child("o_proj", std::make_shared<std::remove_reference_t<decltype(*o_proj_)>>(runtime, total_num_heads * v_head_dim_, hidden_size_, quantization_method, attention_bias, dtype, tp_rank, tp_size, rank_info.comm));
 
         rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(runtime, model_config, runtime.device());
-    softmax_scale_ = deepseek_v2_attention_softmax_scale(model_config, static_cast<float>(q_head_dim_));
+        softmax_scale_ = deepseek_v2_attention_softmax_scale(model_config, static_cast<float>(q_head_dim_));
 
-        infinilm::layers::attention::init_kv_cache_quant_params(runtime,
-            [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); },
-            kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
-        num_attention_heads_, q_head_dim_, softmax_scale_, num_attention_heads_, layer_idx_,
+        infinilm::layers::attention::init_kv_cache_quant_params(runtime, [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); }, kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
+            num_attention_heads_, q_head_dim_, softmax_scale_, num_attention_heads_, layer_idx_,
             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
             model_config->get_kv_quant_scheme());
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -97,8 +102,8 @@ infinilm::runtime::Tensor DeepseekV2Attention::trim_value_padding_(infinilm::run
 }
 
 infinilm::runtime::Tensor DeepseekV2Attention::forward(const infinilm::runtime::Tensor &positions,
-                                                const infinilm::runtime::Tensor &hidden_states,
-                                                   infinilm::global_state::ForwardContext &forward_context) const {
+                                                       const infinilm::runtime::Tensor &hidden_states,
+                                                       infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
@@ -108,8 +113,8 @@ infinilm::runtime::Tensor DeepseekV2Attention::forward(const infinilm::runtime::
 }
 
 infinilm::runtime::Tensor DeepseekV2Attention::forward_static_(const infinilm::runtime::Tensor &position_ids,
-                                                        const infinilm::runtime::Tensor &hidden_states,
-                                                   infinilm::global_state::ForwardContext &forward_context) const {
+                                                               const infinilm::runtime::Tensor &hidden_states,
+                                                               infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto shape = hidden_states->shape();
@@ -166,8 +171,8 @@ infinilm::runtime::Tensor DeepseekV2Attention::forward_static_(const infinilm::r
 }
 
 infinilm::runtime::Tensor DeepseekV2Attention::forward_paged_(const infinilm::runtime::Tensor &position_ids,
-                                                       const infinilm::runtime::Tensor &hidden_states,
-                                                   infinilm::global_state::ForwardContext &forward_context) const {
+                                                              const infinilm::runtime::Tensor &hidden_states,
+                                                              infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     runtime.assertOwnerThread();
     auto shape = hidden_states->shape();

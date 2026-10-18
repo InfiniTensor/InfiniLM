@@ -19,10 +19,10 @@ namespace infinilm::models::minicpmv {
 class MiniCPMVModel : public InfinilmModel {
 public:
     MiniCPMVModel(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep);
+                  std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                  const engine::distributed::RankInfo &rank,
+                  backends::AttentionBackend attention_backend,
+                  const layers::moe::EPConfig &ep);
 
     // Explicit visual path shares this Runtime with patch, encoder and resampler.
     // Data-dependent visual metadata is rejected before recording submissions.

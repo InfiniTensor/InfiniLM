@@ -1,12 +1,12 @@
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/normalization/rmsnorm.hpp"
 #include "qwen3_next_attention.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "../../global_state/forward_context.hpp"
-#include "runtime/runtime.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
+#include "runtime/runtime.hpp"
 #include <cmath>
 #include <exception>
 #include <stdexcept>
@@ -22,8 +22,9 @@ Qwen3NextAttention::Qwen3NextAttention(
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording() || !model_config || rank_info.device != runtime.device()
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
+    }
     device_ = runtime.device();
     layer_idx_ = layer_idx;
     const auto dtype = model_config->get_dtype();
@@ -38,8 +39,9 @@ Qwen3NextAttention::Qwen3NextAttention(
     attention_backend_ = attention_backend;
     const size_t tp_size = static_cast<size_t>(rank_info.tp_size);
     if (!total_num_heads || !total_num_kv_heads || total_num_heads % tp_size
-        || (total_num_kv_heads >= tp_size ? total_num_kv_heads % tp_size : tp_size % total_num_kv_heads))
+        || (total_num_kv_heads >= tp_size ? total_num_kv_heads % tp_size : tp_size % total_num_kv_heads)) {
         throw std::invalid_argument("Qwen3NextAttention: invalid TP head geometry");
+    }
     num_attention_heads_ = total_num_heads / tp_size;
     num_key_value_heads_ = total_num_kv_heads < tp_size ? 1 : total_num_kv_heads / tp_size;
     auto quantization_method = model_config->get_quantization_method();
@@ -63,19 +65,19 @@ Qwen3NextAttention::Qwen3NextAttention(
         k_norm_ = std::make_shared<infinilm::layers::RMSNorm>(runtime, head_dim_, rms_norm_eps, dtype);
         this->bind_child("k_norm", k_norm_);
         infinilm::layers::attention::init_kv_cache_quant_params(runtime, register_fn,
-            kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
+                                                                kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
     } catch (...) {
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
 }
 
-
-
 infinilm::runtime::Tensor Qwen3NextAttention::forward(const infinilm::runtime::Tensor &positions,
-                                               const infinilm::runtime::Tensor &hidden_states,
-                                               infinilm::global_state::ForwardContext &forward_context) const {
+                                                      const infinilm::runtime::Tensor &hidden_states,
+                                                      infinilm::global_state::ForwardContext &forward_context) const {
     if (::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_) {
         return forward_static_(positions, hidden_states, forward_context);
     }
@@ -83,8 +85,8 @@ infinilm::runtime::Tensor Qwen3NextAttention::forward(const infinilm::runtime::T
 }
 
 infinilm::runtime::Tensor Qwen3NextAttention::forward_static_(const infinilm::runtime::Tensor &position_ids,
-                                                       const infinilm::runtime::Tensor &hidden_states,
-                                                       infinilm::global_state::ForwardContext &forward_context) const {
+                                                              const infinilm::runtime::Tensor &hidden_states,
+                                                              infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();
@@ -145,8 +147,8 @@ infinilm::runtime::Tensor Qwen3NextAttention::forward_static_(const infinilm::ru
 }
 
 infinilm::runtime::Tensor Qwen3NextAttention::forward_paged_(const infinilm::runtime::Tensor &position_ids,
-                                                      const infinilm::runtime::Tensor &hidden_states,
-                                                      infinilm::global_state::ForwardContext &forward_context) const {
+                                                             const infinilm::runtime::Tensor &hidden_states,
+                                                             infinilm::global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     auto hidden_states_mutable = hidden_states;
     auto shape = hidden_states->shape();

@@ -248,8 +248,9 @@ class InferenceRequest:
         # Keep the interval open after pybind converts to native float: the
         # largest half-step would otherwise round to 1. Zero means greedy.
         # Preserve all other draws and the request-owned RNG's advancement.
-        return min((self._sampling_rng.getrandbits(24) + 0.5) / (1 << 24),
-                   1.0 - 2.0 ** -24)
+        return min(
+            (self._sampling_rng.getrandbits(24) + 0.5) / (1 << 24), 1.0 - 2.0**-24
+        )
 
     @property
     def output_queue(self) -> janus.Queue:

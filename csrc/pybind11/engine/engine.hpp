@@ -130,30 +130,20 @@ inline void bind_infer_engine(py::module &m) {
             }
             return state_dict_tp_all;
         })
-        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading,
-             py::call_guard<py::gil_scoped_release>(),
-             "Process the weights after loading on all workers (e.g., for quantization)")
-        .def(
-            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, py::call_guard<py::gil_scoped_release>(), "Process the weights after loading on all workers (e.g., for quantization)")
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
                 const auto frozen_input = input; // copy native values/properties while GIL still held
                 py::gil_scoped_release release;
-                return self.forward(frozen_input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
-        .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); },
-            py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
-        .def("get_kv_cache", &InferEngine::get_kv_cache,
-             py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
+                return self.forward(frozen_input); }, "Run inference on all ranks with arbitrary arguments")
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
+        .def("get_kv_cache", &InferEngine::get_kv_cache, py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
         .def("get_nsa_pool_epoch", [](InferEngine &self) {
             py::gil_scoped_release release;
-            return self.get_nsa_pool_epoch();
-        },
-             "Readonly native VideoNSA raw-pool lifetime stamp")
+            return self.get_nsa_pool_epoch(); }, "Readonly native VideoNSA raw-pool lifetime stamp")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
             py::gil_scoped_release release;
             return self.get_cache_config(); })
@@ -163,18 +153,24 @@ inline void bind_infer_engine(py::module &m) {
                                    std::vector<nsa::Page>, std::vector<std::int64_t>>;
     py::class_<nsa::Snapshot>(infer_engine, "NsaOwnerSnapshot")
         .def(py::init([](std::uint64_t epoch, std::uint64_t page_size, std::uint64_t page_count,
-                        const std::vector<NsaRowValue> &rows,
-                        const std::vector<std::int32_t> &past, const std::vector<std::int32_t> &total,
-                        const std::vector<std::int32_t> &offsets, const std::vector<std::int32_t> &cu,
-                        const std::vector<std::vector<std::int32_t>> &tables,
-                        const std::vector<std::int64_t> &slots) {
+                         const std::vector<NsaRowValue> &rows,
+                         const std::vector<std::int32_t> &past, const std::vector<std::int32_t> &total,
+                         const std::vector<std::int32_t> &offsets, const std::vector<std::int32_t> &cu,
+                         const std::vector<std::vector<std::int32_t>> &tables,
+                         const std::vector<std::int64_t> &slots) {
             nsa::Snapshot s{epoch, page_size, page_count, {}, {past, total, offsets, cu, {}, 0, slots}};
-            for (const auto &r : rows) s.rows.push_back({std::get<0>(r), std::get<1>(r), std::get<2>(r),
-                std::get<3>(r), std::get<4>(r), std::get<5>(r)});
-            if (tables.empty() || tables.size() != rows.size()) throw py::value_error("NSA table rows missing");
+            for (const auto &r : rows) {
+                s.rows.push_back({std::get<0>(r), std::get<1>(r), std::get<2>(r),
+                                  std::get<3>(r), std::get<4>(r), std::get<5>(r)});
+            }
+            if (tables.empty() || tables.size() != rows.size()) {
+                throw py::value_error("NSA table rows missing");
+            }
             s.upload.table_width = tables.front().size();
             for (const auto &t : tables) {
-                if (t.size() != s.upload.table_width) throw py::value_error("NSA table is not rectangular");
+                if (t.size() != s.upload.table_width) {
+                    throw py::value_error("NSA table is not rectangular");
+                }
                 s.upload.tables.insert(s.upload.tables.end(), t.begin(), t.end());
             }
             nsa::validate(s, s.upload);
@@ -259,7 +255,9 @@ inline void bind_infer_engine(py::module &m) {
                         }
 
                     } else if (key == "nsa_owner_snapshot") {
-                        if (!item.second.is_none()) input.nsa_owner_snapshot = py::cast<nsa::Snapshot>(item.second);
+                        if (!item.second.is_none()) {
+                            input.nsa_owner_snapshot = py::cast<nsa::Snapshot>(item.second);
+                        }
                     } else if (key == "sampling_rows") {
                         if (!item.second.is_none()) {
                             input.sampling_rows = py::cast<std::vector<std::tuple<float, float, int>>>(item.second);
@@ -320,9 +318,10 @@ inline void bind_infer_engine(py::module &m) {
             const auto *graph = output.graph_execution ? &*output.graph_execution : nullptr;
             const size_t device_segments = graph ? graph->device_graph_segments : 0;
             const size_t host_segments = graph ? graph->host_segments : 0;
-            result["mode"] = graph == nullptr ? "eager"
-                : device_segments == 0 ? "host_replay"
-                : host_segments == 0 ? "device_graph" : "mixed_graph";
+            result["mode"] = graph == nullptr     ? "eager"
+                           : device_segments == 0 ? "host_replay"
+                           : host_segments == 0   ? "device_graph"
+                                                  : "mixed_graph";
             result["device_graph_segments"] = device_segments;
             result["host_segments"] = host_segments;
             result["operator_count"] = graph ? graph->operator_count : 0;

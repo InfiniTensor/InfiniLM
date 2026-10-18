@@ -1,13 +1,12 @@
 #include "kimi_k25_attention.hpp"
-#include "../../weights/weights.hpp"
 #include "../../execution/tensor_expressions.hpp"
-#include <exception>
+#include "../../weights/weights.hpp"
 #include "runtime/runtime.hpp"
+#include <exception>
 
 #include "../../global_state/global_state.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
 #include "../deepseek_v2/deepseek_v2_utils.hpp"
-
 
 #include <cmath>
 #include <optional>
@@ -18,38 +17,42 @@ namespace infinilm::models::kimi_k25 {
 KimiK25Attention::KimiK25Attention(
     infinilm::runtime::Runtime &runtime,
     std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                   size_t layer_idx,
+    size_t layer_idx,
     const engine::distributed::RankInfo &rank_info,
     backends::AttentionBackend attention_backend) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("KimiK25Attention construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("KimiK25Attention construction requires eager Runtime");
+    }
     if (!model_config || rank_info.device != runtime.device() || rank_info.tp_size <= 0
         || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
-        || (rank_info.tp_size > 1 && !rank_info.comm))
+        || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Invalid explicit KimiK25Attention construction resources");
+    }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
         && attention_backend != backends::AttentionBackend::PAGED_ATTN
-        && attention_backend != backends::AttentionBackend::FLASH_ATTN)
+        && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Invalid KimiK25Attention attention backend");
+    }
     try {
         layer_idx_ = layer_idx;
-    hidden_size_ = model_config->get<size_t>("hidden_size");
-    q_lora_rank_ = model_config->get<size_t>("q_lora_rank");
-    kv_lora_rank_ = model_config->get<size_t>("kv_lora_rank");
-    qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
-    qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
-    q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
-    v_head_dim_ = model_config->get<size_t>("v_head_dim");
+        hidden_size_ = model_config->get<size_t>("hidden_size");
+        q_lora_rank_ = model_config->get<size_t>("q_lora_rank");
+        kv_lora_rank_ = model_config->get<size_t>("kv_lora_rank");
+        qk_nope_head_dim_ = model_config->get<size_t>("qk_nope_head_dim");
+        qk_rope_head_dim_ = model_config->get<size_t>("qk_rope_head_dim");
+        q_head_dim_ = qk_nope_head_dim_ + qk_rope_head_dim_;
+        v_head_dim_ = model_config->get<size_t>("v_head_dim");
 
-    const auto &dtype = model_config->get_dtype();
-    const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
-    const bool attention_bias = model_config->get_or<bool>("attention_bias", false);
-    const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
-    const size_t tp_size = static_cast<size_t>(rank_info.tp_size);
-    if (total_num_heads < tp_size || total_num_heads % tp_size != 0) {
-        throw std::runtime_error("KimiK25Attention: num_attention_heads must be divisible by tp_size");
-    }
-    num_attention_heads_ = total_num_heads / tp_size;
+        const auto &dtype = model_config->get_dtype();
+        const size_t total_num_heads = model_config->get<size_t>("num_attention_heads");
+        const bool attention_bias = model_config->get_or<bool>("attention_bias", false);
+        const double rms_norm_eps = model_config->get<double>("rms_norm_eps");
+        const size_t tp_size = static_cast<size_t>(rank_info.tp_size);
+        if (total_num_heads < tp_size || total_num_heads % tp_size != 0) {
+            throw std::runtime_error("KimiK25Attention: num_attention_heads must be divisible by tp_size");
+        }
+        num_attention_heads_ = total_num_heads / tp_size;
         attention_backend_ = attention_backend;
 
         q_a_proj_ = std::make_shared<std::remove_reference_t<decltype(*q_a_proj_)>>(
@@ -75,8 +78,8 @@ KimiK25Attention::KimiK25Attention(
         this->bind_child("o_proj", o_proj_);
 
         rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(runtime, model_config, runtime.device());
-    softmax_scale_ = deepseek_v2::deepseek_v2_attention_softmax_scale(
-        model_config, static_cast<float>(q_head_dim_));
+        softmax_scale_ = deepseek_v2::deepseek_v2_attention_softmax_scale(
+            model_config, static_cast<float>(q_head_dim_));
         infinilm::layers::attention::init_kv_cache_quant_params(
             runtime,
             [this](const std::string &name, infinilm::weights::Weight parameter) {
@@ -85,13 +88,15 @@ KimiK25Attention::KimiK25Attention(
             kv_cache_k_scale_,
             kv_cache_v_scale_,
             model_config->get_kv_quant_scheme());
-    attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
-        num_attention_heads_, q_head_dim_, softmax_scale_, num_attention_heads_, layer_idx_,
+        attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
+            num_attention_heads_, q_head_dim_, softmax_scale_, num_attention_heads_, layer_idx_,
             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
             model_config->get_kv_quant_scheme());
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -118,8 +123,8 @@ infinilm::runtime::Tensor KimiK25Attention::trim_value_padding(infinilm::runtime
 }
 
 infinilm::runtime::Tensor KimiK25Attention::forward(const infinilm::runtime::Tensor &positions,
-                                             const infinilm::runtime::Tensor &hidden_states,
-                                             global_state::ForwardContext &forward_context) const {
+                                                    const infinilm::runtime::Tensor &hidden_states,
+                                                    global_state::ForwardContext &forward_context) const {
     auto &runtime = forward_context.require_runtime();
     const auto shape = hidden_states->shape();
     const size_t batch_size = shape[0];
@@ -149,8 +154,7 @@ infinilm::runtime::Tensor KimiK25Attention::forward(const infinilm::runtime::Ten
 
         rotary_emb_->forward(runtime, q_pe, pos_ids, true);
         auto rotary_key_view = k_pe->view({batch_size, seq_len, 1, qk_rope_head_dim_});
-        auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len),
-             static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
+        auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(batch_size), static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
         rotary_emb_->forward(runtime, k_pe_heads, pos_ids, true);
         const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
         auto query_shape = query_parts[0]->shape();
@@ -176,8 +180,7 @@ infinilm::runtime::Tensor KimiK25Attention::forward(const infinilm::runtime::Ten
 
     rotary_emb_->forward(runtime, q_pe, pos_ids, true);
     auto rotary_key_view = k_pe->view({seq_len, 1, qk_rope_head_dim_});
-    auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_),
-         static_cast<int64_t>(qk_rope_head_dim_)});
+    auto k_pe_heads = infinilm::execution::broadcast_materialized(runtime, rotary_key_view, {static_cast<int64_t>(seq_len), static_cast<int64_t>(num_attention_heads_), static_cast<int64_t>(qk_rope_head_dim_)});
     rotary_emb_->forward(runtime, k_pe_heads, pos_ids, true);
     const std::vector<infinilm::runtime::Tensor> query_parts{q_nope, q_pe};
     auto query_shape = query_parts[0]->shape();

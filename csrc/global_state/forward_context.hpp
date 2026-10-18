@@ -1,10 +1,12 @@
 #pragma once
 #include <stdexcept>
 
-#include "../models/infinilm_model.hpp"
 #include "../engine/nsa_owner_input.hpp"
+#include "../models/infinilm_model.hpp"
 
-namespace infinilm::runtime { class Runtime; }
+namespace infinilm::runtime {
+class Runtime;
+}
 
 namespace infinilm::global_state {
 
@@ -67,14 +69,14 @@ struct AttentionMetadata {
                       size_t max_query_length = 0,
                       size_t max_sequence_length = 0,
                       size_t logical_kv_upper_bound = 0) : past_sequence_lengths(past_sequence_lengths),
-                                                        total_sequence_lengths(total_sequence_lengths),
-                                                        input_offsets(input_offsets),
-                                                        cu_seqlens(cu_seqlens),
-                                                        block_tables(block_tables),
-                                                        slot_mapping(slot_mapping),
-                                                        max_query_length(max_query_length),
-                                                        max_sequence_length(max_sequence_length),
-                                                        logical_kv_upper_bound(logical_kv_upper_bound) {}
+                                                           total_sequence_lengths(total_sequence_lengths),
+                                                           input_offsets(input_offsets),
+                                                           cu_seqlens(cu_seqlens),
+                                                           block_tables(block_tables),
+                                                           slot_mapping(slot_mapping),
+                                                           max_query_length(max_query_length),
+                                                           max_sequence_length(max_sequence_length),
+                                                           logical_kv_upper_bound(logical_kv_upper_bound) {}
 
     AttentionMetadata(const infinilm::InfinilmModel::Input &input) : AttentionMetadata(input.past_sequence_lengths,
                                                                                        input.total_sequence_lengths,

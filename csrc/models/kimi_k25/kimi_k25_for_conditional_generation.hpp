@@ -18,11 +18,11 @@ using KimiK25LanguageModel = infinilm::layers::causal_lm_templates::TextCausalLM
 class KimiK25ForConditionalGeneration : public infinilm::InfinilmModel {
 public:
     KimiK25ForConditionalGeneration(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
     Output forward(const Input &input,
                    global_state::ForwardContext &forward_context) const override;

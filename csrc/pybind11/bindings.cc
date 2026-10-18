@@ -1,5 +1,5 @@
-#include <pybind11/pybind11.h>
 #include <infini/ops.h>
+#include <pybind11/pybind11.h>
 #include <stdexcept>
 
 #include "cache/cache.hpp"
@@ -39,11 +39,9 @@ PYBIND11_MODULE(_infinilm, m) {
 }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
-        infini::ops::Cast::Call(input_view, output_view);
-    }, py::arg("input"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
+        infini::ops::Cast::Call(input_view, output_view); }, py::arg("input"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
 
-    m.def("_scale_checkpoint_tensor_", [](infinilm::runtime::Tensor input, double alpha,
-                                           infinilm::runtime::Tensor output) {
+    m.def("_scale_checkpoint_tensor_", [](infinilm::runtime::Tensor input, double alpha, infinilm::runtime::Tensor output) {
         if (!input || !output
             || input->device().type() != infinilm::runtime::Device::Type::kCpu
             || output->device() != input->device()
@@ -55,12 +53,9 @@ PYBIND11_MODULE(_infinilm, m) {
         }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
-        infini::ops::MulScalar::Call(input_view, alpha, output_view);
-    }, py::arg("input"), py::arg("alpha"), py::arg("output"),
-       py::call_guard<py::gil_scoped_release>());
+        infini::ops::MulScalar::Call(input_view, alpha, output_view); }, py::arg("input"), py::arg("alpha"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
 
-    m.def("_normalize_checkpoint_tensor_", [](infinilm::runtime::Tensor input, double eps,
-                                               infinilm::runtime::Tensor output) {
+    m.def("_normalize_checkpoint_tensor_", [](infinilm::runtime::Tensor input, double eps, infinilm::runtime::Tensor output) {
         if (!input || !output
             || input->device().type() != infinilm::runtime::Device::Type::kCpu
             || output->device() != input->device()
@@ -73,7 +68,5 @@ PYBIND11_MODULE(_infinilm, m) {
         }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
-        infini::ops::RowL2Normalize::Call(input_view, eps, output_view);
-    }, py::arg("input"), py::arg("eps"), py::arg("output"),
-       py::call_guard<py::gil_scoped_release>());
+        infini::ops::RowL2Normalize::Call(input_view, eps, output_view); }, py::arg("input"), py::arg("eps"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
 }

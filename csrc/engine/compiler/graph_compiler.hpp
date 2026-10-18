@@ -1,17 +1,16 @@
 #pragma once
 
-#include "../../models/infinilm_model.hpp"
-#include "../../global_state/forward_context.hpp"
 #include "../../execution/graph/graph.hpp"
-#include "runtime/runtime.hpp"
+#include "../../global_state/forward_context.hpp"
+#include "../../models/infinilm_model.hpp"
 #include "../rank_barrier.hpp"
+#include "runtime/runtime.hpp"
 
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <stdexcept>
 #include <string_view>
-
 
 namespace infinilm::engine {
 
@@ -80,7 +79,9 @@ public:
 protected:
     void skip_unavailable_prepare(const char *reason) const {
         const char *strict = std::getenv("INFINILM_REQUIRE_DEVICE_GRAPH");
-        if (strict && std::string_view(strict) == "1") throw std::runtime_error(reason);
+        if (strict && std::string_view(strict) == "1") {
+            throw std::runtime_error(reason);
+        }
         std::fprintf(stderr, "Graph preparation skipped: %s\n", reason);
     }
 

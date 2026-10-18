@@ -1,9 +1,9 @@
 #include "paged_compiler.hpp"
+#include "../../utils.hpp"
 #include "paged_decode_bucket.hpp"
 #include "paged_prepare_inputs.hpp"
 #include "prepare_state_guard.hpp"
 #include "runtime/utils.hpp"
-#include "../../utils.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -87,18 +87,18 @@ bool uses_short_decode_graph(
 
 FinitePagedDecodeProfile make_finite_paged_decode_profile(
     const cache::PagedKVCacheConfig &paged_config,
-    const config::ModelConfig *model_config,bool ordinary_kv_prepare,
-    infinilm::runtime::Device::Type device_type,const PagedGraphConfig &graph_config) {
+    const config::ModelConfig *model_config, bool ordinary_kv_prepare,
+    infinilm::runtime::Device::Type device_type, const PagedGraphConfig &graph_config) {
     graph_config.validate();
-    if(model_config==nullptr) return {};
+    if (model_config == nullptr) {
+        return {};
+    }
     return {
         ordinary_kv_prepare && graph_config.pp_size == 1,
-        graph_config.attention_backend == backends::AttentionBackend::FLASH_ATTN ||
-            graph_config.attention_backend == backends::AttentionBackend::PAGED_ATTN,
+        graph_config.attention_backend == backends::AttentionBackend::FLASH_ATTN || graph_config.attention_backend == backends::AttentionBackend::PAGED_ATTN,
         model_config->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE,
         uses_short_decode_graph(paged_config, model_config, device_type, graph_config),
-        paged_config.block_size(), paged_config.num_blocks()
-    };
+        paged_config.block_size(), paged_config.num_blocks()};
 }
 
 PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
@@ -157,7 +157,9 @@ void PagedCompiler::compile() {
         const bool has_mamba_state = has_mamba_cache(forward_context);
 
         const auto &model_config = model_->get_model_config();
-        if (decode_batch_sizes_.empty()) return;
+        if (decode_batch_sizes_.empty()) {
+            return;
+        }
         if (!model_->supports_kv_only_prepare()) {
             skip_unavailable_prepare("paged graph prepare cannot restore this model's state");
             return;
@@ -260,18 +262,20 @@ void PagedCompiler::compile() {
                                            block_tables_holder, logical_bound);
 
             try {
-            barrier_->wait();
-            (void)model_->forward(input, forward_context_);
-            runtime_.syncStream();
-            GraphRecordingGuard recording{runtime_};
-            auto output = model_->forward(input, forward_context_);
-            auto graph = recording.finish();
-            barrier_->wait();
+                barrier_->wait();
+                (void)model_->forward(input, forward_context_);
+                runtime_.syncStream();
+                GraphRecordingGuard recording{runtime_};
+                auto output = model_->forward(input, forward_context_);
+                auto graph = recording.finish();
+                barrier_->wait();
 
-            return make_compiled_result(
-                std::move(input), std::move(graph), output);
+                return make_compiled_result(
+                    std::move(input), std::move(graph), output);
             } catch (...) {
-                try { runtime_.syncStream(); } catch (...) { std::terminate(); }
+                try {
+                    runtime_.syncStream();
+                } catch (...) { std::terminate(); }
                 throw;
             }
         };
@@ -282,12 +286,14 @@ void PagedCompiler::compile() {
                 capture_decode(b, nblocks, candidate_holder, 0));
         }
 
-        const auto finite_profile=make_finite_paged_decode_profile(
-            *paged_config,model_config.get(),model_->supports_kv_only_prepare(),
-            runtime_.device().type(),graph_config_);
+        const auto finite_profile = make_finite_paged_decode_profile(
+            *paged_config, model_config.get(), model_->supports_kv_only_prepare(),
+            runtime_.device().type(), graph_config_);
         if (supports_finite_paged_decode_bucket(finite_profile)) {
             for (size_t b : {size_t{1}, size_t{2}}) {
-                if (b > max_batch_size) continue;
+                if (b > max_batch_size) {
+                    continue;
+                }
                 for (size_t bound : {size_t{256}, size_t{512}}) {
                     candidate_decode.emplace(
                         std::make_pair(b, bound),
@@ -295,7 +301,6 @@ void PagedCompiler::compile() {
                                        candidate_holder, bound));
                 }
             }
-
         }
 
         if (uses_short_decode_graph(
@@ -419,12 +424,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                         use_short_decode_graph = true;
                     }
                 }
+            }
         }
     }
-}
 
     auto &graph_input = selected_result->input;
-            const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
+    const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
     if ((!use_short_decode_graph && block_per_req > compiled_block_per_req)
         || graph_input.block_tables.value()->dtype()
                != runtime_block_tables->dtype()
@@ -448,8 +453,8 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             graph_input.mamba_final_state_indices,
             input.mamba_final_state_indices)) {
         // Validate every input before mutating storage shared by a graph.
-                return {nullptr, nullptr};
-            }
+        return {nullptr, nullptr};
+    }
 
     graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
     graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
@@ -481,7 +486,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     const auto &compiled_output = std::get<1>(selected_result->compiled);
     auto shared_output = resume_output(*compiled_output);
 
-            return std::make_tuple(graph, shared_output);
-        }
+    return std::make_tuple(graph, shared_output);
+}
 
 } // namespace infinilm::engine

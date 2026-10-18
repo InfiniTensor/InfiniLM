@@ -1,18 +1,17 @@
 import logging
-from dataclasses import dataclass
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, Optional
 
+from infinilm.config.kv_transfer import KVTransferConfig
 from infinilm.kv_connector import (
     KVConnectorBase,
     KVConnectorMetadata,
     KVConnectorRole,
 )
-from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.llm import InferenceRequest
 
 from ... import _core as infinicore
-
-from infinilm.llm import InferenceRequest
 
 logger = logging.getLogger(__name__)
 

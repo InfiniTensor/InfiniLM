@@ -1,6 +1,6 @@
-#include "rope_scaling_configs.hpp"
 #include "rotary_embedding_factory.hpp"
 #include "../../config/model_config.hpp"
+#include "rope_scaling_configs.hpp"
 
 namespace infinilm::layers::rotary_embedding {
 

@@ -14,7 +14,9 @@ public:
 
     int get_packing_num() const {
         const int bits = get_or<int>("bits", get_or<int>("w_bit", 4));
-        if (bits != 4) throw std::invalid_argument("W4 packing requires exactly four bits");
+        if (bits != 4) {
+            throw std::invalid_argument("W4 packing requires exactly four bits");
+        }
         return 8;
     }
 

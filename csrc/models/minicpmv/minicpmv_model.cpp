@@ -2,8 +2,8 @@
 #include "minicpmv_media_mapping.hpp"
 
 #include "../../global_state/global_state.hpp"
-#include "runtime/runtime.hpp"
 #include "../models_registry.hpp"
+#include "runtime/runtime.hpp"
 #include <exception>
 
 #include <algorithm>
@@ -41,32 +41,34 @@ std::vector<T> copy_cpu_metadata(const infinilm::runtime::Tensor &tensor,
 } // namespace
 
 MiniCPMVModel::MiniCPMVModel(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-    const engine::distributed::RankInfo &rank,
-    backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep)
+                             std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                             const engine::distributed::RankInfo &rank,
+                             backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep)
     : config_(model_config) {
     models::validate_runtime_construction(model_config, runtime, rank);
     try {
 
-    const auto &dtype{model_config->get_dtype()};
+        const auto &dtype{model_config->get_dtype()};
 
-    llm_ = this->bind_child("llm", std::make_shared<std::remove_reference_t<decltype(*llm_ )>>(runtime, model_config, rank, attention_backend, ep));
+        llm_ = this->bind_child("llm", std::make_shared<std::remove_reference_t<decltype(*llm_)>>(runtime, model_config, rank, attention_backend, ep));
 
-    // Use get_ref instead of get to get a reference
-    auto &vision_cfg = model_config->get_ref("vision_config");
+        // Use get_ref instead of get to get a reference
+        auto &vision_cfg = model_config->get_ref("vision_config");
 
-    if (model_config->get<bool>("drop_vision_last_layer") && vision_cfg.value("num_hidden_layers", 0) > 0) {
-        vision_cfg["num_hidden_layers"] = vision_cfg.value("num_hidden_layers", 0) - 1;
-    }
+        if (model_config->get<bool>("drop_vision_last_layer") && vision_cfg.value("num_hidden_layers", 0) > 0) {
+            vision_cfg["num_hidden_layers"] = vision_cfg.value("num_hidden_layers", 0) - 1;
+        }
 
-    vpm_ = this->bind_child("vpm", std::make_shared<std::remove_reference_t<decltype(*vpm_ )>>(runtime, vision_cfg, dtype, false));
+        vpm_ = this->bind_child("vpm", std::make_shared<std::remove_reference_t<decltype(*vpm_)>>(runtime, vision_cfg, dtype, false));
 
-    size_t embed_dim = model_config->get<size_t>("hidden_size");
-    size_t num_heads = embed_dim / 128;
-    resampler_ = this->bind_child("resampler", std::make_shared<std::remove_reference_t<decltype(*resampler_ )>>(runtime, model_config->get<size_t>("query_num"), embed_dim, num_heads, vision_cfg.value("hidden_size", 768), vision_cfg.value("image_size", 224), vision_cfg.value("patch_size", 16), dtype));
+        size_t embed_dim = model_config->get<size_t>("hidden_size");
+        size_t num_heads = embed_dim / 128;
+        resampler_ = this->bind_child("resampler", std::make_shared<std::remove_reference_t<decltype(*resampler_)>>(runtime, model_config->get<size_t>("query_num"), embed_dim, num_heads, vision_cfg.value("hidden_size", 768), vision_cfg.value("image_size", 224), vision_cfg.value("patch_size", 16), dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -90,7 +92,7 @@ void MiniCPMVModel::replace_embeddings(infinilm::runtime::Tensor inputs_embeds,
 }
 
 InfinilmModel::Output MiniCPMVModel::forward(const InfinilmModel::Input &input,
-                                            global_state::ForwardContext &forward_context) const {
+                                             global_state::ForwardContext &forward_context) const {
     if (forward_context.runtime == nullptr) {
         throw std::runtime_error("MiniCPMVModel: runtime is not initialized");
     }
@@ -217,8 +219,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_minicpmv_model_config(
 
     nlohmann::json &config_json = model_config->get_config_json();
 
-    if (model_config->get<int64_t>("num_attention_heads") <= 0)
+    if (model_config->get<int64_t>("num_attention_heads") <= 0) {
         throw std::invalid_argument("MiniCPMV requires positive attention heads");
+    }
     if (!config_json.contains("head_dim")) {
         size_t head_dim = model_config->get<size_t>("hidden_size")
                         / model_config->get<size_t>("num_attention_heads");
@@ -228,17 +231,20 @@ std::shared_ptr<infinilm::config::ModelConfig> create_minicpmv_model_config(
     models::validate_dense_construction_metadata(model_config, "MiniCPMV text");
     const size_t hidden = model_config->get<size_t>("hidden_size");
     const size_t heads = hidden / 128;
-    if (heads == 0 || hidden % heads != 0)
+    if (heads == 0 || hidden % heads != 0) {
         throw std::invalid_argument("MiniCPMV resampler head geometry is invalid");
+    }
     const auto &vision = model_config->get_ref("vision_config");
-    if (vision.value("patch_size", 16) <= 0)
+    if (vision.value("patch_size", 16) <= 0) {
         throw std::invalid_argument("MiniCPMV requires positive vision patch_size");
+    }
     const int layers = vision.value("num_hidden_layers", 12);
     const bool drop = model_config->get<bool>("drop_vision_last_layer");
     if (layers > (drop ? 1 : 0)) {
         const int width = vision.value("hidden_size", 768), count = vision.value("num_attention_heads", 12);
-        if (width <= 0 || count <= 0 || width % count != 0)
+        if (width <= 0 || count <= 0 || width % count != 0) {
             throw std::invalid_argument("MiniCPMV vision head geometry is invalid");
+        }
     }
     // Do not apply drop_vision_last_layer here: the constructor retains its one mutation.
     return model_config;

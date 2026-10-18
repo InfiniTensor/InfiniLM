@@ -1,12 +1,12 @@
 #include "runtime/tensor.hpp"
-#include "runtime/runtime.hpp"
 #include "../utils.hpp"
+#include "execution/submit.hpp"
 #include "runtime/context.hpp"
 #include "runtime/dtype.hpp"
-#include "execution/submit.hpp"
+#include "runtime/runtime.hpp"
 
-#include <spdlog/spdlog.h>
 #include <limits>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace {
@@ -42,7 +42,9 @@ size_t parameter_storage_bytes(const infinilm::runtime::Shape &shape,
         }
         elements *= *it;
     }
-    if (elements == 0) return 0;
+    if (elements == 0) {
+        return 0;
+    }
     const size_t element_bytes = infinilm::runtime::dsize(dtype);
     if (element_bytes == 0 || elements > std::numeric_limits<size_t>::max() / element_bytes) {
         throw std::length_error("parameter storage byte size overflows");
@@ -92,7 +94,9 @@ Tensor Tensor::strided_empty(Runtime &runtime,
                              const DataType &dtype, bool pin_memory) {
     runtime.assertOwnerThread();
     const size_t element_bytes = dsize(dtype);
-    if (element_bytes == 0) throw std::length_error("tensor element size is zero");
+    if (element_bytes == 0) {
+        throw std::length_error("tensor element size is zero");
+    }
     const size_t required_bytes = TensorImpl::storage_span_bytes(shape, strides, element_bytes);
     auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, strides, dtype));
     t->data_.offset = 0;
@@ -305,7 +309,7 @@ Tensor TensorImpl::to_blob_(Runtime &runtime) const {
     runtime.assertOwnerThread();
     const bool graph_pinnable = data_.memory->is_graph_pinnable();
     const bool keep_preexisting_owner = graph_pinnable
-        && runtime.isGraphRecording() && runtime.retainGraphMemory(data_.memory);
+                                     && runtime.isGraphRecording() && runtime.retainGraphMemory(data_.memory);
     auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape(), strides(), dtype()));
     t->data_.offset = data_.offset;
     Memory::Deleter keep_external_owner;
@@ -324,8 +328,8 @@ Tensor TensorImpl::resume_from_blob_(Runtime &runtime) const {
     auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape(), strides(), dtype()));
     t->data_.offset = data_.offset;
     t->data_.memory = to_blob_mark_
-                          ? runtime.reinstantiateBlob(data_.memory)
-                          : data_.memory;
+                        ? runtime.reinstantiateBlob(data_.memory)
+                        : data_.memory;
     return Tensor{t};
 }
 

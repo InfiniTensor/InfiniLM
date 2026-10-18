@@ -2,10 +2,10 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/attention/attention.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include "../deepseek_v2/deepseek_v2_moe.hpp"
 #include "runtime/device.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/normalization/rmsnorm.hpp"
 #include "runtime/tensor.hpp"
 
 #include <memory>
@@ -22,15 +22,15 @@ using DeepseekAttention = infinilm::layers::attention::Attention;
 class DeepseekDecoderLayer : public infinilm::weights::ModelWeights {
 public:
     DeepseekDecoderLayer(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
                          size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+                         const engine::distributed::RankInfo &rank_info,
+                         backends::AttentionBackend attention_backend,
+                         const layers::moe::EPConfig &ep_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
         const infinilm::runtime::Tensor &positions,
-                                                               infinilm::runtime::Tensor &hidden_states,
+        infinilm::runtime::Tensor &hidden_states,
         infinilm::runtime::Tensor &residual,
         infinilm::global_state::ForwardContext &forward_context);
 

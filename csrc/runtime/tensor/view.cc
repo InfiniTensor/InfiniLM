@@ -4,8 +4,8 @@
 
 #include "../utils.hpp"
 
-#include <spdlog/spdlog.h>
 #include <limits>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <stdexcept>
 

@@ -1,8 +1,8 @@
 #pragma once
 
+#include "../../../engine/distributed/communication_group.hpp"
 #include "../dispatcher/base_dispatcher.hpp"
 #include "ep_config.hpp"
-#include "../../../engine/distributed/communication_group.hpp"
 
 #include <infiniccl/infiniccl.h>
 #include <memory>

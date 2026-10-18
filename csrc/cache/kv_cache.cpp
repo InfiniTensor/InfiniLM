@@ -205,14 +205,15 @@ infinilm::runtime::Tensor create_layer_kv_cache(
     try {
         if (kv_cache->nbytes() != 0) {
             if (kv_cache->is_contiguous() && !runtime.isGraphRecording()) {
-                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(kv_cache)))
+                if (!infini::ops::Fill::valid_output(infinilm::execution::detail::view(kv_cache))) {
                     throw std::invalid_argument("zero-fill output layout or storage is invalid");
+                }
                 runtime.setDeviceMemoryAsync(kv_cache->data(), 0, kv_cache->nbytes(), runtime.stream());
-    } else {
+            } else {
                 infinilm::execution::submit<infini::ops::Fill>(
                     runtime, infini::ops::Fill::DefaultConfig(runtime.device().type()),
                     kv_cache, 0.0, kv_cache);
-    }
+            }
             INFINILM_TRACE_OP(Zeros, kv_cache);
         }
     } catch (...) {

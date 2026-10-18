@@ -485,8 +485,13 @@ class BaseConfig:
             # or require an optional Torch provider to be installed.
             infinicore = importlib.import_module("infinilm._core")
             for device_name in (
-                "cambricon", "ascend", "moore", "metax", "hygon",
-                "iluvatar", "nvidia",
+                "cambricon",
+                "ascend",
+                "moore",
+                "metax",
+                "hygon",
+                "iluvatar",
+                "nvidia",
             ):
                 if infinicore.get_device_count(device_name) > 0:
                     return device_name

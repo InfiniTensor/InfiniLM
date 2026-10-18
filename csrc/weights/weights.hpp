@@ -1,8 +1,8 @@
 #pragma once
 
-#include <runtime/tensor.hpp>
 #include <array>
 #include <memory>
+#include <runtime/tensor.hpp>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -26,9 +26,13 @@ public:
     LoadBatch(const LoadBatch &) = delete;
     LoadBatch &operator=(const LoadBatch &) = delete;
     void drain();
+
 private:
     friend class Weight;
-    struct Owners { Tensor destination; Tensor source; };
+    struct Owners {
+        Tensor destination;
+        Tensor source;
+    };
     Runtime &runtime_;
     std::array<Owners, capacity> pending_{};
     size_t count_ = 0;
@@ -57,6 +61,7 @@ public:
     void reset(std::shared_ptr<infinilm::runtime::TensorImpl> tensor) noexcept { tensor_.reset(std::move(tensor)); }
     void load(Runtime &runtime, const Tensor &source);
     void load_no_sync(Runtime &runtime, const Tensor &source);
+
 private:
     friend class ModelWeights;
     bool checkpoint_required_ = true;
@@ -84,11 +89,14 @@ public:
     // Loading owners include fused projections that do not add checkpoint prefixes.
     virtual std::vector<std::shared_ptr<ModelWeights>> loading_children() const {
         std::vector<std::shared_ptr<ModelWeights>> result;
-        for (const auto &[_, child] : child_weights_) result.push_back(child);
+        for (const auto &[_, child] : child_weights_) {
+            result.push_back(child);
+        }
         return result;
     }
     // Model traversal visits bound children first; hooks do not revisit them.
     virtual void process_weights_after_loading(Runtime &, bool) {}
+
 protected:
     Tensor bind_weight(const std::string &name, Weight weight);
     Tensor bind_derived_weight(const std::string &name, Weight weight) {
@@ -99,12 +107,15 @@ protected:
     std::shared_ptr<T> bind_child(const std::string &name, std::shared_ptr<T> child) {
         static_assert(std::is_base_of<ModelWeights, T>::value,
                       "LM weight children must derive from ModelWeights");
-        if (!child) throw std::invalid_argument("Cannot bind a null weight child");
+        if (!child) {
+            throw std::invalid_argument("Cannot bind a null weight child");
+        }
         child_weights_[name] = child;
         return child;
     }
     std::unordered_map<std::string, Weight> local_weights_;
     std::unordered_map<std::string, std::shared_ptr<ModelWeights>> child_weights_;
+
 private:
     void collect(std::unordered_map<std::string, Weight> &out, const std::string &prefix) const;
     Weight &resolve(const std::string &name);

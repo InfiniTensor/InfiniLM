@@ -1,15 +1,15 @@
 #include "videonsa_vision.hpp"
-#include "execution/submit.hpp"
-#include "../../weights/weights.hpp"
-#include "../../layers/mlp/fused_activation.hpp"
-#include "../../layers/linear/dense.hpp"
 #include "../../execution/tensor_expressions.hpp"
+#include "../../layers/linear/dense.hpp"
+#include "../../layers/mlp/fused_activation.hpp"
+#include "../../weights/weights.hpp"
+#include "execution/submit.hpp"
 
 #include "runtime/runtime.hpp"
 #include "runtime/utils.hpp"
-#include <exception>
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <numeric>
 #include <stdexcept>
 
@@ -23,19 +23,24 @@ VideoNSAPatchEmbed::VideoNSAPatchEmbed(infinilm::runtime::Runtime &runtime, cons
                  * config.value("patch_size", 14)
                  * config.value("patch_size", 14)) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAPatchEmbed construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAPatchEmbed construction requires eager Runtime");
+    }
     try {
-    proj_weight_ = infinilm::weights::Weight(runtime, {out_hidden_size_, patch_dim_}, dtype); this->bind_weight("proj_weight", proj_weight_);
-    this->bind_weight("proj.weight", proj_weight_);
+        proj_weight_ = infinilm::weights::Weight(runtime, {out_hidden_size_, patch_dim_}, dtype);
+        this->bind_weight("proj_weight", proj_weight_);
+        this->bind_weight("proj.weight", proj_weight_);
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAPatchEmbed::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &pixel_values) const {
+                                                      const infinilm::runtime::Tensor &pixel_values) const {
     auto input = pixel_values->view({pixel_values->size(0), patch_dim_});
     return infinilm::layers::linear::dense_projection(runtime, input, proj_weight_.tensor(), std::nullopt);
 }
@@ -47,22 +52,27 @@ VideoNSAVisionAttention::VideoNSAVisionAttention(infinilm::runtime::Runtime &run
       head_dim_(num_heads_ ? hidden_size_ / num_heads_ : 0),
       scale_(1.0f / std::sqrt(static_cast<float>(head_dim_))) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAVisionAttention construction requires eager Runtime");
-    if (hidden_size_ == 0 || num_heads_ == 0 || hidden_size_ % num_heads_ != 0)
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAVisionAttention construction requires eager Runtime");
+    }
+    if (hidden_size_ == 0 || num_heads_ == 0 || hidden_size_ % num_heads_ != 0) {
         throw std::invalid_argument("VideoNSAVisionAttention requires valid head geometry");
+    }
     try {
-    qkv_ = this->bind_child("qkv", std::make_shared<std::remove_reference_t<decltype(*qkv_ )>>(runtime, hidden_size_, 3 * hidden_size_, true, dtype));
-    proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_ )>>(runtime, hidden_size_, hidden_size_, true, dtype));
+        qkv_ = this->bind_child("qkv", std::make_shared<std::remove_reference_t<decltype(*qkv_)>>(runtime, hidden_size_, 3 * hidden_size_, true, dtype));
+        proj_ = this->bind_child("proj", std::make_shared<std::remove_reference_t<decltype(*proj_)>>(runtime, hidden_size_, hidden_size_, true, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &hidden_states,
-                                                    const std::vector<int64_t> *cu_window_seqlens) const {
+                                                           const infinilm::runtime::Tensor &hidden_states,
+                                                           const std::vector<int64_t> *cu_window_seqlens) const {
     const size_t seq_len = hidden_states->size(0);
     auto hidden = const_cast<infinilm::runtime::Tensor &>(hidden_states);
     auto qkv = qkv_->forward(runtime, hidden)->view({seq_len, 3, num_heads_, head_dim_});
@@ -163,8 +173,8 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
                 out = chunks.front();
             } else {
                 out = infinilm::execution::cat_alloc(runtime, chunks, 0);
+            }
         }
-    }
     }
     return proj_->forward(runtime, out);
 }
@@ -172,22 +182,26 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
 VideoNSAVisionMLP::VideoNSAVisionMLP(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
                                      const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAVisionMLP construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAVisionMLP construction requires eager Runtime");
+    }
     try {
-    const size_t hidden_size = config.value("hidden_size", 1280);
-    const size_t intermediate_size = config.value("intermediate_size", 3420);
-    gate_proj_ = this->bind_child("gate_proj", std::make_shared<std::remove_reference_t<decltype(*gate_proj_ )>>(runtime, hidden_size, intermediate_size, true, dtype));
-    up_proj_ = this->bind_child("up_proj", std::make_shared<std::remove_reference_t<decltype(*up_proj_ )>>(runtime, hidden_size, intermediate_size, true, dtype));
-    down_proj_ = this->bind_child("down_proj", std::make_shared<std::remove_reference_t<decltype(*down_proj_ )>>(runtime, intermediate_size, hidden_size, true, dtype));
+        const size_t hidden_size = config.value("hidden_size", 1280);
+        const size_t intermediate_size = config.value("intermediate_size", 3420);
+        gate_proj_ = this->bind_child("gate_proj", std::make_shared<std::remove_reference_t<decltype(*gate_proj_)>>(runtime, hidden_size, intermediate_size, true, dtype));
+        up_proj_ = this->bind_child("up_proj", std::make_shared<std::remove_reference_t<decltype(*up_proj_)>>(runtime, hidden_size, intermediate_size, true, dtype));
+        down_proj_ = this->bind_child("down_proj", std::make_shared<std::remove_reference_t<decltype(*down_proj_)>>(runtime, intermediate_size, hidden_size, true, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAVisionMLP::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &hidden_states) const {
+                                                     const infinilm::runtime::Tensor &hidden_states) const {
     auto hidden = const_cast<infinilm::runtime::Tensor &>(hidden_states);
     auto gate = gate_proj_->forward(runtime, hidden);
     auto up = up_proj_->forward(runtime, hidden);
@@ -199,23 +213,27 @@ infinilm::runtime::Tensor VideoNSAVisionMLP::forward(infinilm::runtime::Runtime 
 VideoNSAVisionBlock::VideoNSAVisionBlock(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
                                          const infinilm::runtime::DataType &dtype) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAVisionBlock construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAVisionBlock construction requires eager Runtime");
+    }
     try {
-    const size_t hidden_size = config.value("hidden_size", 1280);
-    norm1_ = this->bind_child("norm1", std::make_shared<std::remove_reference_t<decltype(*norm1_ )>>(runtime, hidden_size, 1e-6, dtype));
-    attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_ )>>(runtime, config, dtype));
-    norm2_ = this->bind_child("norm2", std::make_shared<std::remove_reference_t<decltype(*norm2_ )>>(runtime, hidden_size, 1e-6, dtype));
-    mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_ )>>(runtime, config, dtype));
+        const size_t hidden_size = config.value("hidden_size", 1280);
+        norm1_ = this->bind_child("norm1", std::make_shared<std::remove_reference_t<decltype(*norm1_)>>(runtime, hidden_size, 1e-6, dtype));
+        attn_ = this->bind_child("attn", std::make_shared<std::remove_reference_t<decltype(*attn_)>>(runtime, config, dtype));
+        norm2_ = this->bind_child("norm2", std::make_shared<std::remove_reference_t<decltype(*norm2_)>>(runtime, hidden_size, 1e-6, dtype));
+        mlp_ = this->bind_child("mlp", std::make_shared<std::remove_reference_t<decltype(*mlp_)>>(runtime, config, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAVisionBlock::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &hidden_states,
-                                                const std::vector<int64_t> *cu_window_seqlens) const {
+                                                       const infinilm::runtime::Tensor &hidden_states,
+                                                       const std::vector<int64_t> *cu_window_seqlens) const {
     auto residual = hidden_states;
     auto x = norm1_->forward(runtime, hidden_states);
     x = attn_->forward(runtime, x, cu_window_seqlens);
@@ -243,21 +261,25 @@ VideoNSAPatchMerger::VideoNSAPatchMerger(infinilm::runtime::Runtime &runtime, co
       spatial_merge_unit_(config.value("spatial_merge_size", 2) * config.value("spatial_merge_size", 2)),
       merged_size_(hidden_size_ * spatial_merge_unit_) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAPatchMerger construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAPatchMerger construction requires eager Runtime");
+    }
     try {
-    const size_t out_hidden_size = config.value("out_hidden_size", 3584);
-    ln_q_ = this->bind_child("ln_q", std::make_shared<std::remove_reference_t<decltype(*ln_q_ )>>(runtime, hidden_size_, 1e-6, dtype));
-    mlp_0_ = this->bind_child("mlp.0", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, merged_size_, merged_size_, true, dtype));
-    mlp_2_ = this->bind_child("mlp.2", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, merged_size_, out_hidden_size, true, dtype));
+        const size_t out_hidden_size = config.value("out_hidden_size", 3584);
+        ln_q_ = this->bind_child("ln_q", std::make_shared<std::remove_reference_t<decltype(*ln_q_)>>(runtime, hidden_size_, 1e-6, dtype));
+        mlp_0_ = this->bind_child("mlp.0", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, merged_size_, merged_size_, true, dtype));
+        mlp_2_ = this->bind_child("mlp.2", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, merged_size_, out_hidden_size, true, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 infinilm::runtime::Tensor VideoNSAPatchMerger::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &hidden_states) const {
+                                                       const infinilm::runtime::Tensor &hidden_states) const {
     auto x = ln_q_->forward(runtime, hidden_states)->view({hidden_states->size(0) / spatial_merge_unit_, merged_size_});
     x = mlp_0_->forward(runtime, x);
     {
@@ -278,28 +300,32 @@ VideoNSAVisionModel::VideoNSAVisionModel(infinilm::runtime::Runtime &runtime, co
       spatial_merge_unit_(spatial_merge_size_ * spatial_merge_size_),
       window_size_(config.value("window_size", 112)) {
     runtime.assertOwnerThread();
-    if (runtime.isGraphRecording()) throw std::logic_error("VideoNSAVisionModel construction requires eager Runtime");
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("VideoNSAVisionModel construction requires eager Runtime");
+    }
     try {
-    if (config.contains("fullatt_block_indexes")) {
-        for (const auto &idx : config["fullatt_block_indexes"]) {
-            fullatt_block_indexes_.insert(idx.get<size_t>());
+        if (config.contains("fullatt_block_indexes")) {
+            for (const auto &idx : config["fullatt_block_indexes"]) {
+                fullatt_block_indexes_.insert(idx.get<size_t>());
+            }
         }
-    }
-    patch_embed_ = this->bind_child("patch_embed", std::make_shared<std::remove_reference_t<decltype(*patch_embed_ )>>(runtime, config, dtype));
-    blocks_.reserve(depth_);
-    for (size_t i = 0; i < depth_; ++i) {
-        blocks_.push_back(this->bind_child("blocks." + std::to_string(i), std::make_shared<VideoNSAVisionBlock>(runtime, config, dtype)));
-    }
-    merger_ = this->bind_child("merger", std::make_shared<std::remove_reference_t<decltype(*merger_ )>>(runtime, config, dtype));
+        patch_embed_ = this->bind_child("patch_embed", std::make_shared<std::remove_reference_t<decltype(*patch_embed_)>>(runtime, config, dtype));
+        blocks_.reserve(depth_);
+        for (size_t i = 0; i < depth_; ++i) {
+            blocks_.push_back(this->bind_child("blocks." + std::to_string(i), std::make_shared<VideoNSAVisionBlock>(runtime, config, dtype)));
+        }
+        merger_ = this->bind_child("merger", std::make_shared<std::remove_reference_t<decltype(*merger_)>>(runtime, config, dtype));
 
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
 
 VideoNSAVisionModel::WindowMetadata VideoNSAVisionModel::build_window_metadata_(infinilm::runtime::Runtime &runtime,
-                                                                                    const infinilm::runtime::Tensor &grid_thw) const {
+                                                                                const infinilm::runtime::Tensor &grid_thw) const {
     const auto cpu = infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu};
     auto grid_cpu = grid_thw->device() == cpu ? grid_thw : grid_thw->to(runtime, cpu);
     const int64_t *grid = reinterpret_cast<const int64_t *>(grid_cpu->data());
@@ -367,8 +393,8 @@ VideoNSAVisionModel::WindowMetadata VideoNSAVisionModel::build_window_metadata_(
 }
 
 infinilm::runtime::Tensor VideoNSAVisionModel::gather_rows_(infinilm::runtime::Runtime &runtime,
-                                                     const infinilm::runtime::Tensor &hidden_states,
-                                                     const std::vector<int64_t> &row_order) const {
+                                                            const infinilm::runtime::Tensor &hidden_states,
+                                                            const std::vector<int64_t> &row_order) const {
     const size_t rows = row_order.size();
     const size_t width = hidden_states->size(1);
     std::vector<int64_t> flat_indices(rows * width);
@@ -388,8 +414,8 @@ infinilm::runtime::Tensor VideoNSAVisionModel::gather_rows_(infinilm::runtime::R
 }
 
 infinilm::runtime::Tensor VideoNSAVisionModel::forward(infinilm::runtime::Runtime &runtime,
-                                                const infinilm::runtime::Tensor &pixel_values,
-                                                const infinilm::runtime::Tensor &grid_thw) const {
+                                                       const infinilm::runtime::Tensor &pixel_values,
+                                                       const infinilm::runtime::Tensor &grid_thw) const {
     auto hidden_states = patch_embed_->forward(runtime, pixel_values);
     auto window_meta = build_window_metadata_(runtime, grid_thw);
     if (window_meta.patch_order.size() != hidden_states->size(0)) {

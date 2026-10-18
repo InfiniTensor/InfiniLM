@@ -9,14 +9,14 @@
 #include "compiler/graph_compiler.hpp"
 #include "compiler/paged_decode_bucket.hpp"
 #include "distributed/distributed.hpp"
-#include "rank_barrier.hpp"
 #include "nsa_owner_input.hpp"
+#include "rank_barrier.hpp"
 #include "static_decode_metadata.hpp"
 
 #include <any>
 #include <condition_variable>
-#include <exception>
 #include <cstdint>
+#include <exception>
 #include <mutex>
 #include <random>
 #include <string>
@@ -209,10 +209,10 @@ private:
     Command job_cmd_;
 
     // State flags (protected by mutex_)
-    bool has_job_ = false;     // a job is pending
-    bool job_done_ = false;    // last job completed
-    bool should_exit_ = false; // request to stop
-    bool init_done_ = false;   // initialization finished
+    bool has_job_ = false;       // a job is pending
+    bool job_done_ = false;      // last job completed
+    bool should_exit_ = false;   // request to stop
+    bool init_done_ = false;     // initialization finished
     std::exception_ptr failure_; // first worker failure, protected by mutex_
 
     // Task payloads (protected by mutex)

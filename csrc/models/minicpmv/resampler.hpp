@@ -18,8 +18,8 @@ public:
                        const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &query,
-                               const infinilm::runtime::Tensor &key,
-                               const infinilm::runtime::Tensor &value) const;
+                                      const infinilm::runtime::Tensor &key,
+                                      const infinilm::runtime::Tensor &value) const;
 
 private:
     size_t embed_dim_;
@@ -43,7 +43,7 @@ public:
               const infinilm::runtime::DataType &dtype);
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &x,
-                               const infinilm::runtime::Tensor &tgt_sizes) const;
+                                      const infinilm::runtime::Tensor &tgt_sizes) const;
 
 private:
     size_t num_queries_;

@@ -8,8 +8,12 @@
 #include <runtime/dtype.hpp>
 #include <utility>
 
-namespace infinilm::runtime { class Runtime; }
-namespace infinilm::engine::distributed { struct RankInfo; }
+namespace infinilm::runtime {
+class Runtime;
+}
+namespace infinilm::engine::distributed {
+struct RankInfo;
+}
 
 namespace infinilm::cache {
 

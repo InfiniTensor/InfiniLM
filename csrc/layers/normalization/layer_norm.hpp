@@ -3,13 +3,12 @@
 #include "../../weights/weights.hpp"
 
 namespace infinilm::layers {
-using infinilm::runtime::Tensor;
-using infinilm::runtime::Runtime;
 using infinilm::runtime::DataType;
 using infinilm::runtime::Device;
+using infinilm::runtime::Runtime;
 using infinilm::runtime::Shape;
 using infinilm::runtime::Size;
-
+using infinilm::runtime::Tensor;
 
 class LayerNorm : public infinilm::weights::ModelWeights {
 public:

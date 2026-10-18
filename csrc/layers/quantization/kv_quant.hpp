@@ -4,7 +4,9 @@
 #include "runtime/tensor.hpp"
 #include <utility>
 
-namespace infinilm::runtime { class Runtime; }
+namespace infinilm::runtime {
+class Runtime;
+}
 
 namespace infinilm {
 

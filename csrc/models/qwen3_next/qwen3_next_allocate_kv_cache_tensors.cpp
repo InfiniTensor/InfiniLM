@@ -113,54 +113,56 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     };
 
     try {
-    switch (attention_backend) {
-    case backends::AttentionBackend::STATIC_ATTN: {
-        auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
-        if (nullptr == static_kv_cache_config) {
-            throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid static kv cache config type");
-        }
-
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
-            const std::string &layer_type = layer_types[layer_idx];
-            if ("linear_attention" == layer_type) {
-                allocate_linear_attention_cache(layer_idx, static_kv_cache_config->max_batch_size());
-            } else if ("full_attention" == layer_type) {
-                allocate_static_full_attention_cache(layer_idx, *static_kv_cache_config);
-            } else {
-                throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
+        switch (attention_backend) {
+        case backends::AttentionBackend::STATIC_ATTN: {
+            auto static_kv_cache_config = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+            if (nullptr == static_kv_cache_config) {
+                throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid static kv cache config type");
             }
-        }
-        break;
-    }
-    case backends::AttentionBackend::FLASH_ATTN: {
-        ;
-    }
-    case backends::AttentionBackend::PAGED_ATTN: {
-        auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
-        if (nullptr == paged_kv_cache_config) {
-            throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");
-        }
-        const size_t mamba_pool_size = std::max<size_t>(2, paged_kv_cache_config->num_blocks() / 4);
 
-        for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
-            const std::string &layer_type = layer_types[layer_idx];
-            if ("linear_attention" == layer_type) {
-                allocate_linear_attention_cache(layer_idx, mamba_pool_size);
-            } else if ("full_attention" == layer_type) {
-                allocate_paged_full_attention_cache(layer_idx, *paged_kv_cache_config);
-            } else {
-                throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
+            for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+                const std::string &layer_type = layer_types[layer_idx];
+                if ("linear_attention" == layer_type) {
+                    allocate_linear_attention_cache(layer_idx, static_kv_cache_config->max_batch_size());
+                } else if ("full_attention" == layer_type) {
+                    allocate_static_full_attention_cache(layer_idx, *static_kv_cache_config);
+                } else {
+                    throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
+                }
             }
+            break;
         }
-        break;
-    }
-    default:
-        throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
-    }
+        case backends::AttentionBackend::FLASH_ATTN: {
+            ;
+        }
+        case backends::AttentionBackend::PAGED_ATTN: {
+            auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
+            if (nullptr == paged_kv_cache_config) {
+                throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");
+            }
+            const size_t mamba_pool_size = std::max<size_t>(2, paged_kv_cache_config->num_blocks() / 4);
+
+            for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
+                const std::string &layer_type = layer_types[layer_idx];
+                if ("linear_attention" == layer_type) {
+                    allocate_linear_attention_cache(layer_idx, mamba_pool_size);
+                } else if ("full_attention" == layer_type) {
+                    allocate_paged_full_attention_cache(layer_idx, *paged_kv_cache_config);
+                } else {
+                    throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: unsupported layer_type '" + layer_type + "' for layer " + std::to_string(layer_idx));
+                }
+            }
+            break;
+        }
+        default:
+            throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: Unsupported attention backend: " + std::to_string(static_cast<int>(attention_backend)));
+        }
     } catch (...) {
         // Earlier layers and the current pending destination outlive the owner drain.
         const auto failure = std::current_exception();
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         std::rethrow_exception(failure);
     }
     return AllocatedHybridCache{

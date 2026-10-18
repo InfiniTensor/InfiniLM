@@ -65,7 +65,9 @@ inline Plan make_plan(size_t batch, size_t length, size_t pool,
         std::vector<size_t> result;
         result.reserve(plan.requests);
         for (size_t i = 0; i < plan.requests; ++i) {
-            if (!indices && i >= pool) throw std::invalid_argument("Mamba prefix pool too small");
+            if (!indices && i >= pool) {
+                throw std::invalid_argument("Mamba prefix pool too small");
+            }
             if (indices && ((*indices)[i] < 0 || static_cast<uint64_t>((*indices)[i]) >= pool)) {
                 throw std::invalid_argument("Mamba state index out of range");
             }
@@ -87,16 +89,20 @@ inline Plan make_plan(size_t batch, size_t length, size_t pool,
     return plan;
 }
 
-template<class CopyRow>
+template <class CopyRow>
 inline void gather(const Plan &plan, CopyRow copy_row) {
-    for (size_t i = 0; i < plan.requests; ++i) copy_row(i, plan.initial[i]);
+    for (size_t i = 0; i < plan.requests; ++i) {
+        copy_row(i, plan.initial[i]);
+    }
 }
 
-template<class CopyRow>
+template <class CopyRow>
 inline void commit(const Plan &plan, CopyRow copy_row) {
     // An empty request has the same final state as its initial state. Copying
     // it to a distinct final slot is intentional and uses the prior snapshot.
-    for (size_t i = 0; i < plan.requests; ++i) copy_row(plan.final[i], i);
+    for (size_t i = 0; i < plan.requests; ++i) {
+        copy_row(plan.final[i], i);
+    }
 }
 
 } // namespace infinilm::models::mamba::state_routing

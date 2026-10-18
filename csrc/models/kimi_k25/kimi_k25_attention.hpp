@@ -17,15 +17,15 @@ namespace infinilm::models::kimi_k25 {
 class KimiK25Attention : public infinilm::weights::ModelWeights {
 public:
     KimiK25Attention(
-    infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                     size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend);
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                               global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      global_state::ForwardContext &forward_context) const;
 
 protected:
     infinilm::runtime::Tensor position_ids_for_rope(const infinilm::runtime::Tensor &position_ids) const;

@@ -1,5 +1,5 @@
-#include "../../layers/rotary_embedding/rope.hpp"
 #include "ernie4_5_for_causal_lm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
 
 #include "../../global_state/forward_context.hpp"
 #include "../models_registry.hpp"
@@ -81,28 +81,30 @@ void normalize_ernie_config(nlohmann::json &config_json) {
 } // namespace
 
 Ernie45ForConditionalGeneration::Ernie45ForConditionalGeneration(infinilm::runtime::Runtime &runtime,
-        std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const engine::distributed::RankInfo &rank_info,
-        backends::AttentionBackend attention_backend,
-        const layers::moe::EPConfig &ep_config) {
+                                                                 std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                                                 const engine::distributed::RankInfo &rank_info,
+                                                                 backends::AttentionBackend attention_backend,
+                                                                 const layers::moe::EPConfig &ep_config) {
     models::validate_runtime_construction(model_config, runtime, rank_info);
     try {
-    model_config_ = model_config;
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const auto &dtype = model_config->get_dtype();
-    auto &config_json = model_config->get_config_json();
-    if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
+        model_config_ = model_config;
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t vocab_size = model_config->get<size_t>("vocab_size");
+        const auto &dtype = model_config->get_dtype();
+        auto &config_json = model_config->get_config_json();
+        if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
             vision_model_ = std::make_shared<std::remove_reference_t<decltype(*vision_model_)>>(runtime, config_json["vision_config"], dtype);
             this->bind_child("vision_model", vision_model_);
-    }
+        }
 
         model_ = std::make_shared<std::remove_reference_t<decltype(*model_)>>(runtime, model_config, rank_info, attention_backend, ep_config);
         this->bind_child("model", model_);
         lm_head_ = std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype);
         this->bind_child("lm_head", lm_head_);
     } catch (...) {
-        try { runtime.syncStream(); } catch (...) { std::terminate(); }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
         throw;
     }
 }
@@ -141,8 +143,9 @@ std::shared_ptr<infinilm::config::ModelConfig> create_ernie4_5_moe_vl_model_conf
     if ("ernie4_5_moe_vl" != model_type) {
         throw std::runtime_error("infinilm::models::ernie4_5_vl::create_ernie4_5_moe_vl_model_config: model_type is not ernie4_5_moe_vl");
     }
-    if (model_config->get<int64_t>("hidden_size") <= 0 || model_config->get<int64_t>("num_attention_heads") <= 0)
+    if (model_config->get<int64_t>("hidden_size") <= 0 || model_config->get<int64_t>("num_attention_heads") <= 0) {
         throw std::invalid_argument("Ernie45 construction requires positive hidden_size and num_attention_heads");
+    }
     normalize_ernie_config(model_config->get_config_json());
     model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
     return model_config;

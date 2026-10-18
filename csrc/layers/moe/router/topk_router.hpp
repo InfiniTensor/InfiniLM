@@ -25,7 +25,7 @@ public:
                std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(infinilm::runtime::Runtime &runtime,
-                                                            const infinilm::runtime::Tensor &hidden_states) const;
+                                                                             const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     infinilm::weights::Weight weight_;

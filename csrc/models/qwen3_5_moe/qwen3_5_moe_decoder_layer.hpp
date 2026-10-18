@@ -1,6 +1,6 @@
 #pragma once
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 
 #include "../qwen3_5/qwen3_5_attention.hpp"
 #include "../qwen3_next/qwen3_next_gated_deltanet.hpp"
@@ -14,11 +14,11 @@ namespace infinilm::models::qwen3_5_moe {
 class Qwen35MoeDecoderLayer : public infinilm::weights::ModelWeights {
 public:
     Qwen35MoeDecoderLayer(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
                           size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend,
-    const layers::moe::EPConfig &ep_config);
+                          const engine::distributed::RankInfo &rank_info,
+                          backends::AttentionBackend attention_backend,
+                          const layers::moe::EPConfig &ep_config);
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
         const infinilm::runtime::Tensor &positions,

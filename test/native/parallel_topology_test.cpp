@@ -2,21 +2,23 @@
 #undef NDEBUG
 #endif
 
-#include "../../csrc/parallel/topology.hpp"
 #include "../../csrc/engine/distributed/dist_config.hpp"
+#include "../../csrc/parallel/topology.hpp"
 
 #include <cassert>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
 
-using infinilm::parallel::Topology;
 using infinilm::engine::distributed::DistConfig;
+using infinilm::parallel::Topology;
 
 template <typename Exception, typename Function>
 void expect_throw(Function action) {
     bool threw = false;
-    try { action(); } catch (const Exception &) { threw = true; }
+    try {
+        action();
+    } catch (const Exception &) { threw = true; }
     assert(threw);
 }
 

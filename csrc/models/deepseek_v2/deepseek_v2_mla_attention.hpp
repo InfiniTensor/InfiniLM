@@ -4,9 +4,9 @@
 #include "../../config/model_config.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../layers/linear/linear.hpp"
-#include "../../weights/weights.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 #include "runtime/tensor.hpp"
 
 #include <memory>
@@ -16,28 +16,28 @@ namespace infinilm::models::deepseek_v2 {
 class DeepseekV2MLAAttention : public infinilm::weights::ModelWeights {
 public:
     DeepseekV2MLAAttention(infinilm::runtime::Runtime &runtime,
-    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                           std::shared_ptr<infinilm::config::ModelConfig> model_config,
                            size_t layer_idx,
-    const engine::distributed::RankInfo &rank_info,
-    backends::AttentionBackend attention_backend);
+                           const engine::distributed::RankInfo &rank_info,
+                           backends::AttentionBackend attention_backend);
 
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
-                               const infinilm::runtime::Tensor &hidden_states,
-                                       infinilm::global_state::ForwardContext &forward_context) const;
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
     infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &positions,
-                                       const infinilm::runtime::Tensor &hidden_states,
-                                       infinilm::global_state::ForwardContext &forward_context) const;
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              infinilm::global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &positions,
-                                      const infinilm::runtime::Tensor &hidden_states,
-                                       infinilm::global_state::ForwardContext &forward_context) const;
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             infinilm::global_state::ForwardContext &forward_context) const;
     infinilm::runtime::Tensor position_ids_for_rope_(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &position_ids) const;
     infinilm::runtime::Tensor kv_b_weight_3d_() const;
     infinilm::runtime::Tensor project_q_nope_to_latent_(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &q_nope) const;
     infinilm::runtime::Tensor project_latent_to_value_(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &attn_output,
-                                                size_t batch_size,
-                                                size_t seq_len) const;
+                                                       size_t batch_size,
+                                                       size_t seq_len) const;
 
     size_t layer_idx_{0};
     size_t hidden_size_{0};

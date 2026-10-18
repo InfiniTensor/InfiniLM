@@ -43,30 +43,27 @@ inline global_state::StaticPrefillHostDescription describe_static_prefill(
     if (cu_seqlens_cpu && !cpu_int32(*cu_seqlens_cpu, batch + 1)) {
         throw std::invalid_argument("static prefill cu_seqlens require CPU int32[batch+1]");
     }
-    if (rows_cpu && (!*rows_cpu || (*rows_cpu)->device().type() != Device::Type::kCpu
-        || (*rows_cpu)->dtype() != DataType::kInt32 || (*rows_cpu)->ndim() != 2
-        || (*rows_cpu)->size(0) != batch || (*rows_cpu)->size(1) != 1
-        || !(*rows_cpu)->is_contiguous())) {
+    if (rows_cpu && (!*rows_cpu || (*rows_cpu)->device().type() != Device::Type::kCpu || (*rows_cpu)->dtype() != DataType::kInt32 || (*rows_cpu)->ndim() != 2 || (*rows_cpu)->size(0) != batch || (*rows_cpu)->size(1) != 1 || !(*rows_cpu)->is_contiguous())) {
         throw std::invalid_argument("static prefill rows require CPU int32[batch,1]");
     }
     if (batch == 1 && capacity > 1 && !rows_cpu) {
         throw std::invalid_argument("static prefill into a larger cache requires an explicit physical row");
     }
-    if (slots_cpu && (!*slots_cpu || (*slots_cpu)->device().type() != Device::Type::kCpu
-        || (*slots_cpu)->dtype() != DataType::kInt64 || (*slots_cpu)->ndim() != 1
-        || (*slots_cpu)->size(0) != batch * query_length
-        || !(*slots_cpu)->is_contiguous())) {
+    if (slots_cpu && (!*slots_cpu || (*slots_cpu)->device().type() != Device::Type::kCpu || (*slots_cpu)->dtype() != DataType::kInt64 || (*slots_cpu)->ndim() != 1 || (*slots_cpu)->size(0) != batch * query_length || !(*slots_cpu)->is_contiguous())) {
         throw std::invalid_argument("static prefill slots require CPU int64[batch*query]");
     }
     const auto *past = reinterpret_cast<const int32_t *>(past_cpu->data());
     const auto *total = reinterpret_cast<const int32_t *>(total_cpu->data());
     const auto *offsets = reinterpret_cast<const int32_t *>((*offsets_cpu)->data());
     const auto *cu = cu_seqlens_cpu
-        ? reinterpret_cast<const int32_t *>((*cu_seqlens_cpu)->data()) : nullptr;
+                       ? reinterpret_cast<const int32_t *>((*cu_seqlens_cpu)->data())
+                       : nullptr;
     const auto *rows = rows_cpu
-        ? reinterpret_cast<const int32_t *>((*rows_cpu)->data()) : nullptr;
+                         ? reinterpret_cast<const int32_t *>((*rows_cpu)->data())
+                         : nullptr;
     const auto *slots = slots_cpu
-        ? reinterpret_cast<const int64_t *>((*slots_cpu)->data()) : nullptr;
+                          ? reinterpret_cast<const int64_t *>((*slots_cpu)->data())
+                          : nullptr;
     if (offsets[0] != 0 || (cu && cu[0] != 0)) {
         throw std::invalid_argument("static prefill offsets must start at zero");
     }
@@ -80,14 +77,13 @@ inline global_state::StaticPrefillHostDescription describe_static_prefill(
             || total[i] != past[i] + static_cast<int32_t>(query_length)
             || (batch > 1 && past[i] != past[0])
             || offsets[i + 1] != static_cast<int32_t>((i + 1) * query_length)
-            || (cu && static_cast<size_t>(total[i]) >
-                static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch)
+            || (cu && static_cast<size_t>(total[i]) > static_cast<size_t>(std::numeric_limits<int32_t>::max()) / batch)
             || (cu && cu[i + 1] != static_cast<int32_t>((i + 1) * static_cast<size_t>(total[i])))) {
             throw std::invalid_argument("static prefill requires identity/full or one valid row and uniform lengths");
         }
         for (size_t t = 0; slots && t < query_length; ++t) {
             const auto expected = static_cast<int64_t>(static_cast<size_t>(row) * page_size
-                                                        + static_cast<size_t>(past[i]) + t);
+                                                       + static_cast<size_t>(past[i]) + t);
             if (slots[i * query_length + t] != expected) {
                 throw std::invalid_argument("static prefill slot does not match row, past and query position");
             }
@@ -173,30 +169,21 @@ public:
         if (!valid_lengths(past_cpu) || !valid_lengths(total_cpu)) {
             throw std::invalid_argument("static decode lengths require contiguous CPU int32[batch]");
         }
-        if (rows_cpu && (!*rows_cpu
-            || (*rows_cpu)->device().type() != infinilm::runtime::Device::Type::kCpu
-            || (*rows_cpu)->dtype() != infinilm::runtime::DataType::kInt32
-            || (*rows_cpu)->ndim() != 2
-            || (*rows_cpu)->size(0) != query_batch_size_
-            || (*rows_cpu)->size(1) != 1
-            || !(*rows_cpu)->is_contiguous())) {
+        if (rows_cpu && (!*rows_cpu || (*rows_cpu)->device().type() != infinilm::runtime::Device::Type::kCpu || (*rows_cpu)->dtype() != infinilm::runtime::DataType::kInt32 || (*rows_cpu)->ndim() != 2 || (*rows_cpu)->size(0) != query_batch_size_ || (*rows_cpu)->size(1) != 1 || !(*rows_cpu)->is_contiguous())) {
             throw std::invalid_argument("static decode rows require contiguous CPU int32[batch,1]");
         }
-        if (slots_cpu && (!*slots_cpu
-            || (*slots_cpu)->device().type() != infinilm::runtime::Device::Type::kCpu
-            || (*slots_cpu)->dtype() != infinilm::runtime::DataType::kInt64
-            || (*slots_cpu)->ndim() != 1
-            || (*slots_cpu)->size(0) != query_batch_size_
-            || !(*slots_cpu)->is_contiguous())) {
+        if (slots_cpu && (!*slots_cpu || (*slots_cpu)->device().type() != infinilm::runtime::Device::Type::kCpu || (*slots_cpu)->dtype() != infinilm::runtime::DataType::kInt64 || (*slots_cpu)->ndim() != 1 || (*slots_cpu)->size(0) != query_batch_size_ || !(*slots_cpu)->is_contiguous())) {
             throw std::invalid_argument("static decode slots require contiguous CPU int64[batch]");
         }
 
         const auto *past = reinterpret_cast<const int32_t *>(past_cpu->data());
         const auto *total = reinterpret_cast<const int32_t *>(total_cpu->data());
         const auto *rows = rows_cpu
-            ? reinterpret_cast<const int32_t *>((*rows_cpu)->data()) : nullptr;
+                             ? reinterpret_cast<const int32_t *>((*rows_cpu)->data())
+                             : nullptr;
         const auto *given_slots = slots_cpu
-            ? reinterpret_cast<const int64_t *>((*slots_cpu)->data()) : nullptr;
+                                    ? reinterpret_cast<const int64_t *>((*slots_cpu)->data())
+                                    : nullptr;
         std::vector<int32_t> blocks(query_batch_size_);
         std::vector<int64_t> slots(query_batch_size_);
         std::unordered_set<int32_t> seen_rows;

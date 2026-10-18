@@ -2,8 +2,8 @@
 
 #include "runtime/tensor.hpp"
 #include <functional>
-#include <string>
 #include <memory>
+#include <string>
 #include <unordered_map>
 
 namespace infinilm::models::debug_utils {
@@ -75,11 +75,11 @@ private:
  * Usage: CALL_HOOK(registry, "hook_name", tensor)
  *        Note: layer_idx defaults to -1
  */
-#define CALL_HOOK(registry, name, tensor) \
-    do { \
+#define CALL_HOOK(registry, name, tensor)            \
+    do {                                             \
         if ((registry) && (registry)->has_hooks()) { \
             (registry)->call_hook(name, tensor, -1); \
-        } \
+        }                                            \
     } while (0)
 
 /**
@@ -87,11 +87,11 @@ private:
  *
  * Usage: CALL_HOOK_LAYER(registry, "hook_name", tensor, layer_idx)
  */
-#define CALL_HOOK_LAYER(registry, name, tensor, layer_idx) \
-    do { \
-        if ((registry) && (registry)->has_hooks()) { \
+#define CALL_HOOK_LAYER(registry, name, tensor, layer_idx)  \
+    do {                                                    \
+        if ((registry) && (registry)->has_hooks()) {        \
             (registry)->call_hook(name, tensor, layer_idx); \
-        } \
+        }                                                   \
     } while (0)
 
 /**
@@ -99,15 +99,15 @@ private:
  */
 
 // Declare hook_registry and hook_prefix member variables
-#define HOOK_REGISTRY_MEMBER() \
+#define HOOK_REGISTRY_MEMBER()                                 \
     std::shared_ptr<debug_utils::HookRegistry> hook_registry_; \
     std::string hook_prefix_;
 
 // Set hook_registry and hook_prefix (no forwarding to submodules)
-#define SET_HOOK_REGISTRY_SIMPLE() \
+#define SET_HOOK_REGISTRY_SIMPLE()                                                                                                 \
     void set_hook_registry(const std::shared_ptr<debug_utils::HookRegistry> &hook_registry, const std::string &hook_prefix = "") { \
-        hook_registry_ = hook_registry; \
-        hook_prefix_ = hook_prefix; \
+        hook_registry_ = hook_registry;                                                                                            \
+        hook_prefix_ = hook_prefix;                                                                                                \
     }
 
 // Helper macro to build incremental hook prefix
@@ -123,7 +123,7 @@ private:
 
 // Helper to handle variable number of arguments using a reliable pattern
 #define SET_HOOK_REGISTRY_IMPL(...) \
-    SET_HOOK_REGISTRY_GET_NTH(__VA_ARGS__, SET_HOOK_REGISTRY_2, SET_HOOK_REGISTRY_1, SET_HOOK_REGISTRY_0,)(__VA_ARGS__)
+    SET_HOOK_REGISTRY_GET_NTH(__VA_ARGS__, SET_HOOK_REGISTRY_2, SET_HOOK_REGISTRY_1, SET_HOOK_REGISTRY_0, )(__VA_ARGS__)
 
 // Get the selector based on argument count
 // Pattern: when we have N args, the (N+1)th parameter from the end is the selector
@@ -135,52 +135,52 @@ private:
 #define SET_HOOK_REGISTRY_GET_NTH(_1, _2, _3, N, ...) _3
 
 // Implementation for 0 args (shouldn't be used, but handle gracefully)
-#define SET_HOOK_REGISTRY_0() \
+#define SET_HOOK_REGISTRY_0()                                                                                                      \
     void set_hook_registry(const std::shared_ptr<debug_utils::HookRegistry> &hook_registry, const std::string &hook_prefix = "") { \
-        hook_registry_ = hook_registry; \
-        hook_prefix_ = hook_prefix; \
+        hook_registry_ = hook_registry;                                                                                            \
+        hook_prefix_ = hook_prefix;                                                                                                \
     }
 
 // Implementation for 1 arg
-#define SET_HOOK_REGISTRY_1(submodule) \
+#define SET_HOOK_REGISTRY_1(submodule)                                                                                             \
     void set_hook_registry(const std::shared_ptr<debug_utils::HookRegistry> &hook_registry, const std::string &hook_prefix = "") { \
-        hook_registry_ = hook_registry; \
-        hook_prefix_ = hook_prefix; \
-        if (submodule##_) { \
-            std::string submodule_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule); \
-            submodule##_->set_hook_registry(hook_registry, submodule_prefix); \
-        } \
+        hook_registry_ = hook_registry;                                                                                            \
+        hook_prefix_ = hook_prefix;                                                                                                \
+        if (submodule##_) {                                                                                                        \
+            std::string submodule_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule);                                             \
+            submodule##_->set_hook_registry(hook_registry, submodule_prefix);                                                      \
+        }                                                                                                                          \
     }
 
 // Implementation for 2 args
-#define SET_HOOK_REGISTRY_2(submodule1, submodule2) \
+#define SET_HOOK_REGISTRY_2(submodule1, submodule2)                                                                                \
     void set_hook_registry(const std::shared_ptr<debug_utils::HookRegistry> &hook_registry, const std::string &hook_prefix = "") { \
-        hook_registry_ = hook_registry; \
-        hook_prefix_ = hook_prefix; \
-        if (submodule1##_) { \
-            std::string submodule1_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule1); \
-            submodule1##_->set_hook_registry(hook_registry, submodule1_prefix); \
-        } \
-        if (submodule2##_) { \
-            std::string submodule2_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule2); \
-            submodule2##_->set_hook_registry(hook_registry, submodule2_prefix); \
-        } \
+        hook_registry_ = hook_registry;                                                                                            \
+        hook_prefix_ = hook_prefix;                                                                                                \
+        if (submodule1##_) {                                                                                                       \
+            std::string submodule1_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule1);                                           \
+            submodule1##_->set_hook_registry(hook_registry, submodule1_prefix);                                                    \
+        }                                                                                                                          \
+        if (submodule2##_) {                                                                                                       \
+            std::string submodule2_prefix = BUILD_HOOK_PREFIX(hook_prefix, #submodule2);                                           \
+            submodule2##_->set_hook_registry(hook_registry, submodule2_prefix);                                                    \
+        }                                                                                                                          \
     }
 
 // Set hook_registry and hook_prefix for a vector of submodules
 // For vectors, the prefix is incremented with an index (e.g., "layer0", "layer1", ...)
 // If parent has a prefix, it becomes "parent_layer0", "parent_layer1", etc.
-#define SET_HOOK_REGISTRY_VEC(vec_name) \
+#define SET_HOOK_REGISTRY_VEC(vec_name)                                                                                            \
     void set_hook_registry(const std::shared_ptr<debug_utils::HookRegistry> &hook_registry, const std::string &hook_prefix = "") { \
-        hook_registry_ = hook_registry; \
-        hook_prefix_ = hook_prefix; \
-        for (size_t i = 0; i < vec_name##_.size(); ++i) { \
-            if (vec_name##_[i]) { \
-                std::string layer_name = "layer" + std::to_string(i); \
-                std::string item_prefix = BUILD_HOOK_PREFIX(hook_prefix, layer_name); \
-                vec_name##_[i]->set_hook_registry(hook_registry, item_prefix); \
-            } \
-        } \
+        hook_registry_ = hook_registry;                                                                                            \
+        hook_prefix_ = hook_prefix;                                                                                                \
+        for (size_t i = 0; i < vec_name##_.size(); ++i) {                                                                          \
+            if (vec_name##_[i]) {                                                                                                  \
+                std::string layer_name = "layer" + std::to_string(i);                                                              \
+                std::string item_prefix = BUILD_HOOK_PREFIX(hook_prefix, layer_name);                                              \
+                vec_name##_[i]->set_hook_registry(hook_registry, item_prefix);                                                     \
+            }                                                                                                                      \
+        }                                                                                                                          \
     }
 
 } // namespace infinilm::models::debug_utils
