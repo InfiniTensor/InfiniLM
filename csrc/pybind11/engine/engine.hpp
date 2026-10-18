@@ -82,10 +82,11 @@ inline void bind_infer_engine(py::module &m) {
                           bool use_mla,
                           const std::string &weight_load_mode,
                           bool pre_transpose) {
+                 const auto frozen_dist = dist;
                  py::gil_scoped_release release;
                  return std::make_shared<InferEngine>(
                      config_str,
-                     dist,
+                     frozen_dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
                      enable_graph_compiling,
@@ -154,8 +155,8 @@ inline void bind_infer_engine(py::module &m) {
         },
              "Readonly native VideoNSA raw-pool lifetime stamp")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
-            auto cfg = self.get_cache_config();
-            return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
+            py::gil_scoped_release release;
+            return self.get_cache_config(); })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
 
     using NsaRowValue = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,

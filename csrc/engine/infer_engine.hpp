@@ -69,7 +69,7 @@ public:
     const distributed::DistConfig &get_dist_config() const;
 
     // Get current KV configuration
-    const cache::CacheConfig *get_cache_config() const { return cache_config_.get(); }
+    std::unique_ptr<cache::CacheConfig> get_cache_config() const;
 
 protected:
     enum class WeightState { Loading, Finalizing, Ready, Failed };

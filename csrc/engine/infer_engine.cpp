@@ -690,6 +690,11 @@ const distributed::DistConfig &InferEngine::get_dist_config() const {
     return communication_group_.get_dist_config();
 }
 
+std::unique_ptr<cache::CacheConfig> InferEngine::get_cache_config() const {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    return cache_config_ ? cache_config_->unique_copy() : nullptr;
+}
+
 //------------------------------------------------------
 // reset_cache (overloaded with CacheConfig)
 //------------------------------------------------------
