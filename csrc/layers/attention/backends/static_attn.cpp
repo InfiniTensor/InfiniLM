@@ -238,21 +238,24 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
 
     auto K_transposed = K->permute({0, 2, 1}); // [bs * n_kv_head, head_dim, total_seq_len]
 
-    // Keep the legacy default on providers that have not qualified full-FP32
-    // GEMM; an explicit FullFloat32 caller never receives this fallback.
+    auto attn_weight_shape = Q->shape();
+    attn_weight_shape[Q->ndim() - 1] = K_transposed->size(Q->ndim() - 1);
+    auto attn_weight = infinilm::runtime::Tensor::empty(runtime, attn_weight_shape, Q->dtype());
+
+    // Prefer full-FP32 accumulation when the selected GEMM provider supports it.
     const auto gemm_device = runtime.device().type();
     const auto selected = infini::ops::Gemm::DefaultConfig(gemm_device);
+    infini::ops::GemmConfig full_fp32_config{infini::ops::GemmConfig::Fp32Precision::FullFp32};
+    full_fp32_config.set_implementation_index(selected.implementation_index());
     const bool full_fp32 = q_reshaped->dtype() == infinilm::runtime::DataType::kFloat32
-                        && !infini::ops::Gemm::active_implementation_indices(gemm_device).empty()
-                        && infini::ops::GemmConfig::SupportsFp32Precision(gemm_device, selected.implementation_index(),
-                                                                          infini::ops::GemmConfig::Fp32Precision::FullFp32);
+                        && infini::ops::Gemm::CanMake(full_fp32_config,
+                                                      infinilm::execution::detail::view(Q),
+                                                      infinilm::execution::detail::view(K_transposed),
+                                                      infinilm::execution::detail::view(attn_weight));
     infini::ops::GemmConfig gemm_config{full_fp32
                                             ? infini::ops::GemmConfig::Fp32Precision::FullFp32
                                             : infini::ops::GemmConfig::Fp32Precision::DefaultFast};
     gemm_config.set_implementation_index(selected.implementation_index());
-    auto attn_weight_shape = Q->shape();
-    attn_weight_shape[Q->ndim() - 1] = K_transposed->size(Q->ndim() - 1);
-    auto attn_weight = infinilm::runtime::Tensor::empty(runtime, attn_weight_shape, Q->dtype());
     infinilm::execution::submit<infini::ops::Gemm>(
         runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
         gemm_config, Q, K_transposed,
