@@ -13,8 +13,8 @@
 
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -34,6 +34,7 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
     }
     return cudaStreamSynchronize(stream);
 }
+
 
 bool host_timer_enabled() {
     static int cached = -1;
@@ -116,8 +117,8 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
     auto workspace = at::empty(
         {static_cast<int64_t>(
             ::infini::ops::qy::moe_align_workspace_bytes(
-                static_cast<size_t>(num_experts))
-            / sizeof(int32_t))},
+                static_cast<size_t>(num_experts)) /
+            sizeof(int32_t))},
         sorted_token_ids.options().dtype(at::kInt));
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
@@ -129,9 +130,18 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
         static_cast<size_t>(sorted_token_ids.numel()),
         static_cast<size_t>(expert_ids.numel()), pad_sorted_token_ids,
         workspace.data_ptr(), reinterpret_cast<void *>(stream));
-    auto err = sync_unless_capturing(stream);
+    // Sync only when profiling; otherwise rely on stream order into fuse.
+    auto err = cudaGetLastError();
     if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("QY moe_align sync: ") + cudaGetErrorString(err));
+        throw std::runtime_error(std::string("QY moe_align launch: ") +
+                                 cudaGetErrorString(err));
+    }
+    if (host_timer_enabled()) {
+        err = sync_unless_capturing(stream);
+        if (err != cudaSuccess) {
+            throw std::runtime_error(std::string("QY moe_align sync: ") +
+                                     cudaGetErrorString(err));
+        }
     }
 }
 

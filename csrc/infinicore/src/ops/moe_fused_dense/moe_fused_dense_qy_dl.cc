@@ -12,8 +12,8 @@
 #include <cuda_runtime.h>
 
 #include <chrono>
-#include <cstdio>
 #include <cstdlib>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -40,6 +40,7 @@ cudaError_t sync_device_unless_capturing(cudaStream_t stream) {
     }
     return cudaDeviceSynchronize();
 }
+
 
 bool host_timer_enabled() {
     static int cached = -1;
@@ -157,11 +158,21 @@ void run(void *planned_meta) {
             topk, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        auto err = sync_device_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(
-                std::string("QY moe_fused_dense stage1 (w13) OOR/sync: ")
-                + cudaGetErrorString(err));
+        // Device sync only when profiling; otherwise rely on stream order to silu.
+        if (host_timer_enabled()) {
+            auto err = sync_device_unless_capturing(stream);
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense stage1 (w13) OOR/sync: ")
+                    + cudaGetErrorString(err));
+            }
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense stage1 (w13) launch: ")
+                    + cudaGetErrorString(err));
+            }
         }
     }
 
@@ -175,10 +186,20 @@ void run(void *planned_meta) {
             static_cast<size_t>(m * topk), static_cast<size_t>(inter),
             static_cast<int>(p->hidden_states->dtype()),
             reinterpret_cast<void *>(stream));
-        auto err = sync_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(
-                std::string("QY moe_fused_dense silu sync: ") + cudaGetErrorString(err));
+        if (host_timer_enabled()) {
+            auto err = sync_unless_capturing(stream);
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense silu sync: ") +
+                    cudaGetErrorString(err));
+            }
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense silu launch: ") +
+                    cudaGetErrorString(err));
+            }
         }
     }
 
@@ -196,11 +217,20 @@ void run(void *planned_meta) {
             /*top_k=*/1, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        auto err = sync_device_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(
-                std::string("QY moe_fused_dense stage2 (w2) OOR/sync: ")
-                + cudaGetErrorString(err));
+        if (host_timer_enabled()) {
+            auto err = sync_device_unless_capturing(stream);
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense stage2 (w2) OOR/sync: ")
+                    + cudaGetErrorString(err));
+            }
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense stage2 (w2) launch: ")
+                    + cudaGetErrorString(err));
+            }
         }
     }
 
@@ -217,10 +247,20 @@ void run(void *planned_meta) {
             static_cast<size_t>(m), static_cast<size_t>(topk),
             static_cast<size_t>(h), static_cast<int>(p->hidden_states->dtype()),
             reinterpret_cast<void *>(stream));
-        auto err = sync_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(
-                std::string("QY moe_fused_dense combine sync: ") + cudaGetErrorString(err));
+        if (host_timer_enabled()) {
+            auto err = sync_unless_capturing(stream);
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense combine sync: ") +
+                    cudaGetErrorString(err));
+            }
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(
+                    std::string("QY moe_fused_dense combine launch: ") +
+                    cudaGetErrorString(err));
+            }
         }
     }
 }

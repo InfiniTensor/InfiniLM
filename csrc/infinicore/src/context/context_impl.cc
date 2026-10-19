@@ -4,8 +4,11 @@
 #include "../utils.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace infinicore {
@@ -365,6 +368,35 @@ std::shared_ptr<graph::Graph> stopGraphRecording() {
 
 void cancelGraphRecording() noexcept {
     ContextImpl::singleton().cancelGraphRecording();
+}
+
+const char *cudagraphPolicy() {
+    const char *v = std::getenv("INFINI_CUDAGRAPH_POLICY");
+    if (v == nullptr || v[0] == '\0') {
+        return "";
+    }
+    const std::string s(v);
+    if (s == "eager") {
+        return "eager";
+    }
+    if (s == "full_and_piecewise") {
+        return "full_and_piecewise";
+    }
+    // Reject unknown values — fall back to legacy (empty).
+    return "";
+}
+
+bool deviceGraphSegmentsEnabled() {
+    // Kill-switch always wins (diagnostic escape hatch).
+    if (std::getenv("INFINICORE_DISABLE_DEVICE_GRAPH_SEGMENTS") != nullptr) {
+        return false;
+    }
+    const char *policy = cudagraphPolicy();
+    if (std::strcmp(policy, "eager") == 0) {
+        return false;
+    }
+    // full_and_piecewise and empty/legacy → enable segmented device graphs.
+    return true;
 }
 
 std::shared_ptr<Memory> reinstantiateBlob(std::shared_ptr<Memory> blob) {

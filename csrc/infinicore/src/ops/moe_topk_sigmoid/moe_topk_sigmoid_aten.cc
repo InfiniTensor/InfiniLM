@@ -12,8 +12,8 @@
 
 #include <chrono>
 #include <cstdint>
-#include <cstdio>
 #include <cstdlib>
+#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -32,6 +32,7 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
     }
     return cudaStreamSynchronize(stream);
 }
+
 
 bool host_timer_enabled() {
     static int cached = -1;
@@ -118,7 +119,9 @@ void run(void *planned_meta) {
         INFINICORE_ASSERT(bias.is_contiguous());
         INFINICORE_ASSERT(bias.numel() == experts);
         // f32/bf16/fp16 bias consumed on device (kernel converts to float).
-        if (bias.scalar_type() != at::kFloat && bias.scalar_type() != at::kHalf && bias.scalar_type() != at::kBFloat16) {
+        if (bias.scalar_type() != at::kFloat &&
+            bias.scalar_type() != at::kHalf &&
+            bias.scalar_type() != at::kBFloat16) {
             throw std::runtime_error(
                 "QY moe_topk_sigmoid: unsupported correction_bias dtype");
         }
@@ -137,9 +140,19 @@ void run(void *planned_meta) {
         static_cast<int>(planned->topk_weights->dtype()),
         static_cast<int>(planned->topk_indices->dtype()), bias_dtype_tag,
         reinterpret_cast<void *>(stream));
-    auto err = sync_unless_capturing(stream);
+    // Launch-error check only. Forced stream sync was inflating host timers and
+    // serializing MoE; consumers (align / fused dense) sync as needed.
+    auto err = cudaGetLastError();
     if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("QY moe_topk_sigmoid sync: ") + cudaGetErrorString(err));
+        throw std::runtime_error(std::string("QY moe_topk_sigmoid launch: ") +
+                                 cudaGetErrorString(err));
+    }
+    if (host_timer_enabled()) {
+        err = sync_unless_capturing(stream);
+        if (err != cudaSuccess) {
+            throw std::runtime_error(std::string("QY moe_topk_sigmoid sync: ") +
+                                     cudaGetErrorString(err));
+        }
     }
 }
 

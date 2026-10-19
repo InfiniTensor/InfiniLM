@@ -9,13 +9,13 @@
 
 namespace infinicore::op {
 
-// QY uses the ATen implementation; not CUDA-graph capture-safe.
-INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(MoeTopkSigmoid,
-                                         Tensor,
-                                         Tensor,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const bool);
+// Capture-safe for QY full_and_piecewise; ATen path skips sync under capture.
+INFINICORE_GRAPH_OP_CLASS(MoeTopkSigmoid,
+                          Tensor,
+                          Tensor,
+                          const Tensor &,
+                          const Tensor &,
+                          const bool);
 
 std::tuple<Tensor, Tensor> moe_topk_sigmoid(
     const Tensor &gating_output,

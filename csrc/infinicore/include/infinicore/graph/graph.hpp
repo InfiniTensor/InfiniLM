@@ -57,10 +57,22 @@ private:
     std::shared_ptr<void> allocation_lease_;
 
 public:
+    /// Split of the most recent ``run()`` wall (ms). Zeroed when profile off.
+    struct LastRunProfile {
+        double launch_ms{0.0};    ///< sum of device GraphLaunch walls
+        double tail_sync_ms{0.0}; ///< end syncStream after device launch
+        double hostop_ms{0.0};    ///< capture-unsafe / host segments
+        double op_list_ms{0.0};   ///< eager op-list / fallback segments
+        bool used_device{false};
+        bool skipped_tail_sync{false};
+    };
+
     Graph();
     ~Graph() noexcept;
 
     void run() const;
+
+    const LastRunProfile &last_run_profile() const { return last_run_profile_; }
 
 protected:
     void add_operator(std::shared_ptr<GraphOperator> op);
@@ -79,12 +91,15 @@ private:
         ~Segment() noexcept;
 
         void run() const;
+        bool has_device_exec() const;
 
         bool capture_safe;
         std::vector<std::shared_ptr<GraphOperator>> ops;
         std::unique_ptr<DeviceGraph> device_graph_;
     };
     std::vector<std::unique_ptr<Segment>> segments_;
+
+    mutable LastRunProfile last_run_profile_{};
 
     friend class ::infinicore::Runtime;
 };

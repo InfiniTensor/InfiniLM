@@ -6,8 +6,8 @@
 
 namespace infinicore::op {
 
-// Used in MiniCPM5 MoE routing-weight scale; keep eager with MoE segments.
-INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(MulScalar, Tensor, const Tensor &, double);
+// MiniCPM5 MoE routing-weight scale; capture-safe under full_and_piecewise.
+INFINICORE_GRAPH_OP_CLASS(MulScalar, Tensor, const Tensor &, double);
 
 Tensor mul_scalar(const Tensor &a, double alpha);
 void mul_scalar_(Tensor c, const Tensor &a, double alpha);

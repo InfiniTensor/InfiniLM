@@ -51,6 +51,16 @@ void addGraphOperator(std::shared_ptr<graph::GraphOperator> op);
 std::shared_ptr<graph::Graph> stopGraphRecording();
 void cancelGraphRecording() noexcept;
 
+/// ``INFINI_CUDAGRAPH_POLICY``: empty (legacy), ``eager``, or ``full_and_piecewise``.
+/// Unknown values are treated as empty / legacy.
+const char *cudagraphPolicy();
+
+/// True when device-graph segment capture/replay should run.
+/// ``eager`` → false; ``full_and_piecewise`` → true unless
+/// ``INFINICORE_DISABLE_DEVICE_GRAPH_SEGMENTS`` is set; empty/legacy honors
+/// that kill-switch when present, otherwise enables segments.
+bool deviceGraphSegmentsEnabled();
+
 } // namespace context
 
 } // namespace infinicore

@@ -8,11 +8,36 @@
 #include <infini/rt.h>
 #endif
 
+#include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace infinicore::graph {
+namespace {
+
+bool graph_run_profile_enabled() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *g = std::getenv("INFINI_GRAPH_RUN_PROFILE");
+        cached = (g != nullptr && g[0] != '\0' && std::string(g) != "0") ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+bool graph_skip_tail_sync_enabled() {
+    const char *v = std::getenv("INFINI_GRAPH_SKIP_TAIL_SYNC");
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0";
+}
+
+double graph_monotonic_ms() {
+    using clock = std::chrono::steady_clock;
+    return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
+}
+
+} // namespace
 
 #ifdef USE_INFINIRT_GRAPH
 namespace rt_runtime = ::infini::rt::runtime;
@@ -206,9 +231,17 @@ Graph::Segment::Segment(bool capture_safe_) : capture_safe(capture_safe_) {
 
 Graph::Segment::~Segment() noexcept = default;
 
+bool Graph::Segment::has_device_exec() const {
+#ifdef USE_INFINIRT_GRAPH
+    return device_graph_ != nullptr && device_graph_->exec != nullptr;
+#else
+    return false;
+#endif
+}
+
 void Graph::Segment::run() const {
 #ifdef USE_INFINIRT_GRAPH
-    if (device_graph_ != nullptr && device_graph_->exec != nullptr) {
+    if (has_device_exec()) {
         device_graph_->launch();
         return;
     }
@@ -229,14 +262,84 @@ void Graph::retain_runtime(std::shared_ptr<::infinicore::Runtime> runtime,
 
 void Graph::run() const {
     (void)context::isGraphRecording();
+    last_run_profile_ = LastRunProfile{};
+    const bool profile = graph_run_profile_enabled();
+
     if (segments_.empty()) {
+        const double t0 = profile ? graph_monotonic_ms() : 0.0;
         for (const auto &op : op_list_) {
             op->run();
         }
+        if (profile) {
+            last_run_profile_.op_list_ms = graph_monotonic_ms() - t0;
+        }
+        if (profile) {
+            spdlog::info(
+                "graph_run_profile: launch_ms={:.3f} tail_sync_ms={:.3f} hostop_ms={:.3f} "
+                "op_list_ms={:.3f} used_device={} skip_tail={}",
+                last_run_profile_.launch_ms,
+                last_run_profile_.tail_sync_ms,
+                last_run_profile_.hostop_ms,
+                last_run_profile_.op_list_ms,
+                0,
+                0);
+        }
         return;
     }
+
+    bool used_device = false;
+    bool device_launched_since_sync = false;
     for (const auto &segment : segments_) {
+        if (segment->has_device_exec()) {
+            const double t_l0 = profile ? graph_monotonic_ms() : 0.0;
+            segment->run();
+            if (profile) {
+                last_run_profile_.launch_ms += graph_monotonic_ms() - t_l0;
+            }
+            used_device = true;
+            device_launched_since_sync = true;
+            continue;
+        }
+
+        // Host / eager segments must observe prior device-segment outputs.
+        if (device_launched_since_sync) {
+            infinicore::context::syncStream();
+            device_launched_since_sync = false;
+        }
+        const double t0 = profile ? graph_monotonic_ms() : 0.0;
         segment->run();
+        if (profile) {
+            if (segment->capture_safe) {
+                last_run_profile_.op_list_ms += graph_monotonic_ms() - t0;
+            } else {
+                last_run_profile_.hostop_ms += graph_monotonic_ms() - t0;
+            }
+        }
+    }
+
+    if (used_device && device_launched_since_sync) {
+        if (graph_skip_tail_sync_enabled()) {
+            last_run_profile_.skipped_tail_sync = true;
+        } else {
+            const double t_s0 = profile ? graph_monotonic_ms() : 0.0;
+            infinicore::context::syncStream();
+            if (profile) {
+                last_run_profile_.tail_sync_ms += graph_monotonic_ms() - t_s0;
+            }
+        }
+    }
+
+    last_run_profile_.used_device = used_device;
+    if (profile) {
+        spdlog::info(
+            "graph_run_profile: launch_ms={:.3f} tail_sync_ms={:.3f} hostop_ms={:.3f} "
+            "op_list_ms={:.3f} used_device={} skip_tail={}",
+            last_run_profile_.launch_ms,
+            last_run_profile_.tail_sync_ms,
+            last_run_profile_.hostop_ms,
+            last_run_profile_.op_list_ms,
+            used_device ? 1 : 0,
+            last_run_profile_.skipped_tail_sync ? 1 : 0);
     }
 }
 
@@ -254,10 +357,25 @@ void Graph::instantiate() {
     }
     infinicore::context::syncStream();
 
-    // Keep recorded-operator replay available as a diagnostic escape hatch.
-    if (std::getenv("INFINICORE_DISABLE_DEVICE_GRAPH_SEGMENTS") != nullptr) {
-        spdlog::info("device graph segments disabled; replaying recorded operators");
+    // Policy: eager / DISABLE kill-switch → recorded-operator replay only.
+    if (!context::deviceGraphSegmentsEnabled()) {
+        const char *policy = context::cudagraphPolicy();
+        if (std::strcmp(policy, "eager") == 0) {
+            spdlog::info(
+                "INFINI_CUDAGRAPH_POLICY=eager; replaying recorded operators without device segments");
+        } else {
+            spdlog::info("device graph segments disabled; replaying recorded operators");
+        }
         return;
+    }
+
+    static bool policy_logged = false;
+    if (!policy_logged) {
+        policy_logged = true;
+        const char *policy = context::cudagraphPolicy();
+        spdlog::info(
+            "INFINI_CUDAGRAPH_POLICY={} (device graph segments enabled)",
+            (policy[0] == '\0') ? "legacy" : policy);
     }
 
     for (const auto &op : op_list_) {

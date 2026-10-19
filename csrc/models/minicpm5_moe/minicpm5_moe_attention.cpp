@@ -91,12 +91,11 @@ infinicore::Tensor MiniCPM5MoEAttention::forward_static_(
         gate = q_proj_heads->narrow({{2, head_dim_, head_dim_}})
                    ->contiguous()
                    ->view({batch_size, seq_len, num_attention_heads_ * head_dim_});
+        // Keep real gated strides for in-place QY RoPE; view as 4-D for static attn.
         q_reshaped = q->as_strided(
             {batch_size, seq_len, num_attention_heads_, head_dim_},
-            {static_cast<infinicore::Stride>(seq_len * num_attention_heads_ * head_dim_),
-             static_cast<infinicore::Stride>(num_attention_heads_ * head_dim_),
-             static_cast<infinicore::Stride>(head_dim_),
-             1});
+            {q_proj_out->stride(0), q_proj_out->stride(1),
+             static_cast<infinicore::Stride>(head_dim_ * 2), 1});
     } else {
         q_reshaped = q_proj_out->view({batch_size, seq_len, num_attention_heads_, head_dim_});
     }
@@ -141,6 +140,8 @@ infinicore::Tensor MiniCPM5MoEAttention::forward_paged_(
     infinicore::Tensor q_reshaped;
     infinicore::Tensor gate;
     if (use_gated_attention_) {
+        // Keep strided gated Q [seq,heads,dim] strides [8704,256,1]; QY RoPE
+        // rotates in-place via rope_strided_launch (no pack/contiguous tax).
         auto q_proj_heads = q_proj_out->as_strided(
             {seq_len, num_attention_heads_, head_dim_ * 2},
             {q_proj_out->stride(1), static_cast<infinicore::Stride>(head_dim_ * 2), 1});

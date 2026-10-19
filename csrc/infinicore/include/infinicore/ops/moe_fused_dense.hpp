@@ -7,18 +7,18 @@
 
 namespace infinicore::op {
 
-// QY MoE runs through ATen + _dl_C and is not CUDA-graph capture safe.
-// Keep it in eager graph segments so FA/gemm can still capture around it.
-INFINICORE_GRAPH_OP_CLASS_CAPTURE_UNSAFE(MoeFusedDense,
-                                         Tensor,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &,
-                                         const Tensor &);
+// Capture-safe for QY full_and_piecewise (vLLM / pre-refactor InfiniLM proven).
+// Impls skip host sync while the stream is capturing (see sync_unless_capturing).
+INFINICORE_GRAPH_OP_CLASS(MoeFusedDense,
+                          Tensor,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &,
+                          const Tensor &);
 
 Tensor moe_fused_dense(
     const Tensor &hidden_states,

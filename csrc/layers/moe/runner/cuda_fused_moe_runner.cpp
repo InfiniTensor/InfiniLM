@@ -81,7 +81,7 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
     // Denglin fused MoE materializes [M, topk, H] intermediates. A 7k-token
     // prefill OOMs a 32GB KS38; vLLM chunks, but its 16k chunk is still too
     // big here. Run ≤1024-token chunks on QY (graph capture stays one shot).
-    constexpr size_t kQyChunkTokens = 512;
+    constexpr size_t kQyChunkTokens = 1024;
     const auto &hidden = dispatch_output.hidden_states;
     const size_t num_tokens = hidden ? hidden->shape()[0] : 0;
     const bool chunk_qy = hidden

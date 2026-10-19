@@ -294,12 +294,6 @@ void run(void *planned_meta) {
     INFINICORE_ASSERT(out.stride(-1) == 1);
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
-    at::Tensor x_contig = x.is_contiguous() ? x : at::empty(x.sizes(), x.options());
-    if (!x.is_contiguous()) {
-        HostTimer pack_timer("rope_pack", seq_len);
-        pack_head_vectors(x, x_contig, stream);
-        sync_unless_capturing(stream);
-    }
 
     // Prefer full-table + pos lookup in the kernel to avoid per-chunk gather.
     // Fall back to gathered rows only if tables are not contiguous.
@@ -322,14 +316,85 @@ void run(void *planned_meta) {
                    cudaMemcpyHostToDevice);
     }
 
-    {
+    const int algo_tag =
+        (p->algo == infinicore::nn::RoPE::Algo::GPT_J) ? 0 : 1;
+    if (p->algo != infinicore::nn::RoPE::Algo::GPT_NEOX &&
+        p->algo != infinicore::nn::RoPE::Algo::GPT_J) {
+        throw std::runtime_error("Unsupported RoPE algorithm for QY ATen path");
+    }
+    const int dtype_tag = static_cast<int>(p->x->dtype());
+    INFINICORE_ASSERT(sin_use.is_contiguous());
+    INFINICORE_ASSERT(cos_use.is_contiguous());
+    INFINICORE_ASSERT(pos_use.is_contiguous());
+
+    // Fast path: strided in-place/out RoPE (no pack/unpack). Covers MiniCPM5
+    // gated Q [seq,heads,dim] strides like [8704,256,1] and contiguous K.
+    // Also [1,seq,heads,dim] static views with batch=1.
+    const bool same_layout = out.strides() == x.strides();
+    int64_t nhead = 1;
+    int64_t head_dim = x.size(-1);
+    int64_t s0 = 0;
+    int64_t s1 = 0;
+    bool use_strided = false;
+    if (same_layout && x.stride(-1) == 1) {
+        if (x.dim() == 2) {
+            nhead = 1;
+            s0 = x.stride(0);
+            s1 = 0;
+            use_strided = true;
+        } else if (x.dim() == 3) {
+            nhead = x.size(1);
+            s0 = x.stride(0);
+            s1 = x.stride(1);
+            use_strided = true;
+        } else if (x.dim() == 4 && x.size(0) == 1) {
+            nhead = x.size(2);
+            s0 = x.stride(1);
+            s1 = x.stride(2);
+            use_strided = true;
+        }
+    }
+    if (use_strided) {
         HostTimer rot_timer("rope_rot", seq_len);
-        auto rotated = rotate_contig_gpu(x_contig, pos_use, sin_use, cos_use, p->algo,
-                                         static_cast<int>(p->x->dtype()), stream);
-        {
-            HostTimer unpack_timer("rope_unpack", seq_len);
-            unpack_head_vectors(rotated, out, stream);
+        ::infini::ops::qy::rope_strided_launch(
+            out.data_ptr(), x.data_ptr(), pos_use.data_ptr<int64_t>(),
+            sin_use.data_ptr(), cos_use.data_ptr(),
+            static_cast<size_t>(seq_len), static_cast<size_t>(nhead),
+            static_cast<size_t>(head_dim), s0, s1, /*stride2=*/1, algo_tag,
+            dtype_tag, reinterpret_cast<void *>(stream));
+        if (host_timer_enabled()) {
             sync_unless_capturing(stream);
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(std::string("QY rope_strided launch: ") +
+                                         cudaGetErrorString(err));
+            }
+        }
+    } else {
+        // Legacy pack → contiguous rotate → unpack.
+        at::Tensor x_contig =
+            x.is_contiguous() ? x : at::empty(x.sizes(), x.options());
+        if (!x.is_contiguous()) {
+            HostTimer pack_timer("rope_pack", seq_len);
+            pack_head_vectors(x, x_contig, stream);
+            if (host_timer_enabled()) {
+                sync_unless_capturing(stream);
+            }
+        }
+        HostTimer rot_timer("rope_rot", seq_len);
+        auto rotated = rotate_contig_gpu(x_contig, pos_use, sin_use, cos_use,
+                                         p->algo, dtype_tag, stream);
+        HostTimer unpack_timer("rope_unpack", seq_len);
+        unpack_head_vectors(rotated, out, stream);
+        if (host_timer_enabled()) {
+            sync_unless_capturing(stream);
+        } else {
+            auto err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                throw std::runtime_error(std::string("QY rope_unpack launch: ") +
+                                         cudaGetErrorString(err));
+            }
         }
     }
 
