@@ -119,11 +119,8 @@ def load_state_dict(
     """
     Reads a `safetensor` checkpoint file. We load the checkpoint on "cpu" by default.
     """
-    torch = _require_torch_checkpoint("legacy safetensors framework=pt loading")
+    _require_torch_checkpoint("legacy safetensors framework=pt loading")
     from safetensors import safe_open
-
-    if dtype is None:
-        dtype = torch.bfloat16
 
     if not checkpoint_file.endswith(".safetensors"):
         return {}
@@ -147,7 +144,7 @@ def load_state_dict(
         for k in names:
             tensor = f.get_tensor(k)
             preserve_fp32 = k.endswith(preserve_fp32_suffixes)
-            if tensor.is_floating_point() and not preserve_fp32:
+            if dtype is not None and tensor.is_floating_point() and not preserve_fp32:
                 tensor = tensor.to(device=device, dtype=dtype)
             else:
                 tensor = tensor.to(device=device)
@@ -169,6 +166,19 @@ def _cast_checkpoint_tensor(tensor, dtype):
     converted = infinicore.empty(tensor.shape, dtype=dtype, device="cpu")
     _infinilm._cast_checkpoint_tensor_(tensor._underlying, converted._underlying)
     return converted
+
+
+def _prepare_checkpoint_tensor(tensor, dtype):
+    source = _borrow_checkpoint_tensor(tensor)
+    floating = (
+        infinicore.float16,
+        infinicore.bfloat16,
+        infinicore.float32,
+        infinicore.float64,
+    )
+    if dtype in floating and source.dtype in floating and source.dtype != dtype:
+        return _borrow_checkpoint_tensor(_cast_checkpoint_tensor(tensor, dtype))
+    return source
 
 
 def _scale_checkpoint_tensor(tensor, alpha):
@@ -198,7 +208,7 @@ def _normalize_checkpoint_tensor(tensor, eps=1e-12):
 
 
 def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, keys=None):
-    """Borrow dense storage, using Ops for qualified CPU float conversions."""
+    """Borrow checkpoint storage; an explicit dtype requests CPU float conversion."""
     if raw:
         types = {
             "U8": infinicore.uint8,
@@ -228,7 +238,8 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
             compatible = all(
                 info.dtype in types
                 and (
-                    not info.dtype.startswith(("F", "BF"))
+                    (dtype is None and types[info.dtype] in cast_types)
+                    or not info.dtype.startswith(("F", "BF"))
                     or name.endswith(preserve_fp32_suffixes)
                     or types[info.dtype] == dtype
                     or (types[info.dtype] in cast_types and dtype in cast_types)
@@ -248,7 +259,8 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
                         owner=owner,
                     )
                     if (
-                        types[info.dtype] in cast_types
+                        dtype is not None
+                        and types[info.dtype] in cast_types
                         and types[info.dtype] != dtype
                         and not name.endswith(preserve_fp32_suffixes)
                     ):
@@ -261,7 +273,7 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
     return load_state_dict(
         file_path,
         device="cpu",
-        dtype=infinicore.utils.to_torch_dtype(dtype),
+        dtype=infinicore.utils.to_torch_dtype(dtype) if dtype is not None else None,
         preserve_fp32_suffixes=preserve_fp32_suffixes,
         **selection,
     )
@@ -279,14 +291,13 @@ def load_model_state_dict_by_file(
     model_type = model.hf_config.get("model_type", "")
     is_ernie = model_type == "ernie4_5_moe_vl"
     tie_word_embeddings = _declares_tied_embeddings(model.hf_config)
-    preserve_fp32_suffixes = (".e_score_correction_bias",)
-    if model_type == "kimi_k3":
-        preserve_fp32_suffixes += (".A_log", ".dt_bias")
-    elif model_type == "ernie4_5_moe_vl":
-        preserve_fp32_suffixes += (".mlp.gate.weight", ".mlp.gate.weight_1")
-
     model_keys = model.state_dict_keyname()
     model_key_set = set(model_keys)
+    parameter_dtypes = {
+        name: infinicore.Tensor(parameter).dtype
+        for parameters in model.state_dict()
+        for name, parameter in parameters.items()
+    }
     dist_config = getattr(model, "distributed_config", None)
     is_pipeline_parallel = dist_config is not None and dist_config.pp_size > 1
     scale_emb = _get_scale_emb(model_path)
@@ -301,12 +312,6 @@ def load_model_state_dict_by_file(
         else "model.language_model.embed_tokens.weight"
         if is_qwen35
         else "model.embed_tokens.weight"
-    )
-    quantization_config = model.hf_config.get("quantization_config")
-    raw_w4 = (
-        remapper is None
-        and isinstance(quantization_config, dict)
-        and quantization_config.get("quant_method") in ("awq", "gptq")
     )
     # Ernie uses selected native reads through its single group iterator below.
     raw_checkpoint = (
@@ -338,7 +343,6 @@ def load_model_state_dict_by_file(
             scale_emb == 1.0
             or dtype in (infinicore.float32, infinicore.float16, infinicore.bfloat16)
         )
-        and (not quantization_config or raw_w4)
     )
 
     index_file_path = os.path.join(model_path, "model.safetensors.index.json")
@@ -407,7 +411,7 @@ def load_model_state_dict_by_file(
                                 for name in names
                             )
                     return _load_checkpoint_shard(
-                        file_path, dtype, preserve_fp32_suffixes, raw=raw, keys=names
+                        file_path, None, (), raw=raw, keys=names
                     )
             else:
                 file_path = os.path.join(model_path, "pytorch_model.bin")
@@ -463,7 +467,7 @@ def load_model_state_dict_by_file(
                             if _is_qwen_offset_norm(name)
                         )
                 params = _load_checkpoint_shard(
-                    file_path, dtype, preserve_fp32_suffixes, raw=shard_raw, **selection
+                    file_path, None, (), raw=shard_raw, **selection
                 )
                 if remapper is not None:
                     if remapper in (
@@ -497,17 +501,10 @@ def load_model_state_dict_by_file(
         else:
             raise KeyError("Weight file not found.")
 
-    torch_dtype = None
-    if is_bin:
-        if not os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
-            raise KeyError("Weight file not found.")
-        _require_torch_checkpoint(".bin checkpoint loading")
-        torch_dtype = infinicore.utils.to_torch_dtype(dtype)
     for label, model_param, strict in tqdm(
         checkpoint_batches(), desc="Processing files"
     ):
         tqdm.write(f"Processing: {label}")
-        # .bin retains its existing dtype bridge; safetensors readers already cast.
         embedding_key = (
             "model.embed_tokens.weight"
             if is_bin and not is_qwen35
@@ -515,13 +512,16 @@ def load_model_state_dict_by_file(
         )
         if embedding_key in model_param:
             embed_tokens_torch_unscaled = model_param[embedding_key]
-            if is_bin:
-                embed_tokens_torch_unscaled = _cast_checkpoint_tensor(
-                    embed_tokens_torch_unscaled, dtype
-                )
-            if scale_emb != 1.0 and embedding_key == "model.embed_tokens.weight":
+            if (
+                scale_emb != 1.0
+                and embedding_key == "model.embed_tokens.weight"
+                and embedding_key in parameter_dtypes
+            ):
                 model_param[embedding_key] = _scale_checkpoint_tensor(
-                    embed_tokens_torch_unscaled, float(scale_emb)
+                    _prepare_checkpoint_tensor(
+                        embed_tokens_torch_unscaled, parameter_dtypes[embedding_key]
+                    ),
+                    float(scale_emb),
                 )
         if is_pipeline_parallel:
             model_param = {
@@ -533,18 +533,9 @@ def load_model_state_dict_by_file(
         model_param_infini = {}
         for key in model_param:
             tensor = model_param[key]
-            if is_bin:
-                if isinstance(tensor, infinicore.Tensor):
-                    if not key.endswith(preserve_fp32_suffixes):
-                        tensor = _cast_checkpoint_tensor(tensor, dtype)
-                else:
-                    target_dtype = (
-                        tensor.dtype
-                        if key.endswith(preserve_fp32_suffixes)
-                        else torch_dtype
-                    )
-                    tensor = tensor.to(dtype=target_dtype)
-            model_param_infini[key] = _borrow_checkpoint_tensor(tensor)
+            model_param_infini[key] = _prepare_checkpoint_tensor(
+                tensor, parameter_dtypes.get(key)
+            )
         if model_param:
             del tensor
         model.load_state_dict(model_param_infini, strict=strict)
@@ -564,7 +555,9 @@ def load_model_state_dict_by_file(
         and "lm_head.weight" not in already_loaded_keys
     ):
         if embed_tokens_torch_unscaled is not None:
-            lm_head_tensor = _borrow_checkpoint_tensor(embed_tokens_torch_unscaled)
+            lm_head_tensor = _prepare_checkpoint_tensor(
+                embed_tokens_torch_unscaled, parameter_dtypes["lm_head.weight"]
+            )
             model.load_state_dict({"lm_head.weight": lm_head_tensor}, strict=False)
             already_loaded_keys.append("lm_head.weight")
             del lm_head_tensor

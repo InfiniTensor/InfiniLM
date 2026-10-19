@@ -45,7 +45,6 @@ private:
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
     float situ_beta_{4.0f};
     float situ_linear_beta_{25.0f};
-    bool postload_attempted_{false};
 };
 
 class KimiK3Experts : public infinilm::weights::ModelWeights {

@@ -55,7 +55,7 @@ public:
             if (entry.candidate) {
                 throw std::logic_error("W4 partial preparation cannot be retried");
             }
-            entry.candidate = entry.layer->prepare_w4_after_loading(runtime, false);
+            entry.candidate = entry.layer->prepare_w4_after_loading(runtime);
         }
         // Dense owners use the same validated post-load transpose policy.
         for (const auto &head : dense_head_) {

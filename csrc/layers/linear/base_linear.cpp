@@ -159,8 +159,34 @@ void BaseLinear::validate_awq_metadata(infinilm::runtime::Runtime &runtime) cons
     (void)infinilm::quantization::w4_detail::validate_metadata(runtime, bound_params_, config, split_dim_, false);
 }
 
+bool BaseLinear::retained_gptq_scale_table() const {
+    const auto &config = quantization_->get_config();
+    const bool desc = config.value("desc_act", false);
+    if (!desc) {
+        return false;
+    }
+    if (loading_tp_size_ <= 0 || loading_tp_rank_ < 0 || loading_tp_rank_ >= loading_tp_size_ || (split_dim_ == 1 && in_features_ % size_t(loading_tp_size_))) {
+        throw std::invalid_argument("GPTQ constructor TP geometry is invalid");
+    }
+    const size_t local_k = split_dim_ == 1 ? in_features_ / size_t(loading_tp_size_) : in_features_;
+    const auto qw = bound_params_.at("qweight");
+    const auto scales = bound_params_.at("scales");
+    const auto zeros = bound_params_.at("qzeros");
+    const auto ids = bound_params_.at("g_idx");
+    const int group = config.value("group_size", config.value("q_group_size", 128));
+    if (!qw || qw->ndim() != 2 || local_k % 8 || qw->size(0) != local_k / 8 || !ids || ids->shape() != infinilm::runtime::Shape{local_k} || (group != -1 && (group <= 0 || in_features_ % size_t(group)))) {
+        throw std::invalid_argument("GPTQ desc_act packed K/group geometry differs from constructor");
+    }
+    const size_t global_groups = group == -1 ? 1 : in_features_ / size_t(group);
+    const size_t n = qw->size(1);
+    if (!scales || scales->shape() != infinilm::runtime::Shape{global_groups, n} || !zeros || n % 8 || zeros->shape() != infinilm::runtime::Shape{global_groups, n / 8}) {
+        throw std::invalid_argument("GPTQ desc_act requires constructor-sized retained scale and zero tables");
+    }
+    return local_k != in_features_;
+}
+
 std::optional<int64_t> BaseLinear::validate_gptq_metadata(
-    infinilm::runtime::Runtime &runtime, bool retained_global_scale_table) const {
+    infinilm::runtime::Runtime &runtime) const {
     runtime.assertOwnerThread();
     if (quantization_->get_quant_scheme() != infinilm::quantization::QuantScheme::GPTQ_W4A16) {
         throw std::invalid_argument("GPTQ preflight requires a GPTQ layer");
@@ -173,9 +199,9 @@ std::optional<int64_t> BaseLinear::validate_gptq_metadata(
         throw std::invalid_argument("GPTQ preflight config differs from layer scheme");
     }
     const auto metadata = infinilm::quantization::w4_detail::validate_metadata(
-        runtime, bound_params_, config, split_dim_, retained_global_scale_table);
+        runtime, bound_params_, config, split_dim_, retained_gptq_scale_table());
     if (metadata.desc) {
-        return std::nullopt; // retain existing desc/partial layer-only domain
+        return std::nullopt; // g_idx bounds/cardinality are checked against the proven table during prepare
     }
     size_t local_k = in_features_, expected = 0;
     if (split_dim_ == 1) {
@@ -208,7 +234,7 @@ std::optional<int64_t> BaseLinear::validate_gptq_metadata(
 }
 
 std::shared_ptr<const infinilm::quantization::W4Execution> BaseLinear::prepare_w4_after_loading(
-    infinilm::runtime::Runtime &runtime, bool retained_global_scale_table) {
+    infinilm::runtime::Runtime &runtime) {
     runtime.assertOwnerThread();
     if (!infinilm::quantization::is_w4(quantization_->get_quant_scheme())) {
         throw std::logic_error("explicit W4 preparation requires AWQ/GPTQ layer");
@@ -221,10 +247,12 @@ std::shared_ptr<const infinilm::quantization::W4Execution> BaseLinear::prepare_w
     }
     std::optional<int64_t> expected_non_desc_group_offset;
     if (quantization_->get_quant_scheme() == infinilm::quantization::QuantScheme::GPTQ_W4A16) {
-        expected_non_desc_group_offset = validate_gptq_metadata(runtime, retained_global_scale_table);
+        expected_non_desc_group_offset = validate_gptq_metadata(runtime);
     }
     auto candidate = quantization_->prepare_w4_after_loading(
-        runtime, bound_params_, split_dim_, retained_global_scale_table, expected_non_desc_group_offset);
+        runtime, bound_params_, split_dim_,
+        quantization_->get_quant_scheme() == infinilm::quantization::QuantScheme::GPTQ_W4A16 && retained_gptq_scale_table(),
+        expected_non_desc_group_offset);
     w4_staged_identity_ = candidate;
     w4_prepared_ = true; // only after every validation, allocation, map copy and final drain succeeded
     return candidate;

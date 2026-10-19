@@ -48,11 +48,11 @@ public:
     void validate_awq_metadata(infinilm::runtime::Runtime &runtime) const;
     // Pure checkpoint metadata + constructor geometry, never device-value readback.
     std::optional<int64_t> validate_gptq_metadata(
-        infinilm::runtime::Runtime &runtime, bool retained_global_scale_table = false) const;
+        infinilm::runtime::Runtime &runtime) const;
     // Loading-only stage; raw Parameter registrations and published binding stay
     // unchanged until publish. Caller must complete raw TP/fused loading first.
     std::shared_ptr<const infinilm::quantization::W4Execution> prepare_w4_after_loading(
-        infinilm::runtime::Runtime &runtime, bool retained_global_scale_table = false);
+        infinilm::runtime::Runtime &runtime);
     // Precondition: nonnull candidate returned by this layer's successful prepare;
     // model/worker must be quiescent.
     void publish_w4_after_loading(std::shared_ptr<const infinilm::quantization::W4Execution> candidate) noexcept;
@@ -70,6 +70,7 @@ protected:
     infinilm::runtime::Tensor compute_linear_allreduce(
         infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input, infinicclComm_t communicator) const;
 
+    bool retained_gptq_scale_table() const;
     size_t in_features_;
     size_t out_features_;
     bool has_bias_;

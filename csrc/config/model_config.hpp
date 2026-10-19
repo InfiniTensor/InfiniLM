@@ -87,28 +87,32 @@ public:
     size_t get_rotary_dim() const;
 
     QuantConfig get_quant_config() const {
-        return quant_config;
+        QuantConfig config(config_json.value("quantization_config", nlohmann::json{}));
+        if (kv_cache_dtype_) {
+            config.set_kv_quant_scheme(*kv_cache_dtype_);
+        }
+        return config;
     }
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const {
-        return quant_config.get_quantization_method();
+        return get_quant_config().get_quantization_method();
     }
 
     infinilm::runtime::DataType get_dtype() const;
     infinilm::quantization::QuantScheme get_quant_scheme() const;
 
     void set_kv_quant_scheme(infinilm::runtime::DataType kv_cache_dtype) {
-        this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
+        if (kv_cache_dtype != infinilm::runtime::DataType::kInt8) {
+            throw std::invalid_argument("KV quantization requires int8 storage");
+        }
+        kv_cache_dtype_ = kv_cache_dtype;
     }
     infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {
-        return quant_config.get_kv_quant_scheme();
+        return kv_cache_dtype_ ? infinilm::quantization::KVQuantAlgo::INT8
+                               : infinilm::quantization::KVQuantAlgo::NONE;
     }
     infinilm::runtime::DataType get_kv_cache_dtype() const {
-        if (this->quant_config.get_kv_cache_dtype().has_value()) {
-            return this->quant_config.get_kv_cache_dtype().value();
-        } else {
-            return this->get_dtype();
-        }
+        return kv_cache_dtype_ ? *kv_cache_dtype_ : get_dtype();
     }
 
     // Get reference to JSON value (non-const)
@@ -150,7 +154,7 @@ private:
         std::unordered_map<std::string, std::shared_ptr<infinilm::layers::RoPE>> entries;
     };
     nlohmann::json config_json;
-    QuantConfig quant_config;
+    std::optional<infinilm::runtime::DataType> kv_cache_dtype_;
 
     infinilm::layers::RoPE::Algo rope_algo_ = infinilm::layers::RoPE::Algo::GPT_NEOX;
     std::shared_ptr<RopeCache> rope_cache_ = std::make_shared<RopeCache>();

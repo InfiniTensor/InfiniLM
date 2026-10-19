@@ -57,7 +57,11 @@ class ModelRunner:
             and read_hf_config(config.model_path).get("model_type") == "videonsa"
         )
         if self._nsa_paged_owner and (
-            config.draft_model_path is not None or config.kv_transfer_config is not None
+            config.draft_model_path is not None
+            or (
+                self.kv_transfer_config is not None
+                and self.kv_transfer_config.kv_connector
+            )
         ):
             raise ValueError(
                 "NSA request ownership does not support speculative decoding or KV transfer"

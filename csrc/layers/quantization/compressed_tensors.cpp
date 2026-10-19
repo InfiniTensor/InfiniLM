@@ -26,7 +26,8 @@ std::vector<ParamDescriptor> CompressedTensors::get_param_layout(
     int scale_tp_rank = (split_dim == 0) ? tp_rank : 0;
     descs.push_back({"weight_scale", {out_features, 1}, infinilm::runtime::DataType::kFloat32, scale_split_dim, scale_tp_rank, scale_tp_size});
     if (bias) {
-        descs.push_back({"bias", {out_features}, dtype, -1, 0, 1});
+        const bool column_parallel = split_dim == 0;
+        descs.push_back({"bias", {out_features}, dtype, 0, column_parallel ? tp_rank : 0, column_parallel ? tp_size : 1});
     }
     return descs;
 }

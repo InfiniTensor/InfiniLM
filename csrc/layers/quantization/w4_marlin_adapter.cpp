@@ -107,7 +107,8 @@ w4_detail::Metadata w4_detail::validate_metadata(Runtime &runtime, const ParamsM
     require(group == -1 || k % group == 0, "W4 shard must end on group boundary");
     require(scales && scales->ndim() == 2 && scales->size(1) == n && scales->size(0) > 0 && (scales->dtype() == DataType::kFloat16 || scales->dtype() == DataType::kBFloat16), "W4 scales checkpoint shape/dtype invalid");
     const size_t groups = scales->size(0);
-    const bool desc = scheme == 1 && config.value("desc_act", false);
+    // A single scale group has canonical g_idx==0 and no activation permutation.
+    const bool desc = scheme == 1 && group != -1 && config.value("desc_act", false);
     if (scheme == 1) {
         require(config.value("sym", true), "asymmetric GPTQ is unsupported by U4B8");
         require(config.contains("checkpoint_format") && config.at("checkpoint_format") == "gptq",
@@ -115,8 +116,9 @@ w4_detail::Metadata w4_detail::validate_metadata(Runtime &runtime, const ParamsM
         const auto ids = raw.at("g_idx");
         require(ids && ids->dtype() == DataType::kInt32 && ids->shape() == infinilm::runtime::Shape{k} && ids->device() == runtime.device(), "GPTQ g_idx must be a local int32 K vector on Runtime device");
     }
-    const bool full = !desc || split_dim != 1;
-    require(full || retained_global_scale_table, "GPTQ desc_act row TP requires unsliced global scales");
+    const size_t local_groups = group == -1 ? 1 : k / size_t(group);
+    const bool full = !desc || split_dim != 1 || groups == local_groups;
+    require(full || (retained_global_scale_table && groups > local_groups), "GPTQ desc_act row TP requires unsliced global scales");
     require(full || (group > 0 && size_t(group) < k), "partial-K GPTQ requires group_size < local K");
     require(!full || groups == (group == -1 ? 1 : k / group), "W4 scales group count mismatch");
     for (const auto &t : {qw, scales, zeros}) {

@@ -68,7 +68,8 @@ def configure_moe_ep_backend(
         raise ValueError("--tp must be greater than 0")
     if dp < 1:
         raise ValueError("--dp must be greater than 0")
-    if not is_moe_model(model_path):
+    backend = normalize_moe_ep_backend(backend)
+    if backend == "auto" and ep is None and not is_moe_model(model_path):
         return "disabled", 1
 
     if ep is None:
@@ -76,7 +77,6 @@ def configure_moe_ep_backend(
     if ep < 1:
         raise ValueError("--ep must be greater than 0")
 
-    backend = normalize_moe_ep_backend(backend)
     if backend == "auto":
         if dp == 1:
             backend = "disabled" if ep == 1 else "local_allreduce"

@@ -18,6 +18,30 @@
 namespace infinilm::models::ernie4_5_vl {
 namespace {
 
+void validate_grouped_mrope_section(const std::vector<int> &section, size_t rotary_dim) {
+    if (section.size() != 3 || rotary_dim % 2 != 0) {
+        throw std::invalid_argument("Ernie MRoPE requires three sections covering rotary pairs");
+    }
+    std::vector<bool> assigned(rotary_dim / 2, false);
+    for (size_t axis = 0; axis < section.size(); ++axis) {
+        if (section[axis] < 0 || static_cast<size_t>(section[axis]) > assigned.size()) {
+            throw std::invalid_argument("Ernie MRoPE section is outside the rotary dimension");
+        }
+        const size_t first = axis < 2 ? axis : static_cast<size_t>(section[0]) + section[1];
+        const size_t stride = axis < 2 ? 2 : 1;
+        for (size_t i = 0; i < static_cast<size_t>(section[axis]); ++i) {
+            const size_t pair = first + i * stride;
+            if (pair >= assigned.size() || assigned[pair]) {
+                throw std::invalid_argument("Ernie grouped MRoPE sections overlap or exceed the rotary dimension");
+            }
+            assigned[pair] = true;
+        }
+    }
+    if (std::find(assigned.begin(), assigned.end(), false) != assigned.end()) {
+        throw std::invalid_argument("Ernie grouped MRoPE sections leave unassigned rotary pairs");
+    }
+}
+
 // Source vectors remain alive through completion or fail-stop in this local upload.
 void upload_custom_rope_cache(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor table, const infinilm::runtime::Tensor &host) {
     try {
@@ -183,9 +207,7 @@ std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(infinilm::run
     } else if (config_json.contains("rope_scaling") && config_json["rope_scaling"].contains("mrope_section")) {
         cache->section = config_json["rope_scaling"]["mrope_section"].get<std::vector<int>>();
     }
-    if (cache->section.size() != 3 || static_cast<size_t>(cache->section[0] + cache->section[1] + cache->section[2]) * 2 != rotary_dim) {
-        throw std::runtime_error("infinilm::models::ernie4_5_vl::Ernie45Attention: invalid mrope_section");
-    }
+    validate_grouped_mrope_section(cache->section, rotary_dim);
 
     const auto &dtype = model_config->get_dtype();
     const size_t max_position_embeddings = model_config->get<size_t>("max_position_embeddings");

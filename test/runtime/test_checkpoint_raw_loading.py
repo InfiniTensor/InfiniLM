@@ -22,6 +22,15 @@ from infinilm import modeling_utils as loading
 _MISSING_METADATA = object()
 
 
+def _parameter_metadata(dtypes):
+    return [
+        {
+            name: SimpleNamespace(dtype=dtype._underlying)
+            for name, dtype in dtypes.items()
+        }
+    ]
+
+
 def _write_shard(path, entries, metadata=_MISSING_METADATA):
     header, payload = {}, bytearray()
     if metadata is not _MISSING_METADATA:
@@ -90,6 +99,11 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 class Consumer:
                     hf_config = config
                     distributed_config = SimpleNamespace(pp_size=2)
+
+                    def state_dict(self):
+                        return _parameter_metadata(
+                            dict.fromkeys(wanted, infinicore.bfloat16)
+                        )
 
                     def state_dict_keyname(self):
                         return list(wanted)
@@ -161,6 +175,9 @@ class RawCheckpointLoadingTest(unittest.TestCase):
             )
             consumer = SimpleNamespace(
                 hf_config={"model_type": "mamba"},
+                state_dict=lambda: _parameter_metadata(
+                    {prefix + "conv1d_weight": infinicore.bfloat16}
+                ),
                 state_dict_keyname=lambda: [prefix + "conv1d_weight"],
                 load_state_dict=lambda *_args, **_kwargs: self.fail(
                     "collision dispatched to model"
@@ -225,6 +242,11 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 class Consumer:
                     hf_config = config
                     distributed_config = SimpleNamespace(pp_size=2)
+
+                    def state_dict(self):
+                        return _parameter_metadata(
+                            dict.fromkeys(wanted, infinicore.bfloat16)
+                        )
 
                     def state_dict_keyname(self):
                         return wanted
@@ -370,6 +392,11 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                     hf_config = config
                     distributed_config = SimpleNamespace(pp_size=2)
 
+                    def state_dict(self):
+                        return _parameter_metadata(
+                            {name: dtype for name, (_, dtype) in wanted.items()}
+                        )
+
                     def state_dict_keyname(self):
                         return list(wanted)
 
@@ -410,10 +437,7 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 gc.collect()
                 self.assertTrue(all(owner() is None for owner in owners))
 
-    def test_transformations_keep_their_existing_bridge(self):
-        class BridgeRequired(Exception):
-            pass
-
+    def test_native_transformations_do_not_require_checkpoint_bridge(self):
         cases = (
             {"model_type": "llama", "quantization_config": {"quant_method": "awq"}},
             {"model_type": "minicpm", "scale_emb": 2.0},
@@ -433,40 +457,38 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                     ],
                 )
                 consumer = SimpleNamespace(
-                    hf_config=config, state_dict_keyname=lambda: ["weight"]
+                    hf_config=config,
+                    state_dict_keyname=lambda: ["weight"],
+                    state_dict=lambda: _parameter_metadata(
+                        {"weight": infinicore.bfloat16}
+                    ),
+                    load_state_dict=lambda tensors, strict: self.assertEqual(
+                        tensors["weight"].dtype, infinicore.bfloat16
+                    ),
+                    process_weights_after_loading=lambda: None,
                 )
                 real_reader = loading._load_checkpoint_shard
 
-                def check_bridge(*args, **kwargs):
-                    self.assertFalse(kwargs["raw"])
-                    with (
-                        patch.object(
-                            loading, "_require_torch_checkpoint", return_value=object()
-                        ) as required,
-                        patch.object(
-                            loading.infinicore.utils,
-                            "to_torch_dtype",
-                            return_value="bf16",
-                        ),
-                        patch.object(
-                            loading, "load_state_dict", side_effect=BridgeRequired
-                        ) as bridge,
-                    ):
-                        try:
-                            return real_reader(*args, **kwargs)
-                        finally:
-                            required.assert_called_once_with(
-                                "unqualified safetensors checkpoint fallback"
-                            )
-                            bridge.assert_called_once()
+                def check_native_reader(*args, **kwargs):
+                    self.assertTrue(kwargs["raw"])
+                    self.assertIsNone(args[1])
+                    return real_reader(*args, **kwargs)
 
-                with patch.object(
-                    loading, "_load_checkpoint_shard", side_effect=check_bridge
+                with (
+                    patch.object(
+                        loading,
+                        "_load_checkpoint_shard",
+                        side_effect=check_native_reader,
+                    ),
+                    patch.object(
+                        loading,
+                        "_require_torch_checkpoint",
+                        side_effect=AssertionError("unnecessary checkpoint bridge"),
+                    ),
                 ):
-                    with self.assertRaises(BridgeRequired):
-                        loading.load_model_state_dict_by_file(
-                            consumer, str(root), dtype=infinicore.bfloat16
-                        )
+                    loading.load_model_state_dict_by_file(
+                        consumer, str(root), dtype=infinicore.bfloat16
+                    )
 
     def test_qualified_cpu_float_conversions_need_no_torch(self):
         # Literal bit patterns also cover ties, subnormal boundaries and
