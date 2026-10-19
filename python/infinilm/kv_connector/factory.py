@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # SPDX-FileCopyrightText: Copyright 2026 InfiniLM Contributors
+# Adapted from https://github.com/vllm-project/vllm (KV-transfer interfaces/utilities).
+# Modified for InfiniLM engine and connector integration; see licenses/THIRD_PARTY.txt.
 
 """
 KVConnectorFactory — lazy-loading registry for KV connectors.
@@ -10,8 +12,8 @@ import importlib
 import logging
 from collections.abc import Callable
 
-from infinilm.kv_connector.base import KVConnectorBase, KVConnectorRole
 from infinilm.config.kv_transfer import KVTransferConfig
+from infinilm.kv_connector.base import KVConnectorBase, KVConnectorRole
 
 logger = logging.getLogger(__name__)
 

@@ -1,0 +1,31 @@
+Third-party source notices
+
+The licenses below apply to their respective components, not to unrelated code.
+
+csrc/runtime/io.cc contains xtensor-derived formatting code. Its complete BSD
+notice and direct migration source are in xtensor-LICENSE.txt.
+
+python/infinilm/config/kv_transfer.py and kv_connector/{base.py,factory.py,
+mooncake/mooncake_utils.py} adapt vLLM KV-transfer interfaces and utilities:
+https://github.com/vllm-project/vllm (Apache-2.0).
+The source files retain vLLM copyright and identify the InfiniLM adaptations.
+The earlier upstream revision was not recorded; it is not asserted here.
+Apache-2.0.txt supplies the complete license text.
+
+The runtime migrated from the legacy InfiniCore retains its MIT notice in
+InfiniCore-MIT.txt. Bundled InfiniOps/InfiniRT use Apache-2.0.txt;
+InfiniCCL uses InfiniCCL-MIT.txt. Additional Ops kernel notices are installed
+by its SDK under share/licenses/InfiniOps and copied into this package's
+licenses/InfiniOps directory when native libraries are packaged.
+
+Header-only dependencies used by the native build:
+- nlohmann/json 5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2:
+  https://github.com/nlohmann/json; original notice: json-MIT.txt.
+- spdlog 88a0e07ad5bb3e2651cd5613530b3f06a15fc400:
+  https://github.com/gabime/spdlog; original notice: spdlog-MIT.txt.
+- Its bundled fmt retains the license from include/spdlog/fmt/bundled/format.h
+  at that spdlog revision, copied verbatim into fmt-MIT.txt.
+
+Replacing a dependency requires retaining the notices of the actual version
+distributed. Merely linking a vendor SDK does not grant redistribution rights
+to its separate proprietary libraries.

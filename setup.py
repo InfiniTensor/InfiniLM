@@ -193,6 +193,20 @@ def stage_runtime_dependencies(extra_staging_directory=None):
                 raise RuntimeError(f"Use a clean runtime staging file: {staged}")
 
     # No dependency is copied until the complete prefix and staging preflight passes.
+    license_source = infini_root / "share/licenses/InfiniOps"
+    if (
+        not (license_source / "LICENSE").is_file()
+        or not (license_source / "THIRD_PARTY.txt").is_file()
+    ):
+        raise FileNotFoundError(
+            f"Missing Ops redistribution notices in {license_source}; "
+            "install the pinned InfiniOps SDK before packaging native libraries."
+        )
+    shutil.copytree(
+        license_source,
+        PROJECT_ROOT / "python/infinilm/licenses/InfiniOps",
+        dirs_exist_ok=True,
+    )
     destination.mkdir(parents=True, exist_ok=True)
     for source in all_sources.values():
         shutil.copy2(source, destination / source.name)
@@ -272,6 +286,7 @@ setup(
     package_data={
         "infinilm": [
             "licenses/*.txt",
+            "licenses/**/*",
             *[
                 "_lib/" + pattern
                 for pattern in (*INFINILM_NATIVE_ARTIFACTS, *NATIVE_AUXILIARY_NAMES)

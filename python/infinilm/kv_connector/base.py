@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # SPDX-FileCopyrightText: Copyright 2026 InfiniLM Contributors
+# Adapted from https://github.com/vllm-project/vllm (KV-transfer interfaces/utilities).
+# Modified for InfiniLM engine and connector integration; see licenses/THIRD_PARTY.txt.
 
 """
 KVConnector abstract base class.
