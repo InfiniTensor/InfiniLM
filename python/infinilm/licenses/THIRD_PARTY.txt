@@ -19,6 +19,8 @@ by its SDK under share/licenses/InfiniOps and copied into this package's
 licenses/InfiniOps directory when native libraries are packaged.
 
 Header-only dependencies used by the native build:
+- pybind11 3.0.4: https://github.com/pybind/pybind11/tree/v3.0.4;
+  original copyright and BSD-3-Clause notice: pybind11-BSD-3-Clause.txt.
 - nlohmann/json 5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2:
   https://github.com/nlohmann/json; original notice: json-MIT.txt.
 - spdlog 88a0e07ad5bb3e2651cd5613530b3f06a15fc400:
