@@ -124,6 +124,9 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             && use_cache_decode_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata, runtime, window_size)) {
             return forward_decode_(q_reshaped, k_permuted, v_permuted, kv_cache, attn_metadata, runtime, window_size);
         }
+        if (attn_metadata.static_decode_recordable) {
+            *attn_metadata.static_decode_recordable = false;
+        }
         if (finite_window) {
             throw std::invalid_argument("Static finite window decode has no supported cache provider; global fallback is forbidden");
         }

@@ -56,6 +56,8 @@ struct AttentionMetadata {
     std::optional<size_t> first_total_sequence_length;
     /// Present only after one worker-side validation of static decode inputs.
     std::optional<StaticDecodeHostDescription> static_decode_host;
+    // Compiler-only warmup probe; cleared before recording and restored with metadata.
+    bool *static_decode_recordable = nullptr;
     std::optional<StaticPrefillHostDescription> static_prefill_host;
 
     AttentionMetadata() = default;

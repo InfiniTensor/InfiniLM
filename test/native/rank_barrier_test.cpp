@@ -22,9 +22,11 @@ void test_reusable_barrier() {
     std::atomic<int> passed{0};
     std::vector<std::thread> threads;
     for (int rank = 0; rank < 3; ++rank) {
-        threads.emplace_back([&] {
+        threads.emplace_back([&, rank] {
             barrier.wait();
             ++passed;
+            assert(!barrier.all(rank != 1));
+            assert(barrier.all(true));
             barrier.wait();
             ++passed;
         });

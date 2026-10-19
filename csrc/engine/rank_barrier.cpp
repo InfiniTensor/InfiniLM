@@ -41,6 +41,28 @@ void RankBarrier::wait() {
     }
 }
 
+bool RankBarrier::all(bool value) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        all_value_ = all_value_ && value;
+    }
+    wait();
+    bool result;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        result = all_value_;
+    }
+    // No rank may reset the accumulator before every rank reads this round.
+    wait();
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        all_value_ = true;
+    }
+    // No rank may contribute to the next round while peers still reset.
+    wait();
+    return result;
+}
+
 void RankBarrier::abort(std::exception_ptr error) noexcept {
     {
         std::lock_guard<std::mutex> lock(mutex_);

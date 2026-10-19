@@ -437,7 +437,7 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 gc.collect()
                 self.assertTrue(all(owner() is None for owner in owners))
 
-    def test_native_transformations_do_not_require_checkpoint_bridge(self):
+    def test_native_reader_routes_do_not_require_checkpoint_bridge(self):
         cases = (
             {"model_type": "llama", "quantization_config": {"quant_method": "awq"}},
             {"model_type": "minicpm", "scale_emb": 2.0},

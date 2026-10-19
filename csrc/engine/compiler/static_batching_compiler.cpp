@@ -81,6 +81,7 @@ void StaticBatchingCompiler::compile() {
         batches.push_back(cache_capacity);
     }
     for (size_t b : batches) {
+        bool recordable = true;
         PrepareStateGuard prepare_state{
             runtime_, forward_context_, static_prepare_views(runtime_, forward_context_)};
         InfinilmModel::Input input;
@@ -118,9 +119,20 @@ void StaticBatchingCompiler::compile() {
             forward_context_.attn_metadata.first_total_sequence_length = 1;
             forward_context_.attn_metadata.static_decode_host = global_state::StaticDecodeHostDescription{true, true};
 
+            forward_context_.attn_metadata.static_decode_recordable = &recordable;
             barrier_->wait();
             (void)model_->forward(input, forward_context_);
             runtime_.syncStream();
+
+            // Warmup completed normally; only an unavailable prepared algorithm
+            // can select eager here. Execution failures still propagate unchanged.
+            forward_context_.attn_metadata.static_decode_recordable = nullptr;
+            if (!barrier_->all(recordable)) {
+                prepare_state.restore(); // includes stream completion and original metadata
+                barrier_->wait();
+                skip_unavailable_prepare("static decode warmup selected an eager-only attention plan");
+                continue;
+            }
 
             GraphRecordingGuard recording{runtime_};
             auto output = model_->forward(input, forward_context_);

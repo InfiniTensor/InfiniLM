@@ -41,11 +41,19 @@ void sample_request_token(
     if (greedy) {
         INFINILM_ASSERT((logits->ndim() == 1 || batched) && logits->numel() > 0);
         INFINILM_ASSERT(indices->numel() == num_rows);
-        const std::optional<int64_t> dim = batched ? std::optional<int64_t>{1} : std::nullopt;
-        execution::submit<infini::ops::Argmax>(
-            runtime, execution::RecordingPolicy::AllowHostReplay,
-            infini::ops::Argmax::DefaultConfig(device_type),
-            logits, dim, false, indices);
+        // Provider Argmax supports the common one-dimensional reduction. Keep
+        // each result scalar (including B=1), matching a full-row reduction.
+        auto flat_indices = indices->view({num_rows});
+        for (size_t row = 0; row < num_rows; ++row) {
+            auto row_logits = batched
+                                ? logits->narrow({{0, row, 1}})->view({logits->size(1)})
+                                : logits;
+            auto row_index = flat_indices->narrow({{0, row, 1}})->view({});
+            execution::submit<infini::ops::Argmax>(
+                runtime, execution::RecordingPolicy::AllowHostReplay,
+                infini::ops::Argmax::DefaultConfig(device_type),
+                row_logits, std::optional<int64_t>{}, false, row_index);
+        }
         return;
     }
 

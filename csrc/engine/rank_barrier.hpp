@@ -10,6 +10,7 @@ public:
     explicit RankBarrier(size_t nranks);
 
     void wait();
+    bool all(bool value);
     void abort(std::exception_ptr error) noexcept;
     void rethrow_if_broken() const;
 
@@ -18,6 +19,7 @@ private:
     size_t arrived_ = 0;
     size_t generation_ = 0;
     bool broken_ = false;
+    bool all_value_ = true;
     std::exception_ptr first_error_;
     mutable std::mutex mutex_;
     std::condition_variable cv_;
