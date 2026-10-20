@@ -40,6 +40,13 @@ python handoff/scripts/materialize.py --profile legacy \
 
 解开单独交付的 `handoff-reference-data-*.tar.gz`，按其中相对 `results/`、`incoming/`、`control/` 路径放入对应 runtime。它保留历史 QA、失败样例和冻结参考，不含模型权重。`scripts/restore_references.py` 会校验文件和 archive SHA；动态实验输出名不应当作为输入文件预先创建。
 
+另有分别约 49 MiB、44 MiB 的历史版和当前版运行时归档 `handoff-runtime-*-r3432.tar.gz`，包含原 SDK、Common、Model 和 helpers，可在相同容器栈上先恢复已使用的二进制。它们不含权重、容器和凭据，单独安全传输。先 materialize，再在空闲目标目录运行以下命令；脚本校验 archive、全部文件和符号链接，不覆盖不同的已有文件。恢复成功仍需要目标服务器的数值和性能验收。`r3428` 初版归档已由带符号链接元数据的 `r3432` 替代。
+
+```bash
+python handoff/scripts/restore_runtime.py /your/transfer/handoff-runtime-current-r3432.tar.gz \
+  --profile current --runtime /your/work/runtime-current
+```
+
 ## 3 发现新集群资源
 
 ```bash

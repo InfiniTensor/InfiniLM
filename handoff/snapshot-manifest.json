@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T11:13:19.739441+00:00",
+  "utc": "2026-10-20T11:39:05.610990+00:00",
   "scope": "SHA256 of shipped handoff files. Original export manifests preserve capture hashes; operational-path redactions may differ. No weights, private keys, raw-runtime archives or container images committed.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 4594,
-      "sha256": "c1322b9e5e2e14939a58e109da8ca440678f937900c6cc3ded9a7248ee16471c"
+      "bytes": 4735,
+      "sha256": "4471d393790b3a0358cdc69583b339cc63a09f32cbce9a30d07de0a9283313a8"
     },
     "config.example.env": {
       "bytes": 826,
@@ -4599,8 +4599,8 @@
       "sha256": "27dc470d4d8056aff8f2b71a5b64b7924ebc489cbf8e72064e55cfed385641f1"
     },
     "DELIVERY.zh-CN.md": {
-      "bytes": 1245,
-      "sha256": "1a470d01794a284e13778117df73e9cc380a78517aec01a4e16ae248b5525450"
+      "bytes": 1423,
+      "sha256": "685a79f78dc74484914a172c524989d68d609963c84188668a5461c1b94ed1d8"
     },
     "dependencies/current/CCL/.github/ISSUE_TEMPLATE/bug_report.yml": {
       "bytes": 2518,
@@ -25874,6 +25874,14 @@
       "bytes": 8252,
       "sha256": "be37c91149b9c4e1197e6165df4a5f4450051c0f54592ce21b3f6da51c8bdc20"
     },
+    "drivers/audit_deep_allselected_model_r817.py": {
+      "bytes": 7772,
+      "sha256": "f87b62d86974fff1e59bc913ee8607976e2b96524928ec9f95ba606ab9c140eb"
+    },
+    "drivers/audit_deep_f64_component_r3449.py": {
+      "bytes": 5951,
+      "sha256": "fb90fa5364e951746ab30cc172728fa9fbd4fa968c221119c980d5205873711e"
+    },
     "drivers/audit_glm_cache_view_r929.py": {
       "bytes": 7025,
       "sha256": "adb0ba7ab58088905d4e2278e37bd5ca53ff137f8dfb064e4c028d9ce0acca21"
@@ -25885,6 +25893,14 @@
     "drivers/audit_glm_cohort_r3098.py": {
       "bytes": 8567,
       "sha256": "7c2ece9e6690e874cdb22d78b8fdc058dec420ebfd0e9c7d25a2d114164b8a55"
+    },
+    "drivers/audit_glm_fastpath_capacity_r3440.py": {
+      "bytes": 11618,
+      "sha256": "c4ed5d360c60ee13fa51b3672bd90c1659a40cb562db499da9883afa0b0cff83"
+    },
+    "drivers/audit_glm_fastpath_r3330.py": {
+      "bytes": 11564,
+      "sha256": "512a6e7eab93794f22d3ead1fefa99ebbd8dc15043358d83d84b28169d5edc52"
     },
     "drivers/audit_glm_route_order_r3343.py": {
       "bytes": 6804,
@@ -25905,6 +25921,10 @@
     "drivers/audit_kimi_failure_r3387.py": {
       "bytes": 7994,
       "sha256": "c4d55e443496e4fafbf3b3e203aebc8dac4f98f92cdd9a82efeb2b2405ea0992"
+    },
+    "drivers/audit_kimi_token_only_r965.py": {
+      "bytes": 13751,
+      "sha256": "8459ffd71461fd57691a7a3aefe73f2843b71c279b4920b419c284a5d8cc83e9"
     },
     "drivers/audit_kimi_wide_replay_r3411.py": {
       "bytes": 6768,
@@ -25958,9 +25978,29 @@
       "bytes": 5655,
       "sha256": "a17f93f4d923be1f6e11c4bbf13719c3dc9c2ab448797137df8d0b3b10023a2d"
     },
+    "drivers/deep_cache_batch_r784.hpp": {
+      "bytes": 74,
+      "sha256": "500fb9fd4cb00582e4fc8138189af2b06217a925fa2c8f73b1e3278232a36767"
+    },
+    "drivers/deep_collective_f64_r3445.cpp": {
+      "bytes": 4569,
+      "sha256": "bbc28a3defaa1f47c486bdee1de5e99295ee9c1a8d700a2fe822ea7342836baa"
+    },
+    "drivers/deep_f64_component_r3445_inside.sh": {
+      "bytes": 3458,
+      "sha256": "12ec923ec16306426dded12d0c49159c2d19d2d81b77c8d2e5e9a0bc756a6632"
+    },
     "drivers/deep_packed_gather_r374.cu": {
       "bytes": 1347,
       "sha256": "126428a2bc8defebe5144ad9edafee4a56857c10acad171a8f6a96908988a1bf"
+    },
+    "drivers/deep_reduce_wide_r3443.hpp": {
+      "bytes": 3255,
+      "sha256": "a07257dae69aedb30dbf01aff77de9d403d97ff757c3b536a6c8d97cca4cc631"
+    },
+    "drivers/deep_wide_build_r3447_inside.sh": {
+      "bytes": 3109,
+      "sha256": "af4cb5eaca88596aaff1b8773d9fc0a472847ee1d56e81a81a4b2d9234d96d0b"
     },
     "drivers/deepseek_mhc_post_register_r168.cu": {
       "bytes": 5210,
@@ -25978,9 +26018,49 @@
       "bytes": 2408,
       "sha256": "a675db956e91e28ece725fab54fee844cc0622a2e632b4b32976137a77a9eb41"
     },
+    "drivers/deepseek_routed_mlp_batch_r20.hpp": {
+      "bytes": 3703,
+      "sha256": "e0ff23b093e51e3ff22f9229f563e7cd4e7973580ad68b0a10b4ad34c6ee97af"
+    },
+    "drivers/deepseek_v4_c4_indexer_allselected_r813.cpp": {
+      "bytes": 18429,
+      "sha256": "bffba312c64774a16e7c14b0396f69944c84c4c73b98c7c2f0ce9f18e0991ca7"
+    },
+    "drivers/deepseek_v4_ffn_routed_block_r20.hpp": {
+      "bytes": 1186,
+      "sha256": "c21fe15c5a5eb2d55963340252309e4fe2a355a575da14e98d9f1f4a02771761"
+    },
+    "drivers/deepseek_v4_hyper_connection.hpp": {
+      "bytes": 900,
+      "sha256": "dc725c54783bfd2a361c50da22e1e6223b75cf823e64388d9aecb284d0fcdd6d"
+    },
+    "drivers/deepseek_v4_int8_mlp_bank_r20.hpp": {
+      "bytes": 1182,
+      "sha256": "72d3858f892761b22765245f1c4d950d0014500ccaa1c56d7071443b70def2c3"
+    },
+    "drivers/deepseek_v4_moe_prefill_scatter_r194.cpp": {
+      "bytes": 9571,
+      "sha256": "c29579a39279718b9b9a562d9c2333c8ad2b9b8d2d1ee3e6fb5c31dd31d61a37"
+    },
+    "drivers/deepseek_v4_moe_routed_r20.hpp": {
+      "bytes": 1261,
+      "sha256": "b14a666b2c7d28360a678f9ac348fb10c3e3b436de833939e26b719951ea77e6"
+    },
+    "drivers/deepseek_v4_native_routed_decoder_r20.hpp": {
+      "bytes": 1592,
+      "sha256": "74c4fa8b658691abbb95dda21572aa88da2c20528ac98168307cf595a9be1377"
+    },
     "drivers/deepseek_v4_reference_template_r18_r2.py": {
       "bytes": 2755,
       "sha256": "e28705b1c0ffae54796f67da5bde4c38500722cfa17d6d442c446ac051380796"
+    },
+    "drivers/deepseek_v4_routed_text_model_r20.cpp": {
+      "bytes": 10009,
+      "sha256": "7e3fde72fcb3f736c7aed068a4e1a46b67a1238fb9a0b1eebda373b8a7604899"
+    },
+    "drivers/deepseek_v4_routed_text_model_r20.hpp": {
+      "bytes": 1607,
+      "sha256": "3bd41e4e307e8095cca409225d815361f1738661922636f05a2b5108a20dc787"
     },
     "drivers/glm_batch_cache_geometry_r3068.hpp": {
       "bytes": 604,
@@ -26054,9 +26134,17 @@
       "bytes": 13563,
       "sha256": "1e3531f90ae5a4c6173d8c05b57ea1e40da4cb08bfa6b07aee16d927b73ad6ed"
     },
+    "drivers/glm_fastpath_probe_r3439.py": {
+      "bytes": 13650,
+      "sha256": "01f8d19d0adbbb6b9d03d1a40188e6c578d526fdaf74d44a439f180e508c2ecb"
+    },
     "drivers/glm_fastpath_r3323_inside.sh": {
       "bytes": 1118,
       "sha256": "e1a1cc63e35446b9915c876a23a21731cfa526826d56435ee0cbc1edb23bed2e"
+    },
+    "drivers/glm_fastpath_r3439_inside.sh": {
+      "bytes": 1118,
+      "sha256": "9fd9670849de4ba0efe1975a96f8b1dcfa64b6487cadc1ef7d5b0f7e6268380f"
     },
     "drivers/glm_fp8_batched_r776.cu": {
       "bytes": 5862,
@@ -26238,6 +26326,10 @@
       "bytes": 15804,
       "sha256": "625df7f3cb993a7be6c47127304b741cf22e9bbbdf17e71a92e0fa0e0bcb5a7c"
     },
+    "drivers/modern_glm_fastpath_r3439.py": {
+      "bytes": 15832,
+      "sha256": "556da47e7050312aac8067a644c8d1929d5642404f60b53d2a93181334d6aaa7"
+    },
     "drivers/modern_glm_smallmicro_r3236.py": {
       "bytes": 15747,
       "sha256": "ea0238c0b9c4bfca6206ee4b5ebc834e8d0d137bf84c03ae66f94e0a6cdc4f39"
@@ -26258,9 +26350,17 @@
       "bytes": 18101,
       "sha256": "3adb6695130e96a73b240b2d7c70f50aea58a3e370dc858ac6b0d765e289d644"
     },
+    "drivers/owner_affinity_report_r2392.cpp": {
+      "bytes": 466,
+      "sha256": "20c5d6d8284efb293b9ebc1642f0b41baa721879f14eadc87ffd063b653dc7e7"
+    },
     "drivers/probe_cast64_contract_r3376.py": {
       "bytes": 7642,
       "sha256": "6237a68d39435d419eb0e3f8d53245b03f77c6e0bbe728a1e0ead07c422764ac"
+    },
+    "drivers/probe_deep_f64_component_r3445.py": {
+      "bytes": 5803,
+      "sha256": "e788ad2c0b3cb6f25f579fa9adef9e5d5af096545f149a5f0ae25a3829c909f0"
     },
     "drivers/probe_glm_batch_r506.py": {
       "bytes": 430,
@@ -26286,6 +26386,10 @@
       "bytes": 2230,
       "sha256": "269cc1a5097e0264052d1c929a18ac0bbfe20ade0b44947455dd21bf9e6b804d"
     },
+    "drivers/stage_deep_wide_r3443.py": {
+      "bytes": 3201,
+      "sha256": "3ff7fb3409b2f22fd7cf20ace5a3c086df087203f944962b427a61d93df1c6f5"
+    },
     "drivers/stage_glm_batch_model_r3072.py": {
       "bytes": 2737,
       "sha256": "4d2d53369badfb754af7a171029c015cf56e255f6ead7633d64e0c46457182c6"
@@ -26302,6 +26406,10 @@
       "bytes": 8220,
       "sha256": "0c4b14d5511699319e672dab83a9a223d94fdf062e8359a76ef3787db829de46"
     },
+    "evidence/deep-allselected-r817-910384.251-summary.json": {
+      "bytes": 28022,
+      "sha256": "ef6334c5045c58510eb0ebb1f8aca58ec214f5341fd6911d5ba9d529f27e4f08"
+    },
     "evidence/environment.json": {
       "bytes": 369,
       "sha256": "c2aa8761d6b934129d27be08ba5b99c755dfc33537f8e799e43705f8d827d2c7"
@@ -26309,6 +26417,10 @@
     "evidence/glm-cohort-r3098-audit-r3372-local.json": {
       "bytes": 34826,
       "sha256": "1aa64d4802010b5511cc26767794885a0535325880a61fff2c1aa823b1ce523f"
+    },
+    "evidence/glm-fastpath-r3330-audit.json": {
+      "bytes": 30865,
+      "sha256": "8f5305d354cdc0feeb6bd56b3a277ad23c4cd6ee7902001530b7dbf1b3abb71c"
     },
     "evidence/glm-g128-r3239-audit-r3372-local.json": {
       "bytes": 50566,
@@ -26339,12 +26451,12 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 1470,
-      "sha256": "7b061f887a1a6c8676859d41303c912a9e464246be78e1f4d7b72465465c2712"
+      "bytes": 3521,
+      "sha256": "0ff7261684858a32cfc98d530c1e7d665e976550ce94c14acace06b03ffdb232"
     },
     "evidence/runtime-bundles.json": {
-      "bytes": 1993,
-      "sha256": "da8ca4d3e812944afd6bb00381093fc97fdaac1e9282ac34ec2f2abf3853e114"
+      "bytes": 2118,
+      "sha256": "64ea930553a86adc81fbe3eff04a829951b4581a2a3f1c101c8d71d28a0ba82f"
     },
     "extras/environment.json": {
       "bytes": 369,
@@ -32751,16 +32863,16 @@
       "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
     },
     "MIGRATION.zh-CN.md": {
-      "bytes": 8229,
-      "sha256": "47297211914c373337e3b3ac8ea8a74fb919fc4a0dc7559133726f22e06bd2b5"
+      "bytes": 8949,
+      "sha256": "cdd7135c6ca3ceae6bb3f08df8bb6d54aa7069a1831c5ea0afc859cf78be2253"
     },
     "NUMERICS.zh-CN.md": {
-      "bytes": 4548,
-      "sha256": "a228804f7713cd6f6d8710dfb51b141167bed06bf0e982946ed9f078d6158561"
+      "bytes": 5121,
+      "sha256": "96e965967edb429725ec0fcc5b45ddfecb3f06d7365adc7cd3af6324be6e8fb8"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 4894,
-      "sha256": "284584ecf49fc3f9bf5cff5fd18ddc0db171c61d5bb8aec930c04a1ea71ee94e"
+      "bytes": 6493,
+      "sha256": "17fdf33416fd74d7e9f4267dac84d7d2ab1f4056b1b0223a2179428f1cfac049"
     },
     "pins.json": {
       "bytes": 3728,
@@ -32797,6 +32909,10 @@
     "scripts/restore_references.py": {
       "bytes": 1865,
       "sha256": "c4ef4d16fd281f3160c8989259bc97b18cd0d372c4039757878770deae11c040"
+    },
+    "scripts/restore_runtime.py": {
+      "bytes": 3740,
+      "sha256": "573239480a31191386c4359e6958cc18add4c8703b5335711ea6e0b2b59ccc0e"
     },
     "scripts/run_container.sh": {
       "bytes": 1087,

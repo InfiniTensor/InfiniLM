@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T11:06:20.386131+00:00",
+  "utc": "2026-10-20T11:11:38.082171+00:00",
   "profiles": {
     "legacy": {
-      "archive": "handoff-runtime-legacy-r3428.tar.gz",
-      "bytes": 51402924,
-      "sha256": "4b54edb82ce9360abd501c9f351a94ef88fc2a18d55da25a7a305777a69d5caf",
+      "archive": "handoff-runtime-legacy-r3432.tar.gz",
+      "bytes": 51402938,
+      "sha256": "df8d0581fa546759d0f412540cbcb73ee77260bbfa7f1910ae28842eb2e48122",
       "files": 2759,
       "uncompressed_bytes": 239610145,
       "roots": [
@@ -21,12 +21,13 @@
         "candidates/glm-fp8-batched-r776",
         "candidates/glm-fp8-cache-r807",
         "candidates/blas-policy-r271"
-      ]
+      ],
+      "symlinks": 0
     },
     "current": {
-      "archive": "handoff-runtime-current-r3428.tar.gz",
-      "bytes": 46604201,
-      "sha256": "95b31ddcb0c49e08e79a3e0044ce20f23712e33107b6513f61c9ede3a7f7800c",
+      "archive": "handoff-runtime-current-r3432.tar.gz",
+      "bytes": 46604212,
+      "sha256": "61ff0cbb72992207437f149950b0b3097cba4d66cb174858539f8bbcce66e716",
       "files": 2177,
       "uncompressed_bytes": 207997204,
       "roots": [
@@ -40,8 +41,9 @@
         "candidates/glm-batch-model-r3072",
         "candidates/models-3e0d89fe-r2856/Deep",
         "candidates/blas-policy-r271"
-      ]
+      ],
+      "symlinks": 0
     }
   },
-  "scope": "Private binary/runtime continuity bundles, no weights/credentials/container. For same-stack migration bootstrap only; revalidate hardware, ABI, numerical and throughput onnewservers. Sources are separately inGitHub. Immutable binaries read while runs may mapthem; none changed."
+  "scope": "Private binary/runtime continuity bundles, no weights/credentials/container. For same-stack migration bootstrap only; revalidate hardware, ABI, numerical and throughput onnewservers. Sources are separately inGitHub. Immutable binaries read while runs may mapthem; none changed. v2 records SDK/library symlink aliases; restore manifest includes link validation."
 }

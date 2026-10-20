@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T11:03:59.188593+00:00",
+  "recorded_utc": "2026-10-20T11:34:22.603073+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -15,7 +15,21 @@
     "Deep": {
       "decode_tok_s": 25.316444132397457,
       "including_prefill_tok_s": 19.982766375780034,
-      "new_recheck": "running_not_qualified"
+      "new_recheck": {
+        "completed": true,
+        "producer": "910384.251",
+        "CPU_audit": "910377.419",
+        "audit": "deep-allselected-r817-910384.251-summary.json",
+        "B16_decode_tok_s": [
+          25.824404271530994,
+          25.524942778385164
+        ],
+        "including_prefill_tok_s": [
+          20.349131557647752,
+          20.12392881601162
+        ],
+        "scope": "Historical r817 gate, fixed512 postEOS diagnostic. Knownanswer IDs/EOS and samegeometry repeats passed; duplicate-row logits can differ under this historical gate. Not actualEOS useful throughput or new strict raw gate qualification."
+      }
     }
   },
   "current_GLM_qualified": {
@@ -27,13 +41,39 @@
   "Kimi_wide": {
     "Common_build": "passed3395",
     "real_projection_CPU_audit": "passed3411_48cases_384raws_8normalclose",
-    "full_model": "pending",
+    "full_model": {
+      "state": "running_not_qualified",
+      "producer": [
+        "910377.418",
+        "910384.255"
+      ],
+      "last_observed_phase": "b8-QA-candidate_r1-json-r2",
+      "completed_chat_cases": 57,
+      "note": "Passed original retrieval failure window so far, not complete model/performance acceptance."
+    },
     "entry3417": "rejected for stale old Common path check; experimental steps stopped, parent holds retained; same binaries, corrected entry3418/newrun3419"
   },
   "legacy_actual_EOS": {
-    "Deep": "running_r3421",
-    "Kimi": "prepared_r3426_waiting_free4nodes",
-    "GLM": "pending_separate_actualEOS_recheck"
+    "Deep": "running_r3421_step910407.98_not_qualified",
+    "Kimi": "running_r3426_step910373.772_not_qualified",
+    "GLM": "submitted_r3450_using_r3429_not_qualified"
   },
-  "scope": "No new fixed512 recheck or EOS result is qualified until terminal Slurm, independent CPU audit and normal closure."
+  "scope": "No new fixed512 recheck or EOS result is qualified until terminal Slurm, independent CPU audit and normal closure.",
+  "current_GLM_fastpath_qualified": {
+    "G64_M8_max128_decode_median_tok_s": 48.20175552929743,
+    "including_prefill_median_tok_s": 17.502034948170525,
+    "cards": 32,
+    "same_process_OFF_decode_median_tok_s": 35.37969907169027,
+    "decode_gain_percent": 36.241278,
+    "audit": "glm-fastpath-r3330-audit.json",
+    "source": "r3323, same Model r3072 math and SDK; bounded fastpath bundle toggle",
+    "scope": "Independent CPU audit of terminal GLM32card G32/G64 M8 fastpathbundle ABBA;ctx64,512input/max128output andtwofrozenprompts repeated, separatefrom512output results; all32 reports/fullIDs/EOS/CPUfullvocabraw/checksums/sameMrepeat/normalclose. Native+harness timing, no HTTP or hardware-peak claim."
+  },
+  "current_Deep_wide": {
+    "state": "build_and_synthetic_component_submitted_r3448",
+    "source": "r3443",
+    "modes": "0native;1native+sync control;2attention F64;3addsFFN;4addsindexer",
+    "scope": "No fullmodel or TPS qualification."
+  },
+  "GLM_capacity_fastpath_combo": "r3439, G64/G128 M32 max128, queued r3441 after existing experiment; no gain claimed"
 }

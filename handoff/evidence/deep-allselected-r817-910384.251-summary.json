@@ -1,0 +1,1449 @@
+{
+  "utc": "2026-10-20T11:20:52.022057+00:00",
+  "state": "910384.251|legacy-deep-fixed512-r3406|COMPLETED|0:0|00:40:21\n",
+  "variant": "fused",
+  "completed": true,
+  "scalar_cases": [
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": false
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat1",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat2",
+      "old_known_answer_IDs_EOS_exact": true,
+      "same_variant_repeated_exact": true,
+      "old_logits_exact": true
+    }
+  ],
+  "batch16_cases": [
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat1",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat2",
+      "old_answer_IDs_EOS_and_samegeometry_repeats_exact": true
+    }
+  ],
+  "first4_checks": [
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.11376745355814692,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.08305881055402288,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.07233597254636218,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat1",
+      "step": 3,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.04933486117359372,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.11376745355814692,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.08305881055402288,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.07233597254636218,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "beijing_repeat2",
+      "step": 3,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.04933486117359372,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.1921893972378338,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.0948211235790084,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1252107989574626,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.1921893972378338,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.0948211235790084,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "arithmetic_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1252107989574626,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.08210769028640748,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.10222434582033088,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1016764147773407,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.08210769028640748,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.10222434582033088,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "before",
+      "phase": "retrieval_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1016764147773407,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.11376745355814692,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.08305881055402288,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.07233597254636218,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat1",
+      "step": 3,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.04933486117359372,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.11376745355814692,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.08305881055402288,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.07233597254636218,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "beijing_repeat2",
+      "step": 3,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.04933486117359372,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.1921893972378338,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.0948211235790084,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1252107989574626,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.1921893972378338,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.0948211235790084,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "arithmetic_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1252107989574626,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat1",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.08210769028640748,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat1",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.10222434582033088,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat1",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1016764147773407,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat2",
+      "step": 0,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": true,
+      "cross_batch_relative_RMS": 0.08210769028640748,
+      "row_groups": [
+        [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat2",
+      "step": 1,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.10222434582033088,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    },
+    {
+      "epoch": "after",
+      "phase": "retrieval_repeat2",
+      "step": 2,
+      "all16_known_answer_argmax_exact": true,
+      "raw_sha_verified": true,
+      "duplicate_logits_exact": false,
+      "cross_batch_relative_RMS": 0.1016764147773407,
+      "row_groups": [
+        [
+          0,
+          2,
+          4,
+          6,
+          8,
+          10,
+          12,
+          14
+        ],
+        [
+          1,
+          3,
+          5,
+          7,
+          9,
+          11,
+          13,
+          15
+        ]
+      ]
+    }
+  ],
+  "phases": [
+    {
+      "phase": "engine_b8_repeat1",
+      "batch": 8,
+      "steady_total_tps": 14.612599405493517,
+      "including_prefill_total_tps": 12.670614300941361,
+      "same_geometry_repeated_exact": true,
+      "old_B8_ID_compatibility_flag": false
+    },
+    {
+      "phase": "engine_b8_repeat2",
+      "batch": 8,
+      "steady_total_tps": 14.537063812614415,
+      "including_prefill_total_tps": 12.602230221779434,
+      "same_geometry_repeated_exact": true,
+      "old_B8_ID_compatibility_flag": false
+    },
+    {
+      "phase": "engine_b16_repeat1",
+      "batch": 16,
+      "steady_total_tps": 25.824404271530994,
+      "including_prefill_total_tps": 20.349131557647752,
+      "same_geometry_repeated_exact": true,
+      "old_B8_ID_compatibility_flag": false
+    },
+    {
+      "phase": "engine_b16_repeat2",
+      "batch": 16,
+      "steady_total_tps": 25.524942778385164,
+      "including_prefill_total_tps": 20.12392881601162,
+      "same_geometry_repeated_exact": true,
+      "old_B8_ID_compatibility_flag": false
+    }
+  ],
+  "scope": "817canonicalallselected attentionorder variant. OldscalarandactualB16knownanswerIDs/EOS strict; ownB8/B16full512repeats/raw/all8; fast/fallbackcounters/SDK/source/owner/shutdown/terminal required. Parent687independentSDK/DSO/source/rawSHA/CPUargmax/knownanswers/EOS/ownsamegeometryrepeats/all8/policy/actualfusedandfallbackcounters/shutdownandSlurm audit. IntentionalKVsplit681F32 reduction order; oldscalar andsyntheticlogitsdiagnostic. Fourfull512 B8/B16 phases, sixB1+sixB16 beforeafter. Beyondfirst4 B16QA allrowIDs enforcedindriver butonlyrow0fullIDspersisted. Notfullquality/HTTP/hardwaremaximum.",
+  "failure": null,
+  "actual_fused_latent_calls": [
+    92364,
+    92364,
+    92364,
+    92364,
+    92364,
+    92364,
+    92364,
+    92364
+  ],
+  "actual_fallback_latent_calls": [
+    5934,
+    5934,
+    5934,
+    5934,
+    5934,
+    5934,
+    5934,
+    5934
+  ],
+  "single_matrix_answers_repeats_raw_owner_shutdown_passed": true,
+  "allselected_fast_calls": [
+    44940,
+    44940,
+    44940,
+    44940,
+    44940,
+    44940,
+    44940,
+    44940
+  ],
+  "allselected_full_calls": [
+    3066,
+    3066,
+    3066,
+    3066,
+    3066,
+    3066,
+    3066,
+    3066
+  ]
+}

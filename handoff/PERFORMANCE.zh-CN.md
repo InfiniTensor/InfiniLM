@@ -29,14 +29,24 @@ GLM 均为 4 节点、32 卡、TP8×PP4、512 token 输入，两条冻结 prompt
 | 64/8 | 512 | 34.9500–35.0802 | 26.5202–26.6126 | 1.0922–1.0963 | `glm-cohort-r3098-audit.json` |
 | 128/8 | 128 | 40.9251–41.2904 | 17.9200–17.9949 | 中位数 1.2846 | `glm-g128-r3239-audit.json` |
 | 128/32，plan cache ON | 128 | 42.2873–42.4716 | 18.1214–18.1410 | 中位数 1.3244 | `glm-g128-r3272-audit.json` |
+| 32/8，fastpath ON | 128 | 38.3447–38.4114 | 13.8790–13.9481 | 中位数 1.1993 | `glm-fastpath-r3330-audit.json` |
+| 64/8，fastpath ON | 128 | **48.1930–48.2105** | 17.4808–17.5232 | 中位数 **1.5063** | `glm-fastpath-r3330-audit.json` |
 
-最后一行 decode 中位数为 **42.3794 tok/s**，含 prefill 中位数为 **18.1312 tok/s**。同进程 cache OFF/ON/ON/OFF 的 decode 中位数从 34.1216 到 42.3794，提高 24.20%。128 和 512 输出上限的端到端吞吐不能直接横向比较。
+G128/M32 plan cache ON 的 decode 中位数为 **42.3794 tok/s**，含 prefill 中位数为 **18.1312 tok/s**。同进程 cache OFF/ON/ON/OFF 的 decode 中位数从 34.1216 到 42.3794，提高 24.20%。128 和 512 输出上限的端到端吞吐不能直接横向比较。
+
+fastpath 的 G64/M8 decode 中位数为 **48.2018 tok/s**，含 prefill 中位数为 **17.5020 tok/s**；同进程 OFF/ON/ON/OFF 从 35.3797 到 48.2018，提高 **36.24%**。两种策略的完整 token/EOS、相同 micro batch 的 raw 重复、340 个 CPU 全词表 raw 文件和 32 个 worker 正常关闭通过独立审计。固定开启 plan cache，优化 bounded metadata、只读 prefix 和 decode leases，GPU 数学路径不变。与 G128/M32 是不同配置；正在组合两种优化，收益不能相乘推断。
 
 当前 Kimi 和 DeepSeek 尚无通过完整多 batch 数值检查的新总吞吐。其已通过单请求检查的 decode 范围分别为 6.7605–6.8213 tok/s（32 卡）和 2.3661–2.4362 tok/s（8 卡）。GLM 单请求为 4.24595–4.32029 tok/s（32 卡）。这些均为 512 输入、最多 512 输出；不能从旧版固定 batch 总吞吐推导新版单请求速度。
 
 ## 本次重新测量
 
 本次启动了原始旧版 Kimi、GLM、DeepSeek 固定 512 重放，并安排实际 EOS 场景复测。最终结果只在 Slurm 结束、独立审计及正常资源释放通过后写入 `evidence/recheck-status.json`。该文件没有合格结果时，不把历史数字称为“本次已复现”。
+
+### 旧版 DeepSeek 固定 512 本轮结果
+
+生产任务 `910384.251` 和独立 CPU 审计 `910377.419` 均 COMPLETED/0。B16 两轮 decode 为 **25.8244、25.5249 tok/s**，含 prefill 为 **20.3491、20.1239 tok/s**；B8 为 14.6126、14.5371 tok/s，含 prefill 为 12.6706、12.6022 tok/s。固定 512 的吞吐接近历史记录。
+
+这是原版 `r817` 审计口径：已知回答 ID/EOS、相同几何的全长重复、raw SHA/CPU argmax、SDK/源代码、计数、owner 和退出检查通过；原版允许重复行 logits 差异，B16 decode 的检查点确实存在该差异。它既不是按实际 EOS 的有效吞吐，也不能当作当前严格重复行 raw gate 已修复。保留完整原始审计 `evidence/deep-allselected-r817-910384.251-summary.json`；实际 EOS 复测另行验收。
 
 ## 统一复测报告
 

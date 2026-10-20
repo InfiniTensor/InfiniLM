@@ -10,9 +10,9 @@
 
 | 模型 | 当前稳定构件 | 未完成或失败候选 |
 | --- | --- | --- |
-| GLM | 最新 Ops/Common `r2844/r2845`；Model 原始 `r2856`；多 batch host cache `r3072/r3073` | `r3148` prefill cache；`r3348` 专家排序；`r3323` fastpath；长输出 G128/M8 |
+| GLM | 最新 Ops/Common `r2844/r2845`；Model 原始 `r2856`；多 batch host cache `r3072/r3073` | `r3323` fastpath 已审计通过 48.20 tok/s；待验证：`r3148` prefill cache、`r3348` 专家排序、长输出 G128/M8、`r3439` fastpath+G128/M32 |
 | Kimi | 最新 Ops/Common `r2844/r2845`、Model `r2863` 的 B1 | `r3261/r3266` FP32 归约整模型失败；`r3393/r3395` F64 Common 已构建，等待完整模型验证 |
-| Deep | 最新 Ops/Common `r2844/r2845`、Model `r2856` 的 B1 | `r2904` 多请求 FP32 归约仍失败；tracing 扰动原失败窗口 |
+| Deep | 最新 Ops/Common `r2844/r2845`、Model `r2856` 的 B1 | `r2904` 多请求 FP32 归约仍失败；`r3443` 匹配同步控制与 attention/FFN/indexer F64 分级候选已安排隔离构建/组件测试 |
 
 历史版本分别为 Kimi `r963`、GLM `r927`、Deep `r815`。它们依赖各自旧 SDK、旧 Common 和 BLAS policy，不能只复制一个 `.so` 到新版环境。
 
