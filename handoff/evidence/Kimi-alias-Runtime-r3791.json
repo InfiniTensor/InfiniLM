@@ -1,0 +1,53 @@
+{
+  "utc": "2026-10-20T22:03:08.502178+00:00",
+  "completed": true,
+  "producer": [
+    "910373.821",
+    "kimi-alias-runtime-r3776",
+    "COMPLETED",
+    "0:0",
+    "00:00:57"
+  ],
+  "cases": 288,
+  "actual_Runtime_bridge_wrong_ambient_tested": true,
+  "alias_and_clone_flag_paths_tested": true,
+  "alias_calls_per_device": 144,
+  "skipped_bytes_per_device": 7304380416,
+  "wholemodel_performance_qualified": false,
+  "library_sha256": "7e55e7f1fab34170d3a321b9de46685d18fa13f38095341b8ab3affc02898065",
+  "reports": [
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu0.json",
+      "sha256": "991547ab09c90950fb0da9b2d2d2182337e049906031e26bd9752f7c431a90ce"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu1.json",
+      "sha256": "da26c4649abc3d81ae45175de91d85e7272e214b984907e9c41d11b0084b9361"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu2.json",
+      "sha256": "1c8680b785f418dd15aeab774c6f1d61fa6a0106e13ba18c1b4c147fdaacafb2"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu3.json",
+      "sha256": "d960b1adea4d689798883b3c623c0053814712a72bc7f11189cfd3c6d019486f"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu4.json",
+      "sha256": "c8227a5ad8ac1ee308cbc95f21215a15847edf4f52b6cbf0be776e7511579e11"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu5.json",
+      "sha256": "d58acd2d9083f8a826bfa838d92b014231ceb2c237b534704146f1dafd9d5f2a"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu6.json",
+      "sha256": "61818be4f1796dd3b906b4455a87325172f0367b05d43bdfadcb5b3f5cda0b60"
+    },
+    {
+      "file": "kda-alias-runtime-r3775-910373.821-gpu7.json",
+      "sha256": "8cf04ef1aa33eb02f6a810594477f068a7c88aa7e08bda90b4151ef2fca4af28"
+    }
+  ],
+  "scope": "Actual synchronous Runtime helper, correct and intentionallydifferent ambientdevice, restorescallerdevice, completeoutput/statecomparedrawroundedandserialW1. Producer did fullGPU tensor equality; CPU auditor checks terminal/schema/SHA, no independentlypersisted rawtensors. Inheritedscope NoRuntime inproducer describesoriginalrawportion only; thisextendedprobe reallycalledRuntimehelper flag0/1 withcorrect/wrongambient. Componentonly, no wholemodeltoken/performancequalification; producer resetseachhelperRuntime but didnot persistindependentweak-ownerclosureproof."
+}

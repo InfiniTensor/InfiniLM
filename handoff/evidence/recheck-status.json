@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T21:21:11.524499+00:00",
+  "recorded_utc": "2026-10-20T22:24:21.619999+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -218,7 +218,7 @@
   "latest5f91_model_qualified": {
     "Deep": "qualified-latest-Deep-r3729.json",
     "Kimi": null,
-    "GLM": null
+    "GLM": "qualified-GLM-profiles-r3797.json (M8/M16 only; M4rejected)"
   },
   "latest5f91_allthree_models_qualified": false,
   "KDA_wholemodel_fix_qualified": false,
@@ -235,5 +235,11 @@
   "latest_Kimi_wholemodel_speculative_gain": false,
   "latest_Kimi_matrix": "3759",
   "large_pipeline": "3761 guardedbyactualQA+AR",
-  "GLM_large_latest": "3721 pending terminalaudit3756"
+  "GLM_large_latest": "3721 pending terminalaudit3756",
+  "latest_GLM_qualified_profiles": "qualified-GLM-profiles-r3797.json",
+  "GLM_rejected_micro4": true,
+  "GLM_shared_original_RoPE": "GLM-shared-RoPE-memory-r3801.json",
+  "Kimi_actual_Runtime_alias": "Kimi-alias-Runtime-r3791.json",
+  "latest_Kimi_speculative_gain_adopted": false,
+  "Deep_latest_B16": "3798 producer /3799 auditor inprogress"
 }

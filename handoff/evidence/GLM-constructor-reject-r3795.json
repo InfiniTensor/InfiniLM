@@ -1,0 +1,113 @@
+{
+  "utc": "2026-10-20T22:09:35.052661+00:00",
+  "completed": true,
+  "producer": [
+    "910384.269",
+    "glm-idle-r3772-TP8PP2",
+    "COMPLETED",
+    "0:0",
+    "00:03:35"
+  ],
+  "normal_contexts_closed_after_capacity_rejection": 16,
+  "no_disk_weights_loaded": true,
+  "wholemodel_performance_qualified": false,
+  "reports": [
+    {
+      "stage": 0,
+      "rank": 0,
+      "free_bytes_after_create": 8338276352,
+      "sha256": "3b89b802ea0099ecd25596b9e066275c1daed82dde8369b3e97cd76bcb6a5b6a"
+    },
+    {
+      "stage": 0,
+      "rank": 1,
+      "free_bytes_after_create": 8204058624,
+      "sha256": "b2b829a22c3aa856231351523b8104133d2aa944cf69c00831f867d9a4168a89"
+    },
+    {
+      "stage": 0,
+      "rank": 2,
+      "free_bytes_after_create": 8195670016,
+      "sha256": "812e79198c475a27606500825b5ec76ecd1a639fea6025552b23f6a179c646f2"
+    },
+    {
+      "stage": 0,
+      "rank": 3,
+      "free_bytes_after_create": 8254390272,
+      "sha256": "07978d2c1af0755c668235d4ac1939e7f15a2bebaff28d15d1b5a19ef0b4cf98"
+    },
+    {
+      "stage": 0,
+      "rank": 4,
+      "free_bytes_after_create": 8271167488,
+      "sha256": "c66c15aaf6ef3098bc1ea5947682979042801a516572a5492c46497a964b7d37"
+    },
+    {
+      "stage": 0,
+      "rank": 5,
+      "free_bytes_after_create": 8204058624,
+      "sha256": "2d7bd3d4bd95cdaed4eb35cc0f557a8ccd265f98812ffb9232b19e0781124860"
+    },
+    {
+      "stage": 0,
+      "rank": 6,
+      "free_bytes_after_create": 8212447232,
+      "sha256": "aa76280983039601c149fda4ea50f28bbe39b0dad93e78b3cf804cf618a742a4"
+    },
+    {
+      "stage": 0,
+      "rank": 7,
+      "free_bytes_after_create": 8338276352,
+      "sha256": "b18ba5b54702d532a2416722654358c44935d0e54fdbf08e4efccb39da22875b"
+    },
+    {
+      "stage": 1,
+      "rank": 0,
+      "free_bytes_after_create": 3435134976,
+      "sha256": "c6bc272d61ed115f9c8463c0e3d96874406342ed873fafbeb305b7137b61bbe8"
+    },
+    {
+      "stage": 1,
+      "rank": 1,
+      "free_bytes_after_create": 3309305856,
+      "sha256": "6ed14115a5870d415cf0bf94f2a0e715b5c5650d746ade89e6951b12baecb72a"
+    },
+    {
+      "stage": 1,
+      "rank": 2,
+      "free_bytes_after_create": 3300917248,
+      "sha256": "c0a6da2ca8b5336a576aa92cb1e59727ce175ebba33630a75accd8ed1ede87c9"
+    },
+    {
+      "stage": 1,
+      "rank": 3,
+      "free_bytes_after_create": 3368026112,
+      "sha256": "3afe646383cef61cf5ae2e65d16bc18fddeae8fc07bda93b71f4bbb435b721b6"
+    },
+    {
+      "stage": 1,
+      "rank": 4,
+      "free_bytes_after_create": 3368026112,
+      "sha256": "a3f356b257af361f54a535ad51abe3bf25af6c2d208d7085f2a54756cef02d1d"
+    },
+    {
+      "stage": 1,
+      "rank": 5,
+      "free_bytes_after_create": 3309305856,
+      "sha256": "db5231a49eb2007956e7d50e2bf2f34f0a3c85c4cfca39010bef3f61b67e603e"
+    },
+    {
+      "stage": 1,
+      "rank": 6,
+      "free_bytes_after_create": 3326083072,
+      "sha256": "d4b3ee75c1b6afee8b94ffe4d318e12429e935101282af5bc6ca03840096fcea"
+    },
+    {
+      "stage": 1,
+      "rank": 7,
+      "free_bytes_after_create": 3443523584,
+      "sha256": "3168c378a04bfb2195494672c4280e7068bbbf555d00a129abd5d86ca8d5f8a6"
+    }
+  ],
+  "scope": "Early10GiBconstructorheuristic safelyrejectedactual PP2 tail~3.1GiB, original1MRoPE duplicate perlayer. Prior3773auditor mistakenlylookedforperf schema; this is new separatecapacity/lifecycleaudit, no producer rerun or failureoverwrite. New sharedfullcontextRoPE trial retains6GiBserving guard and8GiBloadguard(6+2GiBtransaction)."
+}

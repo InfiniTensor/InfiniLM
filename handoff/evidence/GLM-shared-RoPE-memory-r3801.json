@@ -1,0 +1,40 @@
+{
+  "utc": "2026-10-20T22:24:21.619999+00:00",
+  "wholemodel_performance_qualified": false,
+  "same_original_checkpoint_context": 1048576,
+  "serving_KV_capacity": 640,
+  "same_node_stage_rank0_measurements": [
+    {
+      "stage": 0,
+      "rank": 0,
+      "previous_free_bytes": 8338276352,
+      "new_free_bytes": 14646509568,
+      "measured_saved_bytes": 6308233216,
+      "shared_RoPE_counters": [
+        49,
+        2,
+        47,
+        2,
+        2
+      ],
+      "latest_model_completed": false
+    },
+    {
+      "stage": 1,
+      "rank": 0,
+      "previous_free_bytes": 3435134976,
+      "new_free_bytes": 9877585920,
+      "measured_saved_bytes": 6442450944,
+      "shared_RoPE_counters": [
+        50,
+        2,
+        48,
+        2,
+        2
+      ],
+      "latest_model_completed": false
+    }
+  ],
+  "idle_pool_trim_measured_bytes_freed": 0,
+  "scope": "SamePP2nodes/rank0/ctx16rows640. Original1Mdefaulttheta8e6RoPE49or50instances now2readonlyobjects perRuntime, weakpoolnotretainingowner. Constructorfreebytes beforeweightload; fullmodelQA/ABBA/normalclosureaudit stillrunning. Not croppedcontext, notend-to-endloadorservingspeedup."
+}

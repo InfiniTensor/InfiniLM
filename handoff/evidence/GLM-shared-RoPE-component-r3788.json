@@ -1,0 +1,70 @@
+{
+  "completed": true,
+  "owners": [
+    {
+      "both_normal_owners_closed": true,
+      "device": 0,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 1,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 2,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 3,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 4,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 5,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 6,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    },
+    {
+      "both_normal_owners_closed": true,
+      "device": 7,
+      "different_head_and_Runtime_isolated": true,
+      "original_1M_context_preserved": true,
+      "same_Runtime_head_key_shares": true,
+      "weakpool_does_not_retain_RoPE_or_Runtime": true
+    }
+  ],
+  "scope": "Exact sharedfactory usedbyModel, actual latestCommon Hygon full1M RoPE constructors, sharing/ownerisolation/counters/weaklifetime. No modeltoken/performancequalification."
+}

@@ -1,0 +1,4 @@
+import pathlib,json,subprocess,datetime
+r=pathlib.Path.home()/'hygon-inference-refactor-20261014';out=r/'glm-profile-r3797-audit-launch.json';assert not out.exists();label='glm-profile-r3797-audit-rows96';args=['srun','--jobid=910377','--overlap','--exact','-N1','-n1','-c2','-w','COMPUTE_NODE_3181eb8b','--gres=none','--mem=10000M','-t','00:40:00','--job-name='+label,'--output='+str(r/'logs'/(label+'-%J.log')),'env','GLM_LARGE_AUDIT_ROWS=96','python3',str(r/'incoming/audit_glm_profiles_r3797.py')]
+with(r/'logs'/(label+'-controller.log')).open('w')as f:p=subprocess.Popen(args,stdout=f,stderr=subprocess.STDOUT,start_new_session=True)
+out.write_text(json.dumps({'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'pid':p.pid,'label':label,'args':args},indent=2));print(json.dumps({'submitted':True,'pid':p.pid}))

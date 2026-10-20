@@ -1,0 +1,1028 @@
+{
+  "utc": "2026-10-20T21:58:54.161322+00:00",
+  "terminal_audit_or_usable_performance": false,
+  "analyses": [
+    {
+      "file": "kimi-spec-r3759-math3679-mode1-3059e07c0eacecad7150-node3.json",
+      "mode": 1,
+      "phase": "B4-lookup-K3-B1",
+      "comparisons": [
+        {
+          "label": "B1-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.16666666666666666
+        },
+        {
+          "label": "B1-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.16666666666666666
+        },
+        {
+          "label": "B1-lookup-K3-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 33,
+              "actual": 45214,
+              "AR": 17943
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.08928571428571429
+        },
+        {
+          "label": "B1-lookup-K3-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 33,
+              "actual": 45214,
+              "AR": 17943
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.08928571428571429
+        },
+        {
+          "label": "B1-lookup-K7-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 27,
+              "actual": 1200,
+              "AR": 2262
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 31,
+              "active": 1,
+              "drafted": 7,
+              "accepted": 0,
+              "emitted": 1,
+              "verify_replay_seconds": 0.5526777822524309,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 18660,
+                  "replayed_correction": 976
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.031578947368421054
+        },
+        {
+          "label": "B1-lookup-K7-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 27,
+              "actual": 1200,
+              "AR": 2262
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 31,
+              "active": 1,
+              "drafted": 7,
+              "accepted": 0,
+              "emitted": 1,
+              "verify_replay_seconds": 0.5546754039824009,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 18660,
+                  "replayed_correction": 976
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.031578947368421054
+        },
+        {
+          "label": "B2-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 66,
+              "actual": 28841,
+              "AR": 220
+            },
+            {
+              "row": 1,
+              "first_index": 118,
+              "actual": 17698,
+              "AR": 14170
+            }
+          ],
+          "replay_mismatch_round_count": 3,
+          "first_replay_mismatch": [
+            {
+              "round": 62,
+              "active": 2,
+              "drafted": 2,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.4822278991341591,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 7857,
+                  "replayed_correction": 19032
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.19491525423728814
+        },
+        {
+          "label": "B2-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 66,
+              "actual": 28841,
+              "AR": 220
+            },
+            {
+              "row": 1,
+              "first_index": 118,
+              "actual": 17698,
+              "AR": 14170
+            }
+          ],
+          "replay_mismatch_round_count": 3,
+          "first_replay_mismatch": [
+            {
+              "round": 62,
+              "active": 2,
+              "drafted": 2,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.4803753891028464,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 7857,
+                  "replayed_correction": 19032
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.19491525423728814
+        },
+        {
+          "label": "B2-lookup-K3-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 52,
+              "actual": 4374,
+              "AR": 43694
+            }
+          ],
+          "replay_mismatch_round_count": 4,
+          "first_replay_mismatch": [
+            {
+              "round": 43,
+              "active": 2,
+              "drafted": 6,
+              "accepted": 1,
+              "emitted": 3,
+              "verify_replay_seconds": 0.6202201279811561,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 1,
+                  "verified_correction": 4374,
+                  "replayed_correction": 43694
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.08734939759036145
+        },
+        {
+          "label": "B2-lookup-K3-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 52,
+              "actual": 4374,
+              "AR": 43694
+            }
+          ],
+          "replay_mismatch_round_count": 4,
+          "first_replay_mismatch": [
+            {
+              "round": 43,
+              "active": 2,
+              "drafted": 6,
+              "accepted": 1,
+              "emitted": 3,
+              "verify_replay_seconds": 0.6124041881412268,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 1,
+                  "verified_correction": 4374,
+                  "replayed_correction": 43694
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.08734939759036145
+        },
+        {
+          "label": "B2-lookup-K7-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.044444444444444446
+        },
+        {
+          "label": "B2-lookup-K7-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.044444444444444446
+        },
+        {
+          "label": "B4-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            },
+            {
+              "row": 2,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            },
+            {
+              "row": 3,
+              "first_index": 80,
+              "actual": 4579,
+              "AR": 378
+            }
+          ],
+          "replay_mismatch_round_count": 4,
+          "first_replay_mismatch": [
+            {
+              "round": 52,
+              "active": 4,
+              "drafted": 4,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.6161387558095157,
+              "replayed_rows": 4,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 92216,
+                  "replayed_correction": 44978
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.21238938053097345
+        },
+        {
+          "label": "B4-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            },
+            {
+              "row": 2,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            },
+            {
+              "row": 3,
+              "first_index": 80,
+              "actual": 4579,
+              "AR": 378
+            }
+          ],
+          "replay_mismatch_round_count": 4,
+          "first_replay_mismatch": [
+            {
+              "round": 52,
+              "active": 4,
+              "drafted": 4,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.6183226271532476,
+              "replayed_rows": 4,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 92216,
+                  "replayed_correction": 44978
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.21238938053097345
+        }
+      ]
+    },
+    {
+      "file": "kimi-spec-r3759-math3679-mode2-603ab8c20057fe7b2397-node3.json",
+      "mode": 2,
+      "phase": "B4-lookup-K7-B2",
+      "comparisons": [
+        {
+          "label": "B1-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.18333333333333332
+        },
+        {
+          "label": "B1-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 6130,
+              "AR": 2762
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.18333333333333332
+        },
+        {
+          "label": "B1-lookup-K3-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 53,
+              "actual": 3934,
+              "AR": 22834
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 39,
+              "active": 1,
+              "drafted": 3,
+              "accepted": 0,
+              "emitted": 1,
+              "verify_replay_seconds": 0.4539581057615578,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 2590,
+                  "replayed_correction": 13118
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.1
+        },
+        {
+          "label": "B1-lookup-K3-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 53,
+              "actual": 3934,
+              "AR": 22834
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 39,
+              "active": 1,
+              "drafted": 3,
+              "accepted": 0,
+              "emitted": 1,
+              "verify_replay_seconds": 0.4555528820492327,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 2590,
+                  "replayed_correction": 13118
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.1
+        },
+        {
+          "label": "B1-lookup-K7-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 27,
+              "actual": 1200,
+              "AR": 2262
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.04521276595744681
+        },
+        {
+          "label": "B1-lookup-K7-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 27,
+              "actual": 1200,
+              "AR": 2262
+            }
+          ],
+          "replay_mismatch_round_count": 0,
+          "first_replay_mismatch": [],
+          "acceptance_fraction": 0.04521276595744681
+        },
+        {
+          "label": "B2-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 48402,
+              "AR": 2762
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 42,
+              "active": 2,
+              "drafted": 2,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.4717264221981168,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 5415,
+                  "replayed_correction": 36399
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.23684210526315788
+        },
+        {
+          "label": "B2-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 41,
+              "actual": 48402,
+              "AR": 2762
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 42,
+              "active": 2,
+              "drafted": 2,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.47220180183649063,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 5415,
+                  "replayed_correction": 36399
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.23684210526315788
+        },
+        {
+          "label": "B2-lookup-K3-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 54,
+              "actual": 671,
+              "AR": 343
+            },
+            {
+              "row": 1,
+              "first_index": 118,
+              "actual": 17698,
+              "AR": 14170
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 43,
+              "active": 2,
+              "drafted": 6,
+              "accepted": 1,
+              "emitted": 3,
+              "verify_replay_seconds": 0.5845684171654284,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 22834,
+                  "replayed_correction": 3934
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.09034267912772585
+        },
+        {
+          "label": "B2-lookup-K3-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 54,
+              "actual": 671,
+              "AR": 343
+            },
+            {
+              "row": 1,
+              "first_index": 118,
+              "actual": 17698,
+              "AR": 14170
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 43,
+              "active": 2,
+              "drafted": 6,
+              "accepted": 1,
+              "emitted": 3,
+              "verify_replay_seconds": 0.5855409149080515,
+              "replayed_rows": 2,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 22834,
+                  "replayed_correction": 3934
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.09034267912772585
+        },
+        {
+          "label": "B2-lookup-K7-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 102,
+              "active": 2,
+              "drafted": 7,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.5878773811273277,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 1,
+                  "verified_correction": 14170,
+                  "replayed_correction": 17698
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.03956343792633015
+        },
+        {
+          "label": "B2-lookup-K7-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 119,
+              "actual": 564,
+              "AR": 26453
+            }
+          ],
+          "replay_mismatch_round_count": 1,
+          "first_replay_mismatch": [
+            {
+              "round": 102,
+              "active": 2,
+              "drafted": 7,
+              "accepted": 0,
+              "emitted": 2,
+              "verify_replay_seconds": 0.5886602401733398,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 1,
+                  "verified_correction": 14170,
+                  "replayed_correction": 17698
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.03956343792633015
+        },
+        {
+          "label": "B4-lookup-K1-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 58,
+              "actual": 10734,
+              "AR": 1340
+            },
+            {
+              "row": 1,
+              "first_index": 126,
+              "actual": 16602,
+              "AR": 25969
+            },
+            {
+              "row": 2,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 3,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 57,
+              "active": 4,
+              "drafted": 1,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.49917767429724336,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 2,
+                  "verified_correction": 4198,
+                  "replayed_correction": 17698
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.2017167381974249
+        },
+        {
+          "label": "B4-lookup-K1-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 58,
+              "actual": 10734,
+              "AR": 1340
+            },
+            {
+              "row": 1,
+              "first_index": 126,
+              "actual": 16602,
+              "AR": 25969
+            },
+            {
+              "row": 2,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 3,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 57,
+              "active": 4,
+              "drafted": 1,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.49806037405505776,
+              "replayed_rows": 1,
+              "replay_token_differences": [
+                {
+                  "row": 2,
+                  "verified_correction": 4198,
+                  "replayed_correction": 17698
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.2017167381974249
+        },
+        {
+          "label": "B4-lookup-K3-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 1,
+              "first_index": 50,
+              "actual": 41677,
+              "AR": 4052
+            },
+            {
+              "row": 2,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 3,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 75,
+              "active": 4,
+              "drafted": 12,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.7918019178323448,
+              "replayed_rows": 4,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 2410,
+                  "replayed_correction": 20581
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.08172362555720654
+        },
+        {
+          "label": "B4-lookup-K3-B2",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 1,
+              "first_index": 50,
+              "actual": 41677,
+              "AR": 4052
+            },
+            {
+              "row": 2,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 3,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            }
+          ],
+          "replay_mismatch_round_count": 2,
+          "first_replay_mismatch": [
+            {
+              "round": 75,
+              "active": 4,
+              "drafted": 12,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 0.8019803739152849,
+              "replayed_rows": 4,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 2410,
+                  "replayed_correction": 20581
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.08172362555720654
+        },
+        {
+          "label": "B4-lookup-K7-B1",
+          "all_IDs_exact": false,
+          "first_differences": [
+            {
+              "row": 0,
+              "first_index": 43,
+              "actual": 16850,
+              "AR": 12775
+            },
+            {
+              "row": 1,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            },
+            {
+              "row": 2,
+              "first_index": 26,
+              "actual": 8094,
+              "AR": 17375
+            },
+            {
+              "row": 3,
+              "first_index": 118,
+              "actual": 14170,
+              "AR": 17698
+            }
+          ],
+          "replay_mismatch_round_count": 6,
+          "first_replay_mismatch": [
+            {
+              "round": 39,
+              "active": 4,
+              "drafted": 28,
+              "accepted": 0,
+              "emitted": 4,
+              "verify_replay_seconds": 1.1554951979778707,
+              "replayed_rows": 4,
+              "replay_token_differences": [
+                {
+                  "row": 0,
+                  "verified_correction": 92216,
+                  "replayed_correction": 44978
+                }
+              ]
+            }
+          ],
+          "acceptance_fraction": 0.038461538461538464
+        }
+      ]
+    }
+  ]
+}

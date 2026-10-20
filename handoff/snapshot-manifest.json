@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T21:21:11.524499+00:00",
-  "scope": "Exactpublicbytes;16220originalsourceblobsverifiedunchanged. Kimiactualdispatch/device failureandguardrepair; no speculativegain adopted. Newexperimentsrequirewholemodelqualification.",
+  "utc": "2026-10-20T22:24:21.619999+00:00",
+  "scope": "Exactpublicbytes;16220originalsourceblobsverifiedunchanged. GLMM8/M16qualified; M4negative. SharedfullRoPEactualmemory/lifetime only; KimiSpecnegative; DeepB16pending. No inheritednewserver/peak/HTTPclaim.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 13909,
-      "sha256": "8aad22459f005a8302342e5a76e8bfa3176feb078518771b28950af394f467a9"
+      "bytes": 16837,
+      "sha256": "9e11edf707e664e35fbbf196e42df43a9f58dce04b2dc31d284196f371ba2b9e"
     },
     "config.example.env": {
       "bytes": 826,
@@ -25890,6 +25890,10 @@
       "bytes": 7896,
       "sha256": "85226a8e4874d868c8052885cea60e92f0d937c10ec3f2500c179b1e539ff317"
     },
+    "drivers/audit_deep_B16_r3799.py": {
+      "bytes": 7158,
+      "sha256": "011bc03a678e7ffba79d763d3e0984c723d756463463c0402d803e3aa4a2c314"
+    },
     "drivers/audit_deep_chunked_r3511.py": {
       "bytes": 8166,
       "sha256": "0a7d58ed41df4334df6a98ea55f116aea50d35c1a7792e91a74bd661be760497"
@@ -25926,6 +25930,10 @@
       "bytes": 8567,
       "sha256": "7c2ece9e6690e874cdb22d78b8fdc058dec420ebfd0e9c7d25a2d114164b8a55"
     },
+    "drivers/audit_glm_constructor_reject_r3795.py": {
+      "bytes": 1657,
+      "sha256": "bd14f815f98c34ee9c84b4351c8840da8d18d28438f1aea3f0be014b2bac095d"
+    },
     "drivers/audit_glm_fastpath_capacity_r3440.py": {
       "bytes": 11618,
       "sha256": "c4ed5d360c60ee13fa51b3672bd90c1659a40cb562db499da9883afa0b0cff83"
@@ -25942,6 +25950,10 @@
       "bytes": 11564,
       "sha256": "512a6e7eab93794f22d3ead1fefa99ebbd8dc15043358d83d84b28169d5edc52"
     },
+    "drivers/audit_glm_idle_r3773.py": {
+      "bytes": 13849,
+      "sha256": "2f34e7ca8f281d2ada4ca0b3f5ff734304597d99531abf179e454379d2322a10"
+    },
     "drivers/audit_glm_large_r3756.py": {
       "bytes": 13068,
       "sha256": "25a9424fddf18a6bbc85a28ed766dd699cf8ae3dc123b3a097ed20fdeeadea1c"
@@ -25950,6 +25962,10 @@
       "bytes": 12813,
       "sha256": "1e54787444d60a9f90e47c3130d55cf8bb83c99ceb5159b70823a7b76b23ab28"
     },
+    "drivers/audit_glm_profiles_r3797.py": {
+      "bytes": 14381,
+      "sha256": "e590cc0c03419bbc95515c1e23132250c44db68c5585e6454ee9f51c87663c5b"
+    },
     "drivers/audit_glm_route_order_r3343.py": {
       "bytes": 6804,
       "sha256": "f0991dfc2489806c9a56bca93355ccf48fa04f691e7dd12067e35865d5f9be85"
@@ -25957,6 +25973,14 @@
     "drivers/audit_glm_scale_r3666.py": {
       "bytes": 13289,
       "sha256": "8ddda09a96d271a111b65e19da16aee5f99243dea7da115d6370f6ceabedf42a"
+    },
+    "drivers/audit_glm_shared_rope_r3785.py": {
+      "bytes": 14164,
+      "sha256": "45cc25c7e7115e87eb8e6592a4dc2fe10f3f748fb7f5a0024546706c0cd48d26"
+    },
+    "drivers/audit_glm_shared_rope_r3790.py": {
+      "bytes": 14164,
+      "sha256": "6b8f952ee34950b8aeeba1ba1c0999a4f75ca9c986d10668138454894753f917"
     },
     "drivers/audit_glm_smallmicro_r3239.py": {
       "bytes": 10494,
@@ -25969,6 +25993,10 @@
     "drivers/audit_kda_alias_r3741.py": {
       "bytes": 2453,
       "sha256": "85a208a5db3150b1376a6af6f8229296f92fa5220909cc5336e6a29df1404310"
+    },
+    "drivers/audit_kimi_alias_runtime_r3791.py": {
+      "bytes": 2608,
+      "sha256": "7ab4401539ebcfd5c690b23fee98b687d35dbedf807efdf722cd9d3817746ccc"
     },
     "drivers/audit_kimi_batch_acceptance_r3502.py": {
       "bytes": 12577,
@@ -26062,13 +26090,25 @@
       "bytes": 4526,
       "sha256": "5d6e26b34920f92994db2a260ba6ef00fc1b071a6e618a2fe9f5d27fc246e012"
     },
+    "drivers/build_glm_idle_trim_r3771_inside.sh": {
+      "bytes": 4101,
+      "sha256": "2862d61e55671227f5292fb4f89da679fdfa4b68938c00eb6cfc791c324bfbdd"
+    },
     "drivers/build_glm_serving_cases_r1186.py": {
       "bytes": 3620,
       "sha256": "601358c576871a464dfaedcd251f5a92dced4341f15897a50cbd698b1b2cc4a5"
     },
+    "drivers/build_glm_shared_rope_r3783_inside.sh": {
+      "bytes": 4157,
+      "sha256": "81995988a825a90a989dc394638632a6cd39d6910cf5f4ca3eba6b154693fb92"
+    },
     "drivers/build_glm_tip_scale_r3694_inside.sh": {
       "bytes": 4034,
       "sha256": "659dc227a5455498300ee58f530e4a3660c2ba7de38f597ee7bfd7b3da904cea"
+    },
+    "drivers/build_kimi_alias_r3775_inside.sh": {
+      "bytes": 4508,
+      "sha256": "9401ca042ba35e294329da56be1a4abc558ca33ee6b4dd55e0da6da633e1a106"
     },
     "drivers/build_kimi_guard_r3755_inside.sh": {
       "bytes": 4453,
@@ -26210,6 +26250,10 @@
       "bytes": 1416,
       "sha256": "8795150518042e7f680e96566c9462592befb2deec190da90432a7ac38581fbd"
     },
+    "drivers/deep_attention_precision_r3798_inside.sh": {
+      "bytes": 1416,
+      "sha256": "16f27ab75df8b3f6baf4bdb32e8b3eb0d914c73fd494215dc6090b915d97fcd2"
+    },
     "drivers/deep_attention_precision_serving_r3670.py": {
       "bytes": 8444,
       "sha256": "e0ffca0a1d2a1c3e22638abb9a3c4dbfa3ffa90dce0b267dc2c5dea91ffb02bf"
@@ -26217,6 +26261,10 @@
     "drivers/deep_attention_precision_serving_r3699.py": {
       "bytes": 8453,
       "sha256": "c934f513de6abd6fe223b4e9a780e3109dc67ce399abed7b7510a7c42de653f9"
+    },
+    "drivers/deep_attention_precision_serving_r3798.py": {
+      "bytes": 8551,
+      "sha256": "267eadd0315c747563579ebcf9cbdbe28aed55c2c6dd5ea36d8be5dffa7694b3"
     },
     "drivers/deep_cache_batch_r784.hpp": {
       "bytes": 74,
@@ -26438,6 +26486,30 @@
       "bytes": 505,
       "sha256": "94a13f0cb6378f226960bdf05a30ddb6cfbb430c8127a3ee126b8198582e02db"
     },
+    "drivers/glm_idle_chat_r3772.py": {
+      "bytes": 4040,
+      "sha256": "12d954d247462c8532ee70205aac8802964a2727dbb705dfc9d3e0e0aacfebf1"
+    },
+    "drivers/glm_idle_chat_r3784.py": {
+      "bytes": 4040,
+      "sha256": "12d954d247462c8532ee70205aac8802964a2727dbb705dfc9d3e0e0aacfebf1"
+    },
+    "drivers/glm_idle_probe_r3772.py": {
+      "bytes": 14113,
+      "sha256": "2756ca51af366c0f4e83fac6c92540418c21c66cf56e5602b4b472e9ba9b8987"
+    },
+    "drivers/glm_idle_probe_r3784.py": {
+      "bytes": 14127,
+      "sha256": "b5cbdf37139f1e0fa69403632bb5095f0c54f14cf9e81db80abbcafc11c5151e"
+    },
+    "drivers/glm_idle_r3772_inside.sh": {
+      "bytes": 1916,
+      "sha256": "5cd16403b74812641ddee3015d8f2d85634a9b40128a1d800876dfc5288e52bd"
+    },
+    "drivers/glm_idle_trim_r3771.cpp": {
+      "bytes": 1227,
+      "sha256": "bbab805d896d554bad96cd5e53b33972c0d3bf29ef9eea90853191ecb546d1fc"
+    },
     "drivers/glm_kv_pair_r544.cu": {
       "bytes": 1471,
       "sha256": "09f81b5a0cda27b194ed0e431dedd8d1c4a9c34b0e024bf04dfd1ee3bea955bf"
@@ -26506,6 +26578,26 @@
       "bytes": 915,
       "sha256": "c54698d5c7fcb24e6ecadfea89fdffda305db508e049a0902eac1dc18ac61496"
     },
+    "drivers/glm_shared_rope_contract_r3783.cpp": {
+      "bytes": 2190,
+      "sha256": "276eb8dc8043d97d35686550de8e3b8e6a96324698ffe6ccaa2ccfbbc072880f"
+    },
+    "drivers/glm_shared_rope_contract_r3783_inside.sh": {
+      "bytes": 1520,
+      "sha256": "a6e63a5583d9402f93c65e4033a38a8eb4368831b9f2cbd69adc0b26de5e2380"
+    },
+    "drivers/glm_shared_rope_contract_r3788_inside.sh": {
+      "bytes": 1549,
+      "sha256": "48767f5f60bdbfcd13986968e8ec817063fb718516e2020c93d6039f8202637a"
+    },
+    "drivers/glm_shared_rope_r3783.hpp": {
+      "bytes": 1708,
+      "sha256": "6262ac0387d4dfcb274f912a026780d218dde19e59701bf589746ee8ae46b11c"
+    },
+    "drivers/glm_shared_rope_r3784_inside.sh": {
+      "bytes": 1925,
+      "sha256": "8456ce45f00404fd2086c4e1a2d28930cecdec3b9b200ea79cb11a7b86e85971"
+    },
     "drivers/glm_smallmicro_probe_r3236.py": {
       "bytes": 11766,
       "sha256": "a9a701dd1affc39f4e73135e9844b9cf5a44486a6c19bd63851de5687849b5d9"
@@ -26521,6 +26613,10 @@
     "drivers/kda_alias_r3733_inside.sh": {
       "bytes": 724,
       "sha256": "c416f47c331c51a81ec03c0833013366630a7e4340edda1cac319e4168a8a800"
+    },
+    "drivers/kda_alias_runtime_r3775_inside.sh": {
+      "bytes": 805,
+      "sha256": "3448cb19dfdc3e9327bb50d77428df5c6abb5933f8a7e2b5c17b39791779cbb0"
     },
     "drivers/kda_guard_r3755_inside.sh": {
       "bytes": 764,
@@ -26762,9 +26858,45 @@
       "bytes": 5217,
       "sha256": "5a6ad94033242835db58ae31d33110ee70dd9d80288c84c7fdc4495fbe7db8fd"
     },
+    "drivers/launch_deep_B16_r3798.py": {
+      "bytes": 1667,
+      "sha256": "ff4ac20906cb4b78b26e9c5676cfe882b45dea67f94ea56065b313438c863bae"
+    },
+    "drivers/launch_glm_idle_build_r3771.py": {
+      "bytes": 1461,
+      "sha256": "09ec58fac7b68be1bf6be8127a8818586e35d761ac19e00f3055f0a81c24293b"
+    },
+    "drivers/launch_glm_idle_serving_r3772.py": {
+      "bytes": 2404,
+      "sha256": "2fc948b788d64223a1f693abd1a10897e82ee16b6b3a1c2d54e45067b3311cd6"
+    },
+    "drivers/launch_glm_profile_audit_r3797.py": {
+      "bytes": 829,
+      "sha256": "9fe21cd3e2a7c297542dbd0e5d40b8f53a84b479ba821dd075681ceda5829500"
+    },
     "drivers/launch_glm_QA_capacity_retry_r3721.py": {
       "bytes": 1352,
       "sha256": "1109fdb3d6dfd7476691689856f8324770e21c252a455435db6269edf5ec4bcc"
+    },
+    "drivers/launch_glm_shared_rope_build_r3783.py": {
+      "bytes": 1465,
+      "sha256": "e27c86d79cbfbf2f577980150f5a4d9045154fd3a94affb313e2815fda01c798"
+    },
+    "drivers/launch_glm_shared_rope_contract_r3788.py": {
+      "bytes": 1293,
+      "sha256": "36b3548e07470809b03bb58565a949373f86ad70b5cfefec71adde506f73c5bc"
+    },
+    "drivers/launch_glm_shared_rope_r3784.py": {
+      "bytes": 2560,
+      "sha256": "5fb4244f438e01c604c1d085aa3da92c74340679df4edcbf55670dac6cd53b05"
+    },
+    "drivers/launch_glm_shared_rope_r3789.py": {
+      "bytes": 2567,
+      "sha256": "0e8b8d3f5a78ec57e579cb4ef6b80aa693a3aaf217d8661f7dd075a79b831e96"
+    },
+    "drivers/launch_kimi_alias_build_r3775.py": {
+      "bytes": 1436,
+      "sha256": "e6344d9c79f6ef8c5961b45831bb4241f2a0bbaae890796c9fb603a09cfd6aee"
     },
     "drivers/launch_kimi_conv_proof_r3746.py": {
       "bytes": 1192,
@@ -26878,6 +27010,10 @@
       "bytes": 12865,
       "sha256": "75cff5eadc6109e4a9ffd3e60408d318ba63119cae371b4cbe3df58a51c1906a"
     },
+    "drivers/modern_deep_attention_precision_r3798.py": {
+      "bytes": 12865,
+      "sha256": "3fd4b6ccfc02acf7bcc53f8f144a2a4eca9171549f15946cd9e3e10cf47905d6"
+    },
     "drivers/modern_deep_wide_r3457.py": {
       "bytes": 13933,
       "sha256": "4a622bc4878c79160bf5cea6eed433d488f34d49666a659a30a50b70a92c1fb4"
@@ -26922,6 +27058,10 @@
       "bytes": 15834,
       "sha256": "9e368ba729be259e579c79fe7693ef1f0aa88c23feffc71e61da37b51451ca6f"
     },
+    "drivers/modern_glm_idle_r3772.py": {
+      "bytes": 18339,
+      "sha256": "dfcac3728edfe64a14bb8f671375ffe269661231c1231ebd2880cb03a34f5f6d"
+    },
     "drivers/modern_glm_large_r3636.py": {
       "bytes": 16842,
       "sha256": "ceb8bfcafb196deaf4a430207f15d49278003d8617d6242bd934ba034bb857e0"
@@ -26937,6 +27077,10 @@
     "drivers/modern_glm_large_r3721.py": {
       "bytes": 16876,
       "sha256": "de5abe315ff6b95bf48fdb96a9bdefb96fc22a01c1b3d99bcc0f34b51e0efe2c"
+    },
+    "drivers/modern_glm_shared_rope_r3784.py": {
+      "bytes": 19275,
+      "sha256": "98f10feaa77752c6b200987e0422e2797702f8408fd23b419759edf764b41185"
     },
     "drivers/modern_glm_smallmicro_r3236.py": {
       "bytes": 15747,
@@ -27030,6 +27174,10 @@
       "bytes": 5061,
       "sha256": "cf6c12e77f695858571e69af242c01d4a4354a29dca7c076eb0bdad1a8b6f327"
     },
+    "drivers/probe_kda_alias_runtime_r3775.py": {
+      "bytes": 6296,
+      "sha256": "d5c1e4f819555860e517e88c8a5b246f243337604bce027932f63cb2ca806261"
+    },
     "drivers/probe_kda_guard_r3755.py": {
       "bytes": 5834,
       "sha256": "5f0857b8eb36cab435483b2ef3741675312ff8e64648cc08d279534dfe977fb1"
@@ -27070,9 +27218,37 @@
       "bytes": 1398,
       "sha256": "014bace51fbd741493ce352c2d87c14585088871e33a03f4f945360b19950322"
     },
+    "drivers/queue_deep_B16_audit_r3799.py": {
+      "bytes": 1262,
+      "sha256": "b2049b2ee2fc17cfacf34d5c737ea2ee10596f879a496e1aceb21557a062a10c"
+    },
     "drivers/queue_followup_audits_r3756.py": {
       "bytes": 2155,
       "sha256": "06c890e7cebda6236275e093e96f73a6a8a0c735f55cc13c5bfb339b0b613942"
+    },
+    "drivers/queue_glm_idle_audit_r3773.py": {
+      "bytes": 2529,
+      "sha256": "fa546b0647c85eceb53132275511bbc04096027952788ce919d602ee884713ff"
+    },
+    "drivers/queue_glm_idle_serving_r3772.py": {
+      "bytes": 1196,
+      "sha256": "1d04628fc5bafbd658a7eb08ebb280d7fc55e2d5f1a0b8ea440aeffa77801f51"
+    },
+    "drivers/queue_glm_shared_rope_audit_r3790.py": {
+      "bytes": 2700,
+      "sha256": "60be46f2e01fffe0f0c39910e6203ea2702e83ee12795189d1f24acb863b697d"
+    },
+    "drivers/queue_glm_shared_rope_r3784.py": {
+      "bytes": 1728,
+      "sha256": "0fe43af7780e92a070afe2e84f0856b9431a71f8c62775cede7db1e271ac984f"
+    },
+    "drivers/queue_glm_shared_rope_r3789.py": {
+      "bytes": 1727,
+      "sha256": "d3c9b0fcda2c34862bcbb722dd6e58503d5806c7bf70a9b9fc684381c52db4a5"
+    },
+    "drivers/queue_kimi_alias_test_r3776.py": {
+      "bytes": 1924,
+      "sha256": "606b6e4abf5ae4c9702dd7bc4794bb84bff82a21ba162f94f6d0b692f0745de1"
     },
     "drivers/queue_kimi_guard_audit_r3760.py": {
       "bytes": 2111,
@@ -27174,9 +27350,17 @@
       "bytes": 2737,
       "sha256": "4d2d53369badfb754af7a171029c015cf56e255f6ead7633d64e0c46457182c6"
     },
+    "drivers/stage_glm_idle_trim_r3771.py": {
+      "bytes": 1790,
+      "sha256": "ad2e43522e16efbf8f8c08dcb4a547830c12d3c3ea005c14b1b17cadba5324d5"
+    },
     "drivers/stage_glm_scale_r3603.py": {
       "bytes": 3394,
       "sha256": "eff0e7d4242ac0e977e4f1b755315ff3b7ed0e08dd55868343cbb27f8c86d3a0"
+    },
+    "drivers/stage_glm_shared_rope_r3783.py": {
+      "bytes": 3480,
+      "sha256": "8962ac67fb9cdeb4a5c20fc65808af0cdfe573e5b2c5f60cb2f4b15deb918705"
     },
     "drivers/stage_glm_tip_scale_r3694.py": {
       "bytes": 3394,
@@ -27185,6 +27369,10 @@
     "drivers/stage_kda_rounding_r3655.py": {
       "bytes": 1602,
       "sha256": "00472c3e06b17168e9098c4f9b29d818a0e96433774f2528e228f43ec95fb330"
+    },
+    "drivers/stage_kimi_alias_runtime_r3775.py": {
+      "bytes": 3002,
+      "sha256": "dae0840cf94d45574b510aef2f6a26da0d8b0c4b4c20f4171611e6f0230f42a6"
     },
     "drivers/stage_kimi_device_guard_r3755.py": {
       "bytes": 2063,
@@ -27226,9 +27414,21 @@
       "bytes": 4603,
       "sha256": "fd6d876a88a6d715b64c51efdc388e397edf3def6c981bef1eb4db87d1cc0f3d"
     },
+    "drivers/start_deep_B16_audit_r3799.py": {
+      "bytes": 469,
+      "sha256": "798aa716c00af0b03bfb56bc60560156f52b79568c8885add4c73fabc7b7b45d"
+    },
     "drivers/start_followup_audits_r3756.py": {
       "bytes": 472,
       "sha256": "79cfd5cdd7e77b5089cca4c4683c4cfd753fca0c4accab35764795bcdf25cff4"
+    },
+    "drivers/start_glm_shared_rope_audit_r3790.py": {
+      "bytes": 476,
+      "sha256": "62961c2170187a237e1d921d81af0c0d2bb8edd3a7cdc29f2a8518086868e4a2"
+    },
+    "drivers/start_glm_shared_rope_r3789.py": {
+      "bytes": 478,
+      "sha256": "6c176b5e94c8fc9a9d20ae80e574e944f8f53ea982ca1ab2e81382d1f523869c"
     },
     "drivers/start_kimi_guard_audit_r3760.py": {
       "bytes": 495,
@@ -27294,6 +27494,10 @@
       "bytes": 1388,
       "sha256": "fe725b677599be1ea47279f0d8d352f1224c674d090ce57db8830e692a242be3"
     },
+    "evidence/driver-provenance-r3801.json": {
+      "bytes": 11762,
+      "sha256": "5bbb4fff4dcedec0666161fe08d4468a0e239716fed2068f03ae723e1349ea89"
+    },
     "evidence/dspark-draft-batch-r3646.json": {
       "bytes": 85944,
       "sha256": "19e637b6c66e102dfccaf4a4eceb4a4efa2ca5802f5ea7f22e9366b3daf01009"
@@ -27305,6 +27509,10 @@
     "evidence/glm-cohort-r3098-audit-r3372-local.json": {
       "bytes": 34826,
       "sha256": "1aa64d4802010b5511cc26767794885a0535325880a61fff2c1aa823b1ce523f"
+    },
+    "evidence/GLM-constructor-reject-r3795.json": {
+      "bytes": 3495,
+      "sha256": "cc753d3ffeab2463f735de577b691343e66c26b95ace8ab49de26ef409ae2981"
     },
     "evidence/glm-expert-order-r3356-audit.json": {
       "bytes": 31244,
@@ -27350,6 +27558,14 @@
       "bytes": 4533,
       "sha256": "1b44a97961703e7bc2559d23b1eb865be6bc4bc6d9c187014812a80aadf3a807"
     },
+    "evidence/GLM-shared-RoPE-component-r3788.json": {
+      "bytes": 2370,
+      "sha256": "5f58db4b074fc25a0d6a6a8864eba64566863f5f945b0cd91585544211e24f41"
+    },
+    "evidence/GLM-shared-RoPE-memory-r3801.json": {
+      "bytes": 1159,
+      "sha256": "dcaa3b9f12d42250fbbb91eab4ae0ce16d5dac735aebfc2fc4a8aa971ffac31f"
+    },
     "evidence/glm-timeline-r3300-audit-r3372-local.json": {
       "bytes": 105481,
       "sha256": "b15f2189610b86c2a70a6478e3aa56d4b7e814e84c6a6725d5a6eb198ecd177d"
@@ -27366,6 +27582,10 @@
       "bytes": 2250,
       "sha256": "ccdc021b3b8dec8ec18b3c218ce55bc4f42db4ead02745ff1797b70866319778"
     },
+    "evidence/Kimi-alias-Runtime-r3791.json": {
+      "bytes": 2370,
+      "sha256": "8df8d5cb97e41035f47de1e8944b4ec2ffee25bd42d81a2884fc3da18620af4a"
+    },
     "evidence/kimi-device-guard-r3765.json": {
       "bytes": 7140,
       "sha256": "cba2379883bb076713b606e3d84c842eff08aa1fa03e405e8f7b13759c8d0f95"
@@ -27373,6 +27593,10 @@
     "evidence/kimi-latest-failures-r3711.json": {
       "bytes": 7595,
       "sha256": "0bbeeb084858ad178eb1f235ef161e5ab7043a7c90d9580b7dd6201b7c9d9275"
+    },
+    "evidence/Kimi-partial-token-r3787.json": {
+      "bytes": 28022,
+      "sha256": "41c7915e3372e597c076100a94213cf6703e00ec84a22d622ac0d98305dcd644"
     },
     "evidence/kimi-small-diagnostics-r3734.json": {
       "bytes": 6096,
@@ -27426,6 +27650,10 @@
       "bytes": 36197,
       "sha256": "c85556a68eb7ad5d664c52e77eaef02eeb1d2c86e4a0a77dbb1eb5fbabd89474"
     },
+    "evidence/qualified-GLM-profiles-r3797.json": {
+      "bytes": 67629,
+      "sha256": "653251cec1e204d485c8f3abd3db1b90a960ddd0834b3ed5bc02f2f8a773053f"
+    },
     "evidence/qualified-latest-Deep-r3729.json": {
       "bytes": 2417,
       "sha256": "115da618034523b4a5dfe19c103ce26c00866d3e7484fd8ca1af4010d028c5ed"
@@ -27443,8 +27671,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 9710,
-      "sha256": "037b6b78002c84677e663ad56fd62c3154f0a725e33d437ff6f289567af9a017"
+      "bytes": 10113,
+      "sha256": "7085e9649f099decf4cc3375b38b45d51ca6d37d7b158230a7415a1f75433d22"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -93815,8 +94043,8 @@
       "sha256": "6a757a07cd16d4f21ace8c0a6fcae877374223254ecf4608b52a1c76e18b4a0e"
     },
     "experimental-latest-5f91ad7/README.zh-CN.md": {
-      "bytes": 7271,
-      "sha256": "fb6ae8ec8affb6fce595d0965ae4e3e8895533d2a1ec23ee945fe49a73972145"
+      "bytes": 10199,
+      "sha256": "923cf15adac3d4757a32fdbbd18dea55e73d90ca26b0604693844c88d8731da8"
     },
     "experimental-latest-5f91ad7/source-provenance.json": {
       "bytes": 24461,
@@ -100243,16 +100471,16 @@
       "sha256": "11e2d0ee8e19df76ccd3f84d3b701c827f3dfefd1f7f59fd4b7e513bcb18cacf"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 15809,
-      "sha256": "b23db723341fc92f2f2fe53c7e0738a01d8851910c7f17240bef22ead8e34cd6"
+      "bytes": 16798,
+      "sha256": "d54c488d7032c6c92224c0255cd8257363703ac646a42ff4b1dc3a8e53036814"
     },
     "pins.json": {
       "bytes": 4167,
       "sha256": "8813a35608e7e6956b21bcd7b91e0396756706e221651a8abad1842c09eb2a2b"
     },
     "README.zh-CN.md": {
-      "bytes": 10167,
-      "sha256": "6e5261e6e411d0bd8d0675180265e87da4e8221d27728887bda20ebc41bf0656"
+      "bytes": 13095,
+      "sha256": "6d17509ed52bde2a477590d2940100ab14c8a31ff1d60b1d22496a3eac19ee2b"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -100295,8 +100523,8 @@
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
     },
     "SPECULATIVE_EXPERIMENT.zh-CN.md": {
-      "bytes": 11866,
-      "sha256": "2a2373ec8f66241203d90ad58de0e5fde5a04df07a42a509f812b2352250784a"
+      "bytes": 14794,
+      "sha256": "a87fc58d9d2ee102ba5f43c562bf8f2624fef9e7783b06321f95e88c9cbdb217"
     },
     "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
       "bytes": 1856,
