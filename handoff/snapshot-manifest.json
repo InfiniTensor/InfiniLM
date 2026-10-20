@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T20:13:46.483213+00:00",
-  "scope": "Actualexactpublicbytes. Preservealloldsource, redactnewclusteraccess/physicalnodesincludingcompressedlists. Latest5f91Deepfulltokenqualified, speculativewholemodelnotqualified; preparedpipeline3736notlaunched.",
+  "utc": "2026-10-20T21:21:11.524499+00:00",
+  "scope": "Exactpublicbytes;16220originalsourceblobsverifiedunchanged. Kimiactualdispatch/device failureandguardrepair; no speculativegain adopted. Newexperimentsrequirewholemodelqualification.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 11612,
-      "sha256": "c56fb55d5db695805587acba8f21a9054175f622721cde6be2b8fa99a6bc3165"
+      "bytes": 13909,
+      "sha256": "8aad22459f005a8302342e5a76e8bfa3176feb078518771b28950af394f467a9"
     },
     "config.example.env": {
       "bytes": 826,
@@ -25942,6 +25942,10 @@
       "bytes": 11564,
       "sha256": "512a6e7eab93794f22d3ead1fefa99ebbd8dc15043358d83d84b28169d5edc52"
     },
+    "drivers/audit_glm_large_r3756.py": {
+      "bytes": 13068,
+      "sha256": "25a9424fddf18a6bbc85a28ed766dd699cf8ae3dc123b3a097ed20fdeeadea1c"
+    },
     "drivers/audit_glm_network_r3576.py": {
       "bytes": 12813,
       "sha256": "1e54787444d60a9f90e47c3130d55cf8bb83c99ceb5159b70823a7b76b23ab28"
@@ -25962,6 +25966,10 @@
       "bytes": 14619,
       "sha256": "155b01df742d9cac414852926bba301f146e2e57b5d27a08542c7878bcbfe29c"
     },
+    "drivers/audit_kda_alias_r3741.py": {
+      "bytes": 2453,
+      "sha256": "85a208a5db3150b1376a6af6f8229296f92fa5220909cc5336e6a29df1404310"
+    },
     "drivers/audit_kimi_batch_acceptance_r3502.py": {
       "bytes": 12577,
       "sha256": "68db0a6fad7d1b02a71f2032682c706a4708e5fb0aaacf6b24cbc84ab331476e"
@@ -25974,6 +25982,18 @@
       "bytes": 7994,
       "sha256": "c4d55e443496e4fafbf3b3e203aebc8dac4f98f92cdd9a82efeb2b2405ea0992"
     },
+    "drivers/audit_kimi_guard_math_r3760.py": {
+      "bytes": 8182,
+      "sha256": "1b879018d85f923d69f6df0a1cd423fdb34767cc3968cc0ba568175eb8143806"
+    },
+    "drivers/audit_kimi_guard_runtime_r3758.py": {
+      "bytes": 2098,
+      "sha256": "d879999a57eeff0e0e63fb77f7583841a9f3a7769200052c4737e2fc1d7b9e30"
+    },
+    "drivers/audit_kimi_header_math_r3748.py": {
+      "bytes": 8182,
+      "sha256": "48baec165045ff120ca8e8f91049bc3e757d9faa03f4c958c0aba109d6d0c8ce"
+    },
     "drivers/audit_kimi_math_r3690.py": {
       "bytes": 8182,
       "sha256": "82dd97469aa674ede07ac2af135fb1bd27befe38a78b7bad17425d5207c99ca9"
@@ -25981,6 +26001,14 @@
     "drivers/audit_kimi_pipeline_spec_r3706.py": {
       "bytes": 7071,
       "sha256": "13b5fb453650562e12da2894ffe4a57c3347d06984bd199e4ae4c8b673dca925"
+    },
+    "drivers/audit_kimi_pipeline_spec_r3753.py": {
+      "bytes": 7071,
+      "sha256": "6fa2aaf359a506e40787e7cbca0e6cb16d4fa16b723b1550c0c2348c92e32734"
+    },
+    "drivers/audit_kimi_pipeline_spec_r3762.py": {
+      "bytes": 7071,
+      "sha256": "3ab95e1367ae475cebb5d6d46bd1c2b0b2f5c5bb1911f18d3d1f8ba3f796b224"
     },
     "drivers/audit_kimi_spec_r3639.py": {
       "bytes": 6864,
@@ -26041,6 +26069,10 @@
     "drivers/build_glm_tip_scale_r3694_inside.sh": {
       "bytes": 4034,
       "sha256": "659dc227a5455498300ee58f530e4a3660c2ba7de38f597ee7bfd7b3da904cea"
+    },
+    "drivers/build_kimi_guard_r3755_inside.sh": {
+      "bytes": 4453,
+      "sha256": "3e920385f14b7bd54e919e653dfab585ef6b500f1e47f5496e5e3e30462b6935"
     },
     "drivers/build_kimi_header_r3712_inside.sh": {
       "bytes": 4453,
@@ -26490,6 +26522,10 @@
       "bytes": 724,
       "sha256": "c416f47c331c51a81ec03c0833013366630a7e4340edda1cac319e4168a8a800"
     },
+    "drivers/kda_guard_r3755_inside.sh": {
+      "bytes": 764,
+      "sha256": "c23c0ae60ccaee14ca6847923a4ba3d498392d2ed6262d5d86505651e2faf0a9"
+    },
     "drivers/kda_rounding_r3655_inside.sh": {
       "bytes": 594,
       "sha256": "aa9df60951f2ca172661360f6a95d360a80ce9ba47599fa3ee153137f0979316"
@@ -26510,6 +26546,22 @@
       "bytes": 4569,
       "sha256": "174944afe33aec128425a1b6b32f878467b7390443db79eb7a2c3085924c81c3"
     },
+    "drivers/kimi_conv_proof_r3746_inside.sh": {
+      "bytes": 2254,
+      "sha256": "4c73446de53d0e0674e2227297cb5fd0981fb5827a308f93f6e59bbb845ee114"
+    },
+    "drivers/kimi_conv_registry_r3746.cpp": {
+      "bytes": 532,
+      "sha256": "86b4f525ce192ca6331ac55c2c10b2003d3ea60e0d0c6df1ae6f7d69b285ace2"
+    },
+    "drivers/kimi_conv_smoke_r3746.cpp": {
+      "bytes": 3268,
+      "sha256": "159376642fcc5077c8f18c46c75c0211a4947e9674568986be5d7ec3f8a6b274"
+    },
+    "drivers/kimi_conv_smoke_r3746.py": {
+      "bytes": 1677,
+      "sha256": "4d4679d698a25cdae961c3be3cfaa79860eb9e8b0741a8c947248025ca4e2f64"
+    },
     "drivers/kimi_embedding_registry_r3724.cpp": {
       "bytes": 594,
       "sha256": "bc4c9d0d0d12aa268adf7aa8c05795cd76f16c3ece18a428dcbdcddf517ba6fd"
@@ -26529,6 +26581,10 @@
     "drivers/kimi_grouped_fused_fp32_runtime_r21.cpp": {
       "bytes": 12693,
       "sha256": "596b5fe50e1c3abecc9b28ee08694f3cccf75c7b51255002d23ce05ca9f04a2c"
+    },
+    "drivers/kimi_guard_contract_r3755.cpp": {
+      "bytes": 1731,
+      "sha256": "e71eb20e795c7ec4acc1d69adc242ecd528a68ca992162d8a64396c1179f5ce2"
     },
     "drivers/kimi_include_order_r3723.cpp": {
       "bytes": 588,
@@ -26631,8 +26687,20 @@
       "sha256": "669d7b90e6f3095e0e6e8824c37f490ed25fd92465a0ac88c47a081fdf1aca75"
     },
     "drivers/kimi_spec_protocol_r3736.py": {
-      "bytes": 14303,
-      "sha256": "02581ccc89be3213310d3f304d8336848c6ea75917e835d52018bd1bcbdc01be"
+      "bytes": 14314,
+      "sha256": "fbf6ab402a6031eb1eff74f2fe541ade0e441e75ad26030028e3bcd2906061eb"
+    },
+    "drivers/kimi_spec_protocol_r3747.py": {
+      "bytes": 12958,
+      "sha256": "9ae88b671d3f1558421f902454cbe2db43d09efbbd522424596260ef1d0362f9"
+    },
+    "drivers/kimi_spec_protocol_r3759.py": {
+      "bytes": 12958,
+      "sha256": "62f8bb57bc350d4874b075c86246f027c6a6d57d0523f92c5bfdea8f663821a5"
+    },
+    "drivers/kimi_spec_protocol_r3761.py": {
+      "bytes": 14314,
+      "sha256": "a6e0dde9f7663fc6e7b1241c4b86e280572496bbb1a54fb2e4a1ecfac95e9e97"
     },
     "drivers/kimi_spec_r3634_inside.sh": {
       "bytes": 2221,
@@ -26653,6 +26721,18 @@
     "drivers/kimi_spec_r3736_inside.sh": {
       "bytes": 2689,
       "sha256": "fc2c98909ae666be1fe01fdbc22d3e33343162624680c6f2f9043f815cd6fb88"
+    },
+    "drivers/kimi_spec_r3747_inside.sh": {
+      "bytes": 2689,
+      "sha256": "29a1e32c786f1f06adaaa3a8a33eed61da0fbd7fa328a2c5a74a2c441af7ef5e"
+    },
+    "drivers/kimi_spec_r3759_inside.sh": {
+      "bytes": 2689,
+      "sha256": "a38d86c6df917a7aa125987340d0039fb24be8e4c4f3c4660cfff540c752a3c1"
+    },
+    "drivers/kimi_spec_r3761_inside.sh": {
+      "bytes": 2689,
+      "sha256": "d3abfb988a3aac84ac363f6104c07cf041b9af16d06b5c15ec7e1951e46b44bd"
     },
     "drivers/kimi_wide_multibatch_r3412.py": {
       "bytes": 12009,
@@ -26686,6 +26766,22 @@
       "bytes": 1352,
       "sha256": "1109fdb3d6dfd7476691689856f8324770e21c252a455435db6269edf5ec4bcc"
     },
+    "drivers/launch_kimi_conv_proof_r3746.py": {
+      "bytes": 1192,
+      "sha256": "4a4d46a537546b9854dc8a62cd770bbb2dd7a8dc213dc9c7e931465196099aef"
+    },
+    "drivers/launch_kimi_guard_build_r3755.py": {
+      "bytes": 1437,
+      "sha256": "d8cafa95a449c9c9a033b13a1616f2d82aebbd6ca1f9ceb02e2d7fc7f28d4772"
+    },
+    "drivers/launch_kimi_guard_trials_r3759.py": {
+      "bytes": 4201,
+      "sha256": "999b3e6364911464fcbd09d6c820359912ac82bc941210fb69f3d9bb6a2b3aca"
+    },
+    "drivers/launch_kimi_header_trials_r3747.py": {
+      "bytes": 4141,
+      "sha256": "59bb8b92794cc8feb9a71ade95b925bc8b59c1e2ebc19ffcb08dc31b5294aa37"
+    },
     "drivers/launch_kimi_math_trials_r3679.py": {
       "bytes": 4024,
       "sha256": "a5abecac1831219094b61e0924caec5adc3060472f8f6797c8e5dd7d02717750"
@@ -26695,8 +26791,12 @@
       "sha256": "8c1e2ed6c60da3b38d07ffbfc9841f6eae5dfd1ad0ea131ac98964f600ddc57d"
     },
     "drivers/launch_kimi_pipeline_spec_r3736.py": {
-      "bytes": 2887,
-      "sha256": "fed0480371bb6cba895097e06c084f2b1623ababbb26d817200079bd33b815e8"
+      "bytes": 3058,
+      "sha256": "ffe404b392548fe3a2e62852b1abf4de10956db4e753052ec73dcf4b950782a8"
+    },
+    "drivers/launch_kimi_pipeline_spec_r3761.py": {
+      "bytes": 3066,
+      "sha256": "258a1f93148e12baa7a53d84b6a4e5b6660e8a7d02da5f95fc97af776925e624"
     },
     "drivers/launch_kimi_trace_trial_r3731.py": {
       "bytes": 2846,
@@ -26878,6 +26978,18 @@
       "bytes": 15408,
       "sha256": "fa25c9b0d2277b4e7ca110dcb3f40c1a7621adeb14d26c49d6746e1738a1d98c"
     },
+    "drivers/modern_kimi_spec_r3747.py": {
+      "bytes": 15405,
+      "sha256": "e54104d6370b1a43403d8055fede9f39481d5154ebdba3c537523ffee9b151bf"
+    },
+    "drivers/modern_kimi_spec_r3759.py": {
+      "bytes": 15405,
+      "sha256": "68c2afcce11e23b756ff0fd7b8d453aa04d4a19af1032df461f01e2097b37c8e"
+    },
+    "drivers/modern_kimi_spec_r3761.py": {
+      "bytes": 15408,
+      "sha256": "a52356079206dbaad571a9d67f66f86d41163fb05d05cd702f399cf1974a7b5c"
+    },
     "drivers/modern_kimi_token_only_r964.py": {
       "bytes": 35908,
       "sha256": "42332dcea660dd571a40eff08c578ce99e0f12c59fd75d2c5b73c3da2b6b2242"
@@ -26918,6 +27030,10 @@
       "bytes": 5061,
       "sha256": "cf6c12e77f695858571e69af242c01d4a4354a29dca7c076eb0bdad1a8b6f327"
     },
+    "drivers/probe_kda_guard_r3755.py": {
+      "bytes": 5834,
+      "sha256": "5f0857b8eb36cab435483b2ef3741675312ff8e64648cc08d279534dfe977fb1"
+    },
     "drivers/probe_kda_rounding_r3655.py": {
       "bytes": 4421,
       "sha256": "b65b387a3ffe36463a079a40ae8d8ed7b4a80135008cb82bfaef3739c7e83e3c"
@@ -26954,6 +27070,26 @@
       "bytes": 1398,
       "sha256": "014bace51fbd741493ce352c2d87c14585088871e33a03f4f945360b19950322"
     },
+    "drivers/queue_followup_audits_r3756.py": {
+      "bytes": 2155,
+      "sha256": "06c890e7cebda6236275e093e96f73a6a8a0c735f55cc13c5bfb339b0b613942"
+    },
+    "drivers/queue_kimi_guard_audit_r3760.py": {
+      "bytes": 2111,
+      "sha256": "b27a3e9a0fc70fde546fa007f8ffffec7aecd568b4c68a389809c7f8db67ea86"
+    },
+    "drivers/queue_kimi_guard_test_r3757.py": {
+      "bytes": 1900,
+      "sha256": "32f92b5ca7ce2bc3855da6092756c25d9acdb2e1a5088ebdf8408433087ef3fd"
+    },
+    "drivers/queue_kimi_guard_trials_r3759.py": {
+      "bytes": 1451,
+      "sha256": "cfc309754ed7c113fa2ad5b93f394aa5826f7dba73091972927539d44082e769"
+    },
+    "drivers/queue_kimi_header_audit_r3748.py": {
+      "bytes": 2113,
+      "sha256": "6d7f2d7dd2eeb3e8266593f08096bc7d4e9c58af0ceeb17ca38c196445edce5e"
+    },
     "drivers/queue_kimi_math_audit_r3690.py": {
       "bytes": 2104,
       "sha256": "562c8d46594d65a9825482904a36e09b56c728cc1ae9abc5361ae7be84cc5d31"
@@ -26962,9 +27098,21 @@
       "bytes": 1796,
       "sha256": "fe3dc0c84bbd5589326deda397f03a1e37264831fb8125131520e72d707fae0e"
     },
+    "drivers/queue_kimi_pipeline_admission_r3750.py": {
+      "bytes": 2644,
+      "sha256": "e209e4095eebf877ebae93649c71c657de6efd0bfc878f7419a1d55dab2b93b6"
+    },
+    "drivers/queue_kimi_pipeline_admission_r3761.py": {
+      "bytes": 2965,
+      "sha256": "2e2c110b8000cad871cc81d451311ab4a6582e871833b104eef2c001d3d50440"
+    },
     "drivers/queue_kimi_pipeline_audit_r3706.py": {
       "bytes": 1484,
       "sha256": "2cf05e2750adca7fd0ed1f62da38e0fc4ede61182a223cac89d86ba48e4b45a5"
+    },
+    "drivers/queue_kimi_pipeline_audit_r3762.py": {
+      "bytes": 1506,
+      "sha256": "68c78c2527abcbc5d41ee6cc206f372ecb40a8985a691ebb68471f8aedac224d"
     },
     "drivers/queue_kimi_spec_audit_r3639.py": {
       "bytes": 1515,
@@ -27038,6 +27186,10 @@
       "bytes": 1602,
       "sha256": "00472c3e06b17168e9098c4f9b29d818a0e96433774f2528e228f43ec95fb330"
     },
+    "drivers/stage_kimi_device_guard_r3755.py": {
+      "bytes": 2063,
+      "sha256": "b419e2fa3c2a6e83fbe5fc3ee37162303ea464aa01e78b2d7f2d33f1db708745"
+    },
     "drivers/stage_kimi_header_fix_r3712.py": {
       "bytes": 1762,
       "sha256": "c816073cbe9ffc92af16dde2bce57fd14e56d9a0c104e030d8a66ef2f7a6780e"
@@ -27073,6 +27225,30 @@
     "drivers/stage_tip_models_r3675.py": {
       "bytes": 4603,
       "sha256": "fd6d876a88a6d715b64c51efdc388e397edf3def6c981bef1eb4db87d1cc0f3d"
+    },
+    "drivers/start_followup_audits_r3756.py": {
+      "bytes": 472,
+      "sha256": "79cfd5cdd7e77b5089cca4c4683c4cfd753fca0c4accab35764795bcdf25cff4"
+    },
+    "drivers/start_kimi_guard_audit_r3760.py": {
+      "bytes": 495,
+      "sha256": "ebe06a755bb52525ec9e01c3c683a24d83411104c4d485703ab9a94ba2b8e783"
+    },
+    "drivers/start_kimi_guard_test_r3757.py": {
+      "bytes": 468,
+      "sha256": "1ae03e39daf66881ef677d3b70ba0b5bb42eaaefbc657197f53f6923c897496c"
+    },
+    "drivers/start_kimi_guard_trials_r3759.py": {
+      "bytes": 483,
+      "sha256": "2d9cbd333779477e3664293bc6fe3765f19c4904837ed3dd268b95af3db9c5b5"
+    },
+    "drivers/start_kimi_pipeline_admission_r3761.py": {
+      "bytes": 488,
+      "sha256": "36e35d67e998d210dac2f42d12891b299a539f86cdb879ac23058e281ad3a957"
+    },
+    "drivers/start_kimi_pipeline_audit_r3762.py": {
+      "bytes": 484,
+      "sha256": "a1efaf6995cb68cd4025c9fc5297baccac749b5044e5b72c83400497b6bea0a5"
     },
     "drivers/throw_trace_r3730.cpp": {
       "bytes": 1047,
@@ -27178,9 +27354,21 @@
       "bytes": 105481,
       "sha256": "b15f2189610b86c2a70a6478e3aa56d4b7e814e84c6a6725d5a6eb198ecd177d"
     },
+    "evidence/guard-driver-provenance-r3765.json": {
+      "bytes": 10953,
+      "sha256": "cd39227b8edf45dabc7bc796e89ba4ba8529558c1ceea3ae1c670b7b68dcb210"
+    },
     "evidence/kda-roundstep-component-r3657.json": {
       "bytes": 4683,
       "sha256": "5c83d7e43fd9330401af0115af189793da06adede6607fb297803fa17fed1bb2"
+    },
+    "evidence/kda-same-pool-r3741.json": {
+      "bytes": 2250,
+      "sha256": "ccdc021b3b8dec8ec18b3c218ce55bc4f42db4ead02745ff1797b70866319778"
+    },
+    "evidence/kimi-device-guard-r3765.json": {
+      "bytes": 7140,
+      "sha256": "cba2379883bb076713b606e3d84c842eff08aa1fa03e405e8f7b13759c8d0f95"
     },
     "evidence/kimi-latest-failures-r3711.json": {
       "bytes": 7595,
@@ -27189,6 +27377,10 @@
     "evidence/kimi-small-diagnostics-r3734.json": {
       "bytes": 6096,
       "sha256": "d96a306dddd7c9d731331a006ca2f20a7f84b4569b4ade2fa1e108d79155e4a5"
+    },
+    "evidence/kimi-throw-site-r3741.json": {
+      "bytes": 3673,
+      "sha256": "dbdd2cc4e2c02b477c64e906233b52b5c57f76181407f2d3710655ea491b0356"
     },
     "evidence/kimi-token-only-r965-audit-910375.387.json": {
       "bytes": 40597,
@@ -27251,8 +27443,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 9184,
-      "sha256": "29c9a46a02adebb7773094dcfb514a49e9bf249116f55a30a69452b0d9a21039"
+      "bytes": 9710,
+      "sha256": "037b6b78002c84677e663ad56fd62c3154f0a725e33d437ff6f289567af9a017"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -93623,8 +93815,8 @@
       "sha256": "6a757a07cd16d4f21ace8c0a6fcae877374223254ecf4608b52a1c76e18b4a0e"
     },
     "experimental-latest-5f91ad7/README.zh-CN.md": {
-      "bytes": 4974,
-      "sha256": "5735e4b1282d696c81cea9bf18f62150d9a20ba67d2ab29f9b6db0e6487dfc6d"
+      "bytes": 7271,
+      "sha256": "fb6ae8ec8affb6fce595d0965ae4e3e8895533d2a1ec23ee945fe49a73972145"
     },
     "experimental-latest-5f91ad7/source-provenance.json": {
       "bytes": 24461,
@@ -100059,8 +100251,8 @@
       "sha256": "8813a35608e7e6956b21bcd7b91e0396756706e221651a8abad1842c09eb2a2b"
     },
     "README.zh-CN.md": {
-      "bytes": 8326,
-      "sha256": "1a732381294604ea4c17ac50be3a7716ff3291d2bbbcc98116ef4cf7b61cd4f0"
+      "bytes": 10167,
+      "sha256": "6e5261e6e411d0bd8d0675180265e87da4e8221d27728887bda20ebc41bf0656"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -100103,8 +100295,8 @@
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
     },
     "SPECULATIVE_EXPERIMENT.zh-CN.md": {
-      "bytes": 9569,
-      "sha256": "8725e050cbb5bae5eb1bcccd64667bc0e622d9a2c4ad9e4a6423de34cd97e4db"
+      "bytes": 11866,
+      "sha256": "2a2373ec8f66241203d90ad58de0e5fde5a04df07a42a509f812b2352250784a"
     },
     "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
       "bytes": 1856,

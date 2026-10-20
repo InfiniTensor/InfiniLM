@@ -96,7 +96,7 @@ def run(g):
    for a in range(0,len(replay),8):
     ii=replay[a:a+8];out,_=forward([inputs[i][:retained[i]]for i in ii],[past[i]for i in ii],[i+1 for i in ii],[state[i]for i in ii],[shadow[i]for i in ii],label+'-replay'+str(turn))
     if not pipeline_enabled or tail:replay_outputs.update(zip(ii,out))
-   if pipeline_enabled:
+   if pipeline_enabled and replay:
     packets=control.collect('replay-results:'+label+':'+str(turn),{'outputs':[[i,z]for i,z in replay_outputs.items()]});replay_outputs=dict(packets[emitter]['outputs']);assert sorted(replay_outputs)==replay
    for i,z in replay_outputs.items():
     replayed+=retained[i]

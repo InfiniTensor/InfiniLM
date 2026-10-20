@@ -1,0 +1,65 @@
+{
+  "utc": "2026-10-20T20:23:43.514338+00:00",
+  "producer": [
+    [
+      "910375.402",
+      "kimi-spec-trace-r3731",
+      "FAILED",
+      "1:0",
+      "00:14:54"
+    ]
+  ],
+  "model_errors": [
+    {
+      "file": "kimi-spec-r3731-trace3731-034400a546952129afda-node2.json",
+      "completed": false,
+      "phase": "QA-before-multiply",
+      "loaded_keys": 129660,
+      "parameter_keys": 129660,
+      "loading_seconds": 772.5191858191974
+    },
+    {
+      "file": "kimi-spec-r3731-trace3731-034400a546952129afda-node0.json",
+      "completed": false,
+      "error": "RuntimeError('operator has no active implementation for this device')",
+      "phase": "failed",
+      "loaded_keys": 124280,
+      "parameter_keys": 124280,
+      "loading_seconds": 634.5489281672053,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3731-trace3731-034400a546952129afda-node1.json",
+      "completed": false,
+      "phase": "QA-before-multiply",
+      "loaded_keys": 124262,
+      "parameter_keys": 124262,
+      "loading_seconds": 595.4300235272385
+    },
+    {
+      "file": "kimi-spec-r3731-trace3731-034400a546952129afda-node3.json",
+      "completed": false,
+      "phase": "QA-before-multiply",
+      "loaded_keys": 118850,
+      "parameter_keys": 118850,
+      "loading_seconds": 652.177940947935
+    }
+  ],
+  "first_exception_stack": [
+    "/refactor/candidates/throw-trace-r3730/libthrow_trace_r3730.so(__cxa_throw+0x119)[0x7f39d2eef399]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(+0x7f0d8)[0x7f2fd207f0d8]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6models7kimi_k320KimiK3DeltaAttention7forwardERKNS_7runtime6TensorERNS_12global_state14ForwardContextE+0x938)[0x7f2fd2165258]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6models7kimi_k318KimiK3DecoderLayer7forwardERKNS_7runtime6TensorES6_RmRNS_12global_state14ForwardContextE+0x8f2)[0x7f2fd215f572]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6models7kimi_k315KimiK3TextModel14forward_embedsERKNS_7runtime6TensorERNS_12global_state14ForwardContextE+0x12c)[0x7f2fd2184c3c]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6models7kimi_k315KimiK3TextModel7forwardERKNS_13InfinilmModel5InputERNS_12global_state14ForwardContextE+0xaa)[0x7f2fd2184faa]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6layers19causal_lm_templates12TextCausalLMINS_6models7kimi_k315KimiK3TextModelEE7forwardERKNS_13InfinilmModel5InputERNS_12global_state14ForwardContextE+0x52)[0x7f2fd216e202]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZNK8infinilm6models7kimi_k330KimiK3ForConditionalGeneration7forwardERKNS_13InfinilmModel5InputERNS_12global_state14ForwardContextE+0x14f)[0x7f2fd216ac9f]",
+    "/refactor/candidates/kimi-spec-math-5f91ad7-r3683/libmodern_kimi_spec_math_r3683.so(_ZN8infinilm6engine10RankWorker11thread_loopEv+0x1c35)[0x7f2fd2125fa5]",
+    "/lib/x86_64-linux-gnu/libstdc++.so.6(+0xdc253)[0x7f39d28b0253]",
+    "/lib/x86_64-linux-gnu/libc.so.6(+0x94ac3)[0x7f39d2a94ac3]",
+    "/lib/x86_64-linux-gnu/libc.so.6(+0x1268d0)[0x7f39d2b268d0]"
+  ],
+  "site": "KimiK3DeltaAttention::forward+0x938",
+  "actual_operator_resolved": false,
+  "scope": "Exact original3683firstforward replay, filtered __cxa_throw stack. No mathchange, no performanceadoption. Accessenvironment/engineaddresses/nonces omitted."
+}

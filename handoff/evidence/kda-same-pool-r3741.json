@@ -1,0 +1,50 @@
+{
+  "utc": "2026-10-20T20:23:43.752750+00:00",
+  "completed": true,
+  "producer": [
+    "910373.815",
+    "kda-alias-r3733",
+    "COMPLETED",
+    "0:0",
+    "00:00:57"
+  ],
+  "GPU_processes_normally_joined": 8,
+  "cases": 288,
+  "pool_slots": 129,
+  "read_rows": "1..R",
+  "write_rows": "65..64+R",
+  "R": [
+    1,
+    4,
+    8,
+    16
+  ],
+  "widths": [
+    2,
+    4,
+    8
+  ],
+  "repeats": 3,
+  "same_pool_outputs_and_written_states_exact_to_cloned_initial_and_serial_W1": true,
+  "input_active_rows_untouched": true,
+  "possible_avoided_state_snapshot_bytes_per_KDA_call": 50724864,
+  "library_sha256": "7a72515c6b64f7dc6b5eb7d911c961c2852bd3c67e525646e70c47b037979cdc",
+  "pins": {
+    "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+    "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+    "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+    "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+  },
+  "report_sha256": {
+    "kda-alias-r3733-910373.815-gpu0.json": "0131d4e8b8fda3c8eb7ef3b45dd1d84921ee5dd6f1209e2e1812ae8f387a96f5",
+    "kda-alias-r3733-910373.815-gpu1.json": "56342b153b93103bec782c4ce1c1ecd872fcd842100a2e166c7f07cc43c4822d",
+    "kda-alias-r3733-910373.815-gpu2.json": "4b0c8c70fe17be9027e922fbd782f7b7ac630739dc8b081191c723708839c0f2",
+    "kda-alias-r3733-910373.815-gpu3.json": "300aec6d92236cdf0bcea1770107a0eee40c07cf6f12c732819870da08125964",
+    "kda-alias-r3733-910373.815-gpu4.json": "aa2280923c21f1733b20730988c8dc9e34836813a2dcc5fbf80a48f6d8a71fa9",
+    "kda-alias-r3733-910373.815-gpu5.json": "e6e18791f9563ac6ecccecb4d9c79b8c3a9d94242e34388838387ab150664125",
+    "kda-alias-r3733-910373.815-gpu6.json": "f4e9bd6e6774124429ff2438b9c6f91d638e095e0ae13c3fa333716eebca6efc",
+    "kda-alias-r3733-910373.815-gpu7.json": "08ed1ee5a0b28c2123f7ea0029bfd445a8c648cee73d91654aa86cf0dc1f1f5d"
+  },
+  "scope": "Independent CPU terminal/schema/artifact audit of 8GPUrawkernel288case proof. Full tensors compared by GPUproducer, no persisted independentCPUraw oracle. Disjoint samepool canavoid48.375MiB state snapshot percall. Not yet integrated as zero-copy Modelbridge; no measured wholemodel speedup or speculativequalification."
+}

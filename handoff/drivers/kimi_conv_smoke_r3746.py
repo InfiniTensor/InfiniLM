@@ -1,0 +1,8 @@
+import os,sys
+sys.pycache_prefix=os.environ['PYTHONPYCACHEPREFIX']+'/'+str(os.getpid())
+import torch,torch.multiprocessing as mp,ctypes,json,pathlib,datetime,hashlib
+r=pathlib.Path('/refactor');base=r/'candidates/kimi-conv-proof-r3746'
+def worker(device):
+ torch.set_num_threads(1);torch.cuda.set_device(device);allowed=sorted(os.sched_getaffinity(0));os.sched_setaffinity(0,set(allowed[4*device:4*device+4]));lib=ctypes.CDLL(str(base/'libkimi_conv_r3746.so'));lib.kimi_conv_error_r3746.restype=ctypes.c_char_p;lib.kimi_conv_smoke_r3746.argtypes=[ctypes.c_int];assert lib.kimi_conv_smoke_r3746(device)==0,lib.kimi_conv_error_r3746();(base/f'gpu{device}.json').write_text(json.dumps({'device':device,'completed':True,'cases':18,'BF16_input_FP32_weight_full_outputs_and_pool_exact':True,'normal_Runtime_closed':True}))
+if __name__=='__main__':
+ mp.spawn(worker,nprocs=8,join=True);rows=[json.loads((base/f'gpu{d}.json').read_text())for d in range(8)];out=r/'results/kimi-conv-proof-r3746.json';assert not out.exists();q={'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'completed':True,'GPUs':rows,'cases':144,'header_registry_comparison':{v:json.loads((base/(v+'.json')).read_text())for v in['source_first','installed_only']},'library_sha256':hashlib.sha256((base/'libkimi_conv_r3746.so').read_bytes()).hexdigest(),'scope':'Actualfailed CausalConv1d source-first versus installedSDK registry and8GPU BF16input/F32weight packedK4 fulloutput/state tests,R1/4/8,W1/4/17,same/disjoint129pool. Owner Runtime closure. Tinycomponent only, wholemodel firstQA/fulltokens/performance still required.'};out.write_text(json.dumps(q,indent=2));print(json.dumps(q),flush=True)

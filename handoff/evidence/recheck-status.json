@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T20:10:10.392506+00:00",
+  "recorded_utc": "2026-10-20T21:21:11.524499+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -224,5 +224,16 @@
   "KDA_wholemodel_fix_qualified": false,
   "latest_speculative_gain_adopted": false,
   "latest_Kimi_failure": "kimi-latest-failures-r3711.json",
-  "latest_diagnostics": "kimi-small-diagnostics-r3734.json"
+  "latest_diagnostics": "kimi-small-diagnostics-r3734.json",
+  "KDA_samepool_component": "kda-same-pool-r3741.json",
+  "KDA_zero_copy_Model_integrated": false,
+  "latest_Kimi_exception": "kimi-throw-site-r3741.json",
+  "speculative_gain_adopted": false,
+  "latest_Kimi_status": "kimi-device-guard-r3765.json",
+  "latest_guard_Model_built": true,
+  "latest_guard_Runtime_component_qualified": true,
+  "latest_Kimi_wholemodel_speculative_gain": false,
+  "latest_Kimi_matrix": "3759",
+  "large_pipeline": "3761 guardedbyactualQA+AR",
+  "GLM_large_latest": "3721 pending terminalaudit3756"
 }

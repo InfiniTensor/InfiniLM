@@ -1,5 +1,15 @@
 # 海光 InfiniLM 双版本迁移交接
 
+## 最新状态（2026-10-20T21:21:11.524499+00:00，覆盖后文历史进行中描述）
+
+Kimi 投机首轮 B1/2/4/8/16 × K1/3/7 的15组均完整 token 不同且更慢，合格加速结果为0。投机独立于主目标。实际首次前向异常已定位 CausalConv1d；SDK-only Model3712越过该处后，原私有KDA调用又触发设备检查：新Runtime会恢复线程之前设备，raw helper不能假设 ambient CUDA 仍为owner。两个已确认报错的步骤及其PP等待进程已停止，父申请和健康作业未取消；不是正常owner关闭或性能验收。
+
+3755隔离构建给raw KDA调用加显式owner DeviceGuard，保留原数值、设备与stream检查及调用者设备恢复。实际 Runtime 的正确/错误 ambient device 差分组件已通过（288 组），整模型仍待完整验收。 对应3759两组模式为KDA逐token舍入、KDA+MLA decode投影；B1–16、AR三次/投机两次。3761大batch B16/32/64要先等实际QA+冻结B1完整AR重复通过，3760/3762只在实际终态后独立审计。旧3736只作准备稿，不是已通过的性能版本。
+
+GLM最新96/128行、640上下文的G64/96/128 × M4/8/16正在做正反序重复；3756全32 owner、完整ID/EOS/CPUargmax/库SHA/Slurm独立审计已排队，暂不采用未终态速度。Deep最新5f91的已审计结果保持8卡B8 decode18.27–18.44、含prefill15.43–15.56 tok/s，512输入/最多512输出。
+
+DSpark仍只有离线组件，最新目标五层特征、PP传输、增量draft KV与在线接受率尚未接入。下一步先完成验证器完整token语义，再接训练草稿；不能把离线命中率当在线加速。KDA同池288组算子证明可省48.375MiB快照，但尚未用于Model。详细入口：`evidence/kimi-device-guard-r3765.json`、`drivers/*r3755*`、`drivers/*r3759*`、`drivers/*r3761*`。
+
 ## 最新用户验收要求（优先于下文历史 raw gate）
 
 用户明确要求：**不需要所有数值逐位一致，保证最终输出的 token 一致即可。** 完整生成 token ID 序列（含 EOS）与同输入冻结参考一致是数值验收标准；logits 在重复行、rank、重复运行或精度变体间的逐位差异仅作诊断。仍验证有限值、CPU argmax 与实际所选 GPU token 一致、EOS、同配置重复、owner/设备/stream、正常退出和 Slurm 终态。raw SHA 用于文件完整性，不能据此要求模型数值逐位相同。

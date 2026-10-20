@@ -1,0 +1,177 @@
+{
+  "utc": "2026-10-20T21:21:11.524499+00:00",
+  "evidence_utc": "2026-10-20T21:20:25.496603+00:00",
+  "speculative_excluded_main_metric": true,
+  "first_complete_06d_matrix_qualified_comparisons": 0,
+  "previous_dispatch_failure": {
+    "operator": "CausalConv1d",
+    "site": "KimiK3DeltaAttention::forward+0x938",
+    "cause": "ActualModelTU compiled empty FirstActiveImplementationIndex list; bareheader probes bothnonempty, do not overstate minimalreproducer. SDK-only3712 progressed past thissite."
+  },
+  "actual_causal_conv_GPU_oracle_cases": 144,
+  "latest3712_failure": "3676 actual owning CUDA device on nonzeroownerGPUs during verifier path; privatehelper assumed ambientCUDA survivedRuntime operations. NewRT correctlyrestores previousdevice.",
+  "failed_steps": [
+    {
+      "producer": [
+        "910375.404",
+        "kimi-spec-r3747-M2",
+        "RUNNING",
+        "0:0"
+      ],
+      "action": "stopped_known_failed_step"
+    },
+    {
+      "producer": [
+        "910380.240",
+        "kimi-spec-r3747-M1",
+        "RUNNING",
+        "0:0"
+      ],
+      "action": "stopped_known_failed_step"
+    }
+  ],
+  "failed_step_stop_scope": "Only two confirmedfailedtest steps andtheirPPwaiters; no parentallocations/healthyjobscancelled. Not normal32ownerclosure andnot performancequalification.",
+  "new_guard_build": {
+    "utc": "2026-10-20T21:14:38.836113+00:00",
+    "completed": true,
+    "pins": {
+      "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+      "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+      "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+      "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+      "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+    },
+    "library_sha256": "b72f5cf963c7ac0fbeab26730da3939d04c2f06070fd5a9ae8cab482be8e2000",
+    "stage_sha256": "a1902ac0410e43b08c6b16ee3f37786181e4ea702b386c14b7458f986a737353",
+    "mapped_libraries": {
+      "/refactor/install/hygon-kimi-5f91ad7-r3672/lib/libinfiniops.so": "6d5a6204f7eef70e84deb9cc737a36c6ae2c1fbc75a0f70645557c8441ed85ca",
+      "/refactor/candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/python/infinilm/_lib/libinfinilm_runtime.so": "04a6a1a86c97d176e4304b9bb4c1d6fcb8550784beaa47e0f5841fb7603ffabf",
+      "/refactor/install/hygon-kimi-5f91ad7-r3672/lib/libinfinirt.so": "e78b7b4aed105e5968fc598f60a2cacafcaf7c07c13dd4a971abfbdd92d47560",
+      "/refactor/install/hygon-kimi-5f91ad7-r3672/lib/libinfiniccl.so": "76eb65adacc8a6832970991ca276b32562543b7fb7e8dd09cda9f4c269f24809"
+    },
+    "registry_header_comparison": {
+      "source_first": {
+        "Gemm": [
+          0,
+          2
+        ],
+        "IndexSelect": [
+          8
+        ],
+        "IndexedKimiDeltaAttention": [
+          0
+        ],
+        "RmsNorm": [
+          0
+        ]
+      },
+      "installed_only": {
+        "Gemm": [
+          0,
+          2
+        ],
+        "IndexSelect": [
+          8
+        ],
+        "IndexedKimiDeltaAttention": [
+          0
+        ],
+        "RmsNorm": [
+          0
+        ]
+      }
+    },
+    "CPU_contract": {
+      "GPU_math_tested": false,
+      "batch_sizes": [
+        1,
+        2,
+        4,
+        8,
+        16,
+        32,
+        64
+      ],
+      "completed": true,
+      "invalid_metadata_cases": 10,
+      "valid_metadata_cases": 56,
+      "widths": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    "GPU_objects_unchanged_latest3586": {
+      "tile.o": "1a30210f74965f145bc5dd1a8a36e3f56ecfe3088f95bd249ccfec7ee60d2fff",
+      "raw.o": "98070d3b3b6b1985b39eb02c35f0a241e212345f2db66d06a7cbed0a2e527771",
+      "kernel.o": "8602e0af61e3db4891459339021f4edc332de1474f04597255d4526f84a4d923",
+      "helpers/grouped.o": "5a653bbf75252d66f372197d618b79ffda88ddc9e69864a64fea56c159b14fcb"
+    },
+    "scope": "Isolated opt-in multi-batch speculation verifier build/CPU contracts only. Actual full-model allposition parity, rejection replay, complete EOS sequences and measured speedup remain required. Excluded from main optimization metric."
+  },
+  "actual_Runtime_guard_component": {
+    "utc": "2026-10-20T21:19:41.537637+00:00",
+    "completed": true,
+    "producer": [
+      "910373.818",
+      "kimi-guard-r3757",
+      "COMPLETED",
+      "0:0",
+      "00:00:56"
+    ],
+    "cases": 288,
+    "actual_Runtime_bridge_wrong_ambient_tested": true,
+    "library_sha256": "b72f5cf963c7ac0fbeab26730da3939d04c2f06070fd5a9ae8cab482be8e2000",
+    "reports": [
+      {
+        "file": "kda-guard-r3755-910373.818-gpu0.json",
+        "sha256": "2b56976bf4cce7bee1ae1cc67d6dc6691579fc67b26b8e1a1928126e488429cd"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu1.json",
+        "sha256": "257206f374fd04621e7553a614bdfb9ec3795bacb2880edddaa01f1258bf58bd"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu2.json",
+        "sha256": "7c90f7fecb35011df63a0f0d629478d61a63da279728380e7b875abcdf6f09e1"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu3.json",
+        "sha256": "2dbbcce53fdfebf025c0ee385a784bc4b628d2150ce5a83e7a0d0ffc701aa920"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu4.json",
+        "sha256": "026563c9f61d8483222bd95878d002c3be9c1e12498bf65d46687d75bedb57a7"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu5.json",
+        "sha256": "92f3995fd932d38d412f20f5c876124d0458f94ea657ebf14f678b81657e481f"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu6.json",
+        "sha256": "6190b53a68df7ae94f7ac1310164df19ac8de31162d8004f841f5b34d696cb20"
+      },
+      {
+        "file": "kda-guard-r3755-910373.818-gpu7.json",
+        "sha256": "ff8d9c22f0faa3993ebe219bad715e2cb6a398aa6f8d671264c6637cf1a82c6c"
+      }
+    ],
+    "scope": "Actual synchronous Runtime helper, correct and intentionallydifferent ambientdevice, restorescallerdevice, completeoutput/statecomparedrawroundedandserialW1. Producer did fullGPU tensor equality; CPU auditor checks terminal/schema/SHA, no independentlypersisted rawtensors. Componentonly, no wholemodeltoken/performancequalification."
+  },
+  "latest_trial_queue_state": "submitted",
+  "large_pipeline_queue_state": "waiting_wholemodel_B1_QA_and_frozen_AR_repeat",
+  "latest_wholemodel_qualified_speculative_gain": false,
+  "GLM_latest_matrix_terminal_qualified": false,
+  "DSpark_status": "Offlinecomponent only; latesttarget5features capture +PPtransport +draftincrementalKV +onlineacceptance remain unimplemented. No MTPweights inactualtargetcheckpoint.",
+  "next_priorities": [
+    "Finish3759QA/frozenAR/fullspecIDreplay/normalownerterminalaudits before usingtiming.",
+    "Then3761B16/32/64 serialized/pipelineAR ABBA versus samepipeline promptlookup, separatelyreportperrequest/total/all32cards.",
+    "Integrate measuredlatesttarget layer7/23/51/67/83 features andincrementaldraftKV fortrainedDSpark; do notquoteofflinehitratiosasonlineacceptance.",
+    "Aftercorrectness adopt provenKDA disjointsamepool instead48.375MiBclone, validateCPUmetadataonceperforward withowner/lifetime/nonaliaschecks; neitheroptimizationyetintegrated."
+  ]
+}

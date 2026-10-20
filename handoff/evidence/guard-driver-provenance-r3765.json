@@ -1,0 +1,194 @@
+{
+  "utc": "2026-10-20T21:21:11.524499+00:00",
+  "files": {
+    "kimi_conv_registry_r3746.cpp": {
+      "source_sha256": "86b4f525ce192ca6331ac55c2c10b2003d3ea60e0d0c6df1ae6f7d69b285ace2",
+      "shipped_sha256": "86b4f525ce192ca6331ac55c2c10b2003d3ea60e0d0c6df1ae6f7d69b285ace2"
+    },
+    "kimi_conv_smoke_r3746.cpp": {
+      "source_sha256": "159376642fcc5077c8f18c46c75c0211a4947e9674568986be5d7ec3f8a6b274",
+      "shipped_sha256": "159376642fcc5077c8f18c46c75c0211a4947e9674568986be5d7ec3f8a6b274"
+    },
+    "kimi_conv_smoke_r3746.py": {
+      "source_sha256": "4d4679d698a25cdae961c3be3cfaa79860eb9e8b0741a8c947248025ca4e2f64",
+      "shipped_sha256": "4d4679d698a25cdae961c3be3cfaa79860eb9e8b0741a8c947248025ca4e2f64"
+    },
+    "kimi_conv_proof_r3746_inside.sh": {
+      "source_sha256": "4c73446de53d0e0674e2227297cb5fd0981fb5827a308f93f6e59bbb845ee114",
+      "shipped_sha256": "4c73446de53d0e0674e2227297cb5fd0981fb5827a308f93f6e59bbb845ee114"
+    },
+    "launch_kimi_conv_proof_r3746.py": {
+      "source_sha256": "f32128c8f9e82cb7d2def7050d6610c65501b6e4f9576149731ac83e30bb36ab",
+      "shipped_sha256": "4a4d46a537546b9854dc8a62cd770bbb2dd7a8dc213dc9c7e931465196099aef"
+    },
+    "kimi_spec_protocol_r3747.py": {
+      "source_sha256": "9ae88b671d3f1558421f902454cbe2db43d09efbbd522424596260ef1d0362f9",
+      "shipped_sha256": "9ae88b671d3f1558421f902454cbe2db43d09efbbd522424596260ef1d0362f9"
+    },
+    "modern_kimi_spec_r3747.py": {
+      "source_sha256": "e54104d6370b1a43403d8055fede9f39481d5154ebdba3c537523ffee9b151bf",
+      "shipped_sha256": "e54104d6370b1a43403d8055fede9f39481d5154ebdba3c537523ffee9b151bf"
+    },
+    "kimi_spec_r3747_inside.sh": {
+      "source_sha256": "29a1e32c786f1f06adaaa3a8a33eed61da0fbd7fa328a2c5a74a2c441af7ef5e",
+      "shipped_sha256": "29a1e32c786f1f06adaaa3a8a33eed61da0fbd7fa328a2c5a74a2c441af7ef5e"
+    },
+    "launch_kimi_header_trials_r3747.py": {
+      "source_sha256": "180d19cfbc033e90e1b217d07afb835db516154030f5cf0117c49243fbcf8828",
+      "shipped_sha256": "59bb8b92794cc8feb9a71ade95b925bc8b59c1e2ebc19ffcb08dc31b5294aa37"
+    },
+    "audit_kimi_header_math_r3748.py": {
+      "source_sha256": "48baec165045ff120ca8e8f91049bc3e757d9faa03f4c958c0aba109d6d0c8ce",
+      "shipped_sha256": "48baec165045ff120ca8e8f91049bc3e757d9faa03f4c958c0aba109d6d0c8ce"
+    },
+    "queue_kimi_header_audit_r3748.py": {
+      "source_sha256": "cd7086a762f2ef90932eaa2d187086bf5d32cd6053bf847d2e502c944b4aafaa",
+      "shipped_sha256": "6d7f2d7dd2eeb3e8266593f08096bc7d4e9c58af0ceeb17ca38c196445edce5e"
+    },
+    "queue_kimi_pipeline_admission_r3750.py": {
+      "source_sha256": "e209e4095eebf877ebae93649c71c657de6efd0bfc878f7419a1d55dab2b93b6",
+      "shipped_sha256": "e209e4095eebf877ebae93649c71c657de6efd0bfc878f7419a1d55dab2b93b6"
+    },
+    "audit_kimi_pipeline_spec_r3753.py": {
+      "source_sha256": "6fa2aaf359a506e40787e7cbca0e6cb16d4fa16b723b1550c0c2348c92e32734",
+      "shipped_sha256": "6fa2aaf359a506e40787e7cbca0e6cb16d4fa16b723b1550c0c2348c92e32734"
+    },
+    "kimi_guard_contract_r3755.cpp": {
+      "source_sha256": "e71eb20e795c7ec4acc1d69adc242ecd528a68ca992162d8a64396c1179f5ce2",
+      "shipped_sha256": "e71eb20e795c7ec4acc1d69adc242ecd528a68ca992162d8a64396c1179f5ce2"
+    },
+    "stage_kimi_device_guard_r3755.py": {
+      "source_sha256": "b419e2fa3c2a6e83fbe5fc3ee37162303ea464aa01e78b2d7f2d33f1db708745",
+      "shipped_sha256": "b419e2fa3c2a6e83fbe5fc3ee37162303ea464aa01e78b2d7f2d33f1db708745"
+    },
+    "build_kimi_guard_r3755_inside.sh": {
+      "source_sha256": "3e920385f14b7bd54e919e653dfab585ef6b500f1e47f5496e5e3e30462b6935",
+      "shipped_sha256": "3e920385f14b7bd54e919e653dfab585ef6b500f1e47f5496e5e3e30462b6935"
+    },
+    "launch_kimi_guard_build_r3755.py": {
+      "source_sha256": "85c18606e93e350b8a4c674cf07e94611242aedff43215cbfe6afebfb42b17a7",
+      "shipped_sha256": "d8cafa95a449c9c9a033b13a1616f2d82aebbd6ca1f9ceb02e2d7fc7f28d4772"
+    },
+    "probe_kda_guard_r3755.py": {
+      "source_sha256": "5f0857b8eb36cab435483b2ef3741675312ff8e64648cc08d279534dfe977fb1",
+      "shipped_sha256": "5f0857b8eb36cab435483b2ef3741675312ff8e64648cc08d279534dfe977fb1"
+    },
+    "kda_guard_r3755_inside.sh": {
+      "source_sha256": "c23c0ae60ccaee14ca6847923a4ba3d498392d2ed6262d5d86505651e2faf0a9",
+      "shipped_sha256": "c23c0ae60ccaee14ca6847923a4ba3d498392d2ed6262d5d86505651e2faf0a9"
+    },
+    "audit_glm_large_r3756.py": {
+      "source_sha256": "25a9424fddf18a6bbc85a28ed766dd699cf8ae3dc123b3a097ed20fdeeadea1c",
+      "shipped_sha256": "25a9424fddf18a6bbc85a28ed766dd699cf8ae3dc123b3a097ed20fdeeadea1c"
+    },
+    "queue_followup_audits_r3756.py": {
+      "source_sha256": "07534b40fdaf333d4064b42cff1b4ea7ca285de5c1932f09fa4d41f930bfded6",
+      "shipped_sha256": "06c890e7cebda6236275e093e96f73a6a8a0c735f55cc13c5bfb339b0b613942"
+    },
+    "start_followup_audits_r3756.py": {
+      "source_sha256": "79cfd5cdd7e77b5089cca4c4683c4cfd753fca0c4accab35764795bcdf25cff4",
+      "shipped_sha256": "79cfd5cdd7e77b5089cca4c4683c4cfd753fca0c4accab35764795bcdf25cff4"
+    },
+    "queue_kimi_guard_test_r3757.py": {
+      "source_sha256": "c6602746dd0dd43e339e7492912f0da931e1fd63f1ae482e76b98e2273376dab",
+      "shipped_sha256": "32f92b5ca7ce2bc3855da6092756c25d9acdb2e1a5088ebdf8408433087ef3fd"
+    },
+    "start_kimi_guard_test_r3757.py": {
+      "source_sha256": "1ae03e39daf66881ef677d3b70ba0b5bb42eaaefbc657197f53f6923c897496c",
+      "shipped_sha256": "1ae03e39daf66881ef677d3b70ba0b5bb42eaaefbc657197f53f6923c897496c"
+    },
+    "audit_kimi_guard_runtime_r3758.py": {
+      "source_sha256": "d879999a57eeff0e0e63fb77f7583841a9f3a7769200052c4737e2fc1d7b9e30",
+      "shipped_sha256": "d879999a57eeff0e0e63fb77f7583841a9f3a7769200052c4737e2fc1d7b9e30"
+    },
+    "kimi_spec_protocol_r3759.py": {
+      "source_sha256": "62f8bb57bc350d4874b075c86246f027c6a6d57d0523f92c5bfdea8f663821a5",
+      "shipped_sha256": "62f8bb57bc350d4874b075c86246f027c6a6d57d0523f92c5bfdea8f663821a5"
+    },
+    "modern_kimi_spec_r3759.py": {
+      "source_sha256": "68c2afcce11e23b756ff0fd7b8d453aa04d4a19af1032df461f01e2097b37c8e",
+      "shipped_sha256": "68c2afcce11e23b756ff0fd7b8d453aa04d4a19af1032df461f01e2097b37c8e"
+    },
+    "kimi_spec_r3759_inside.sh": {
+      "source_sha256": "a38d86c6df917a7aa125987340d0039fb24be8e4c4f3c4660cfff540c752a3c1",
+      "shipped_sha256": "a38d86c6df917a7aa125987340d0039fb24be8e4c4f3c4660cfff540c752a3c1"
+    },
+    "launch_kimi_guard_trials_r3759.py": {
+      "source_sha256": "5672e621911da49980e7f96178d7723f87b82c0b32e753ee9225d4c09c286ba2",
+      "shipped_sha256": "999b3e6364911464fcbd09d6c820359912ac82bc941210fb69f3d9bb6a2b3aca"
+    },
+    "queue_kimi_guard_trials_r3759.py": {
+      "source_sha256": "cfc309754ed7c113fa2ad5b93f394aa5826f7dba73091972927539d44082e769",
+      "shipped_sha256": "cfc309754ed7c113fa2ad5b93f394aa5826f7dba73091972927539d44082e769"
+    },
+    "start_kimi_guard_trials_r3759.py": {
+      "source_sha256": "2d9cbd333779477e3664293bc6fe3765f19c4904837ed3dd268b95af3db9c5b5",
+      "shipped_sha256": "2d9cbd333779477e3664293bc6fe3765f19c4904837ed3dd268b95af3db9c5b5"
+    },
+    "audit_kimi_guard_math_r3760.py": {
+      "source_sha256": "1b879018d85f923d69f6df0a1cd423fdb34767cc3968cc0ba568175eb8143806",
+      "shipped_sha256": "1b879018d85f923d69f6df0a1cd423fdb34767cc3968cc0ba568175eb8143806"
+    },
+    "queue_kimi_guard_audit_r3760.py": {
+      "source_sha256": "875b6598706f7b783d867f6771155fbf36a2760f1d673c933699125e886cbf8a",
+      "shipped_sha256": "b27a3e9a0fc70fde546fa007f8ffffec7aecd568b4c68a389809c7f8db67ea86"
+    },
+    "start_kimi_guard_audit_r3760.py": {
+      "source_sha256": "ebe06a755bb52525ec9e01c3c683a24d83411104c4d485703ab9a94ba2b8e783",
+      "shipped_sha256": "ebe06a755bb52525ec9e01c3c683a24d83411104c4d485703ab9a94ba2b8e783"
+    },
+    "kimi_spec_protocol_r3736.py": {
+      "source_sha256": "fbf6ab402a6031eb1eff74f2fe541ade0e441e75ad26030028e3bcd2906061eb",
+      "shipped_sha256": "fbf6ab402a6031eb1eff74f2fe541ade0e441e75ad26030028e3bcd2906061eb"
+    },
+    "modern_kimi_spec_r3736.py": {
+      "source_sha256": "fa25c9b0d2277b4e7ca110dcb3f40c1a7621adeb14d26c49d6746e1738a1d98c",
+      "shipped_sha256": "fa25c9b0d2277b4e7ca110dcb3f40c1a7621adeb14d26c49d6746e1738a1d98c"
+    },
+    "kimi_spec_r3736_inside.sh": {
+      "source_sha256": "fc2c98909ae666be1fe01fdbc22d3e33343162624680c6f2f9043f815cd6fb88",
+      "shipped_sha256": "fc2c98909ae666be1fe01fdbc22d3e33343162624680c6f2f9043f815cd6fb88"
+    },
+    "launch_kimi_pipeline_spec_r3736.py": {
+      "source_sha256": "418f3f652136e0bb8ede37354092928b35ca97dea345683888809dd4cf478fae",
+      "shipped_sha256": "ffe404b392548fe3a2e62852b1abf4de10956db4e753052ec73dcf4b950782a8"
+    },
+    "kimi_spec_protocol_r3761.py": {
+      "source_sha256": "a6e0dde9f7663fc6e7b1241c4b86e280572496bbb1a54fb2e4a1ecfac95e9e97",
+      "shipped_sha256": "a6e0dde9f7663fc6e7b1241c4b86e280572496bbb1a54fb2e4a1ecfac95e9e97"
+    },
+    "modern_kimi_spec_r3761.py": {
+      "source_sha256": "a52356079206dbaad571a9d67f66f86d41163fb05d05cd702f399cf1974a7b5c",
+      "shipped_sha256": "a52356079206dbaad571a9d67f66f86d41163fb05d05cd702f399cf1974a7b5c"
+    },
+    "kimi_spec_r3761_inside.sh": {
+      "source_sha256": "d3abfb988a3aac84ac363f6104c07cf041b9af16d06b5c15ec7e1951e46b44bd",
+      "shipped_sha256": "d3abfb988a3aac84ac363f6104c07cf041b9af16d06b5c15ec7e1951e46b44bd"
+    },
+    "launch_kimi_pipeline_spec_r3761.py": {
+      "source_sha256": "006a35318c6a7f40825ac13a86f814e0a9bb667e3f6f502eefd36eacc62ad7d5",
+      "shipped_sha256": "258a1f93148e12baa7a53d84b6a4e5b6660e8a7d02da5f95fc97af776925e624"
+    },
+    "queue_kimi_pipeline_admission_r3761.py": {
+      "source_sha256": "2e2c110b8000cad871cc81d451311ab4a6582e871833b104eef2c001d3d50440",
+      "shipped_sha256": "2e2c110b8000cad871cc81d451311ab4a6582e871833b104eef2c001d3d50440"
+    },
+    "start_kimi_pipeline_admission_r3761.py": {
+      "source_sha256": "36e35d67e998d210dac2f42d12891b299a539f86cdb879ac23058e281ad3a957",
+      "shipped_sha256": "36e35d67e998d210dac2f42d12891b299a539f86cdb879ac23058e281ad3a957"
+    },
+    "audit_kimi_pipeline_spec_r3762.py": {
+      "source_sha256": "3ab95e1367ae475cebb5d6d46bd1c2b0b2f5c5bb1911f18d3d1f8ba3f796b224",
+      "shipped_sha256": "3ab95e1367ae475cebb5d6d46bd1c2b0b2f5c5bb1911f18d3d1f8ba3f796b224"
+    },
+    "queue_kimi_pipeline_audit_r3762.py": {
+      "source_sha256": "c48597aa2be8e2461a6e083376842c4a640951b594a168760218b2467468ca08",
+      "shipped_sha256": "68c78c2527abcbc5d41ee6cc206f372ecb40a8985a691ebb68471f8aedac224d"
+    },
+    "start_kimi_pipeline_audit_r3762.py": {
+      "source_sha256": "a1efaf6995cb68cd4025c9fc5297baccac749b5044e5b72c83400497b6bea0a5",
+      "shipped_sha256": "a1efaf6995cb68cd4025c9fc5297baccac749b5044e5b72c83400497b6bea0a5"
+    }
+  },
+  "scope": "Source/shipped hashes; public path/host placeholders only. Historicalfailedsources retained. No binaryweightscredentials."
+}
