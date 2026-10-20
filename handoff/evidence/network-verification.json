@@ -1,0 +1,43 @@
+{
+  "observed_utc": "2026-10-20T15:25:12.074395+00:00",
+  "basis": "Live RCCL logs, mapped plugin/UCX libraries, 16-node readonly interface/IB counters; not inferred from env alone",
+  "Kimi_current": {
+    "actual_backend": "IBext_v8",
+    "ports": [
+      "shca_0:1",
+      "shca_1:1",
+      "shca_2:1",
+      "shca_3:1"
+    ],
+    "link_state": "ACTIVE",
+    "reported_link_rate_per_port": "400Gb/s NDR",
+    "GPU_Direct_RDMA": "Disabled in actual NCCL log; not a management-network fallback",
+    "management_network_fallback_observed": false
+  },
+  "GLM_long512_current": {
+    "actual_backend": "Socket",
+    "actual_interfaces": [
+      "ib0",
+      "ib1",
+      "ib2",
+      "ib3"
+    ],
+    "RDMA_device_discovery": "NET/IB : No device found",
+    "meaning": "TCP/IPoIB on high-speed interfaces; no evidence of payload using eno management interfaces. Socket transport can still add CPU and latency cost.",
+    "GPU_Direct_RDMA": false,
+    "management_network_fallback_observed": false
+  },
+  "Deep_current": "TP8 on a single node; does not establish inter-node network performance.",
+  "counter_limit": "2-second node counters are not per-process attribution and some Kimi jobs were loading weights; do not interpret observed management-interface storage/control traffic as model-collective fallback. Link rate is not achieved payload bandwidth.",
+  "new_GLM_fullmodel_trial": {
+    "Socket": "forced NCCL_NET=Socket and NCCL_SOCKET_IFNAME=ib",
+    "SHCA": "forced NCCL_NET=IBext_v8,NCCL_NET_PLUGIN=shca and rc/sm/self, matching private plugin/UCX/provider paths",
+    "scope": "Same audited3e0 Model3072/protocol3323 G32/G64 M8 max128, fullQA and fastpathABBA. Separate node groups first; swap nodes before causal speedup claim.",
+    "qualified_performance": false
+  },
+  "next": [
+    "Require actual backend logs at every launch; never infer transport from env flags",
+    "Finish model token/finite/owner/Slurm audit and compare decode,including-prefill,TTFT",
+    "Separate GDR capability/provider support investigation from transport routing; no forced GDR or live-job replacement without isolated correct tests"
+  ]
+}

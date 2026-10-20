@@ -1,0 +1,24 @@
+{
+  "recorded_utc": "2026-10-20T15:21:48.743688+00:00",
+  "authority": "Latest explicit human instruction in this task",
+  "instruction_zh": "不需要所有的数值逐位一致，保证最终输出的token一致即可",
+  "numerical_acceptance": [
+    "Complete generated token ID sequence equals the frozen reference for the same inputs and decoding configuration",
+    "Same-input repetitions and batch duplicates produce the required full token sequence",
+    "Finite logits, actual CPU argmax equals selected GPU token, EOS/limit accounting",
+    "Owner/device/stream affinity and normal resource cleanup; authoritative Slurm terminal state"
+  ],
+  "diagnostic_only": [
+    "Logits bit patterns across duplicate rows, ranks, repeats or precision variants",
+    "Numerical L2/absolute differences that do not change required generated tokens"
+  ],
+  "artifact_integrity": "Raw SHA still validates artifact integrity, never requires equal model values across numerical variants.",
+  "default_precision": "Prioritize native BF16/FP32. F64 is reference/control, never automatically required by logit bit differences.",
+  "performance": "Measure same-process matched-schedule precision ABBA; F64 payload is4x BF16 bytes but full-model slowdown must be measured.",
+  "frozen_failures": "Preserve historical raw-only failures as evidence but label their acceptance policy superseded. Literal token mismatch, including whitespace token IDs, still fails.",
+  "running_tests": [
+    "Kimi r3560 policy0/policy1,110QA plus six natural phases,32cards each; all G32 precision ABBA uses round feedback",
+    "Deep r3564 mode0 native/mode1 matchedsync, B8 token reference trial; no F64 dispatch"
+  ],
+  "qualified_new_precision_performance": false
+}

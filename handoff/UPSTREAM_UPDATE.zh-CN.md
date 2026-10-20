@@ -1,5 +1,8 @@
 # 最新上游迁移状态
 
+最新观测已更新到 LM `06d0c03`、Core `046f012`、Ops `f998e4d`，RT/CCL 不变。9套源覆盖已完成，3套 SDK 与 Common 已构建。补齐 Mul scalar shape/stride 元数据、Hygon Torch stream guard 和 Hygon Pad 适配后，24个实际GPU owner 的 Mul/Pad 数值检查通过；部分正负零位模式不同仅作诊断。Cast GPU 检查已运行，独立 CPU oracle 和整模型仍需验收。本交接稳定源码快照仍是3e0，不能把最新构建进展视为额外已合格的运行时。
+
+
 本轮观测到用户指定分支更新为 [c3deba4](https://github.com/InfiniTensor/InfiniLM/commit/c3deba450a631d79e3a183048726b4a1f4acabdd)，Core 为 `14a8bd52b586c26fcfdf7ecc04efde38640467fb`，Ops 为 `bcfe96daf338b9f9992049f7965b27b6afe88b68`；RT `b4138168dfbbaa5e222febe66ab85919378ebc19`、CCL `6f329f83e6e248d9849b3ae1134dbaf05b409bc3` 不变。
 
 `upstream-update-c3deba4/recursive-source-manifest.json` 保存精确递归 gitlink 和源文件验证信息。该目录保留下载、源合并、Pad 冲突解决和 SDK 构建脚本，作为继续迁移的工程输入；它不是额外一套已验收的运行时。下载器的历史缓存路径在新服务器可不存在，应按精确提交重新获取，不能替换为浮动 HEAD。

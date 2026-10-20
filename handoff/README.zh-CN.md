@@ -1,5 +1,13 @@
 # 海光 InfiniLM 双版本迁移交接
 
+## 最新用户验收要求（优先于下文历史 raw gate）
+
+用户明确要求：**不需要所有数值逐位一致，保证最终输出的 token 一致即可。** 完整生成 token ID 序列（含 EOS）与同输入冻结参考一致是数值验收标准；logits 在重复行、rank、重复运行或精度变体间的逐位差异仅作诊断。仍验证有限值、CPU argmax 与实际所选 GPU token 一致、EOS、同配置重复、owner/设备/stream、正常退出和 Slurm 终态。raw SHA 用于文件完整性，不能据此要求模型数值逐位相同。
+
+原生 BF16/FP32 为优先性能路径，F64 仅作参考和对照。F64 相对 BF16 的通信负载字节数为 4 倍，整模型慢多少必须实测。历史 raw-only 失败保留并标注旧规则；仅 raw 不同不再淘汰候选。完整 token ID 不同（包括空格 token）仍是失败，不做文本归一化放宽。
+
+Kimi 已安排原生 BF16、FP32 两组完整模型试验，对冻结 F64 序列检查完整 token，并用相同 round-feedback 调度作 F64/候选/候选/F64 同进程对照。Deep 原生与匹配同步模式也按 token 标准重测。新精度路径尚无审计后的性能数字。具体代码见 `drivers/*r3560*`、`drivers/audit_kimi_token_r3562.py`、`drivers/*r3564*`，规则见 `evidence/token-acceptance-policy.json`。
+
 交接日期为 2026 年 10 月 20 日。目标是在新一批服务器上恢复 GLM-5.3、Kimi-K3 和 DeepSeek-v4-Flash 的适配、正确性检查和吞吐优化。当前优化目标是**有效总吞吐除以服务实例全部卡数**；单请求 15 tok/s 已不作为当前实验准入条件。
 
 本交接保留两套互相隔离的版本。不要把旧版的高吞吐数字直接贴到新版上，也不要把两套 SDK、Common、Model 动态库混合加载。
@@ -36,3 +44,5 @@ GitHub 中保存可审查的 C++、GPU 内核、Python、构建入口、测试�
 **先恢复已验证版本再继续修复。** `runtime-r3432` 只恢复原来稳定构件，不含后续 Cast64、Kimi F64 Common 或 Deep F64 Model；新增源码须在隔离目录重新构建和验收。
 
 更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。
+
+最新实际通信路径与 GLM RDMA 对照见 [网络检查](NETWORK.zh-CN.md)。本轮新增审计参考性能见性能末表；原生低精度新结果仍在测。
