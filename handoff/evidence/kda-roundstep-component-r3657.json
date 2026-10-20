@@ -1,0 +1,214 @@
+{
+  "utc": "2026-10-20T18:18:51.489814+00:00",
+  "steps": [
+    [
+      "910377.470",
+      "kda-rounding-r3657",
+      "COMPLETED",
+      "0:0",
+      "00:00:49"
+    ]
+  ],
+  "reports": [
+    {
+      "device": 0,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 1,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 2,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 3,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 4,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 5,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 6,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    },
+    {
+      "device": 7,
+      "completed": true,
+      "cases": 36,
+      "error": null,
+      "rounded_all_outputs_and_states_exact": true,
+      "baseline_state_mismatches": 36,
+      "baseline_output_mismatches": 36
+    }
+  ],
+  "first_token_differences": [
+    {
+      "label": "B1-lookup-K1-B1",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 6130,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    },
+    {
+      "label": "B1-lookup-K1-B2",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 6130,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    },
+    {
+      "label": "B1-lookup-K3-B1",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 6130,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    },
+    {
+      "label": "B1-lookup-K3-B2",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 6130,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    },
+    {
+      "label": "B1-lookup-K7-B1",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 48402,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    },
+    {
+      "label": "B1-lookup-K7-B2",
+      "first_difference": 41,
+      "expected": 2762,
+      "actual": 48402,
+      "prior5_expected": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ],
+      "prior5_actual": [
+        5804,
+        13336,
+        7652,
+        378,
+        3194
+      ]
+    }
+  ],
+  "wholemodel_current_phase": "B4-lookup-K3-B1",
+  "operator_cases": 288,
+  "operator_producer_completed": true,
+  "fullmodel_fix_implemented": false,
+  "fullmodel_fix_qualified": false,
+  "scope": "Original rawkernel math versus identical per-token BF16state rounding variant, real8GPUs,R1/4/8/16,W2/4/8,3repeats. Roundedoutputs/states allsame as serial native kernel; originalblock outputs/states differall288cases. Isolates operator storageboundary arithmetic only, not proof ofsole fullmodelcause. No modelRuntime integration or speedup yet. Originalprefill mustretainitscurrentmath. Wholemodeltokenacceptance remains completeIDs,not rawstatebitgate."
+}

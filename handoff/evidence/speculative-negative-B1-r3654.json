@@ -1,0 +1,69 @@
+{
+  "utc": "2026-10-20T18:08:37.425985+00:00",
+  "completed_partial_B1_audit": true,
+  "producer_whole_job_completed": false,
+  "normal_owner_cleanup_audited": false,
+  "end_to_end_performance_qualified": false,
+  "excluded_main_metric": true,
+  "B1_natural_cases": 9,
+  "full_ids_across4nodes_exact": true,
+  "AR_three_repeat_IDs_exact": true,
+  "CPU_fullvocab_raw_samples": 31,
+  "comparisons": [
+    {
+      "batch": 1,
+      "proposal_max_tokens": 1,
+      "full_IDs_equal_AR": false,
+      "repeat_IDs_exact": true,
+      "replay_token_corrections_exact": true,
+      "drafted": 122,
+      "accepted": 18,
+      "acceptance_fraction": 0.14754098360655737,
+      "AR_decode_median": 5.3491125412236284,
+      "AR_decode_range": [
+        5.260933830560379,
+        5.371299295014007
+      ],
+      "spec_decode_median": 3.8355316362973593,
+      "including_prefill_median": 3.200765620478171,
+      "speed_ratio": 0.7170407439997454
+    },
+    {
+      "batch": 1,
+      "proposal_max_tokens": 3,
+      "full_IDs_equal_AR": false,
+      "repeat_IDs_exact": true,
+      "replay_token_corrections_exact": false,
+      "drafted": 372,
+      "accepted": 26,
+      "acceptance_fraction": 0.06989247311827956,
+      "AR_decode_median": 5.3491125412236284,
+      "AR_decode_range": [
+        5.260933830560379,
+        5.371299295014007
+      ],
+      "spec_decode_median": 3.4482156866058418,
+      "including_prefill_median": 2.9282394352834396,
+      "speed_ratio": 0.6446332284153158
+    },
+    {
+      "batch": 1,
+      "proposal_max_tokens": 7,
+      "full_IDs_equal_AR": false,
+      "repeat_IDs_exact": true,
+      "replay_token_corrections_exact": false,
+      "drafted": 716,
+      "accepted": 28,
+      "acceptance_fraction": 0.03910614525139665,
+      "AR_decode_median": 5.3491125412236284,
+      "AR_decode_range": [
+        5.260933830560379,
+        5.371299295014007
+      ],
+      "spec_decode_median": 3.2093107835238195,
+      "including_prefill_median": 2.7545846507745506,
+      "speed_ratio": 0.5999706977168363
+    }
+  ],
+  "scope": "Immutable completed B1 cases extracted while sameprocess continuesB2/4/8/16. CPU samples/complete IDs and timedusefultokens independently checked; no normalownerclose/wholejobterminalaudit yet. Single512prompt,max128, nativeBF16 pairedstateAR versuspromptlookup. IncludesfullvocabCPUargmax,D2H/control/sampleraw persistence. Not finalqualifiedspeedup or DSpark online."
+}

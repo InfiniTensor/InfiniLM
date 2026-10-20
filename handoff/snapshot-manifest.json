@@ -1,6 +1,6 @@
 {
-  "utc": "2026-10-20T18:05:35.331886+00:00",
-  "scope": "Exact shipped bytes; original legacy/current/source snapshots preserved. Experimental latest06d source addition has no inherited wholemodel performance. Complete token acceptance supersedes historical logitraw gates. Speculation excluded mainmetric.",
+  "utc": "2026-10-20T18:23:28.956790+00:00",
+  "scope": "Exactshippedbytes; originalstable sourcepreserved; current firstspecnegative andisolatedKDAoperatorproof, nofullmodel fix/speedupadoption.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
       "bytes": 8861,
@@ -25990,6 +25990,10 @@
       "bytes": 3083,
       "sha256": "ddde1b071a7db7ffee97a4e4865a7cc0483cc62d32d2c83446c1bf310a7ec131"
     },
+    "drivers/audit_partial_spec_B1_r3654.py": {
+      "bytes": 3401,
+      "sha256": "ff97fb9e6d0138a41850ddf844bd3aa74e8356c698f768c5ffea87a7e087ad7e"
+    },
     "drivers/build_cast64_sdk_r3316_inside.sh": {
       "bytes": 3158,
       "sha256": "3e51d913787002c64c0d13c2ec97d2f56e64e4b0a1d22e740249bedefe005604"
@@ -26386,6 +26390,14 @@
       "bytes": 5748,
       "sha256": "95e72f39d136216331064e21782c509283ebd0f84d6ea70fa2259d896a8fb4eb"
     },
+    "drivers/kda_rounding_r3655_inside.sh": {
+      "bytes": 594,
+      "sha256": "aa9df60951f2ca172661360f6a95d360a80ce9ba47599fa3ee153137f0979316"
+    },
+    "drivers/kda_rounding_r3657_inside.sh": {
+      "bytes": 504,
+      "sha256": "a9f620dae1e67fd3c0c736e607eb3727f41598383e25005e1f5c9f315107e164"
+    },
     "drivers/kimi_batch_acceptance_r3501.py": {
       "bytes": 12718,
       "sha256": "7d0fca12db3518556b606d8ca69bbf08872f245d31f1d6530e9c269394ad2c64"
@@ -26409,6 +26421,10 @@
     "drivers/kimi_grouped_fused_fp32_runtime_r21.cpp": {
       "bytes": 12693,
       "sha256": "596b5fe50e1c3abecc9b28ee08694f3cccf75c7b51255002d23ce05ca9f04a2c"
+    },
+    "drivers/kimi_kda_rounding_r3655.cu": {
+      "bytes": 2271,
+      "sha256": "95e0e716ae9662a57f964d0c1bac2780f7bdcded200a7b0287fd89a960cac545"
     },
     "drivers/kimi_pipeline_cohort_r3483.py": {
       "bytes": 9412,
@@ -26658,6 +26674,14 @@
       "bytes": 430,
       "sha256": "d4328b116f60aad543204cf3b58cba002f6d1368c9ddbaad8fc063718c0d5396"
     },
+    "drivers/probe_kda_rounding_r3655.py": {
+      "bytes": 4421,
+      "sha256": "b65b387a3ffe36463a079a40ae8d8ed7b4a80135008cb82bfaef3739c7e83e3c"
+    },
+    "drivers/probe_kda_rounding_r3657.py": {
+      "bytes": 4478,
+      "sha256": "5299da968b77a74c1232a1ddcdce4983c70b21f9251b2127fe7d948711b78309"
+    },
     "drivers/probe_kimi_f64_component_r3385.py": {
       "bytes": 5803,
       "sha256": "17d70157704230d1e1e4f96085c4c4e25bcf417af30684cfe6dc55cb33bc4f3d"
@@ -26729,6 +26753,10 @@
     "drivers/stage_glm_scale_r3603.py": {
       "bytes": 3394,
       "sha256": "eff0e7d4242ac0e977e4f1b755315ff3b7ed0e08dd55868343cbb27f8c86d3a0"
+    },
+    "drivers/stage_kda_rounding_r3655.py": {
+      "bytes": 1602,
+      "sha256": "00472c3e06b17168e9098c4f9b29d818a0e96433774f2528e228f43ec95fb330"
     },
     "drivers/stage_kimi_reduce_abi_fix_r3261.py": {
       "bytes": 3012,
@@ -26838,6 +26866,10 @@
       "bytes": 105481,
       "sha256": "b15f2189610b86c2a70a6478e3aa56d4b7e814e84c6a6725d5a6eb198ecd177d"
     },
+    "evidence/kda-roundstep-component-r3657.json": {
+      "bytes": 4683,
+      "sha256": "5c83d7e43fd9330401af0115af189793da06adede6607fb297803fa17fed1bb2"
+    },
     "evidence/kimi-token-only-r965-audit-910375.387.json": {
       "bytes": 40597,
       "sha256": "f9b527a8b04d1b78da50a26496232a770df806d831a104ee7c0ff3016042ead7"
@@ -26887,8 +26919,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 8274,
-      "sha256": "1e66c7b89bd2c25a773ca42a88a8931572869134d42967f87dfff8a8010d5def"
+      "bytes": 8575,
+      "sha256": "e9d879a9462332efc3269eb9b3687630bc2ab935c444113fcbe1ccff87ee4d83"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -26897,6 +26929,10 @@
     "evidence/speculative-experiment-r3649.json": {
       "bytes": 1630,
       "sha256": "76f623b86dc5baac6dacfcf4a30e0c8aa2e278986ae895bd0bc9de3fdba64251"
+    },
+    "evidence/speculative-negative-B1-r3654.json": {
+      "bytes": 2425,
+      "sha256": "7f8c7246b369e4d3a0dd25c7d4551b600728ad3788ff6944749fb5d33b52a1c9"
     },
     "evidence/token-acceptance-policy.json": {
       "bytes": 1740,
@@ -66119,8 +66155,8 @@
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
     },
     "SPECULATIVE_EXPERIMENT.zh-CN.md": {
-      "bytes": 4170,
-      "sha256": "b14e628f4b30948b3b04633f64cbd18ca7e16943227c52cef05cade124354f4b"
+      "bytes": 5937,
+      "sha256": "1006da3ed8de3ab50af2a96a1b55c2191468ddea2e8a3b140ff441973c1447d8"
     },
     "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
       "bytes": 1856,

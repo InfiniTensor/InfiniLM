@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T18:04:41.129595+00:00",
+  "recorded_utc": "2026-10-20T18:23:28.956790+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -203,5 +203,12 @@
   "speculative_in_main_metric": false,
   "DSpark_draft_component_audit": "dspark-draft-batch-r3646.json",
   "communication_component_audit": "collective-groups-r3647.json",
-  "latest_speculative_fullmodel_performance_qualified": false
+  "latest_speculative_fullmodel_performance_qualified": false,
+  "first_speculative_B1_candidate": {
+    "qualified": false,
+    "evidence": "speculative-negative-B1-r3654.json",
+    "reason": "Complete tokenID mismatch andslower; not logitraw-only"
+  },
+  "KDA_operator_component": "kda-roundstep-component-r3657.json",
+  "KDA_wholemodel_fix_implemented": false
 }
