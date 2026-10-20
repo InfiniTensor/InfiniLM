@@ -1,0 +1,6 @@
+library: vllm_moe
+operator_schema: >-
+  _moe_C::topk_sigmoid(Tensor! topk_weights, Tensor! topk_indices,
+  Tensor! token_expert_indices, Tensor gating_output, bool renormalize,
+  Tensor? bias) -> ()
+dispatch_key: CUDA

@@ -1,0 +1,2 @@
+python_distribution_package: vllm
+library_glob: vllm/_moe_C.*.so

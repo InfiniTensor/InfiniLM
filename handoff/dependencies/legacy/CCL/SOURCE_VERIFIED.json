@@ -1,0 +1,8 @@
+{
+  "name": "InfiniCCL",
+  "commit": "188e4a092fbecba1b5815622a75229ed469982de",
+  "verified_blobs": 165,
+  "path": "/path/to/cluster-home/hygon-inference-refactor-20261014/src/InfiniLM/third_party/InfiniCore/submodules/InfiniCCL",
+  "archive_sha256": "de7dcf4427b150058abef21997f848067fea3cb8db167fdca1a5047658b3ee94",
+  "gitlinks": []
+}

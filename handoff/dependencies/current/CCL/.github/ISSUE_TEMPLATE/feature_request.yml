@@ -1,0 +1,73 @@
+name: Feature Request
+description: Suggest a new feature, backend support, optimization, or improvement for InfiniCCL
+title: "[Feature]: "
+labels: ["enhancement"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing ideas to InfiniCCL.
+        Please describe the motivation and design clearly.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: What limitation or pain point are you facing?
+      placeholder: |
+        Example:
+        MPICH backend lacks support for barrier-free execution in `icclrun`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe your suggested solution or design
+      placeholder: |
+        Example:
+        Add optional async barrier-free execution mode in runtime layer.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches have you considered?
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      options:
+        - Backend Support
+        - Launcher (`icclrun`)
+        - Runtime/Platform Support
+        - Collective Algorithms
+        - Performance Optimization
+        - Build System (CMake)
+        - CI/CD
+        - Testing
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Expected Impact
+      options:
+        - Low (minor improvement)
+        - Medium (noticeable improvement)
+        - High (major feature)
+        - Breaking change
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional Context
+      description: Include references, diagrams, or related projects

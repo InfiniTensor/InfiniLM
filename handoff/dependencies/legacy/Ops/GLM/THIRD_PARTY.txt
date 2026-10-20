@@ -1,0 +1,59 @@
+THIRD-PARTY SOURCE ATTRIBUTION
+
+Imported/ported material is identified below; new Ops integration glue is not claimed as third-party code.
+Direct donor: https://github.com/InfiniTensor/InfiniCore
+Pinned direct donor: 1ab85ef1d3c2bce49edf1fc73a5b48becaf7552e
+Core material: MIT, Copyright 2025 InfiniTensor; original text: LICENSES/InfiniCore-MIT.txt.
+The Core MIT notice does not replace the original licenses or notices of the upstream projects below.
+Earlier upstream revisions are not asserted where only the fixed direct Core donor is recorded.
+
+Path prefixes:
+P = src/native/cuda/nvidia/ops/
+C = src/infiniop/ops/ in the pinned direct Core donor
+W = P/w4_marlin/vendor/
+
+W4 / Marlin
+Upstream projects: https://github.com/IST-DASLab/marlin and https://github.com/vllm-project/vllm
+Marlin notices retain Copyright 2024 Elias Frantar, modifications by Neural Magic, Apache-2.0.
+The original generator identifies Apache-2.0 / Copyright contributors to the vLLM project.
+Marlin original Apache headers remain in marlin_template.h and nvidia/kernel.cuh; Apache text: LICENSE.
+Target <- direct donor; COPY means unchanged bytes, ADAPTED/GENERATED identifies modifications:
+ADAPTED W/awq_repack/cuda/kernel.cuh <- C/awq_marlin_repack/cuda/kernel.cuh (include-path-only; kernel body unchanged)
+COPY W/gemm/core/scalar_type.hpp <- C/awq_marlin_gemm/core/scalar_type.hpp
+COPY W/gemm/core/source_location.h <- C/awq_marlin_gemm/core/source_location.h
+ADAPTED W/gemm/core/utils.h <- C/awq_marlin_gemm/core/utils.h (unused pointer/range/dtype helpers removed; runtime checks unchanged)
+COPY W/gemm/marlin/dequant.h <- C/awq_marlin_gemm/marlin/dequant.h
+COPY W/gemm/marlin/kernel.h <- C/awq_marlin_gemm/marlin/kernel.h
+COPY W/gemm/marlin/marlin.cuh <- C/awq_marlin_gemm/marlin/marlin.cuh
+COPY W/gemm/marlin/marlin_dtypes.cuh <- C/awq_marlin_gemm/marlin/marlin_dtypes.cuh
+COPY W/gemm/marlin/marlin_mma.h <- C/awq_marlin_gemm/marlin/marlin_mma.h
+ADAPTED W/gemm/marlin/marlin_template.h <- C/awq_marlin_gemm/marlin/marlin_template.h
+COPY W/gemm/nvidia/kernel.cuh <- C/awq_marlin_gemm/nvidia/kernel.cuh
+GENERATED W/gemm/nvidia/kernel_selector.h <- C/awq_marlin_gemm/nvidia/generate_kernels.py
+GENERATED W/gemm/nvidia/sm80_kernel_bfloat16_u4_bfloat16.cu <- C/awq_marlin_gemm/nvidia/generate_kernels.py
+GENERATED W/gemm/nvidia/sm80_kernel_bfloat16_u4b8_bfloat16.cu <- C/awq_marlin_gemm/nvidia/generate_kernels.py
+GENERATED W/gemm/nvidia/sm80_kernel_float16_u4_float16.cu <- C/awq_marlin_gemm/nvidia/generate_kernels.py
+GENERATED W/gemm/nvidia/sm80_kernel_float16_u4b8_float16.cu <- C/awq_marlin_gemm/nvidia/generate_kernels.py
+ADAPTED W/gptq_repack/cuda/kernel.cuh <- C/gptq_marlin_repack/cuda/kernel.cuh (include-path-only; kernel body unchanged)
+
+MoE / recurrent-state ports
+ADAPTED P/deepseek_moe/kernel.cu <- C/deepseek_moe/nvidia/deepseek_moe_nvidia.cu
+ADAPTED P/moe_fused_dense/kernel.cu <- C/moe_fused_dense/nvidia/moe_fused_dense_nvidia.cu
+ADAPTED P/moe_fused_gate/kernel.cu <- C/moe_fused_gate/nvidia/moe_fused_gate_nvidia.cu
+SGLang project: https://github.com/sgl-project/sglang; earlier upstream path: sgl-kernel/csrc/moe/moe_fused_gate.cu.
+The gate keeps the original Copyright 2025 SGLang Team / Apache-2.0 notice; Apache text: LICENSE.
+PORTED P/chunk_gated_delta_rule/chunk_gated_delta_rule_legacy_kernel.cuh <- C/chunk_gated_delta_rule/cuda/kernel.cuh
+Only the active helpers/state-workspace kernel are ported; the disabled donor branch is not copied.
+COPY P/recurrent_gated_delta_rule/recurrent_gated_delta_rule_legacy_kernel.cuh <- C/recurrent_gated_delta_rule/cuda/kernel.cuh
+PORTED P/recurrent_gated_delta_rule/recurrent_delta_rule_common.cuh <- C/recurrent_gated_delta_rule/cuda/recurrent_delta_rule_common.cuh
+ADAPTED src/native/cuda/ops/mamba_selective_scan/kernel.h <- C/mamba_selective_scan/nvidia/mamba_selective_scan_nvidia.cu
+Namespace, layout/backend binding and resource adaptations are not described as source-identical copies.
+
+FlashAttention / CUTLASS
+Projects: https://github.com/Dao-AILab/flash-attention and https://github.com/NVIDIA/cutlass
+Direct archive: flash_attn-2.8.3, SHA256 1e71dd64a9e0280e0447b8a0c2541bad4bf6ac65bdeaa2f90e51a9e57de0370d.
+scripts/prepare_flash_attention_inference.py imports csrc/flash_attn/src forward headers and csrc/cutlass/include.
+It preserves upstream header notices and copies the archive LICENSE and AUTHORS verbatim to the prepared build directory.
+The adapted scheduling heuristic comes from csrc/flash_attn/flash_api.cpp and retains Copyright 2023 Tri Dao.
+The original archive/CUTLASS notices govern those portions; the Core MIT notice does not relicense them.
+Native launch templates, descriptors and workspace/lifetime integration are glue around the imported forward mathematics.

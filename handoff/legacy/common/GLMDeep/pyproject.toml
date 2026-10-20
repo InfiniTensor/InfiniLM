@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "InfiniLM"
+version = "0.1.0"
+description = "InfiniLM model implementations"
+readme = "README.md"
+dependencies = [
+    "janus",
+    "jinja2>=3.1.0",
+    "numpy",
+    "Pillow",
+    "safetensors",
+    "tokenizers",
+    "tqdm",
+    "transformers",
+    "typing-extensions",
+    "xxhash",
+]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+torch-compat = ["torch"]
+
+[project.urls]
+Homepage = "https://github.com/InfiniTensor/InfiniLM"
+
+[tool.ruff]
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

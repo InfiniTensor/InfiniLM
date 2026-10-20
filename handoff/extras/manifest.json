@@ -1,0 +1,88 @@
+{
+  "files": {
+    "kimi-reduce-Model-overlay/csrc/models/kimi_k3/kimi_k3_text_model.cpp": {
+      "sha256": "9a8b992b6739eb39e04199aadb372bc7212a0f4489d2366e99d87679de925aef",
+      "bytes": 12578
+    },
+    "kimi-reduce-Model-overlay/csrc/engine/distributed/kimi_reduce_precision_r3226.hpp": {
+      "sha256": "404a3079a032a74b673456dafd3e47e1f828c2dc2ef954c0ae58ecdc6b665316",
+      "bytes": 993
+    },
+    "incoming/build_kimi_reduce_common_r3227_inside.sh": {
+      "sha256": "918b9b25890304d102c09fb9a599f4d4aefbdb325d1413fbc76cf0fdd6653972",
+      "bytes": 4713
+    },
+    "incoming/refactor_kimi_grouped_fused_fp32_r21_inside.sh": {
+      "sha256": "d8fc8de84d887a3f000f0e67f9f3669991d8fadaacb119b3a06db7581cf4b69f",
+      "bytes": 1317
+    },
+    "incoming/modern_kimi_grouped_fused_fp32_kernels_r21.cu": {
+      "sha256": "d4ffaaaf85b58c01194d2e04cd995b2458184fc211d2cbfcba3b3c5ce7fe9ed8",
+      "bytes": 2385
+    },
+    "incoming/kimi_grouped_fused_fp32_runtime_r21.cpp": {
+      "sha256": "596b5fe50e1c3abecc9b28ee08694f3cccf75c7b51255002d23ce05ca9f04a2c",
+      "bytes": 12693
+    },
+    "incoming/glm_fp8_batched_r776.cu": {
+      "sha256": "56f3e4b7a7c85a8a73ca8ab586348bb0ea897007f75fc7eb8de200c0ef93faac",
+      "bytes": 5862
+    },
+    "incoming/glm_routed_fp8_kernels_r19.cu": {
+      "sha256": "c9b899fbf5a6f8eb715d806bc592e79b8b738b4334dd938d83e6f1e40f4e326a",
+      "bytes": 4198
+    },
+    "incoming/deepseek_routed_i8_kernels_r20.cu": {
+      "sha256": "a675db956e91e28ece725fab54fee844cc0622a2e632b4b32976137a77a9eb41",
+      "bytes": 2408
+    },
+    "incoming/glm_scale_round_r392.cu": {
+      "sha256": "c54698d5c7fcb24e6ecadfea89fdffda305db508e049a0902eac1dc18ac61496",
+      "bytes": 915
+    },
+    "incoming/glm_kv_pair_r544.cu": {
+      "sha256": "09f81b5a0cda27b194ed0e431dedd8d1c4a9c34b0e024bf04dfd1ee3bea955bf",
+      "bytes": 1471
+    },
+    "incoming/glm_dense_causal_mask_r25.cu": {
+      "sha256": "dc5ea9ff957af4a58e91c168f132182441e13e19dbc666fc304320ab1252719b",
+      "bytes": 725
+    },
+    "incoming/deepseek_mhc_sinkhorn_r89.cu": {
+      "sha256": "f254be195ce38d6399c0a55f4b4680c1eba73ac6dfe4bad392adc98d528691d4",
+      "bytes": 1538
+    },
+    "incoming/deep_packed_gather_r374.cu": {
+      "sha256": "126428a2bc8defebe5144ad9edafee4a56857c10acad171a8f6a96908988a1bf",
+      "bytes": 1347
+    },
+    "incoming/deepseek_mhc_post_register_r168.cu": {
+      "sha256": "19b02b13dbe38bdbf323f320bdae6e4b28aeb2e443e186b487e5f81370f7ca7d",
+      "bytes": 5210
+    },
+    "incoming/deepseek_prefill_scatter_r194.cu": {
+      "sha256": "8c7bef7a05a0b87d267aedafa053da30e6b61defff43ae1cdbdd57a53456ac16",
+      "bytes": 1112
+    },
+    "licenses/source-1/LICENSE": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    "licenses/source-2/LICENSE": {
+      "sha256": "446b8730663ac52c0a400c70eef7bf4248e947015da5151ba84f975538ba56f6",
+      "bytes": 1069
+    },
+    "licenses/source-3/LICENSE": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    "licenses/source-4/LICENSE": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    },
+    "licenses/source-5/LICENSE": {
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+      "bytes": 11357
+    }
+  }
+}

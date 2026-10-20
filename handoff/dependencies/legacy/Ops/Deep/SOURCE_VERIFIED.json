@@ -1,0 +1,15 @@
+{
+  "name": "InfiniOps",
+  "commit": "bdd60986b54255a8d3b48cc50494f8a398623210",
+  "verified_blobs": 1574,
+  "path": "/path/to/cluster-home/hygon-inference-refactor-20261014/src/InfiniLM/third_party/InfiniCore/submodules/InfiniOps",
+  "archive_sha256": "d1e683616ef36e7d87dc205f3baa9032902cc88ace067a82c045825aec4050a6",
+  "gitlinks": [
+    {
+      "path": ".ci",
+      "mode": "160000",
+      "type": "commit",
+      "sha": "b45d360c8cc529747ee31c5451d7eac96ac9f309"
+    }
+  ]
+}

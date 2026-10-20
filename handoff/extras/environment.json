@@ -1,0 +1,15 @@
+{
+  "OS": "Ubuntu22.04.5",
+  "apptainer": "1.3.4",
+  "DTK_generation": "26",
+  "python": "3.10",
+  "packages": {
+    "torch": "2.10.0+das.opt1.dtk2604.2606161421.g91a580",
+    "triton": "3.6.0+dtk2604.torch2100.2606181426.ge87f7a",
+    "tokenizers": "0.22.2",
+    "pybind11": "3.0.4",
+    "numpy": "1.25.0",
+    "transformers": "5.5.0",
+    "safetensors": "0.8.0"
+  }
+}

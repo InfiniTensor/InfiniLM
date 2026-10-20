@@ -1,0 +1,8 @@
+{
+  "name": "InfiniRT",
+  "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+  "verified_blobs": 105,
+  "path": "/path/to/cluster-home/hygon-inference-refactor-20261014/src/InfiniLM/third_party/InfiniCore/submodules/InfiniRT",
+  "archive_sha256": "aa9c3f6c7df3c4cf5c2da23e686ed9bde2079a3ace822598493a8053993d473d",
+  "gitlinks": []
+}

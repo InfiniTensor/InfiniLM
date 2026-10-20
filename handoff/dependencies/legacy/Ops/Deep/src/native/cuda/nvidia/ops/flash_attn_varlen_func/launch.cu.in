@@ -1,0 +1,9 @@
+#include "flash_fwd_launch_template.h"
+
+namespace infini::ops::native_flash {
+void launch_varlen_@_flash_hdim@_@_flash_kind@_@_flash_causal@(
+    infini_flash::Flash_fwd_params& params, cudaStream_t stream) {
+  infini_flash::run_mha_fwd_hdim@_flash_hdim@<@_flash_type@, @_flash_causal@>(
+      params, stream);
+}
+}  // namespace infini::ops::native_flash

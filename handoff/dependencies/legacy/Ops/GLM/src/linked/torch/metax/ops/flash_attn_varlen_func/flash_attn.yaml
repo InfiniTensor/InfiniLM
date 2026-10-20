@@ -1,0 +1,4 @@
+library: flash_attn
+required_symbols:
+  - >-
+    mha_varlen_fwd(at::Tensor&, at::Tensor const&, at::Tensor const&, std::optional<at::Tensor>&, at::Tensor const&, at::Tensor const&, std::optional<at::Tensor>&, std::optional<at::Tensor const>&, std::optional<at::Tensor>&, std::optional<at::Tensor>&, int, int, float, float, bool, bool, int, int, float, bool, std::optional<at::Generator>, std::optional<at::Tensor>&)

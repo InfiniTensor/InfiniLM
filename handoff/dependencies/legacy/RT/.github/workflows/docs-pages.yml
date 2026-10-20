@@ -1,0 +1,72 @@
+name: Documentation Pages
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - ".github/workflows/docs-pages.yml"
+      - "CMakeLists.txt"
+      - "README.md"
+      - "docs/**"
+      - "examples/**"
+      - "include/**"
+      - "src/**"
+  pull_request:
+    paths:
+      - ".github/workflows/docs-pages.yml"
+      - "CMakeLists.txt"
+      - "README.md"
+      - "docs/**"
+      - "examples/**"
+      - "include/**"
+      - "src/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install documentation dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen graphviz
+
+      - name: Configure documentation build
+        run: cmake -S . -B build -DWITH_CPU=ON -DINFINI_RT_BUILD_DOCS=ON
+
+      - name: Build documentation
+        run: cmake --build build --target infinirt_docs
+
+      - name: Validate generated site
+        run: |
+          test -f build/docs/reference/html/index.html
+          grep -q "InfiniRT" build/docs/reference/html/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/docs/reference/html
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

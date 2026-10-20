@@ -1,0 +1,20 @@
+#include "glm_moe_dsa_routed_decoder_r19.hpp"
+#include "execution/submit.hpp"
+#include <cmath>
+#include <stdexcept>
+namespace infinilm::models::glm_moe_dsa {
+namespace rt=infinilm::runtime;namespace ex=infinilm::execution;
+namespace{struct Work{rt::Runtime&r;std::vector<rt::Tensor>held;~Work(){try{r.syncStream();}catch(...){std::terminate();}}rt::Tensor alloc(rt::Shape shape){auto x=rt::Tensor::empty(r,shape,rt::DataType::kBFloat16);held.push_back(x);return x;}};}
+DecoderR19::DecoderR19(rt::Runtime&r,const nlohmann::json&cfg,size_t layer,const engine::distributed::RankInfo&rank,size_t rows,size_t capacity,size_t topk):owner_(&r),eps_(cfg.at("rms_norm_eps")){
+ r.assertOwnerThread();if(r.isGraphRecording()||!std::isfinite(eps_)||eps_<=0||cfg.at("hidden_size")!=6144)throw std::invalid_argument("GLM decoder configuration differs");
+ try{attention_=std::make_unique<NativeAttention>(r,cfg,layer,rank,rows,capacity,topk);ffn_=std::make_unique<FeedForwardR19>(r,cfg,layer,rank);for(auto&item:attention_->state_dict())bind_weight("self_attn."+item.first,item.second);for(auto&item:ffn_->state_dict())bind_weight("mlp."+item.first,item.second);input_norm_=rt::Tensor::empty_parameter(r,{6144},rt::DataType::kBFloat16);post_norm_=rt::Tensor::empty_parameter(r,{6144},rt::DataType::kBFloat16);bind_weight("input_layernorm.weight",weights::Weight(input_norm_));bind_weight("post_attention_layernorm.weight",weights::Weight(post_norm_));ones_=rt::Tensor::empty(r,{6144},rt::DataType::kBFloat16);auto f=rt::Tensor::empty(r,{6144},rt::DataType::kFloat32);std::vector<float>ones(6144,1);r.memcpyH2D(f->data(),ones.data(),ones.size()*4,false);ex::submit<infini::ops::Cast>(r,infini::ops::Cast::DefaultConfig(r.device().type()),f,ones_);r.syncStream();}catch(...){try{r.syncStream();}catch(...){std::terminate();}throw;}
+}
+void DecoderR19::process_weights_after_loading(rt::Runtime&r,bool transpose){r.assertOwnerThread();if(&r!=owner_||ready_||r.isGraphRecording())throw std::logic_error("GLM decoder postload differs");attention_->process_weights_after_loading(r,transpose);ffn_->process_weights_after_loading(r,transpose);r.syncStream();ready_=true;}
+void DecoderR19::reset(rt::Runtime&r){r.assertOwnerThread();if(&r!=owner_||r.isGraphRecording())throw std::invalid_argument("GLM decoder reset owner differs");attention_->reset(r);poisoned_=false;}
+DecoderR19::Output DecoderR19::forward(rt::Runtime&r,const rt::Tensor&hidden,const rt::Tensor&positions,const std::vector<NativeAttention::Request>&requests,const std::vector<rt::Tensor>&shared){
+ r.assertOwnerThread();if(&r!=owner_||!ready_||poisoned_||r.isGraphRecording()||!hidden||hidden->device()!=r.device()||hidden->dtype()!=rt::DataType::kBFloat16||hidden->ndim()!=2||!hidden->size(0)||hidden->size(0)>4096||hidden->size(1)!=6144||!hidden->is_contiguous())throw std::invalid_argument("GLM decoder requires loaded BF16 hidden and reset after failure");
+ Work work{r};try{auto norm=[&](const rt::Tensor&x,const rt::Tensor&weight){auto normalized=work.alloc(x->shape()),weighted=work.alloc(x->shape());ex::submit<infini::ops::RmsNorm>(r,infini::ops::RmsNorm::DefaultConfig(r.device().type()),x,ones_,eps_,normalized);ex::submit<infini::ops::Mul>(r,infini::ops::Mul::DefaultConfig(r.device().type()),normalized,weight,weighted);return weighted;};
+  auto normalized_attention=norm(hidden,input_norm_);auto attention=attention_->forward(r,normalized_attention,positions,requests,shared);work.held.push_back(attention.hidden);auto residual=work.alloc(hidden->shape());ex::submit<infini::ops::Add>(r,infini::ops::Add::DefaultConfig(r.device().type()),hidden,attention.hidden,residual);auto normalized_ffn=norm(residual,post_norm_);auto ffn=ffn_->forward(r,normalized_ffn);work.held.push_back(ffn.hidden);auto result=work.alloc(hidden->shape());ex::submit<infini::ops::Add>(r,infini::ops::Add::DefaultConfig(r.device().type()),residual,ffn.hidden,result);r.syncStream();return {result,normalized_attention,residual,normalized_ffn,attention,ffn};
+ }catch(...){poisoned_=true;try{r.syncStream();}catch(...){std::terminate();}throw;}
+}
+}

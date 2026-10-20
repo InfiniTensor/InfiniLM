@@ -1,0 +1,8 @@
+library: flashinfer_sampling
+link_libraries:
+  - tvm_ffi
+required_symbols:
+  - __tvm_ffi_softmax
+  - __tvm_ffi_top_k_mask_logits
+  - __tvm_ffi_top_p_sampling_from_probs
+  - __tvm_ffi_top_k_top_p_sampling_from_probs

@@ -1,0 +1,47 @@
+{
+  "utc": "2026-10-20T11:06:20.386131+00:00",
+  "profiles": {
+    "legacy": {
+      "archive": "handoff-runtime-legacy-r3428.tar.gz",
+      "bytes": 51402924,
+      "sha256": "4b54edb82ce9360abd501c9f351a94ef88fc2a18d55da25a7a305777a69d5caf",
+      "files": 2759,
+      "uncompressed_bytes": 239610145,
+      "roots": [
+        "install/hygon-kimi-static-r330",
+        "install/hygon-fp8-expert-r19",
+        "install/hygon-v4-indexer-ops-r1",
+        "install/hygon-modern",
+        "src/InfiniLM/python",
+        "candidates/kimi-trace-r3/InfiniLM/python",
+        "candidates/kimi-token-only-r963",
+        "candidates/glm-cache-view-r927",
+        "candidates/native-engine-allselected-r815",
+        "candidates/kimi-grouped-fused-fp32-r21/lib",
+        "candidates/glm-fp8-batched-r776",
+        "candidates/glm-fp8-cache-r807",
+        "candidates/blas-policy-r271"
+      ]
+    },
+    "current": {
+      "archive": "handoff-runtime-current-r3428.tar.gz",
+      "bytes": 46604201,
+      "sha256": "95b31ddcb0c49e08e79a3e0044ce20f23712e33107b6513f61c9ede3a7f7800c",
+      "files": 2177,
+      "uncompressed_bytes": 207997204,
+      "roots": [
+        "install/hygon-kimi-3e0d89fe-r2844",
+        "install/hygon-glm-3e0d89fe-r2844",
+        "install/hygon-deep-3e0d89fe-r2844",
+        "candidates/rebased-3e0d89fe-r2842/Common/Kimi/InfiniLM/python",
+        "candidates/rebased-3e0d89fe-r2842/Common/GLM/InfiniLM/python",
+        "candidates/rebased-3e0d89fe-r2842/Common/Deep/InfiniLM/python",
+        "candidates/models-3e0d89fe-r2863/Kimi",
+        "candidates/glm-batch-model-r3072",
+        "candidates/models-3e0d89fe-r2856/Deep",
+        "candidates/blas-policy-r271"
+      ]
+    }
+  },
+  "scope": "Private binary/runtime continuity bundles, no weights/credentials/container. For same-stack migration bootstrap only; revalidate hardware, ABI, numerical and throughput onnewservers. Sources are separately inGitHub. Immutable binaries read while runs may mapthem; none changed."
+}

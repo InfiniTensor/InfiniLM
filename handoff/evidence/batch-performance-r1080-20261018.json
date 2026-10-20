@@ -1,0 +1,204 @@
+{
+  "created_UTC": "2026-10-17T16:58:40.203189+00:00",
+  "status_snapshot": "r1079-current.json",
+  "rows": [
+    {
+      "model": "Kimi",
+      "cards": 32,
+      "global_batch": 16,
+      "decode_microbatch": 16,
+      "mode": "serial/full_logits",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "reference_b16_m16_r1",
+        "reference_b16_m16_r2"
+      ],
+      "mean_first_request_TTFT_s": 13.956404662923887,
+      "mean_all_requests_first_token_window_s": 55.51173802698031,
+      "mean_prefill_input_tokens_s": 147.57287233423278,
+      "mean_decode_total_output_tokens_s": 29.7895191143462,
+      "mean_decode_per_request_tokens_s": 1.8618449446466374,
+      "mean_output_including_prefill_tokens_s": 24.811331583651466
+    },
+    {
+      "model": "Kimi",
+      "cards": 32,
+      "global_batch": 64,
+      "decode_microbatch": 16,
+      "mode": "pipeline/full_logits",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "long_pipeline_g64_m16_r1",
+        "long_pipeline_g64_m16_r2"
+      ],
+      "mean_first_request_TTFT_s": 13.992529512383044,
+      "mean_all_requests_first_token_window_s": 68.81995970895514,
+      "mean_prefill_input_tokens_s": 476.1437669585525,
+      "mean_decode_total_output_tokens_s": 110.73579119705686,
+      "mean_decode_per_request_tokens_s": 1.7302467374540134,
+      "mean_output_including_prefill_tokens_s": 89.8089957018192
+    },
+    {
+      "model": "Kimi",
+      "cards": 32,
+      "global_batch": 64,
+      "decode_microbatch": 16,
+      "mode": "pipeline/token_only",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "tokens_only_g64_m16_r1",
+        "tokens_only_g64_m16_r2"
+      ],
+      "mean_first_request_TTFT_s": 14.086281490046531,
+      "mean_all_requests_first_token_window_s": 68.80853830859996,
+      "mean_prefill_input_tokens_s": 476.221839645283,
+      "mean_decode_total_output_tokens_s": 116.17752809433506,
+      "mean_decode_per_request_tokens_s": 1.8152738764739853,
+      "mean_output_including_prefill_tokens_s": 93.35101036219302
+    },
+    {
+      "model": "GLM",
+      "cards": 32,
+      "global_batch": 4,
+      "decode_microbatch": 4,
+      "mode": "serial",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 16,
+      "runs": [
+        "reference_g4_m4_r1",
+        "reference_g4_m4_r2"
+      ],
+      "mean_first_request_TTFT_s": 62.344735503196716,
+      "mean_all_requests_first_token_window_s": 62.344737593084574,
+      "mean_prefill_input_tokens_s": 32.85131759892963,
+      "mean_decode_total_output_tokens_s": 8.144381353492236,
+      "mean_decode_per_request_tokens_s": 2.036095338373059,
+      "mean_output_including_prefill_tokens_s": 0.9174024864321104
+    },
+    {
+      "model": "GLM",
+      "cards": 32,
+      "global_batch": 8,
+      "decode_microbatch": 8,
+      "mode": "serial",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "reference_g8_m8_r1",
+        "reference_g8_m8_r2"
+      ],
+      "mean_first_request_TTFT_s": 123.80150962574407,
+      "mean_all_requests_first_token_window_s": 123.80151188070886,
+      "mean_prefill_input_tokens_s": 33.08530807494835,
+      "mean_decode_total_output_tokens_s": 12.85617720869367,
+      "mean_decode_per_request_tokens_s": 1.6070221510867087,
+      "mean_output_including_prefill_tokens_s": 9.270110214314599
+    },
+    {
+      "model": "GLM",
+      "cards": 32,
+      "global_batch": 16,
+      "decode_microbatch": 16,
+      "mode": "serial",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "reference_g16_m16_r1",
+        "reference_g16_m16_r2"
+      ],
+      "mean_first_request_TTFT_s": 124.30324501078576,
+      "mean_all_requests_first_token_window_s": 248.64826951059513,
+      "mean_prefill_input_tokens_s": 32.94613740213327,
+      "mean_decode_total_output_tokens_s": 16.617109857781927,
+      "mean_decode_per_request_tokens_s": 1.0385693661113704,
+      "mean_output_including_prefill_tokens_s": 11.05885632819911
+    },
+    {
+      "model": "GLM",
+      "cards": 32,
+      "global_batch": 32,
+      "decode_microbatch": 8,
+      "mode": "pipeline",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "long_pipeline_g32_m8_r1",
+        "long_pipeline_g32_m8_r2"
+      ],
+      "mean_first_request_TTFT_s": 105.86120875738561,
+      "mean_all_requests_first_token_window_s": 188.95163073507138,
+      "mean_prefill_input_tokens_s": 86.71034108708682,
+      "mean_decode_total_output_tokens_s": 49.36916117324023,
+      "mean_decode_per_request_tokens_s": 1.5427862866637572,
+      "mean_output_including_prefill_tokens_s": 31.48897830584294
+    },
+    {
+      "model": "GLM",
+      "cards": 32,
+      "global_batch": 64,
+      "decode_microbatch": 16,
+      "mode": "pipeline",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "long_pipeline_g64_m16_r1",
+        "long_pipeline_g64_m16_r2"
+      ],
+      "mean_first_request_TTFT_s": 106.02564510796219,
+      "mean_all_requests_first_token_window_s": 298.51639634091407,
+      "mean_prefill_input_tokens_s": 109.76982319099378,
+      "mean_decode_total_output_tokens_s": 63.150028270179234,
+      "mean_decode_per_request_tokens_s": 0.9867191917215505,
+      "mean_output_including_prefill_tokens_s": 40.13345732487818
+    },
+    {
+      "model": "Deep",
+      "cards": 8,
+      "global_batch": 8,
+      "decode_microbatch": 8,
+      "mode": "TP8",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "engine_b8_repeat1",
+        "engine_b8_repeat2"
+      ],
+      "mean_first_request_TTFT_s": 44.45925543853082,
+      "mean_all_requests_first_token_window_s": 44.459262418560684,
+      "mean_prefill_input_tokens_s": 92.13373774500381,
+      "mean_decode_total_output_tokens_s": 14.205058958625392,
+      "mean_decode_per_request_tokens_s": 1.775632369828174,
+      "mean_output_including_prefill_tokens_s": 12.302910556624603
+    },
+    {
+      "model": "Deep",
+      "cards": 8,
+      "global_batch": 16,
+      "decode_microbatch": 16,
+      "mode": "TP8",
+      "input_tokens_per_request": 512,
+      "output_tokens_per_request": 512,
+      "runs": [
+        "engine_b16_repeat1",
+        "engine_b16_repeat2"
+      ],
+      "mean_first_request_TTFT_s": 43.44519756967202,
+      "mean_all_requests_first_token_window_s": 86.07802033703774,
+      "mean_prefill_input_tokens_s": 95.18773717046781,
+      "mean_decode_total_output_tokens_s": 25.316444132397457,
+      "mean_decode_per_request_tokens_s": 1.582277758274841,
+      "mean_output_including_prefill_tokens_s": 19.982766375780034
+    }
+  ],
+  "scope": "Input512 perrequest; output512 exceptGLMbatch4 output16shorttest. Two-runmeans. Prefillwindow=maxper-rowfirst-token-completiontime inbenchmark, includesfirst-token/head/scheduling andbenchmarkoverhead; notpureGPUkernelprefill. PrefillinputTPS=totalinputtokens/window, averageper-runratios. Decode=steady totaloutputTPS acrosswholeinstance, not perrequest or40nodeaggregate. Qualifiedforrecordedtestscopeonly;1006current64distinctM16pipelinefailedandlargerbatchfailuresremainunfixed.",
+  "source_sha256": {
+    "r1010-kimi-token-only.json": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952",
+    "user-summary-glm-view-20261017.json": "77cb57788c8c59d9007bde69c21ed060d46f27f8629d813b3907d68e03851ea4",
+    "r854-deep-allselected.json": "f88c96104d77305227bd6b1a8f533b787f8fddf123388ab19b09a27cc6d81243",
+    "r893-completed-evidence/results/native-engine-allselected-r816-910373.442.json": "100cce801a5b239a503bd67447a04ada63db34d52c4aa10e08589b71b7c43c41",
+    "r1020-completed-evidence/results/glm-fp8-cached-model-r928-910374.87-stage3-rank0.json": "08537eed1db5da6116f7aebb0c42e45d4c04a61e2ea2a44eb5b20460a71c6fc9"
+  }
+}

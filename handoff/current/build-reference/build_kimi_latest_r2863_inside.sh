@@ -1,0 +1,74 @@
+#!/bin/bash
+set -euo pipefail
+ulimit -c 0
+source /opt/dtk/env.sh
+export OMP_NUM_THREADS=1
+NAME=$(printf '%s' "$LATEST_VARIANT_R2863" | tr '[:upper:]' '[:lower:]')
+BASE=/refactor/candidates/models-3e0d89fe-r2863/$LATEST_VARIANT_R2863
+LM=/refactor/candidates/rebased-3e0d89fe-r2842/Model/$LATEST_VARIANT_R2863/InfiniLM
+COMMON=/refactor/candidates/rebased-3e0d89fe-r2842/Common/$LATEST_VARIANT_R2863/InfiniLM
+OPS=/refactor/candidates/rebased-3e0d89fe-r2842/Ops/$LATEST_VARIANT_R2863/InfiniOps
+SDK=/refactor/install/hygon-${NAME}-3e0d89fe-r2844
+HELPER=$BASE/helpers
+ABI=$(python -c 'import torch;print(int(torch.compiled_with_cxx11_abi()))')
+export TORCH_LIB_DIR="$(python -c 'import pathlib,torch;print(pathlib.Path(torch.__file__).parent / "lib")')"
+export LD_LIBRARY_PATH="$HELPER:$SDK/lib:$COMMON/python:$COMMON/python/infinilm/_lib:$TORCH_LIB_DIR:/opt/dtk/cuda/cuda/lib64:/opt/dtk/cuda/lib64:$LD_LIBRARY_PATH"
+export PYTHONPATH="$COMMON/python:/old/offline-deps:${PYTHONPATH:-}"
+unset LD_PRELOAD INFINILM_DENSE_PREFILL_F32_R2475 INFINILM_MXFP4_TILE_TP_R2559
+python - <<'PY'
+import hashlib,json,os,pathlib
+r=pathlib.Path('/refactor');name=os.environ['LATEST_VARIANT_R2863'];base=r/'candidates/models-3e0d89fe-r2863'/name;d=json.loads((r/'results/models-latest-r2863-stage.json').read_text());assert d['ready'];v=d['variants'][name];sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+for n,h in v['inputs_sha256'].items():assert sha(base/n)==h,n
+root=r/'candidates/rebased-3e0d89fe-r2842/Model'/name/'InfiniLM'
+for n,h in v['private_model_csrc'].items():assert sha(root/n)==h,n
+assert not list(base.rglob('*.o')) and not list(base.rglob('*.so'))
+PY
+NVCC=/opt/dtk/cuda/cuda/bin/nvcc
+GPU=(-std=c++17 -O3 -arch=gfx936 -Xcompiler=-fPIC -D_GLIBCXX_USE_CXX11_ABI="$ABI" -I"$LM/csrc" -I"$HELPER/src" -I"$OPS/src" -I"$SDK/include" -I"/refactor/build/ops-${NAME}-3e0d89fe-r2844/src" -I"$OPS/generated")
+if [ "$LATEST_VARIANT_R2863" = Kimi ]; then
+ "$NVCC" "${GPU[@]}" -c "$HELPER/src/modern_kimi_grouped_fused_fp32_kernels_r21.cu" -o "$HELPER/grouped.o"
+ g++ -std=c++17 -O2 -shared -fPIC -D_GLIBCXX_USE_CXX11_ABI="$ABI" "$HELPER/src/kimi_grouped_fused_fp32_runtime_r21.cpp" "$HELPER/grouped.o" -I"$COMMON/csrc" -I"$SDK/include" -I"$COMMON/third_party/spdlog/include" -I/opt/dtk/cuda/cuda/include -L"$COMMON/python/infinilm/_lib" -linfinilm_runtime -L"$SDK/lib" -linfiniops -linfinirt -L/opt/dtk/cuda/cuda/lib64 -lcudart -Wl,--no-undefined -o "$HELPER/libkimi_grouped_prefill.so"
+ for spec in raw kernel tile; do
+  case "$spec" in raw) SRC=$LM/csrc/kimi_owned_indices_raw_r1213.cu;; kernel) SRC=$BASE/ops/owned_kernel.cu;; tile) SRC=$BASE/ops/kimi_tiled_raw_r1861.cu;; esac
+  "$NVCC" "${GPU[@]}" -I"$BASE/ops" -I"$OPS/src/native/cuda/hygon/ops/fused_moe_mxfp4" -c "$SRC" -o "$BASE/$spec.o"
+ done
+ g++ -std=c++17 -O2 "$HELPER/src/global_tp_layout_contract_r2475.cpp" -I"$LM/csrc/parallel" -o "$BASE/layout_contract"
+ "$BASE/layout_contract" > "$BASE/layout-contract.json"
+elif [ "$LATEST_VARIANT_R2863" = GLM ]; then
+ for spec in routed scale pair mask; do
+  FLAGS=()
+  case "$spec" in routed) SRC=glm_routed_fp8_kernels_r19.cu;; scale) SRC=glm_scale_round_r392.cu;FLAGS+=(--fmad=false);; pair) SRC=glm_kv_pair_r544.cu;; mask) SRC=glm_dense_causal_mask_r25.cu;; esac
+  "$NVCC" "${GPU[@]}" "${FLAGS[@]}" -c "$HELPER/src/$SRC" -o "$HELPER/$spec.o"
+ done
+ "$NVCC" "${GPU[@]}" -shared "$HELPER/src/glm_fp8_batched_r776.cu" -L"$SDK/lib" -linfiniops -linfinirt -lcublas -lcuda -o "$HELPER/libglm_fp8_batched_r776.so"
+ g++ -std=c++17 -O2 -shared -fPIC -pthread -D_GLIBCXX_USE_CXX11_ABI="$ABI" -I"$HELPER/src" "$HELPER/src/glm_fp8_cache_r807.cpp" -L"$HELPER" -lglm_fp8_batched_r776 -Wl,-rpath,"$HELPER" -Wl,--no-undefined -o "$HELPER/libglm_fp8_cache_r807.so"
+else
+ "$NVCC" "${GPU[@]}" -c "$HELPER/src/glm_routed_fp8_kernels_r19.cu" -o "$HELPER/aux_glm_routed.o"
+ for spec in routed sinkhorn gather fused post scatter; do
+  FLAGS=(--fmad=false)
+  case "$spec" in routed) SRC=deepseek_routed_i8_kernels_r20.cu;FLAGS=();; sinkhorn) SRC=deepseek_mhc_sinkhorn_r89.cu;; gather) SRC=deep_packed_gather_r374.cu;; fused) SRC=deep_latent_fused_r681.cu;; post) SRC=deepseek_mhc_post_register_r168.cu;; scatter) SRC=deepseek_prefill_scatter_r194.cu;; esac
+  "$NVCC" "${GPU[@]}" "${FLAGS[@]}" -c "$HELPER/src/$SRC" -o "$HELPER/$spec.o"
+ done
+fi
+source "$BASE/compile.sh"
+python - <<'PY'
+import ctypes,datetime,hashlib,json,os,pathlib,subprocess
+import torch,infinilm
+from infinilm.lib import _infinilm
+r=pathlib.Path('/refactor');name=os.environ['LATEST_VARIANT_R2863'];base=r/'candidates/models-3e0d89fe-r2863'/name;v=json.loads((r/'results/models-latest-r2863-stage.json').read_text())['variants'][name];common=r/'candidates/rebased-3e0d89fe-r2842/Common'/name/'InfiniLM';sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();path=base/v['library'];lib=ctypes.CDLL(str(path))
+symbols=v['CAPI_symbols']
+if name=='Kimi':symbols=['modern_kimi_engine_'+s+'_r2475'for s in ['create','forward','partition','rank_logits','destroy','layout']]
+for s in symbols:assert getattr(lib,s),s
+assert lib.modern_owner_affinity_report_r2392
+maps={p:sha(pathlib.Path(p))for p in{a.split()[-1]for a in pathlib.Path('/proc/self/maps').read_text().splitlines()if any(s in a for s in ['libinfiniops.so','libinfiniccl.so','libinfinirt.so','libinfinilm_runtime.so','_infinilm.cpython','libkimi_grouped_prefill.so','libglm_fp8_'])}}
+sdk=json.loads((r/'results'/f'latest-sdk-r2844-{name}-build.json').read_text());rt=json.loads((r/'results'/f'common-latest-r2845-{name}-build.json').read_text())
+assert[h for p,h in maps.items()if'libinfiniops.so'in p]==[sdk['library_sha256']]
+assert[h for p,h in maps.items()if'libinfinirt.so'in p]==[sdk['RT_sha256']]
+assert[h for p,h in maps.items()if'libinfiniccl.so'in p]==[sdk['CCL_sha256']]
+assert[h for p,h in maps.items()if'libinfinilm_runtime.so'in p]==[rt['runtime_sha256']]
+assert pathlib.Path(_infinilm.__file__).resolve().is_relative_to(common/'python')
+assert all(str(base/'helpers') in p for p in maps if any(s in p for s in ['libkimi_grouped_prefill.so','libglm_fp8_']))
+if name=='Kimi':
+ layout=json.loads((base/'layout-contract.json').read_text());assert layout['completed'] and layout['layouts']==48 and layout['ranks']==1430
+out=r/'results'/f'model-latest-r2863-{name}-build.json';assert not out.exists();d={'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'completed':True,'variant':name,'pins':sdk['pins'],'library':str(path),'library_sha256':sha(path),'compile_sha256':sha(base/'compile.sh'),'fresh_GPU_objects':{p.relative_to(base).as_posix():sha(p)for p in base.rglob('*.o')},'fresh_helpers':{p.relative_to(base).as_posix():sha(p)for p in(base/'helpers').glob('*.so')},'mapped_libraries':maps,'ldd':subprocess.check_output(['ldd',str(path)],text=True),'scope':'Fresh model/helper compile and import only. Original floating-point flags preserved. No copied oldGPUobjects/helpers. Full model numerical/repetition/owner/Slurm gates and throughput remain required.'};out.write_text(json.dumps(d,indent=2));print(json.dumps(d),flush=True)
+PY

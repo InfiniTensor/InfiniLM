@@ -1,0 +1,355 @@
+{
+  "utc": "2026-10-20T10:51:21.866813+00:00",
+  "files": {
+    "results/cast64-contract-r3382-audit.json": {
+      "sha256": "ce1d63818790f948b26a42f53f400f5a7fb172540ceeb0af7fd3b03db3806dd9",
+      "bytes": 7168
+    },
+    "results/cast64-sdk-r3375-Kimi-load-build.json": {
+      "sha256": "fb9c9d6d1235020718f76395f99369916c9585f9458154f354815d55c3b140bd",
+      "bytes": 62400
+    },
+    "results/deep-geometry-r564-910373.370-before-beijing_repeat1-step0-B16-bf16.bin": {
+      "sha256": "b9a3ff213f8d0e3e3b8bac25abafe4ff98953f453c2ec0698675a50de6b77842",
+      "bytes": 4136960
+    },
+    "results/glm-balanced-micro8-r153-lock.json": {
+      "sha256": "4c4ecc773d65ed6c8c849b2d9dcf327346153d2a5205f64bc98e0787e12da013",
+      "bytes": 613
+    },
+    "results/glm-batch-model-r3073-build.json": {
+      "sha256": "e26275da353ee7b156d57cf45f43721a3ed1188198cc299efe8359f079a08c48",
+      "bytes": 8234
+    },
+    "results/glm-cache-view-r927-build.json": {
+      "sha256": "e98c266763968e18dafffb6ff6f694496d17745ec2d4c259058dd65cc127a438",
+      "bytes": 1890
+    },
+    "results/glm-chat-template-r20.json": {
+      "sha256": "e15bc86eaed15d27b8918160d400cde31360b5c6ca8ed976ca0180c32cd6ad7a",
+      "bytes": 15243
+    },
+    "results/glm-cohort-r3098-audit.json": {
+      "sha256": "4abd118606044a2adadb79a312c72ceae50f5078d8117d30a5240e6d12f2b21c",
+      "bytes": 33471
+    },
+    "results/glm-fp8-batched-r776-summary.json": {
+      "sha256": "f747f9033b429f537085ee7623118fabb3c901326c98e69474150b481c384f08",
+      "bytes": 97798
+    },
+    "results/glm-fp8-cached-model-r811-910375.139-stage3-rank0.json": {
+      "sha256": "a0cb24f2f1f415685e1240f41f65355aabdf0cafbe8b76bcc258a68ee43de778",
+      "bytes": 7487549
+    },
+    "results/glm-g128-r3239-audit.json": {
+      "sha256": "1b2d4e9ec7da5e5429086badb8dbffcd868e4e5687d102a5a5053957296f0697",
+      "bytes": 48512
+    },
+    "results/glm-g128-r3272-audit.json": {
+      "sha256": "66a3fae778b911e2e79ac4c5108554add44aaecef6c41b4c44b087ec515db934",
+      "bytes": 33024
+    },
+    "results/glm-long-prompts-r21.json": {
+      "sha256": "3bab5318c6833424aec641daa14d4661b2c96a3e04fc8d1b6b8886a70a8024a1",
+      "bytes": 38812
+    },
+    "results/glm-micro8-r98-910376.50-stage3-rank0.json": {
+      "sha256": "087aa9de4abf0281fd192f08205580847817c8b05de63de458299c7647828c8e",
+      "bytes": 3618274
+    },
+    "results/glm-route-order-r3343-audit.json": {
+      "sha256": "36180c50407d848746fda99d1b0658f37524dc0d81b29eaa717c5e259c47564e",
+      "bytes": 4397
+    },
+    "results/glm-timeline-r3300-audit.json": {
+      "sha256": "a58811e44dadd6c3fe34e47e1e4ecaeab75f08668e9711a51dd04da7645e4bfe",
+      "bytes": 102142
+    },
+    "results/glm78-910375.69-short_b1_repeat1-step0-logits-bf16.bin": {
+      "sha256": "4a8ddcd31babb8c5abdfb1a73957aa7fac36e1a345c393649fcf095a3930ef06",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat1-step1-logits-bf16.bin": {
+      "sha256": "efe9dcbfea02e07f80eb8b36590e71b216b5993ee1c99e1ce43d82a3fa9ce142",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat1-step2-logits-bf16.bin": {
+      "sha256": "d861c51debf9f8dfa6a4abb4a0b21d93be8aa16249cabae03ffc9b90ff4fd1a7",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat1-step3-logits-bf16.bin": {
+      "sha256": "c570ad72653b7a9bd52cccb49d8225428fcdadada6915c5eb978763414f02720",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat2-step0-logits-bf16.bin": {
+      "sha256": "4a8ddcd31babb8c5abdfb1a73957aa7fac36e1a345c393649fcf095a3930ef06",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat2-step1-logits-bf16.bin": {
+      "sha256": "efe9dcbfea02e07f80eb8b36590e71b216b5993ee1c99e1ce43d82a3fa9ce142",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat2-step2-logits-bf16.bin": {
+      "sha256": "d861c51debf9f8dfa6a4abb4a0b21d93be8aa16249cabae03ffc9b90ff4fd1a7",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b1_repeat2-step3-logits-bf16.bin": {
+      "sha256": "c570ad72653b7a9bd52cccb49d8225428fcdadada6915c5eb978763414f02720",
+      "bytes": 309760
+    },
+    "results/glm78-910375.69-short_b4_repeat1-step0-logits-bf16.bin": {
+      "sha256": "917825718ccfe6e0d085b9a5c7bf3938168ee32b577d5b5bc5eb4f4ad34ce24a",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat1-step1-logits-bf16.bin": {
+      "sha256": "721fe178cc1d7e68dfdb758188c51002eb6a590d3324bcb0c58b5a25aa498d84",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat1-step2-logits-bf16.bin": {
+      "sha256": "7d7e4c1408c2a6f1222d42799e199820cd3cdacac5312ea5217ce4aa2319351f",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat1-step3-logits-bf16.bin": {
+      "sha256": "ae91afa04b22ae958c6a25ba83dc481ae2f9812cb3b2d89416d2a5bfe22eb172",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat2-step0-logits-bf16.bin": {
+      "sha256": "917825718ccfe6e0d085b9a5c7bf3938168ee32b577d5b5bc5eb4f4ad34ce24a",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat2-step1-logits-bf16.bin": {
+      "sha256": "721fe178cc1d7e68dfdb758188c51002eb6a590d3324bcb0c58b5a25aa498d84",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat2-step2-logits-bf16.bin": {
+      "sha256": "7d7e4c1408c2a6f1222d42799e199820cd3cdacac5312ea5217ce4aa2319351f",
+      "bytes": 1239040
+    },
+    "results/glm78-910375.69-short_b4_repeat2-step3-logits-bf16.bin": {
+      "sha256": "ae91afa04b22ae958c6a25ba83dc481ae2f9812cb3b2d89416d2a5bfe22eb172",
+      "bytes": 1239040
+    },
+    "results/kimi-balanced-capacity-r880-910371.131-stage3.json": {
+      "sha256": "0cafd6dfd5e17e6ad557d1e41b883f9b1673a112949f60c531d467d7dc21cfe1",
+      "bytes": 10418421
+    },
+    "results/kimi-balanced-r876-build.json": {
+      "sha256": "3c635191eee96f79a3d8645bccd5ec0c35eb58fca4fae9d56a1b41db14ee9bcd",
+      "bytes": 899
+    },
+    "results/kimi-batch-r691-910371.123-stage3.json": {
+      "sha256": "d37a93ab75870b12669e0c50cc6b3e1e83e149aabeb52ff7a1e292ce97cd9dcf",
+      "bytes": 5206905
+    },
+    "results/kimi-chat-cases-r20.json": {
+      "sha256": "3097cdab55ff7e57d8b4f936ba0095a2f9052bf0216c577926eeaea89d6351be",
+      "bytes": 85366
+    },
+    "results/kimi-f64-r3388-audit.json": {
+      "sha256": "35a2be2bc2c05271150f81f4833ee72ccd11727e78d766fd6e9a517a6954e11b",
+      "bytes": 21511
+    },
+    "results/kimi-failure-r3387-audit.json": {
+      "sha256": "71e425da56f2aa4353ee5bd286cfee42aa2e8ed99a906c5634b7cf6fbe3fddd5",
+      "bytes": 9607
+    },
+    "results/kimi-precision-r543-910375.129-stage3.json": {
+      "sha256": "d8cfeaef4a0b09c67f68441282898350dfdb2e125b1eb1f3731674adccfb8202",
+      "bytes": 2756376
+    },
+    "results/kimi-projection-r3411-audit.json": {
+      "sha256": "ace39d5ce5adf9ae7eaf11f389a2c11b1419948fcf7aa3e83d606402e1fbd3e2",
+      "bytes": 6688
+    },
+    "results/kimi-reduce-common-r3227-build.json": {
+      "sha256": "8a08cb6e778545dee27b210b7d928a6fa236cf408fa6483e16f30fa0c5daa982",
+      "bytes": 1851
+    },
+    "results/kimi-reduce-model-r3262-build.json": {
+      "sha256": "1beef134ca48b9fc33b78866418c0f8ab5aaefb4fc3e966d48336007fa10e6b6",
+      "bytes": 2038
+    },
+    "results/kimi-resident-r2493-preflight.json": {
+      "sha256": "d70d62d09ca3525a98e8a9a3eb1c9d051d77d2b73c9449e549b636dc3c199cc2",
+      "bytes": 19783
+    },
+    "results/kimi-static-sdk-r343-summary.json": {
+      "sha256": "f323bcc2900ee54e5f33da60729cfd36917a14359594d77e3b4884aad16bd7df",
+      "bytes": 75979
+    },
+    "results/kimi-token-only-r963-build.json": {
+      "sha256": "b96c983ce9ae7496166178dcbdbc00e06e65a0b80bcd1d4680b79d8c55c95eaf",
+      "bytes": 716
+    },
+    "results/kimi-wide-common-r3395-build.json": {
+      "sha256": "c001bb292264e02e919f78fa441e16732786a926db6831bfcd3c8a4b5c64969f",
+      "bytes": 1888
+    },
+    "results/latest-sdk-r2844-GLM-build.json": {
+      "sha256": "c4e5b6ef7c306e0b9384d0e70ea143ad973d59c57a9e70d41a5476e51dc675a0",
+      "bytes": 7536
+    },
+    "results/latest-sdk-r2844-Kimi-build.json": {
+      "sha256": "3bf5a0cc1bb5e815847130327931b797614b312fc2870a7253b687d0a042ed47",
+      "bytes": 7538
+    },
+    "results/model-latest-r2856-GLM-build.json": {
+      "sha256": "a9fae564909e0fe20f2525ff75a40fc77c0581ca1e72952757dfe84bcaf26ec2",
+      "bytes": 10038
+    },
+    "results/model-latest-r2863-Kimi-build.json": {
+      "sha256": "da760733640ce0209114901428a1485ff887ebdd3ff7e4c84c17b32dfbbd96e7",
+      "bytes": 9635
+    },
+    "results/modern-deepseek-chat-routed-r20-910373.162-rank0.json": {
+      "sha256": "92633ddb0f61a2a8e5c2c08d25af72f49f30c0d71d6cbaa6d7a3f8d46395e92f",
+      "bytes": 6762
+    },
+    "results/modern-glm-pipeline-r16-r4-summary.json": {
+      "sha256": "d002af6200309452641189c2d4cc8dbba494df38ac042015b7f6ca8f3d950b6c",
+      "bytes": 214239
+    },
+    "results/modern-glm78-initial-summary.json": {
+      "sha256": "2d823ddb673d0ea97e2bf4780ba383ac4421f2b6b2bddb4aa27f8125fcc7c3f7",
+      "bytes": 16852
+    },
+    "results/modern-kimi-capacity-real93-910376.33-rendezvous.json": {
+      "sha256": "8ac8a049433689c8716765680353ccaf5aa6966fabd29c754510ca580b07022f",
+      "bytes": 57856
+    },
+    "results/modern-kimi-capacity-real93-long-summary.json": {
+      "sha256": "235af961e48121a33e4eeff5323e67ca32b0216f72ade04c4385e2e72f948637",
+      "bytes": 302255
+    },
+    "results/modern-kimi-pipeline-fused-reset-r22-910375.79-summary.json": {
+      "sha256": "7abd567b689282281ae521eb1fd44a9585593e6f2377654e505b07201b5301a9",
+      "bytes": 1331732
+    },
+    "results/modern-kimi-pipeline-m12-trim-r19-summary.json": {
+      "sha256": "b0869392974c0e7c8695a27695dfc2a17215a918ae28e7f6a4f71a4b9e4bfdd0",
+      "bytes": 1292863
+    },
+    "results/modern-kimi-quality-fp32-r20-910375.77-summary.json": {
+      "sha256": "646a804f89268ea9a1ba0015a57469b8310bfa46a1b93047e841710b113ceac1",
+      "bytes": 41633
+    },
+    "results/native-engine-batch-r522-910373.365.json": {
+      "sha256": "0b3d3a181369cc7b8a5592748522e00f6c0314efc6d0da94d9c015eef7f6edc8",
+      "bytes": 521615
+    },
+    "results/native-engine-geometry-r564-910373.370.json": {
+      "sha256": "306e3a9b6c145237e64de2df6b1ea4b5307eca7d8e8aa74627ea9aa5ba7e6c46",
+      "bytes": 26374
+    }
+  },
+  "unresolved_literals": [
+    "-decoded.json",
+    "-ids.json",
+    "config.json",
+    "deep-chat-routed-r20-910373.162.json",
+    "deepseek-b8-reference-r114-control-910373.280-ids.json",
+    "model.safetensors.index.json"
+  ],
+  "models": {
+    "Kimi": {
+      "generation_config.json": {
+        "bytes": 53,
+        "sha256": "c6648c25e9705af7fba8847e243840d21b5cc63ddeb6297f750a7ddbb6a02836"
+      },
+      "kimi_k3_vision_processing.py": {
+        "bytes": 6686,
+        "sha256": "d122b30bfd3a51a6f05d4bfcfda1e657827322b1353f7caefeebc2835d7736b5"
+      },
+      "config.json": {
+        "bytes": 7006,
+        "sha256": "9710e121a58d03ac92c8d6da287a19541994319afbbe6d6202af001ffd379213"
+      },
+      "modeling_kimi_k3.py": {
+        "bytes": 53444,
+        "sha256": "b9171c96726eda55234c92ac8dfae7e24c512fda68968ae8f2c3782b42665ea2"
+      },
+      "configuration_kimi_k3.py": {
+        "bytes": 11343,
+        "sha256": "735eb9ebe593e17d231e08e1df7f7be9b5ee0e079f511aa201f9572077b416ae"
+      },
+      "media_utils.py": {
+        "bytes": 13844,
+        "sha256": "78403540328f9847d6b7ebc5c44eb2e6a752863de0afb7d0710728bb161dc60d"
+      },
+      "modeling_kimi_linear.py": {
+        "bytes": 51506,
+        "sha256": "9e3564c70ac21854ce5a090cc946c5dc76b70d1050ef50840449181a20fff44a"
+      },
+      "tiktoken.model": {
+        "bytes": 2795286,
+        "sha256": "b6c497a7469b33ced9c38afb1ad6e47f03f5e5dc05f15930799210ec050c5103"
+      },
+      "tokenization_kimi.py": {
+        "bytes": 16145,
+        "sha256": "f28ea66e2d862a2a5814970b2ce40c2f7d8296ff09aed90a7e7def689b906944"
+      },
+      "tokenizer_config.json": {
+        "bytes": 3478,
+        "sha256": "5d0803c94db9cd78763499e0956c95fd5a225c14a727e5a6cf5db3f96f010a6e"
+      },
+      "encoding_k3.py": {
+        "bytes": 22827,
+        "sha256": "b9cb7ae100fed34b9337f80dacee5abbf7e261fe9b74bc0e76366701d46f5333"
+      },
+      "kimi_k3_processor.py": {
+        "bytes": 7660,
+        "sha256": "ec9f7e86d2ab0eee07a8e7e7c037046e77ac3c25a710ad1298ec13be3b585b54"
+      },
+      "preprocessor_config.json": {
+        "bytes": 1011,
+        "sha256": "4be333605990c53a816e586dee9d5dd545afb7a59947c17f8f7ef26b4782668e"
+      }
+    },
+    "GLM": {
+      "repo-files.json": {
+        "bytes": 64915,
+        "sha256": "032f9e7243ab438182b64cecd081c1e4639b635c74bf5aea84b5c15fcbf48d81"
+      },
+      "tokenizer.json": {
+        "bytes": 20217442,
+        "sha256": "19e773648cb4e65de8660ea6365e10acca112d42a854923df93db4a6f333a82d"
+      },
+      "required-shards.json": {
+        "bytes": 5360,
+        "sha256": "29307d21a369f30d395b35d9948e7fbaad71802c94b62720308c6fb743c41ac5"
+      },
+      "compute-download-probe.json": {
+        "bytes": 226,
+        "sha256": "2888b5a2fee7550a635019d904e46e56d3348d10dcfa039a66a1c2d8e0d1322e"
+      },
+      "generation_config.json": {
+        "bytes": 194,
+        "sha256": "ac76b43d8683d3b930126870fc8be73d8679308fe752fa1f381096d8354f6a55"
+      },
+      "tokenizer_config.json": {
+        "bytes": 761,
+        "sha256": "98b1271574f41abf89427ae2dda030d94dc9478f0edc5a8bd240db213c6fd5fc"
+      },
+      "metadata-manifest.json": {
+        "bytes": 1267,
+        "sha256": "170c29f5a6b23c663ca6e9eea4b602d60f48f32a51b49b66c2b8a4c6e7a2faca"
+      },
+      "config.json": {
+        "bytes": 29464,
+        "sha256": "3ac72612095574542f7fff847ada8e59d9199dd8af44bdf625d7e02615572e69"
+      },
+      "download-status.json": {
+        "bytes": 269,
+        "sha256": "fa0053ab551cecce929f6d691aa4241f946fd23cb7b4f562d605a4de5f224ac5"
+      },
+      "model.safetensors.index.json": {
+        "bytes": 11359251,
+        "sha256": "e0fe7f28c1f853d4824e4d796374e3dacf1fe470988773952c79b063768134bf"
+      }
+    }
+  },
+  "scope": "External immutable reference data, notweights. Literal closure includes explicit historical QA/numerical failures. Dynamic filenames and external model assets require migration preflight; unresolved literal names also include output names not expected to preexist.",
+  "archive_name": "handoff-reference-data-r3420.tar.gz",
+  "archive_sha256": "59813acbdbe067751f9181bb52467fbab8db2fa381e989e33b8517af3e1e3698",
+  "archive_bytes": 16499645
+}

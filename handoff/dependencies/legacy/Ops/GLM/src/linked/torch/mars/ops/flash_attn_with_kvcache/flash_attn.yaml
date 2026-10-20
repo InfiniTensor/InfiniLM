@@ -1,0 +1,4 @@
+library: flash_attn
+required_symbols:
+  - >-
+    mha_fwd_kvcache(at::Tensor&, at::Tensor const&, at::Tensor const&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor const>&, std::optional<at::Tensor>&, std::optional<at::Tensor>&, std::optional<at::Tensor>&, float, bool, int, int, float, bool, int, std::optional<at::Tensor>&)

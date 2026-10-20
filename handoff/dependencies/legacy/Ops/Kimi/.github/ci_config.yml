@@ -1,0 +1,225 @@
+repo:
+  url: https://github.com/InfiniTensor/InfiniOps.git
+  branch: master
+
+github:
+  status_context_prefix: "ci/infiniops"
+
+platforms:
+  nvidia:
+    runner_label: Nvidia
+    execution_mode: agent_local
+    image:
+      dockerfile: images/nvidia/
+      build_args:
+        BASE_IMAGE: nvcr.io/nvidia/pytorch:24.10-py3
+        SKIP_APT: "1"
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_NVIDIA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1                         # Auto allocator picks this many free GPUs.
+          memory: 32GB
+          shm_size: 16g                    # Prevent PyTorch default 64MB shared memory limit.
+          timeout: 3600
+          queue_timeout: 3600
+          junit_path: test-results.xml
+        # env:                             # Uncomment to inject extra env vars into the container.
+        #   MY_VAR: value
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 8 -v --tb=short --junitxml=/workspace/results/test-results.xml
+  iluvatar:
+    runner_label: iluvatar
+    execution_mode: agent_local
+    image:
+      dockerfile: images/iluvatar/
+      build_args:
+        BASE_IMAGE: corex:qs_pj20250825
+        APT_MIRROR: http://archive.ubuntu.com/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+    docker_args:
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+    volumes:
+      - /dev:/dev
+      - /lib/firmware:/lib/firmware
+      - /usr/src:/usr/src
+      - /lib/modules:/lib/modules
+    setup: python -m pip install scikit-build-core packaging exceptiongroup typing-extensions pygments pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_ILUVATAR=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix -DCMAKE_CUDA_ARCHITECTURES=OFF -DCMAKE_CUDA_COMPILER=/usr/local/corex-4.3.0.20250624/bin/clang++ -DCUDAToolkit_ROOT=/usr/local/corex-4.3.0.20250624 && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && python -m pip install . --no-build-isolation --no-deps --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1
+          gpu_style: none
+          memory: 32GB
+          shm_size: 16g
+          timeout: 7200
+          queue_timeout: 7200
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 4 -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  metax:
+    runner_label: Metax
+    execution_mode: agent_local
+    image:
+      dockerfile: images/metax/
+      build_args:
+        BASE_IMAGE: cr.metax-tech.com/public-library/maca-pytorch:3.2.1.4-torch2.4-py310-ubuntu22.04-amd64
+        APT_MIRROR: http://archive.ubuntu.com/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+    docker_args:
+      - "--privileged"
+      - "--ulimit=memlock=-1"
+      - "--ulimit=stack=67108864"
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_METAX=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1
+          gpu_style: none                  # MetaX uses passthrough via `--privileged`; `CUDA_VISIBLE_DEVICES` controls visibility.
+          memory: 32GB
+          shm_size: 16g
+          timeout: 3600
+          queue_timeout: 3600
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 1 -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  moore:
+    runner_label: Moore
+    execution_mode: agent_local
+    image:
+      dockerfile: images/moore/
+      build_args:
+        BASE_IMAGE: sh-harbor.mthreads.com/mcctest/vllm_musa:20251112_hygon
+        APT_MIRROR: http://archive.ubuntu.com/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+    docker_args:
+      - "--privileged"
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_MOORE=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1
+          gpu_style: none                  # Moore uses passthrough via `--privileged`; `MTHREADS_VISIBLE_DEVICES` controls device selection.
+          memory: 32GB
+          shm_size: 16g
+          timeout: 3600
+          queue_timeout: 3600
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 4 -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  cambricon:
+    runner_label: Cambricon
+    execution_mode: agent_local
+    image:
+      dockerfile: images/cambricon/
+      build_args:
+        BASE_IMAGE: cambricon/pytorch:v1.25.3-torch2.1-anolisos8.8-py310
+        PIP_INDEX_URL: https://pypi.org/simple
+    docker_args:
+      - "--privileged"
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_CAMBRICON=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1
+          gpu_style: mlu                   # Cambricon uses passthrough via `--privileged`; `MLU_VISIBLE_DEVICES` controls device selection.
+          memory: 32GB
+          shm_size: 16g
+          timeout: 3600
+          queue_timeout: 3600
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 4 -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  hygon:
+    runner_label: Hygon
+    execution_mode: agent_local
+    image:
+      dockerfile: images/hygon/
+      build_args:
+        BASE_IMAGE: image.sourcefind.cn:5000/dcu/admin/base/pytorch:2.4.1-ubuntu22.04-dtk25.04.1-py3.10
+        APT_MIRROR: http://archive.ubuntu.com/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+    docker_args:
+      - "--privileged"
+      - "--network=host"
+      - "--ipc=host"
+      - "--device=/dev/kfd"
+      - "--device=/dev/mkfd"
+      - "--device=/dev/dri"
+      - "--group-add=video"
+    volumes:
+      - /opt/hyhal:/opt/hyhal:ro
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_HYGON=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      gpu:
+        type: unittest
+        resources:
+          ngpus: 1
+          gpu_style: none
+          memory: 32GB
+          shm_size: 64g
+          timeout: 3600
+          queue_timeout: 600
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 4 -v --tb=short --junitxml=/workspace/results/test-results.xml
+
+  ascend:
+    runner_label: Ascend
+    execution_mode: agent_local
+    image:
+      dockerfile: images/ascend/
+      skip_build: true
+      source_image: infiniops-ci/ascend:cann9.1.0-torch2.10.0-npu-post4-20260909
+    docker_args:
+      - "--runtime=runc"
+      - "--privileged"
+      - "--device=/dev/davinci_manager"
+      - "--device=/dev/devmm_svm"
+      - "--device=/dev/hisi_hdc"
+    volumes:
+      - /usr/local/Ascend/driver:/usr/local/Ascend/driver:ro
+      - /usr/local/dcmi:/usr/local/dcmi:ro
+      - /usr/local/bin/npu-smi:/usr/local/bin/npu-smi:ro
+    env:
+      ASCEND_HOME_PATH: /usr/local/Ascend/ascend-toolkit/latest
+    setup: pip install scikit-build-core pybind11 libclang pyyaml && rm -rf /tmp/infinirt-src /tmp/infinirt-build /tmp/infinirt-prefix && git clone --depth 1 ${INFINI_RT_GIT_URL:-https://gh-proxy.com/https://github.com/InfiniTensor/InfiniRT.git} /tmp/infinirt-src && cmake -S /tmp/infinirt-src -B /tmp/infinirt-build -DWITH_CPU=ON -DWITH_ASCEND=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/tmp/infinirt-prefix && cmake --build /tmp/infinirt-build -j$(nproc) && cmake --install /tmp/infinirt-build && pip install .[dev] --no-build-isolation --config-settings=cmake.define.INFINI_OPS_SMOKE_BUILD=ON --config-settings=cmake.define.INFINI_RT_ROOT=/tmp/infinirt-prefix
+    jobs:
+      npu:
+        type: unittest
+        resources:
+          gpu_ids: "1"
+          ngpus: 1
+          gpu_style: none
+          memory: 32GB
+          shm_size: 16g
+          timeout: 3600
+          queue_timeout: 3600
+          junit_path: test-results.xml
+        stages:
+          - name: test
+            run: pytest tests/ -m smoke -n 1 -v --tb=short --junitxml=/workspace/results/test-results.xml

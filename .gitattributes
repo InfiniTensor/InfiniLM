@@ -1,0 +1,4 @@
+# Preserve captured source bytes and checksum manifests on Windows and Linux.
+/handoff/** -text
+/handoff/scripts/*.sh text eol=lf
+/handoff/scripts/*.sbatch text eol=lf

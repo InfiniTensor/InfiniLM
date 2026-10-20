@@ -1,0 +1,15 @@
+import datetime,hashlib,json,pathlib,shutil
+r=pathlib.Path.home()/'hygon-inference-refactor-20261014';parent=r/'candidates/kimi-reduce-model-3e0d89fe-r3240';base=r/'candidates/kimi-reduce-model-3e0d89fe-r3261';out=r/'results/kimi-reduce-model-r3261-stage.json';assert not base.exists()and not out.exists();sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest()
+proof=json.loads((r/'results/kimi-reduce-model-r3241-build.json').read_text());assert proof['completed'];stage=json.loads((r/'results/kimi-reduce-model-r3240-stage.json').read_text());shutil.copytree(parent,base,ignore=shutil.ignore_patterns('libmodern_kimi_reduce_r3240.so','__pycache__'))
+model=base/'model-src/InfiniLM';shutil.copytree(r/'candidates/kimi-reduce-3e0d89fe-r3226/Model/InfiniLM',model,ignore=shutil.ignore_patterns('.xmake','build','*.so','*.o','__pycache__'))
+p=model/'csrc/engine/distributed/communication_group.cpp';s=p.read_text();start=s.index('void allreduce_(');op=s.index('{',start);depth=0;end=None
+for i in range(op,len(s)):
+ if s[i]=='{':depth+=1
+ elif s[i]=='}':
+  depth-=1
+  if depth==0:end=i+1;break
+assert end and 'submitCollective'in s[start:end];removed=s[start:end];s=s[:start]+'// allreduce_ resolves the single Common3226 definition; retain private group ABI.\n'+s[end:];assert 'void allreduce_('not in s and 'cross_node_tp_'in s;p.write_text(s)
+cmd=(base/'compile.sh').read_text().replace('kimi-reduce-model-3e0d89fe-r3240','kimi-reduce-model-3e0d89fe-r3261').replace('libmodern_kimi_reduce_r3240.so','libmodern_kimi_reduce_r3261.so');needle='"$LM/csrc/engine/distributed/dist_config.cpp"';assert cmd.count(needle)==1;cmd=cmd.replace(needle,needle+' "$LM/csrc/engine/distributed/communication_group.cpp"');(base/'compile.sh').write_text(cmd)
+for group in['unchanged_GPU_objects','unchanged_GPU_helpers']:
+ for n,h in stage[group].items():assert sha(base/n)==h
+d={**stage,'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'ready':True,'failed_prior_model_step':'910373.763','failed_prior_model_reason':'RemovedentireModel communication_group.cpp causedCommonconstructor toconsumeprivateModelDistConfig/CommunicationGroup with differentfieldlayout. DefaultOFFcreationsegfaultbeforeweights; no wholemodelorTPSqualification. Preservefailure.','parent_model_build':proof,'sources_sha256':{p.relative_to(base).as_posix():sha(p)for p in base.rglob('*')if p.is_file()and p.suffix not in['.so','.o']},'removed_only_allreduce_sha256':hashlib.sha256(removed.encode()).hexdigest(),'scope':'RestoreprivateModel DistConfig/CrossNodeTpLayout/CommunicationGroup constructors andmethods locally, removeonlyfreeallreduce_ functionbody fromModelcompile. AllDSOs stillresolveoneCommon3226 allreduce andexternalrequestframe. Runtime/Tensorheadersidenticalacrosscopies; CommoncollectivebodydoesnotconsumeDistConfig/group layout. SameGPUobjects/SDK/currentmath. No fullmodelB8/TPSadoption.'};out.write_text(json.dumps(d,indent=2));print(json.dumps({'ready':True,'fix':'PreserveModelcommABI; outsourceonlyfreeallreduce'}))

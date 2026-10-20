@@ -1,0 +1,15 @@
+{
+  "library_sha256": "5d78519a4be1e6d9e8bddeae4bde2bec1fe0c2f739287b3def56d0968235a8a6",
+  "sdk_sha256": "6210897fc1f077bc5fc2e10afc9b8b7141fc4c6c608be3f4cb2d896219560104",
+  "helper_sha256": "26cc4b1eb0e8c044c760db7d42a7374d9ebc98ce82591d1ae1e4a1292c4b7d82",
+  "source_manifest_sha256": "a55d3ad95aeb1433672cab73a1a2758030532764bc1c20c6e86200380d611733",
+  "PP_boundaries": [
+    0,
+    24,
+    47,
+    71,
+    93
+  ],
+  "parent914_contract_sha256": "5138054576dccf52557fe4418c93268c83ad165e0e1837766097bba25690caed",
+  "scope": "963modelcsrc unchanged914, onlyprivateCAPI opt-in omitCPUlogits pluswallmetrics. Defaultfulloutputcompatible. ParentCPUcontract verified; fullmodelA/B andoutputcheckpoints required."
+}

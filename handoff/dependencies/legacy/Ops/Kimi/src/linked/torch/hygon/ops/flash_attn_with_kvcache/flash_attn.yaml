@@ -1,0 +1,3 @@
+library: flash_attn
+required_symbols:
+  - mha_fwd_kvcache

@@ -1,0 +1,4 @@
+python_distribution_package: apache-tvm-ffi
+python_distribution_version: "==0.1.10"
+library_glob: tvm_ffi/lib/libtvm_ffi.so
+include_glob: tvm_ffi/include

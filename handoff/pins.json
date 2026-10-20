@@ -1,0 +1,125 @@
+{
+  "current": {
+    "base_LM_commit": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+    "repositories": [
+      {
+        "repo": "InfiniTensor/InfiniLM",
+        "commit": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+        "gitlinks": [
+          {
+            "path": "third_party/spdlog",
+            "repo": "gabime/spdlog",
+            "commit": "88a0e07ad5bb3e2651cd5613530b3f06a15fc400"
+          },
+          {
+            "path": "third_party/json",
+            "repo": "nlohmann/json",
+            "commit": "5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2"
+          },
+          {
+            "path": "third_party/InfiniCore",
+            "repo": "InfiniTensor/InfiniCore",
+            "commit": "030da0b68ea2a7b7aee62f0718d295b4a6b61099"
+          }
+        ]
+      },
+      {
+        "repo": "gabime/spdlog",
+        "commit": "88a0e07ad5bb3e2651cd5613530b3f06a15fc400",
+        "gitlinks": []
+      },
+      {
+        "repo": "nlohmann/json",
+        "commit": "5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2",
+        "gitlinks": []
+      },
+      {
+        "repo": "InfiniTensor/InfiniCore",
+        "commit": "030da0b68ea2a7b7aee62f0718d295b4a6b61099",
+        "gitlinks": [
+          {
+            "path": "submodules/InfiniRT",
+            "repo": "InfiniTensor/InfiniRT",
+            "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19"
+          },
+          {
+            "path": "submodules/InfiniOps",
+            "repo": "InfiniTensor/InfiniOps",
+            "commit": "c86b4f229e5a61331e281964df8b42f100fdd178"
+          },
+          {
+            "path": "submodules/InfiniCCL",
+            "repo": "InfiniTensor/InfiniCCL",
+            "commit": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+          }
+        ]
+      },
+      {
+        "repo": "InfiniTensor/InfiniRT",
+        "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+        "gitlinks": []
+      },
+      {
+        "repo": "InfiniTensor/InfiniOps",
+        "commit": "c86b4f229e5a61331e281964df8b42f100fdd178",
+        "gitlinks": [
+          {
+            "path": ".ci",
+            "repo": "InfiniTensor/ci",
+            "commit": "b45d360c8cc529747ee31c5451d7eac96ac9f309"
+          }
+        ]
+      },
+      {
+        "repo": "InfiniTensor/ci",
+        "commit": "b45d360c8cc529747ee31c5451d7eac96ac9f309",
+        "gitlinks": []
+      },
+      {
+        "repo": "InfiniTensor/InfiniCCL",
+        "commit": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3",
+        "gitlinks": []
+      }
+    ],
+    "overlays_required": true
+  },
+  "legacy": {
+    "base_LM_commit": "6b9cfa6b00cc7ca7431bc18e6c97936c4276e83e",
+    "repositories": [
+      {
+        "repo": "InfiniTensor/InfiniLM",
+        "commit": "6b9cfa6b00cc7ca7431bc18e6c97936c4276e83e"
+      },
+      {
+        "repo": "InfiniTensor/InfiniCore",
+        "commit": "e449b8c73931938ca01643c9790d964984d39da3"
+      },
+      {
+        "repo": "InfiniTensor/InfiniRT",
+        "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19"
+      },
+      {
+        "repo": "InfiniTensor/InfiniOps",
+        "commit": "bdd60986b54255a8d3b48cc50494f8a398623210"
+      },
+      {
+        "repo": "InfiniTensor/InfiniCCL",
+        "commit": "188e4a092fbecba1b5815622a75229ed469982de"
+      },
+      {
+        "repo": "gabime/spdlog",
+        "commit": "88a0e07ad5bb3e2651cd5613530b3f06a15fc400"
+      },
+      {
+        "repo": "nlohmann/json",
+        "commit": "5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2"
+      },
+      {
+        "repo": "InfiniTensor/ci",
+        "commit": "b45d360c8cc529747ee31c5451d7eac96ac9f309"
+      }
+    ],
+    "snapshots_required": true,
+    "note": "Historical model snapshots and private SDK source govern exact numerical variant; clean upstream pins alone are insufficient."
+  }
+}

@@ -1,0 +1,192 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+set(InfiniRT_VERSION "@PROJECT_VERSION@")
+set(InfiniRT_ENABLED_BACKENDS "@INFINI_RT_PUBLIC_HEADER_DEVICES@")
+
+set(InfiniRT_WITH_CPU @WITH_CPU@)
+set(InfiniRT_WITH_NVIDIA @WITH_NVIDIA@)
+set(InfiniRT_WITH_ILUVATAR @WITH_ILUVATAR@)
+set(InfiniRT_WITH_HYGON @WITH_HYGON@)
+set(InfiniRT_WITH_THEAD @WITH_THEAD@)
+set(InfiniRT_WITH_METAX @WITH_METAX@)
+set(InfiniRT_WITH_MARS @WITH_MARS@)
+set(InfiniRT_WITH_MOORE @WITH_MOORE@)
+set(InfiniRT_WITH_CAMBRICON @WITH_CAMBRICON@)
+set(InfiniRT_WITH_ASCEND @WITH_ASCEND@)
+
+if(@INFINI_RT_PACKAGE_NEEDS_CUDATOOLKIT@)
+    find_dependency(CUDAToolkit)
+endif()
+
+function(_infinirt_define_backend_runtime include_dirs link_libraries)
+    if(NOT TARGET InfiniRT::BackendRuntime)
+        add_library(InfiniRT::BackendRuntime INTERFACE IMPORTED)
+        set_target_properties(InfiniRT::BackendRuntime PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${include_dirs}"
+            INTERFACE_LINK_LIBRARIES "${link_libraries}")
+    endif()
+endfunction()
+
+set(_InfiniRT_VENDOR_BACKEND "@INFINI_RT_PACKAGE_VENDOR_BACKEND@")
+
+if(_InfiniRT_VENDOR_BACKEND STREQUAL "METAX")
+    set(_InfiniRT_ROOT_HINTS "${InfiniRT_METAX_ROOT}")
+    if(DEFINED ENV{MACA_PATH})
+        list(APPEND _InfiniRT_ROOT_HINTS "$ENV{MACA_PATH}")
+    endif()
+    find_path(_InfiniRT_BACKEND_INCLUDE_DIR
+        NAMES mcr/mc_runtime.h
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES include)
+    find_library(_InfiniRT_BACKEND_RUNTIME_LIBRARY
+        NAMES mcruntime
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib lib64)
+    if(NOT _InfiniRT_BACKEND_INCLUDE_DIR OR
+       NOT _InfiniRT_BACKEND_RUNTIME_LIBRARY)
+        set(InfiniRT_FOUND FALSE)
+        set(InfiniRT_NOT_FOUND_MESSAGE
+            "MetaX SDK not found. Set InfiniRT_METAX_ROOT or MACA_PATH.")
+        return()
+    endif()
+    _infinirt_define_backend_runtime(
+        "${_InfiniRT_BACKEND_INCLUDE_DIR}"
+        "${_InfiniRT_BACKEND_RUNTIME_LIBRARY}")
+elseif(_InfiniRT_VENDOR_BACKEND STREQUAL "MARS")
+    set(_InfiniRT_ROOT_HINTS "${InfiniRT_MARS_ROOT}")
+    if(DEFINED ENV{HPCC_PATH})
+        list(APPEND _InfiniRT_ROOT_HINTS "$ENV{HPCC_PATH}")
+    endif()
+    find_path(_InfiniRT_BACKEND_INCLUDE_DIR
+        NAMES hcr/hc_runtime.h
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES include)
+    find_library(_InfiniRT_BACKEND_RUNTIME_LIBRARY
+        NAMES hcruntime
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib lib64)
+    if(NOT _InfiniRT_BACKEND_INCLUDE_DIR OR
+       NOT _InfiniRT_BACKEND_RUNTIME_LIBRARY)
+        set(InfiniRT_FOUND FALSE)
+        set(InfiniRT_NOT_FOUND_MESSAGE
+            "Mars HPCC SDK not found. Set InfiniRT_MARS_ROOT or HPCC_PATH.")
+        return()
+    endif()
+    _infinirt_define_backend_runtime(
+        "${_InfiniRT_BACKEND_INCLUDE_DIR}"
+        "${_InfiniRT_BACKEND_RUNTIME_LIBRARY}")
+elseif(_InfiniRT_VENDOR_BACKEND STREQUAL "MOORE")
+    set(_InfiniRT_ROOT_HINTS "${InfiniRT_MOORE_ROOT}")
+    foreach(_InfiniRT_ENV MUSA_ROOT MUSA_HOME MUSA_PATH)
+        if(DEFINED ENV{${_InfiniRT_ENV}})
+            list(APPEND _InfiniRT_ROOT_HINTS "$ENV{${_InfiniRT_ENV}}")
+        endif()
+    endforeach()
+    list(APPEND _InfiniRT_ROOT_HINTS /usr/local/musa)
+    find_path(_InfiniRT_BACKEND_INCLUDE_DIR
+        NAMES musa_runtime.h
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES include)
+    find_library(_InfiniRT_BACKEND_RUNTIME_LIBRARY
+        NAMES musa
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib lib64)
+    find_library(_InfiniRT_BACKEND_DRIVER_LIBRARY
+        NAMES musart
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib lib64)
+    if(NOT _InfiniRT_BACKEND_INCLUDE_DIR OR
+       NOT _InfiniRT_BACKEND_RUNTIME_LIBRARY OR
+       NOT _InfiniRT_BACKEND_DRIVER_LIBRARY)
+        set(InfiniRT_FOUND FALSE)
+        set(InfiniRT_NOT_FOUND_MESSAGE
+            "Moore SDK not found. Set InfiniRT_MOORE_ROOT or a MUSA root environment variable.")
+        return()
+    endif()
+    _infinirt_define_backend_runtime(
+        "${_InfiniRT_BACKEND_INCLUDE_DIR}"
+        "${_InfiniRT_BACKEND_RUNTIME_LIBRARY};${_InfiniRT_BACKEND_DRIVER_LIBRARY}")
+elseif(_InfiniRT_VENDOR_BACKEND STREQUAL "CAMBRICON")
+    set(_InfiniRT_ROOT_HINTS "${InfiniRT_CAMBRICON_ROOT}")
+    if(DEFINED ENV{NEUWARE_HOME})
+        list(APPEND _InfiniRT_ROOT_HINTS "$ENV{NEUWARE_HOME}")
+    endif()
+    find_path(_InfiniRT_BACKEND_INCLUDE_DIR
+        NAMES cnrt.h
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES include)
+    find_library(_InfiniRT_BACKEND_RUNTIME_LIBRARY
+        NAMES cnrt
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib lib64)
+    if(NOT _InfiniRT_BACKEND_INCLUDE_DIR OR
+       NOT _InfiniRT_BACKEND_RUNTIME_LIBRARY)
+        set(InfiniRT_FOUND FALSE)
+        set(InfiniRT_NOT_FOUND_MESSAGE
+            "Cambricon SDK not found. Set InfiniRT_CAMBRICON_ROOT or NEUWARE_HOME.")
+        return()
+    endif()
+    _infinirt_define_backend_runtime(
+        "${_InfiniRT_BACKEND_INCLUDE_DIR}"
+        "${_InfiniRT_BACKEND_RUNTIME_LIBRARY}")
+elseif(_InfiniRT_VENDOR_BACKEND STREQUAL "ASCEND")
+    set(_InfiniRT_ROOT_HINTS "${InfiniRT_ASCEND_ROOT}")
+    if(DEFINED ENV{ASCEND_HOME_PATH})
+        list(APPEND _InfiniRT_ROOT_HINTS "$ENV{ASCEND_HOME_PATH}")
+    endif()
+    list(APPEND _InfiniRT_ROOT_HINTS
+        /usr/local/Ascend/ascend-toolkit/latest)
+
+    find_path(_InfiniRT_BACKEND_INCLUDE_DIR
+        NAMES acl/acl.h
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES include)
+    find_library(_InfiniRT_BACKEND_RUNTIME_LIBRARY
+        NAMES ascendcl
+        HINTS ${_InfiniRT_ROOT_HINTS}
+        PATH_SUFFIXES lib64 lib)
+
+    set(_InfiniRT_ASCEND_HAL_HINTS "")
+    foreach(_InfiniRT_ROOT IN LISTS _InfiniRT_ROOT_HINTS)
+        if(_InfiniRT_ROOT)
+            get_filename_component(
+                _InfiniRT_ASCEND_ROOT "${_InfiniRT_ROOT}/../.." ABSOLUTE)
+            list(APPEND _InfiniRT_ASCEND_HAL_HINTS
+                "${_InfiniRT_ASCEND_ROOT}/driver/lib64/driver"
+                "${_InfiniRT_ROOT}/runtime/lib64/stub"
+                "${_InfiniRT_ROOT}/${CMAKE_SYSTEM_PROCESSOR}-linux/devlib")
+        endif()
+    endforeach()
+    find_library(_InfiniRT_BACKEND_DRIVER_LIBRARY
+        NAMES ascend_hal
+        HINTS ${_InfiniRT_ASCEND_HAL_HINTS})
+
+    if(NOT _InfiniRT_BACKEND_INCLUDE_DIR OR
+       NOT _InfiniRT_BACKEND_RUNTIME_LIBRARY OR
+       NOT _InfiniRT_BACKEND_DRIVER_LIBRARY)
+        set(InfiniRT_FOUND FALSE)
+        set(InfiniRT_NOT_FOUND_MESSAGE
+            "Ascend SDK not found. Set InfiniRT_ASCEND_ROOT or ASCEND_HOME_PATH.")
+        return()
+    endif()
+
+    set(_InfiniRT_ASCEND_INCLUDE_DIRS
+        "${_InfiniRT_BACKEND_INCLUDE_DIR}")
+    get_filename_component(
+        _InfiniRT_ASCEND_HOME "${_InfiniRT_BACKEND_INCLUDE_DIR}" DIRECTORY)
+    foreach(_InfiniRT_INCLUDE_SUBDIR aclnn aclnnop)
+        if(IS_DIRECTORY
+           "${_InfiniRT_ASCEND_HOME}/include/${_InfiniRT_INCLUDE_SUBDIR}")
+            list(APPEND _InfiniRT_ASCEND_INCLUDE_DIRS
+                "${_InfiniRT_ASCEND_HOME}/include/${_InfiniRT_INCLUDE_SUBDIR}")
+        endif()
+    endforeach()
+    _infinirt_define_backend_runtime(
+        "${_InfiniRT_ASCEND_INCLUDE_DIRS}"
+        "${_InfiniRT_BACKEND_RUNTIME_LIBRARY};${_InfiniRT_BACKEND_DRIVER_LIBRARY};${CMAKE_DL_LIBS}")
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/InfiniRTTargets.cmake")
+check_required_components(InfiniRT)

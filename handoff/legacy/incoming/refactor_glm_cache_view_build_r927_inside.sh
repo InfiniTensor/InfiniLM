@@ -1,0 +1,42 @@
+#!/bin/bash
+set -euo pipefail
+LM=/refactor/src/InfiniLM
+SDK=/refactor/install/hygon-fp8-expert-r19
+python - <<'PY'
+import hashlib,json,pathlib
+r=pathlib.Path('/refactor');q=json.loads((r/'results/glm-fp8-cache-r807-summary.json').read_text());assert q['passed']and q['collection_completed']and len(q['cases'])==96 and len(q['owners'])==8 and all(v['owner_destroyed']for v in q['owners'])
+assert hashlib.sha256((r/'candidates/glm-fp8-cache-r807/libglm_fp8_cache_r807.so').read_bytes()).hexdigest()==q['cache_library_sha256']
+for n,h in q['sources_sha256'].items():assert hashlib.sha256((r/'incoming'/n).read_bytes()).hexdigest()==h
+assert hashlib.sha256((r/'incoming/modern_glm_projected_model_bridge_r22.cpp').read_bytes()).hexdigest()=="c7f1a6b69fd3de8b289f7efd53d3564bfdf5388515626fb11a645c8eab4e6c47"
+assert hashlib.sha256((r/'incoming/glm_moe_dsa_projected_cache_direct_r605.cpp').read_bytes()).hexdigest()=='6d93d9b1a1ca82895d2916ce1f656e4a1aa66b198b3f06cf7d9a278abed4fcee'
+PY
+ABI=$(python -c 'import torch;print(int(torch.compiled_with_cxx11_abi()))')
+export LD_LIBRARY_PATH="/refactor/build:$SDK/lib:$LM/python:$LM/python/infinilm/_lib:/opt/dtk/cuda/cuda/lib64:/opt/dtk/cuda/lib64:$LD_LIBRARY_PATH"
+export PYTHONPATH="$LM/python:/old/offline-deps:${PYTHONPATH:-}"
+export OMP_NUM_THREADS=1
+mkdir -p /refactor/candidates/glm-cache-view-r927
+test ! -e /refactor/candidates/glm-cache-view-r927/libmodern_glm_cache_view_r927.so
+python - <<'PY'
+import hashlib,json,pathlib
+cfg=json.loads(pathlib.Path('/old/models/ZhipuAI-GLM-5.3/config.json').read_text());assert all(cfg['indexer_types'][v]=='full'for v in [0,18,38,58])
+r=pathlib.Path('/refactor');direct=json.loads((r/'results/glm-direct-decode-r601-summary.json').read_text());assert direct['passed']and direct['CPU_selection_identity_cases']==72484 and len(direct['cases'])==80 and all(direct['owners_shutdown']);assert all(v['all_repeated_bits_exact']and v['invalid_scale_preserves_output']and v['actual_direct_calls']>0 for v in direct['cases']);assert json.loads((r/'results/glm-kv-pair-model-r550-910374.76-summary.json').read_text())['completed'];pair=json.loads((r/'results/glm-kv-pair-r544-summary.json').read_text());assert pair['passed']and len(pair['cases'])==120 and len(pair['BF16_domain'])==8 and all(pair['owners_shutdown']);assert all(v['all_repeats_bits_exact']and v['invalid_recovery_bits_exact']and (v['paired_gather_calls']==0 if v['duplicates']=='strided'else v['paired_gather_calls']>0)for v in pair['cases']);assert json.loads((r/'results/glm-scale-model-r399-910374.73-summary.json').read_text())['completed'];a=json.loads((r/'results/glm-scale-attention-r396-summary.json').read_text());assert a['passed']and len(a['cases'])==80 and all(a['owners_shutdown']);a=json.loads((r/'results/glm-scale-r392-summary.json').read_text());assert a['passed']and len(a['cases'])==64 and a['owner_shutdown_completed'];assert json.loads((r/'results/glm-selection-model-r303-910374.70-summary.json').read_text())['completed'];mapping=json.loads((r/'results/glm-selection-map-r302-summary.json').read_text());assert mapping['passed']and mapping['random_cases']==400 and mapping['exhaustive_cases']>100000
+assert hashlib.sha256((r/'incoming/glm_selection_map_r302.hpp').read_bytes()).hexdigest()==mapping['sources']['glm_selection_map_r302.hpp']
+q=json.loads((r/'results/glm-expand-batch-r270-summary.json').read_text());assert q['passed']and q['owner_shutdown_completed']and len(q['cases'])==48;assert all(v['all_original_packed_repeat_bf16_bits_exact']and v['invalid_length_preserves_outputs']for v in q['cases'])
+assert hashlib.sha256((r/'incoming/glm_moe_dsa_projected_cache_r22.cpp').read_bytes()).hexdigest()=='e3f99037142662582ffba7f78a7c092a8e0124335363ebfc48715db627356e26'
+PY
+g++ -std=c++17 -fsyntax-only -D_GLIBCXX_USE_CXX11_ABI="$ABI" -I/refactor/incoming -I"$LM/csrc" -I"$SDK/include" -I"$SDK/include/infiniccl" -I"$LM/third_party/json/include" -I"$LM/third_party/spdlog/include" -I/opt/dtk/cuda/cuda/include /refactor/incoming/glm_moe_dsa_attention_prepare_r809.cpp /refactor/incoming/glm_moe_dsa_attention_output_r809.cpp /refactor/incoming/glm_fp8_runtime_r809.cpp /refactor/incoming/modern_glm_cached_model_bridge_r809.cpp
+g++ -std=c++17 -O2 -shared -fPIC -D_GLIBCXX_USE_CXX11_ABI="$ABI" \
+ -I/refactor/incoming -I"$LM/csrc" -I"$SDK/include" -I"$SDK/include/infiniccl" -I"$LM/third_party/json/include" -I"$LM/third_party/spdlog/include" -I/opt/dtk/cuda/cuda/include \
+ /refactor/incoming/modern_glm_cached_model_bridge_r809.cpp /refactor/incoming/glm_moe_dsa_balanced_text_model_r126.cpp /refactor/incoming/glm_moe_dsa_projected_decoder_r22.cpp /refactor/incoming/glm_moe_dsa_routed_ffn_r19.cpp /refactor/build/glm_routed_fp8_kernels_r19.o /refactor/incoming/glm_moe_dsa_native_attention.cpp /refactor/incoming/glm_moe_dsa_projected_cache_view_r927.cpp /refactor/incoming/glm_all_selected_decode_r601.cpp /refactor/incoming/glm_moe_dsa_attention_prepare_r809.cpp /refactor/incoming/glm_moe_dsa_attention_output_r809.cpp /refactor/incoming/glm_moe_dsa_indexer_rotary.cpp /refactor/incoming/glm_moe_dsa_indexer_selection.cpp /refactor/incoming/glm_moe_dsa_sparse_pair_r544.cpp /refactor/candidates/glm-scale-r392/scale.o /refactor/candidates/glm-kv-pair-r544/pair.o /refactor/incoming/glm_moe_dsa_dense_modes_r48.cpp /refactor/candidates/glm-dense-modes-r48/mask.o \
+ /refactor/incoming/glm_fp8_model_counts_r780.cpp /refactor/incoming/glm_fp8_runtime_r809.cpp -L/refactor/candidates/glm-fp8-cache-r807 -lglm_fp8_cache_r807 -Wl,-rpath,/refactor/candidates/glm-fp8-cache-r807 -L/refactor/candidates/glm-fp8-batched-r776 -lglm_fp8_batched_r776 -Wl,-rpath,/refactor/candidates/glm-fp8-batched-r776 -L"$LM/python" -l:_infinilm.cpython-310-x86_64-linux-gnu.so -L"$LM/python/infinilm/_lib" -linfinilm_runtime \
+ -L"$SDK/lib" -linfiniops -linfiniccl -linfinirt -L/opt/dtk/cuda/cuda/lib64 -lcudart -Wl,-Bsymbolic -o /refactor/candidates/glm-cache-view-r927/libmodern_glm_cache_view_r927.so
+python - <<'PY'
+import hashlib,json,pathlib
+r=pathlib.Path('/refactor');p=r/'results/glm-cache-view-r927-build.json';assert not p.exists()
+component=json.loads((r/'results/glm-fp8-batched-r776-summary.json').read_text());assert component['passed']and component['collection_completed']and len(component['cases'])==56 and len(component['domain'])==8
+helper=r/'candidates/glm-fp8-batched-r776/libglm_fp8_batched_r776.so';assert hashlib.sha256(helper.read_bytes()).hexdigest()==component['library_sha256']
+lib=r/'candidates/glm-cache-view-r927/libmodern_glm_cache_view_r927.so'
+names=['glm_moe_dsa_projected_cache_view_r927.cpp','glm_fp8_runtime_r809.hpp','glm_fp8_runtime_r809.cpp','modern_glm_cached_model_bridge_r809.cpp','glm_fp8_cache_r807.cpp','glm_fp8_cache_r807.hpp','glm_fp8_model_r790.hpp','glm_fp8_model_counts_r780.cpp','glm_moe_dsa_attention_prepare_r809.cpp','glm_moe_dsa_attention_output_r809.cpp','refactor_glm_cache_view_build_r927_inside.sh']
+d={'library_sha256':hashlib.sha256(lib.read_bytes()).hexdigest(),'helper_sha256':component['library_sha256'],'sdk_sha256':component['sdk_sha256'],'source_sha256':{n:hashlib.sha256((r/'incoming'/n).read_bytes()).hexdigest()for n in names},'cache_library_sha256':json.loads((r/'results/glm-fp8-cache-r807-summary.json').read_text())['cache_library_sha256'],'scope':'809addsbounded807M8/16workspace reuse underRuntime/thread/stream,10LRU192MiBcap perowner. Everyrununpackscurrentlayerweights. Clearbeforemodule/Runtime/commdestroy. M1/M4legacy, M>=32same790. 96componentfreshweights/invalid/owner/LRU/clear/recreate casesgate beforemodel. Newdecode dotreductionorder; own512references/QA/all32/cleanup mustpass. Parent780onlyattention_prepare/output use776exactunscaledFP8BF16batchedper128dot forM>=32, decodeM<32 originalprovider; plancreate/run/destroy allinside modeltime. Dot reduction order intentionalnewprecisionvariant, requireownfull512repeats/oldlogitsdiagnostic/knownQA/all32actualcounter/shutdown. SDK587/FFN19/direct601/cache605/pair544/sparse392/dense48 unchanged.'}
+d['scope']='927same809/SDK587/807/776 numericalpath; onlycompletevalidatedlogicalprefix borrowsimmutableKVcacheviews instead oftwoIndexSelect/copies. Subsetfallbackunchanged; modelownedcache survivesWorkdrain anduniquevalidrow checks retained. Frozen811 full512IDs/raw/knownQA/all32/lifecycle required beforeperformance adoption.';p.write_text(json.dumps(d,indent=2));print('GLM_FP8_CACHED_MODEL_R809_BUILD_COMPLETE',json.dumps(d))
+PY

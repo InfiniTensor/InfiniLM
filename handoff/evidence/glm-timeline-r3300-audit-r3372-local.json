@@ -1,0 +1,3340 @@
+{
+  "utc": "2026-10-20T08:46:04.092504+00:00",
+  "completed": true,
+  "scope": "Independent CPU audit of terminal GLM32card latest3e0 diagnostic3291,defaultOFFtimers over3072math;ctx32,knownQA8EOSandG1/G8/G32natural512input/max4output andtwofrozenprompts repeated, separatefrom512output results; all32 reports/fullIDs/EOS/CPUfullvocabraw/checksums/sameMrepeat/normalclose. Native+harness timing, no HTTP or hardware-peak claim.",
+  "producer_state": [
+    "910376.287",
+    "models-latest-r3297-GLMTimelineDiagnostic-910376",
+    "COMPLETED",
+    "0:0",
+    "a02r4n[12-15]"
+  ],
+  "diagnostic_sections": [
+    {
+      "phase": "g1m1_B1",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 0,
+      "decoder_total_ms": 2971.900031,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1105.58845,
+            "ffn": 1859.1495070000003,
+            "final_add": 1.2902600000000002,
+            "input_norm": 2.275474,
+            "residual_postnorm": 3.57672,
+            "tail": 0.019620000000000002
+          },
+          "total_ms": 2971.900031
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 806.412448,
+            "expand_KV": 17.106647000000002,
+            "indexer_selection": 20.612775,
+            "metadata_validation": 35.195847,
+            "output_projection_TP": 146.699336,
+            "prepare_Q_latent": 79.076856,
+            "tail": 0.03932
+          },
+          "total_ms": 1105.143229
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 12.773857,
+            "dense_local": 116.279547,
+            "tail": 0.025401000000000003,
+            "activation": 1.8893919999999997,
+            "combine_shared": 143.43714500000002,
+            "down_quant": 0.9388560000000001,
+            "input_quant": 1.7984,
+            "route_weights": 4.417868,
+            "routed_down": 618.041208,
+            "routed_gate_up": 954.316829,
+            "router_topk": 4.69815
+          },
+          "total_ms": 1858.616653
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        2971.476689,
+        2971.900031
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 272.961662,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 159.45499500000003,
+            "ffn": 98.14822400000004,
+            "final_add": 1.6054290000000002,
+            "input_norm": 6.49092,
+            "residual_postnorm": 7.209414,
+            "tail": 0.052680000000000005
+          },
+          "total_ms": 272.961662
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 11.901745000000002,
+            "expand_KV": 9.458696999999999,
+            "indexer_selection": 72.09242499999996,
+            "metadata_validation": 1.9762939999999998,
+            "output_projection_TP": 21.968244,
+            "prepare_Q_latent": 41.069743,
+            "tail": 0.082551
+          },
+          "total_ms": 158.549699
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 20.129684000000005,
+            "dense_local": 5.732774999999999,
+            "tail": 0.070851,
+            "activation": 4.560528,
+            "combine_shared": 28.537789000000007,
+            "down_quant": 1.457608,
+            "input_quant": 1.5278669999999999,
+            "route_weights": 10.090853999999998,
+            "routed_down": 5.704993,
+            "routed_gate_up": 9.347879,
+            "router_topk": 9.788740000000002
+          },
+          "total_ms": 96.949568
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        220.587458,
+        272.961662
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 3553.664194,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1228.1242230000003,
+            "ffn": 2317.536629,
+            "final_add": 1.4423110000000001,
+            "input_norm": 2.872336,
+            "residual_postnorm": 3.667235,
+            "tail": 0.02146
+          },
+          "total_ms": 3553.664194
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 925.155584,
+            "expand_KV": 19.287052999999997,
+            "indexer_selection": 16.926043,
+            "metadata_validation": 46.620709000000005,
+            "output_projection_TP": 130.759833,
+            "prepare_Q_latent": 88.78739299999998,
+            "tail": 0.043660000000000004
+          },
+          "total_ms": 1227.580275
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 12.470391999999999,
+            "activation": 2.570164,
+            "combine_shared": 192.21962599999998,
+            "down_quant": 1.289109,
+            "input_quant": 2.410756,
+            "route_weights": 5.735791,
+            "routed_down": 822.389237,
+            "routed_gate_up": 1271.731133,
+            "router_topk": 6.0514529999999995,
+            "tail": 0.027749999999999997
+          },
+          "total_ms": 2316.895411
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3553.412351,
+        3553.664194
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 263.135827,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 121.01071100000003,
+            "ffn": 125.362449,
+            "final_add": 1.7681900000000002,
+            "input_norm": 7.070262,
+            "residual_postnorm": 7.864094,
+            "tail": 0.060120999999999994
+          },
+          "total_ms": 263.135827
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 12.852725,
+            "expand_KV": 10.229436,
+            "indexer_selection": 18.970693000000004,
+            "metadata_validation": 2.279986,
+            "output_projection_TP": 30.641205,
+            "prepare_Q_latent": 44.88965199999999,
+            "tail": 0.10308199999999998
+          },
+          "total_ms": 119.966779
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 30.898959,
+            "activation": 5.886443,
+            "combine_shared": 37.63895,
+            "down_quant": 1.9479249999999992,
+            "input_quant": 2.054824,
+            "route_weights": 13.275049000000001,
+            "routed_down": 7.086586000000001,
+            "routed_gate_up": 12.391236,
+            "router_topk": 12.564093,
+            "tail": 0.08196
+          },
+          "total_ms": 123.826025
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        262.686692,
+        263.135827
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 3639.320725,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1311.670002,
+            "ffn": 2319.8995069999996,
+            "final_add": 1.445718,
+            "input_norm": 2.6988090000000002,
+            "residual_postnorm": 3.5857489999999994,
+            "tail": 0.02094
+          },
+          "total_ms": 3639.320725
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 901.8353119999999,
+            "expand_KV": 19.084381,
+            "indexer_selection": 17.28174,
+            "metadata_validation": 46.277846,
+            "output_projection_TP": 238.13087299999998,
+            "prepare_Q_latent": 88.50861399999998,
+            "tail": 0.040491
+          },
+          "total_ms": 1311.159257
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 14.222800000000001,
+            "activation": 2.6516600000000006,
+            "combine_shared": 192.430753,
+            "down_quant": 1.2968609999999996,
+            "input_quant": 2.379586,
+            "route_weights": 5.7813419999999995,
+            "routed_down": 822.9242280000001,
+            "routed_gate_up": 1271.9183639999999,
+            "router_topk": 5.660976999999999,
+            "tail": 0.027461
+          },
+          "total_ms": 2319.294032
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3639.035038,
+        3639.320725
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 260.219995,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 118.956717,
+            "ffn": 123.755461,
+            "final_add": 1.7979739999999997,
+            "input_norm": 7.679022000000001,
+            "residual_postnorm": 7.9716109999999984,
+            "tail": 0.05921
+          },
+          "total_ms": 260.219995
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 13.291842999999998,
+            "expand_KV": 10.507320999999997,
+            "indexer_selection": 17.784609,
+            "metadata_validation": 2.3969180000000003,
+            "output_projection_TP": 27.68304,
+            "prepare_Q_latent": 46.18675399999999,
+            "tail": 0.09216999999999997
+          },
+          "total_ms": 117.942655
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 27.392839,
+            "activation": 6.151934000000002,
+            "combine_shared": 38.399908999999994,
+            "down_quant": 2.034104,
+            "input_quant": 2.1294999999999997,
+            "route_weights": 13.520715000000003,
+            "routed_down": 7.335488000000003,
+            "routed_gate_up": 12.501497999999998,
+            "router_topk": 12.708875,
+            "tail": 0.08066000000000001
+          },
+          "total_ms": 122.255522
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        259.75123,
+        260.219995
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 3,
+      "decoder_total_ms": 3639.616856,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1305.201023,
+            "ffn": 2325.42935,
+            "final_add": 1.6126890000000003,
+            "input_norm": 3.319257000000001,
+            "residual_postnorm": 4.032347,
+            "tail": 0.02219000000000001
+          },
+          "total_ms": 3639.616856
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 970.842669,
+            "expand_KV": 19.739365000000003,
+            "indexer_selection": 16.011321000000002,
+            "metadata_validation": 44.596680000000006,
+            "output_projection_TP": 162.015868,
+            "prepare_Q_latent": 91.15608299999998,
+            "tail": 0.04911
+          },
+          "total_ms": 1304.411096
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 13.677243999999998,
+            "activation": 3.50277,
+            "combine_shared": 194.98771299999999,
+            "down_quant": 1.6981680000000001,
+            "input_quant": 2.662118,
+            "route_weights": 6.735587000000001,
+            "routed_down": 822.350184,
+            "routed_gate_up": 1272.010917,
+            "router_topk": 6.685536000000001,
+            "tail": 0.029152
+          },
+          "total_ms": 2324.339389
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3639.473265,
+        3639.616856
+      ]
+    },
+    {
+      "phase": "g1m1_B1",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 260.013772,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 118.10035099999996,
+            "ffn": 124.682847,
+            "final_add": 1.8086069999999999,
+            "input_norm": 7.379815999999996,
+            "residual_postnorm": 7.982569999999997,
+            "tail": 0.05958100000000002
+          },
+          "total_ms": 260.013772
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 13.085543999999999,
+            "expand_KV": 10.436240999999999,
+            "indexer_selection": 17.379515,
+            "metadata_validation": 2.398766000000001,
+            "output_projection_TP": 27.732036,
+            "prepare_Q_latent": 45.88207399999999,
+            "tail": 0.09793000000000002
+          },
+          "total_ms": 117.012106
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 27.8365,
+            "activation": 6.1450580000000015,
+            "combine_shared": 38.318774000000005,
+            "down_quant": 2.117802,
+            "input_quant": 2.1708900000000004,
+            "route_weights": 13.590979000000003,
+            "routed_down": 7.264733,
+            "routed_gate_up": 12.545865999999998,
+            "router_topk": 12.944584000000004,
+            "tail": 0.08488000000000004
+          },
+          "total_ms": 123.020066
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        259.562463,
+        260.013772
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 0,
+      "decoder_total_ms": 2991.446972,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1125.107957,
+            "ffn": 1859.1363569999999,
+            "final_add": 1.292908,
+            "input_norm": 2.334066,
+            "residual_postnorm": 3.5562040000000006,
+            "tail": 0.01948
+          },
+          "total_ms": 2991.446972
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 816.7199959999999,
+            "expand_KV": 17.110657,
+            "indexer_selection": 20.574426999999996,
+            "metadata_validation": 35.201007000000004,
+            "output_projection_TP": 156.03867200000002,
+            "prepare_Q_latent": 78.99086600000001,
+            "tail": 0.038771
+          },
+          "total_ms": 1124.674396
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 13.273130000000002,
+            "dense_local": 116.164625,
+            "tail": 0.025169999999999998,
+            "activation": 1.8454730000000001,
+            "combine_shared": 143.072123,
+            "down_quant": 0.9280729999999999,
+            "input_quant": 1.793221,
+            "route_weights": 4.4414370000000005,
+            "routed_down": 618.0237940000001,
+            "routed_gate_up": 954.3584369999999,
+            "router_topk": 4.667269
+          },
+          "total_ms": 1858.592752
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        2990.762357,
+        2991.446972
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 266.870743,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 153.846779,
+            "ffn": 97.771304,
+            "final_add": 1.602356,
+            "input_norm": 6.364990000000002,
+            "residual_postnorm": 7.232493999999999,
+            "tail": 0.05281999999999999
+          },
+          "total_ms": 266.870743
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 11.922932999999999,
+            "expand_KV": 9.506843,
+            "indexer_selection": 66.86838100000001,
+            "metadata_validation": 2.0013029999999996,
+            "output_projection_TP": 21.44293,
+            "prepare_Q_latent": 41.114882,
+            "tail": 0.08202000000000001
+          },
+          "total_ms": 152.939292
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 20.134034,
+            "dense_local": 5.703235,
+            "tail": 0.07068,
+            "activation": 4.576587999999999,
+            "combine_shared": 28.593078,
+            "down_quant": 1.4731689999999997,
+            "input_quant": 1.516221,
+            "route_weights": 10.090368,
+            "routed_down": 5.3169640000000005,
+            "routed_gate_up": 9.315588000000004,
+            "router_topk": 9.769862000000002
+          },
+          "total_ms": 96.559787
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        220.15045800000001,
+        266.870743
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 3582.43874,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1238.6582709999998,
+            "ffn": 2335.8200819999997,
+            "final_add": 1.463155,
+            "input_norm": 2.8164159999999994,
+            "residual_postnorm": 3.659516,
+            "tail": 0.021299999999999996
+          },
+          "total_ms": 3582.43874
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 936.4555439999999,
+            "expand_KV": 19.143228,
+            "indexer_selection": 16.441039,
+            "metadata_validation": 46.436379,
+            "output_projection_TP": 131.099925,
+            "prepare_Q_latent": 88.59323299999998,
+            "tail": 0.038741
+          },
+          "total_ms": 1238.208089
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 31.293112000000004,
+            "activation": 2.588325,
+            "combine_shared": 191.87259600000002,
+            "down_quant": 1.3172679999999999,
+            "input_quant": 2.415891,
+            "route_weights": 5.875024999999999,
+            "routed_down": 822.0811369999999,
+            "routed_gate_up": 1271.790653,
+            "router_topk": 5.941128999999999,
+            "tail": 0.027280000000000002
+          },
+          "total_ms": 2335.202416
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3582.040791,
+        3582.43874
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 245.552942,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 111.657231,
+            "ffn": 117.60995299999999,
+            "final_add": 1.7328379999999999,
+            "input_norm": 6.854590999999997,
+            "residual_postnorm": 7.638488999999997,
+            "tail": 0.059840000000000004
+          },
+          "total_ms": 245.552942
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 12.658898000000002,
+            "expand_KV": 10.064708,
+            "indexer_selection": 16.566337000000004,
+            "metadata_validation": 2.248232,
+            "output_projection_TP": 24.473653999999996,
+            "prepare_Q_latent": 44.525004,
+            "tail": 0.10866
+          },
+          "total_ms": 110.645493
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 24.052774000000003,
+            "activation": 5.772251000000001,
+            "combine_shared": 37.409385,
+            "down_quant": 1.9371889999999996,
+            "input_quant": 2.0072159999999997,
+            "route_weights": 13.015647999999995,
+            "routed_down": 7.117183000000001,
+            "routed_gate_up": 12.333235000000002,
+            "router_topk": 12.391439999999996,
+            "tail": 0.08253099999999998
+          },
+          "total_ms": 116.118852
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        245.11142999999998,
+        245.552942
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 3652.789291,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1327.0547719999997,
+            "ffn": 2317.912234,
+            "final_add": 1.434315,
+            "input_norm": 2.7383899999999994,
+            "residual_postnorm": 3.62868,
+            "tail": 0.020900000000000002
+          },
+          "total_ms": 3652.789291
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 911.3986030000001,
+            "expand_KV": 19.315751,
+            "indexer_selection": 16.858777,
+            "metadata_validation": 46.090152999999994,
+            "output_projection_TP": 244.280488,
+            "prepare_Q_latent": 88.533156,
+            "tail": 0.03926
+          },
+          "total_ms": 1326.516188
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 11.985994999999999,
+            "activation": 2.748520000000001,
+            "combine_shared": 192.56318600000003,
+            "down_quant": 1.306571,
+            "input_quant": 2.401426,
+            "route_weights": 5.69309,
+            "routed_down": 822.8479870000001,
+            "routed_gate_up": 1271.953915,
+            "router_topk": 5.769559000000001,
+            "tail": 0.02787
+          },
+          "total_ms": 2317.298119
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3652.554506,
+        3652.789291
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 250.931265,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 114.342562,
+            "ffn": 119.59380700000001,
+            "final_add": 1.790341,
+            "input_norm": 7.127053,
+            "residual_postnorm": 8.019111,
+            "tail": 0.058391
+          },
+          "total_ms": 250.931265
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 13.233899000000003,
+            "expand_KV": 10.314044999999998,
+            "indexer_selection": 16.744059,
+            "metadata_validation": 2.366843,
+            "output_projection_TP": 24.67922100000001,
+            "prepare_Q_latent": 45.92369899999999,
+            "tail": 0.09056999999999998
+          },
+          "total_ms": 113.352336
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 22.912533000000003,
+            "activation": 6.093972,
+            "combine_shared": 38.50676099999998,
+            "down_quant": 2.0169159999999997,
+            "input_quant": 2.1365080000000005,
+            "route_weights": 13.498414999999998,
+            "routed_down": 7.550632000000001,
+            "routed_gate_up": 12.513013999999998,
+            "router_topk": 12.812595,
+            "tail": 0.081171
+          },
+          "total_ms": 118.122517
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        250.468239,
+        250.931265
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 3665.237807,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 1338.0981079999997,
+            "ffn": 2318.675253000001,
+            "final_add": 1.4351070000000004,
+            "input_norm": 2.8881929999999993,
+            "residual_postnorm": 4.119866,
+            "tail": 0.02128
+          },
+          "total_ms": 3665.237807
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 917.5868830000001,
+            "expand_KV": 19.201509000000005,
+            "indexer_selection": 16.390544,
+            "metadata_validation": 44.204719999999995,
+            "output_projection_TP": 251.230141,
+            "prepare_Q_latent": 88.90319100000002,
+            "tail": 0.03963
+          },
+          "total_ms": 1337.556618
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 14.146783000000003,
+            "activation": 2.742289,
+            "combine_shared": 191.546221,
+            "down_quant": 1.303016,
+            "input_quant": 2.475038,
+            "route_weights": 5.768504000000002,
+            "routed_down": 822.1945309999996,
+            "routed_gate_up": 1271.7675450000002,
+            "router_topk": 6.014779000000001,
+            "tail": 0.027239999999999993
+          },
+          "total_ms": 2317.985946
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        3665.000345,
+        3665.237807
+      ]
+    },
+    {
+      "phase": "g1m1_B2",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 252.576559,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 114.76567800000001,
+            "ffn": 120.56696100000002,
+            "final_add": 1.779533,
+            "input_norm": 7.381672999999999,
+            "residual_postnorm": 8.022594,
+            "tail": 0.06012
+          },
+          "total_ms": 252.576559
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 13.054835999999998,
+            "expand_KV": 10.322066999999999,
+            "indexer_selection": 16.611988000000004,
+            "metadata_validation": 2.2738389999999997,
+            "output_projection_TP": 25.79546000000001,
+            "prepare_Q_latent": 45.555694,
+            "tail": 0.09786000000000002
+          },
+          "total_ms": 113.711744
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 25.119913000000007,
+            "activation": 5.965204999999999,
+            "combine_shared": 37.98988200000001,
+            "down_quant": 1.97171,
+            "input_quant": 2.0678749999999995,
+            "route_weights": 13.210342000000002,
+            "routed_down": 7.155055000000003,
+            "routed_gate_up": 12.545857000000003,
+            "router_topk": 12.846532999999999,
+            "tail": 0.083822
+          },
+          "total_ms": 118.956194
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        252.152116,
+        252.576559
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 91146.614775,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 33179.223474,
+            "ffn": 57850.33307800001,
+            "final_add": 27.402927999999992,
+            "input_norm": 32.209898,
+            "residual_postnorm": 57.349697,
+            "tail": 0.09569999999999997
+          },
+          "total_ms": 91146.614775
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 26435.880378,
+            "expand_KV": 146.75810999999996,
+            "indexer_selection": 345.81604899999996,
+            "metadata_validation": 1145.1521309999998,
+            "output_projection_TP": 4197.959774,
+            "prepare_Q_latent": 903.5574430000004,
+            "tail": 0.15205800000000008
+          },
+          "total_ms": 33175.275943
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 183.72128699999996,
+            "dense_local": 3524.7272999999996,
+            "tail": 0.09711,
+            "activation": 15.480469,
+            "combine_shared": 3745.0530010000007,
+            "down_quant": 17.49119,
+            "input_quant": 43.14141299999999,
+            "route_weights": 18.894323,
+            "routed_down": 19754.808238999998,
+            "routed_gate_up": 30479.613438,
+            "router_topk": 65.15544700000001
+          },
+          "total_ms": 57848.183217
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        91113.502726,
+        91146.614775
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 1321.016883,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 875.5892679999998,
+            "ffn": 427.594689,
+            "final_add": 1.8503679999999996,
+            "input_norm": 7.286542999999999,
+            "residual_postnorm": 8.640374,
+            "tail": 0.05564099999999998
+          },
+          "total_ms": 1321.016883
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 337.53043299999996,
+            "expand_KV": 10.029093,
+            "indexer_selection": 367.934217,
+            "metadata_validation": 23.98962699999999,
+            "output_projection_TP": 74.078028,
+            "prepare_Q_latent": 57.876254,
+            "tail": 0.096151
+          },
+          "total_ms": 871.533803
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 12.012716999999999,
+            "dense_local": 27.027801,
+            "tail": 0.06527000000000001,
+            "activation": 5.8304610000000014,
+            "combine_shared": 49.936567000000004,
+            "down_quant": 1.8545310000000002,
+            "input_quant": 2.004961,
+            "route_weights": 12.798016000000002,
+            "routed_down": 118.442137,
+            "routed_gate_up": 183.98517799999996,
+            "router_topk": 11.638678
+          },
+          "total_ms": 425.596317
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1283.938737,
+        1321.016883
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 109996.051077,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 37551.50097700001,
+            "ffn": 72314.95394900002,
+            "final_add": 30.452922999999988,
+            "input_norm": 36.066996,
+            "residual_postnorm": 62.96620199999998,
+            "tail": 0.11003
+          },
+          "total_ms": 109996.051077
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 31097.751134000002,
+            "expand_KV": 162.262121,
+            "indexer_selection": 256.0782739999999,
+            "metadata_validation": 1409.946038,
+            "output_projection_TP": 3613.152850999999,
+            "prepare_Q_latent": 1006.8004450000001,
+            "tail": 0.19358100000000006
+          },
+          "total_ms": 37546.184444
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 199.13562400000006,
+            "activation": 21.63724100000001,
+            "combine_shared": 4999.518773999999,
+            "down_quant": 24.299474000000007,
+            "input_quant": 57.56647200000001,
+            "route_weights": 25.543515000000006,
+            "routed_down": 26276.182532,
+            "routed_gate_up": 40623.561892,
+            "router_topk": 84.13085600000001,
+            "tail": 0.11653000000000001
+          },
+          "total_ms": 72311.69291
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        109995.091416,
+        109996.051077
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 1374.871634,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 825.7214070000002,
+            "ffn": 531.325966,
+            "final_add": 1.8423099999999997,
+            "input_norm": 7.586928999999998,
+            "residual_postnorm": 8.329350999999997,
+            "tail": 0.06567100000000001
+          },
+          "total_ms": 1374.871634
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 370.0854859999999,
+            "expand_KV": 10.686722000000003,
+            "indexer_selection": 278.89818099999997,
+            "metadata_validation": 27.659848999999998,
+            "output_projection_TP": 74.34012500000004,
+            "prepare_Q_latent": 60.604528,
+            "tail": 0.11643099999999998
+          },
+          "total_ms": 822.391322
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 28.107770999999993,
+            "activation": 6.4234740000000015,
+            "combine_shared": 61.075337000000005,
+            "down_quant": 1.9452379999999991,
+            "input_quant": 2.227463,
+            "route_weights": 13.467075000000003,
+            "routed_down": 158.21727,
+            "routed_gate_up": 245.42945899999998,
+            "router_topk": 12.920275,
+            "tail": 0.08114399999999995
+          },
+          "total_ms": 529.894506
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1374.265845,
+        1374.871634
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 110733.348934,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 38278.323186,
+            "ffn": 72325.72141099999,
+            "final_add": 30.48656199999998,
+            "input_norm": 35.23385900000001,
+            "residual_postnorm": 63.48038599999999,
+            "tail": 0.10352999999999998
+          },
+          "total_ms": 110733.348934
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 29370.57460799999,
+            "expand_KV": 161.773241,
+            "indexer_selection": 255.84139500000003,
+            "metadata_validation": 1422.9269390000002,
+            "output_projection_TP": 6048.135362,
+            "prepare_Q_latent": 1014.0459669999999,
+            "tail": 0.19151100000000004
+          },
+          "total_ms": 38273.489023
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 177.06930099999997,
+            "activation": 21.895585000000008,
+            "combine_shared": 5009.207410999999,
+            "down_quant": 23.78987199999999,
+            "input_quant": 57.57518300000001,
+            "route_weights": 23.56609,
+            "routed_down": 26299.319862000008,
+            "routed_gate_up": 40625.954146000004,
+            "router_topk": 84.34013,
+            "tail": 0.11678200000000001
+          },
+          "total_ms": 72322.834362
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        110731.892917,
+        110733.348934
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 1331.826817,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 786.5955479999999,
+            "ffn": 528.1477199999999,
+            "final_add": 1.7988199999999996,
+            "input_norm": 7.150264000000002,
+            "residual_postnorm": 8.073122000000003,
+            "tail": 0.06134300000000001
+          },
+          "total_ms": 1331.826817
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 370.08132600000005,
+            "expand_KV": 10.630342999999996,
+            "indexer_selection": 268.124664,
+            "metadata_validation": 27.562441,
+            "output_projection_TP": 46.969887,
+            "prepare_Q_latent": 59.87400400000001,
+            "tail": 0.09982199999999998
+          },
+          "total_ms": 783.342487
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 25.63490300000001,
+            "activation": 6.3720300000000005,
+            "combine_shared": 60.855688000000015,
+            "down_quant": 1.9564689999999998,
+            "input_quant": 2.2124870000000003,
+            "route_weights": 13.345103000000002,
+            "routed_down": 158.235161,
+            "routed_gate_up": 245.34550000000002,
+            "router_topk": 12.710181999999996,
+            "tail": 0.08088200000000001
+          },
+          "total_ms": 526.748405
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1331.265012,
+        1331.826817
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 0,
+      "decoder_total_ms": 110498.885114,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 38053.73635900001,
+            "ffn": 72317.27973600003,
+            "final_add": 29.816795,
+            "input_norm": 34.89406499999999,
+            "residual_postnorm": 63.05636600000002,
+            "tail": 0.101793
+          },
+          "total_ms": 110498.885114
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 29474.863106999994,
+            "expand_KV": 159.814549,
+            "indexer_selection": 259.13585800000004,
+            "metadata_validation": 1339.468281,
+            "output_projection_TP": 5816.687924000002,
+            "prepare_Q_latent": 998.8777910000001,
+            "tail": 0.198885
+          },
+          "total_ms": 38049.046395
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 206.51380999999992,
+            "activation": 21.173701,
+            "combine_shared": 4991.806665999998,
+            "down_quant": 23.033415,
+            "input_quant": 57.01337299999999,
+            "route_weights": 24.086574999999996,
+            "routed_down": 26281.327968999998,
+            "routed_gate_up": 40624.607074999985,
+            "router_topk": 84.243319,
+            "tail": 0.11365200000000002
+          },
+          "total_ms": 72313.919555
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        110497.48656800001,
+        110498.885114
+      ]
+    },
+    {
+      "phase": "g32m32_B1",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 3,
+      "decoder_total_ms": 1341.280269,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 793.7569540000002,
+            "ffn": 528.2698150000001,
+            "final_add": 1.9187359999999996,
+            "input_norm": 8.012261,
+            "residual_postnorm": 9.259092999999998,
+            "tail": 0.06341
+          },
+          "total_ms": 1341.280269
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 358.2316960000001,
+            "expand_KV": 10.580207,
+            "indexer_selection": 267.374471,
+            "metadata_validation": 27.439948999999995,
+            "output_projection_TP": 62.82821200000001,
+            "prepare_Q_latent": 62.825665000000015,
+            "tail": 0.10237300000000003
+          },
+          "total_ms": 789.382573
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 14.912296000000003,
+            "activation": 7.413341000000002,
+            "combine_shared": 64.88378200000002,
+            "down_quant": 2.356697,
+            "input_quant": 2.6314130000000007,
+            "route_weights": 15.940588000000005,
+            "routed_down": 157.73058400000005,
+            "routed_gate_up": 244.926859,
+            "router_topk": 15.092478,
+            "tail": 0.070561
+          },
+          "total_ms": 525.958599
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1341.123504,
+        1341.280269
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 91004.693667,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 33039.89632,
+            "ffn": 57847.72884099997,
+            "final_add": 27.501949000000014,
+            "input_norm": 32.23194699999999,
+            "residual_postnorm": 57.23991,
+            "tail": 0.09469999999999996
+          },
+          "total_ms": 91004.693667
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 26417.340456,
+            "expand_KV": 146.92816700000006,
+            "indexer_selection": 308.6429619999999,
+            "metadata_validation": 1144.8338850000005,
+            "output_projection_TP": 4114.610722999999,
+            "prepare_Q_latent": 903.375111,
+            "tail": 0.17500000000000002
+          },
+          "total_ms": 33035.906304
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 177.960365,
+            "dense_local": 3525.272288,
+            "tail": 0.09678999999999997,
+            "activation": 15.347611999999998,
+            "combine_shared": 3746.2053229999997,
+            "down_quant": 17.940469,
+            "input_quant": 43.175514,
+            "route_weights": 18.776053000000005,
+            "routed_down": 19754.779793999995,
+            "routed_gate_up": 30480.745228000007,
+            "router_topk": 65.19690400000002
+          },
+          "total_ms": 57845.49634
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        91001.618358,
+        91004.693667
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 0,
+      "decoder_total_ms": 1287.578102,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 847.0632089999999,
+            "ffn": 423.35997599999973,
+            "final_add": 1.7259680000000002,
+            "input_norm": 7.019755999999998,
+            "residual_postnorm": 8.351693,
+            "tail": 0.0575
+          },
+          "total_ms": 1287.578102
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 327.5753059999999,
+            "expand_KV": 9.519067999999999,
+            "indexer_selection": 376.061854,
+            "metadata_validation": 22.229161,
+            "output_projection_TP": 50.40705900000002,
+            "prepare_Q_latent": 56.408757000000016,
+            "tail": 0.11068099999999999
+          },
+          "total_ms": 842.311886
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 11.592113999999997,
+            "dense_local": 26.809722,
+            "tail": 0.06466999999999999,
+            "activation": 5.593984999999999,
+            "combine_shared": 48.614484000000004,
+            "down_quant": 1.7114600000000002,
+            "input_quant": 1.8633290000000007,
+            "route_weights": 12.206057000000001,
+            "routed_down": 118.23149000000002,
+            "routed_gate_up": 183.67161300000004,
+            "router_topk": 10.964602000000003
+          },
+          "total_ms": 421.323526
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1235.584885,
+        1287.578102
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 109955.786328,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 37523.77377400001,
+            "ffn": 72300.600968,
+            "final_add": 30.532648999999996,
+            "input_norm": 36.200551999999995,
+            "residual_postnorm": 64.568415,
+            "tail": 0.10996999999999998
+          },
+          "total_ms": 109955.786328
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 29648.26794399999,
+            "expand_KV": 167.055734,
+            "indexer_selection": 258.81343099999987,
+            "metadata_validation": 1424.484805,
+            "output_projection_TP": 5012.397938,
+            "prepare_Q_latent": 1008.0340010000002,
+            "tail": 0.23198400000000008
+          },
+          "total_ms": 37519.285837
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 185.57939300000004,
+            "activation": 20.801381999999997,
+            "combine_shared": 4996.053623,
+            "down_quant": 23.948723,
+            "input_quant": 57.48669300000001,
+            "route_weights": 24.278094,
+            "routed_down": 26277.769918999995,
+            "routed_gate_up": 40627.89255500001,
+            "router_topk": 83.90960200000002,
+            "tail": 0.11406999999999999
+          },
+          "total_ms": 72297.834054
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        109954.709796,
+        109955.786328
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 1344.847735,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 796.5331200000003,
+            "ffn": 530.6984600000002,
+            "final_add": 1.8467280000000004,
+            "input_norm": 7.434356999999999,
+            "residual_postnorm": 8.269730000000001,
+            "tail": 0.06533999999999998
+          },
+          "total_ms": 1344.847735
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 369.773612,
+            "expand_KV": 10.677626000000002,
+            "indexer_selection": 273.68100200000003,
+            "metadata_validation": 27.659546999999996,
+            "output_projection_TP": 51.18075399999998,
+            "prepare_Q_latent": 60.081648999999985,
+            "tail": 0.12057100000000001
+          },
+          "total_ms": 793.174761
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 27.869659,
+            "activation": 6.395635,
+            "combine_shared": 60.95708099999999,
+            "down_quant": 1.9633769999999997,
+            "input_quant": 2.1911139999999993,
+            "route_weights": 13.446057999999997,
+            "routed_down": 158.17376000000002,
+            "routed_gate_up": 245.29156900000007,
+            "router_topk": 12.901663999999998,
+            "tail": 0.08058000000000001
+          },
+          "total_ms": 529.270497
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1344.250398,
+        1344.847735
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 111019.541327,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 38557.70673800001,
+            "ffn": 72331.60765799998,
+            "final_add": 30.493967000000005,
+            "input_norm": 35.642189,
+            "residual_postnorm": 63.98837399999999,
+            "tail": 0.10240100000000002
+          },
+          "total_ms": 111019.541327
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 29410.960662000012,
+            "expand_KV": 162.202456,
+            "indexer_selection": 255.2984830000001,
+            "metadata_validation": 1423.416298,
+            "output_projection_TP": 6285.533025999998,
+            "prepare_Q_latent": 1015.2065569999996,
+            "tail": 0.190585
+          },
+          "total_ms": 38552.808067
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 180.55933,
+            "activation": 21.626081999999986,
+            "combine_shared": 5010.951704000001,
+            "down_quant": 23.423034999999995,
+            "input_quant": 57.68124500000002,
+            "route_weights": 23.851261,
+            "routed_down": 26299.359416999992,
+            "routed_gate_up": 40626.73834000001,
+            "router_topk": 84.30701700000004,
+            "tail": 0.15472299999999997
+          },
+          "total_ms": 72328.652154
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        111017.845778,
+        111019.541327
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 1340.983007,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 794.939115,
+            "ffn": 529.0791210000001,
+            "final_add": 1.7975049999999997,
+            "input_norm": 7.127078,
+            "residual_postnorm": 7.980447000000002,
+            "tail": 0.059741
+          },
+          "total_ms": 1340.983007
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 370.652956,
+            "expand_KV": 10.536102000000001,
+            "indexer_selection": 266.200732,
+            "metadata_validation": 27.636569000000005,
+            "output_projection_TP": 56.666504999999994,
+            "prepare_Q_latent": 59.861614999999986,
+            "tail": 0.09914100000000002
+          },
+          "total_ms": 791.65362
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 26.462772,
+            "activation": 6.385098,
+            "combine_shared": 60.736314,
+            "down_quant": 1.9744910000000007,
+            "input_quant": 2.252775,
+            "route_weights": 13.579038000000004,
+            "routed_down": 158.03406,
+            "routed_gate_up": 245.36455900000007,
+            "router_topk": 12.792511000000001,
+            "tail": 0.07992199999999999
+          },
+          "total_ms": 527.6615400000001
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1340.403251,
+        1340.983007
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 111190.504224,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 38742.132151000005,
+            "ffn": 72317.361593,
+            "final_add": 30.71274400000001,
+            "input_norm": 36.61885300000001,
+            "residual_postnorm": 63.567959999999985,
+            "tail": 0.110923
+          },
+          "total_ms": 111190.504224
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 33282.61748399999,
+            "expand_KV": 163.71546400000003,
+            "indexer_selection": 255.10697900000002,
+            "metadata_validation": 1431.7491700000003,
+            "output_projection_TP": 2590.9844650000005,
+            "prepare_Q_latent": 1011.3613160000001,
+            "tail": 0.17675299999999997
+          },
+          "total_ms": 38735.711631
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 196.9314200000001,
+            "activation": 21.230721,
+            "combine_shared": 5001.577095000001,
+            "down_quant": 25.093041000000003,
+            "input_quant": 57.86389400000001,
+            "route_weights": 26.774846000000007,
+            "routed_down": 26280.144982999995,
+            "routed_gate_up": 40618.473504999994,
+            "router_topk": 85.16281,
+            "tail": 0.11472099999999999
+          },
+          "total_ms": 72313.367036
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        111189.96514,
+        111190.504224
+      ]
+    },
+    {
+      "phase": "g32m32_B2",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 4,
+      "decoder_total_ms": 1352.287171,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 799.7650239999999,
+            "ffn": 534.65771,
+            "final_add": 1.8788819999999997,
+            "input_norm": 7.498371000000001,
+            "residual_postnorm": 8.426304,
+            "tail": 0.060880000000000004
+          },
+          "total_ms": 1352.287171
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 389.04794899999996,
+            "expand_KV": 11.027055,
+            "indexer_selection": 269.73093299999994,
+            "metadata_validation": 27.892195999999995,
+            "output_projection_TP": 36.74862000000001,
+            "prepare_Q_latent": 61.13376700000002,
+            "tail": 0.10087099999999996
+          },
+          "total_ms": 795.681391
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 29.299832000000002,
+            "activation": 6.5639569999999985,
+            "combine_shared": 61.94183000000001,
+            "down_quant": 2.00003,
+            "input_quant": 2.266633999999999,
+            "route_weights": 14.049471,
+            "routed_down": 157.99043600000005,
+            "routed_gate_up": 245.32828399999997,
+            "router_topk": 13.513533000000002,
+            "tail": 0.078021
+          },
+          "total_ms": 533.032028
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        1351.873883,
+        1352.287171
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 0,
+      "decoder_total_ms": 22817.470749,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 8325.46862,
+            "ffn": 14463.192320000002,
+            "final_add": 6.76963,
+            "input_norm": 7.946751,
+            "residual_postnorm": 14.068157000000003,
+            "tail": 0.025271000000000002
+          },
+          "total_ms": 22817.470749
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 6654.127592000001,
+            "expand_KV": 36.45631399999999,
+            "indexer_selection": 78.425554,
+            "metadata_validation": 267.391127,
+            "output_projection_TP": 1062.7541,
+            "prepare_Q_latent": 225.29555800000003,
+            "tail": 0.040279999999999996
+          },
+          "total_ms": 8324.490525000001
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 46.255137,
+            "dense_local": 880.884967,
+            "tail": 0.03333,
+            "activation": 4.025296,
+            "combine_shared": 936.195448,
+            "down_quant": 4.4870659999999996,
+            "input_quant": 10.664929999999998,
+            "route_weights": 4.564467,
+            "routed_down": 4938.187903000001,
+            "routed_gate_up": 7620.998635000001,
+            "router_topk": 16.149138
+          },
+          "total_ms": 14462.446317
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        22816.924015,
+        22817.470749
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 7,
+      "decoder_total_ms": 516.837301,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 327.454214,
+            "ffn": 171.958454,
+            "final_add": 1.6755589999999996,
+            "input_norm": 7.29558,
+            "residual_postnorm": 8.396493999999999,
+            "tail": 0.057000000000000016
+          },
+          "total_ms": 516.837301
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 85.794712,
+            "expand_KV": 9.797747999999999,
+            "indexer_selection": 136.59246399999998,
+            "metadata_validation": 7.874692,
+            "output_projection_TP": 28.725814999999997,
+            "prepare_Q_latent": 56.507553,
+            "tail": 0.11152099999999998
+          },
+          "total_ms": 325.40450500000003
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 8.542382000000002,
+            "dense_local": 11.489819,
+            "tail": 0.06183999999999999,
+            "activation": 5.7875749999999995,
+            "combine_shared": 34.763885,
+            "down_quant": 1.9015409999999997,
+            "input_quant": 1.752289,
+            "route_weights": 11.939478000000001,
+            "routed_down": 32.12364600000001,
+            "routed_gate_up": 50.168161,
+            "router_topk": 11.257603999999995
+          },
+          "total_ms": 169.78822
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        467.801168,
+        516.837301
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 27318.742779,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9209.343729,
+            "ffn": 18076.654914,
+            "final_add": 7.740210000000001,
+            "input_norm": 9.236861999999999,
+            "residual_postnorm": 15.740834,
+            "tail": 0.02623
+          },
+          "total_ms": 27318.742779
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7632.445162999999,
+            "expand_KV": 40.789685999999996,
+            "indexer_selection": 64.57756499999999,
+            "metadata_validation": 355.16274300000003,
+            "output_projection_TP": 863.6411669999999,
+            "prepare_Q_latent": 251.604435,
+            "tail": 0.04426
+          },
+          "total_ms": 9208.265019
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 46.556203,
+            "activation": 5.254166,
+            "combine_shared": 1249.01377,
+            "down_quant": 6.591977000000001,
+            "input_quant": 14.365760999999996,
+            "route_weights": 6.021012,
+            "routed_down": 6570.541415000001,
+            "routed_gate_up": 10156.677403,
+            "router_topk": 20.932028999999996,
+            "tail": 0.028170999999999998
+          },
+          "total_ms": 18075.981907
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27318.227352,
+        27318.742779
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 530.460663,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 296.2126849999999,
+            "ffn": 216.75245199999998,
+            "final_add": 1.741349,
+            "input_norm": 7.558756999999998,
+            "residual_postnorm": 8.130869,
+            "tail": 0.06455099999999998
+          },
+          "total_ms": 530.460663
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 94.49614699999998,
+            "expand_KV": 10.701718000000001,
+            "indexer_selection": 75.96892700000001,
+            "metadata_validation": 8.234123000000004,
+            "output_projection_TP": 45.74889700000001,
+            "prepare_Q_latent": 59.376614999999994,
+            "tail": 0.1142
+          },
+          "total_ms": 294.640627
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 27.416406000000006,
+            "activation": 6.464488,
+            "combine_shared": 41.41618900000001,
+            "down_quant": 1.9738620000000002,
+            "input_quant": 1.9765439999999999,
+            "route_weights": 13.537424000000005,
+            "routed_down": 42.53545100000001,
+            "routed_gate_up": 67.05888399999998,
+            "router_topk": 12.798176,
+            "tail": 0.08149400000000002
+          },
+          "total_ms": 215.258918
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        529.980109,
+        530.460663
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 27891.297569,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9776.441839,
+            "ffn": 18082.296963999997,
+            "final_add": 7.645792000000001,
+            "input_norm": 8.934924999999998,
+            "residual_postnorm": 15.951739,
+            "tail": 0.02631
+          },
+          "total_ms": 27891.297569
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7360.727174000001,
+            "expand_KV": 40.456483,
+            "indexer_selection": 63.93477899999999,
+            "metadata_validation": 356.20601800000003,
+            "output_projection_TP": 1699.184665,
+            "prepare_Q_latent": 254.699177,
+            "tail": 0.05041000000000001
+          },
+          "total_ms": 9775.258706
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 43.89468399999999,
+            "activation": 5.736111,
+            "combine_shared": 1253.4215279999999,
+            "down_quant": 5.899482,
+            "input_quant": 14.408371,
+            "route_weights": 5.866709999999999,
+            "routed_down": 6574.977339000001,
+            "routed_gate_up": 10156.145953,
+            "router_topk": 21.1244,
+            "tail": 0.028780999999999998
+          },
+          "total_ms": 18081.503359
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27890.888832,
+        27891.297569
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 529.139536,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 296.19459099999995,
+            "ffn": 215.94633,
+            "final_add": 1.7402880000000005,
+            "input_norm": 7.098623999999997,
+            "residual_postnorm": 8.100283000000001,
+            "tail": 0.059419999999999994
+          },
+          "total_ms": 529.139536
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 94.579185,
+            "expand_KV": 10.480670000000002,
+            "indexer_selection": 75.90231599999997,
+            "metadata_validation": 8.185566,
+            "output_projection_TP": 46.19677099999999,
+            "prepare_Q_latent": 59.175363999999995,
+            "tail": 0.12041200000000002
+          },
+          "total_ms": 294.640284
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 27.117386999999997,
+            "activation": 6.455918,
+            "combine_shared": 41.247209999999995,
+            "down_quant": 2.003076,
+            "input_quant": 2.034687,
+            "route_weights": 13.423015000000001,
+            "routed_down": 42.278641000000015,
+            "routed_gate_up": 67.00776599999999,
+            "router_topk": 12.846625000000003,
+            "tail": 0.08035099999999999
+          },
+          "total_ms": 214.494676
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        528.562223,
+        529.139536
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 27810.612727,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9699.415998999999,
+            "ffn": 18078.398665999997,
+            "final_add": 7.614946000000001,
+            "input_norm": 9.264686,
+            "residual_postnorm": 15.891389999999996,
+            "tail": 0.02704
+          },
+          "total_ms": 27810.612727
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7484.93239,
+            "expand_KV": 40.78591900000001,
+            "indexer_selection": 64.61726399999998,
+            "metadata_validation": 355.669884,
+            "output_projection_TP": 1500.017116,
+            "prepare_Q_latent": 251.88946600000003,
+            "tail": 0.05511
+          },
+          "total_ms": 9697.967149
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 45.27079999999999,
+            "activation": 5.286531,
+            "combine_shared": 1250.9063700000002,
+            "down_quant": 6.3113719999999995,
+            "input_quant": 14.383702999999999,
+            "route_weights": 6.1292480000000005,
+            "routed_down": 6571.52592,
+            "routed_gate_up": 10156.502851000001,
+            "router_topk": 21.259651,
+            "tail": 0.029721
+          },
+          "total_ms": 18077.606166999998
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27810.223306,
+        27810.612727
+      ]
+    },
+    {
+      "phase": "g8m8_B1",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 521.725773,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 290.68392400000005,
+            "ffn": 213.497326,
+            "final_add": 1.7789410000000003,
+            "input_norm": 7.505183,
+            "residual_postnorm": 8.198308000000003,
+            "tail": 0.06209099999999999
+          },
+          "total_ms": 521.725773
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 95.02155199999999,
+            "expand_KV": 10.742981000000002,
+            "indexer_selection": 73.64220999999999,
+            "metadata_validation": 8.379964000000001,
+            "output_projection_TP": 41.324819000000005,
+            "prepare_Q_latent": 59.723325999999986,
+            "tail": 0.11487199999999999
+          },
+          "total_ms": 288.949724
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 23.03599499999999,
+            "activation": 6.5838920000000005,
+            "combine_shared": 41.86931600000002,
+            "down_quant": 2.01601,
+            "input_quant": 2.021399,
+            "route_weights": 13.559145999999997,
+            "routed_down": 42.610262999999996,
+            "routed_gate_up": 67.05831199999999,
+            "router_topk": 13.070434000000002,
+            "tail": 0.08606099999999998
+          },
+          "total_ms": 211.910828
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        521.21889,
+        521.725773
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 0,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 22788.291138,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 8296.0357,
+            "ffn": 14463.041079,
+            "final_add": 6.873163,
+            "input_norm": 8.133,
+            "residual_postnorm": 14.185096,
+            "tail": 0.023100000000000002
+          },
+          "total_ms": 22788.291138
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 6629.682822999999,
+            "expand_KV": 36.884139,
+            "indexer_selection": 76.70343300000002,
+            "metadata_validation": 286.120382,
+            "output_projection_TP": 1039.260849,
+            "prepare_Q_latent": 226.39090599999994,
+            "tail": 0.036800000000000006
+          },
+          "total_ms": 8295.079332
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 45.91259600000001,
+            "dense_local": 881.148635,
+            "tail": 0.02383,
+            "activation": 4.054754,
+            "combine_shared": 936.405663,
+            "down_quant": 4.330367999999999,
+            "input_quant": 10.792966,
+            "route_weights": 4.682698,
+            "routed_down": 4938.730120000001,
+            "routed_gate_up": 7620.154605,
+            "router_topk": 16.265303
+          },
+          "total_ms": 14462.501538
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        22787.753146,
+        22788.291138
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 0,
+      "region": "decode_first3",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 554.94377,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 359.769798,
+            "ffn": 178.05127799999994,
+            "final_add": 1.6700809999999995,
+            "input_norm": 7.213911000000001,
+            "residual_postnorm": 8.183811999999998,
+            "tail": 0.054889999999999994
+          },
+          "total_ms": 554.94377
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 83.677695,
+            "expand_KV": 9.630728000000001,
+            "indexer_selection": 155.538492,
+            "metadata_validation": 7.443779000000002,
+            "output_projection_TP": 45.44055000000001,
+            "prepare_Q_latent": 55.56259899999999,
+            "tail": 0.09419
+          },
+          "total_ms": 357.388033
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 17.376298,
+            "dense_local": 11.446668,
+            "tail": 0.07450999999999999,
+            "activation": 5.544328,
+            "combine_shared": 34.000887000000006,
+            "down_quant": 1.818357,
+            "input_quant": 1.7454429999999996,
+            "route_weights": 11.536250999999996,
+            "routed_down": 31.70685000000001,
+            "routed_gate_up": 50.03808699999999,
+            "router_topk": 10.763854000000002
+          },
+          "total_ms": 176.051533
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        490.467867,
+        554.94377
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 1,
+      "region": "prefill",
+      "selected_slow_rank": 1,
+      "decoder_total_ms": 27289.425072000002,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9179.896662000001,
+            "ffn": 18077.592906,
+            "final_add": 7.530102000000001,
+            "input_norm": 8.704490000000002,
+            "residual_postnorm": 15.674632,
+            "tail": 0.026280000000000005
+          },
+          "total_ms": 27289.425072000002
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7240.7394589999985,
+            "expand_KV": 40.188975,
+            "indexer_selection": 63.623304999999995,
+            "metadata_validation": 336.944086,
+            "output_projection_TP": 1247.9097179999999,
+            "prepare_Q_latent": 249.35354199999998,
+            "tail": 0.053989999999999996
+          },
+          "total_ms": 9178.813075
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 51.871649,
+            "activation": 5.609781000000001,
+            "combine_shared": 1248.3149300000002,
+            "down_quant": 5.967893000000001,
+            "input_quant": 14.294440999999999,
+            "route_weights": 5.83349,
+            "routed_down": 6568.208481,
+            "routed_gate_up": 10155.927021999998,
+            "router_topk": 20.837972000000004,
+            "tail": 0.028140000000000002
+          },
+          "total_ms": 18076.893799
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27289.052715,
+        27289.425072000002
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 1,
+      "region": "decode_first3",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 513.928034,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 284.622266,
+            "ffn": 212.13399100000004,
+            "final_add": 1.7648199999999996,
+            "input_norm": 7.188825999999999,
+            "residual_postnorm": 8.156800999999998,
+            "tail": 0.061330000000000016
+          },
+          "total_ms": 513.928034
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 95.24186199999998,
+            "expand_KV": 10.641018999999996,
+            "indexer_selection": 73.17061099999998,
+            "metadata_validation": 8.315723,
+            "output_projection_TP": 36.496297,
+            "prepare_Q_latent": 59.026275999999996,
+            "tail": 0.106181
+          },
+          "total_ms": 282.997969
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 22.955807999999998,
+            "activation": 6.4592089999999995,
+            "combine_shared": 41.57568900000001,
+            "down_quant": 2.0430340000000005,
+            "input_quant": 2.0007930000000007,
+            "route_weights": 13.410763000000003,
+            "routed_down": 42.41577300000001,
+            "routed_gate_up": 66.89484399999999,
+            "router_topk": 12.771616,
+            "tail": 0.08142999999999997
+          },
+          "total_ms": 210.608959
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        513.438975,
+        513.928034
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 2,
+      "region": "prefill",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 27861.710356,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9745.046366,
+            "ffn": 18082.41689,
+            "final_add": 7.642069,
+            "input_norm": 9.392547,
+            "residual_postnorm": 17.186954,
+            "tail": 0.025529999999999997
+          },
+          "total_ms": 27861.710356
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7350.920442,
+            "expand_KV": 40.588336,
+            "indexer_selection": 63.865589,
+            "metadata_validation": 355.65986599999997,
+            "output_projection_TP": 1678.0629620000002,
+            "prepare_Q_latent": 254.69245900000004,
+            "tail": 0.048741
+          },
+          "total_ms": 9743.838395
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 43.15065300000001,
+            "activation": 5.611177999999999,
+            "combine_shared": 1252.715182,
+            "down_quant": 6.265064,
+            "input_quant": 14.424876999999999,
+            "route_weights": 6.522609,
+            "routed_down": 6575.023747000001,
+            "routed_gate_up": 10156.80662,
+            "router_topk": 21.120192000000003,
+            "tail": 0.029081
+          },
+          "total_ms": 18081.669203
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27861.268569,
+        27861.710356
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 2,
+      "region": "decode_first3",
+      "selected_slow_rank": 6,
+      "decoder_total_ms": 541.242285,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 304.380839,
+            "ffn": 219.54544599999994,
+            "final_add": 1.7287619999999997,
+            "input_norm": 7.477829000000001,
+            "residual_postnorm": 8.050468,
+            "tail": 0.05894100000000002
+          },
+          "total_ms": 541.242285
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 94.85634599999997,
+            "expand_KV": 10.489687000000005,
+            "indexer_selection": 78.82840600000002,
+            "metadata_validation": 8.215267,
+            "output_projection_TP": 51.115804000000004,
+            "prepare_Q_latent": 59.189107,
+            "tail": 0.09821
+          },
+          "total_ms": 302.792827
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 29.933794999999996,
+            "activation": 6.459639000000001,
+            "combine_shared": 41.34367400000001,
+            "down_quant": 2.029356,
+            "input_quant": 1.9971149999999995,
+            "route_weights": 13.441614999999999,
+            "routed_down": 42.75925900000001,
+            "routed_gate_up": 67.15766599999999,
+            "router_topk": 12.880747000000003,
+            "tail": 0.08052000000000002
+          },
+          "total_ms": 218.083386
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        540.620347,
+        541.242285
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 3,
+      "region": "prefill",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 27978.42513,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 9864.107636,
+            "ffn": 18081.465799999998,
+            "final_add": 7.674409,
+            "input_norm": 9.153485,
+            "residual_postnorm": 15.993989999999998,
+            "tail": 0.029809999999999996
+          },
+          "total_ms": 27978.42513
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 7503.433671999999,
+            "expand_KV": 41.11502300000001,
+            "indexer_selection": 66.18507999999999,
+            "metadata_validation": 356.1814550000001,
+            "output_projection_TP": 1642.7899819999998,
+            "prepare_Q_latent": 252.876826,
+            "tail": 0.05992
+          },
+          "total_ms": 9862.641958
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 46.35466700000001,
+            "activation": 5.654692999999999,
+            "combine_shared": 1251.8970329999997,
+            "down_quant": 6.086615999999999,
+            "input_quant": 14.423682999999999,
+            "route_weights": 6.062410000000002,
+            "routed_down": 6571.696213,
+            "routed_gate_up": 10156.836814,
+            "router_topk": 21.502843,
+            "tail": 0.030860000000000002
+          },
+          "total_ms": 18080.545832
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        27978.044336,
+        27978.42513
+      ]
+    },
+    {
+      "phase": "g8m8_B2",
+      "stage": 3,
+      "region": "decode_first3",
+      "selected_slow_rank": 5,
+      "decoder_total_ms": 536.4038869999999,
+      "nested_categories_do_not_sum": {
+        "decoder": {
+          "parts_ms": {
+            "attention": 299.53298399999994,
+            "ffn": 218.6553430000001,
+            "final_add": 1.8180190000000003,
+            "input_norm": 7.781415999999999,
+            "residual_postnorm": 8.553093999999996,
+            "tail": 0.063031
+          },
+          "total_ms": 536.4038869999999
+        },
+        "attention": {
+          "parts_ms": {
+            "cache_mapping_sparse_attention": 96.25081000000002,
+            "expand_KV": 10.791299999999994,
+            "indexer_selection": 74.136385,
+            "metadata_validation": 8.605474999999998,
+            "output_projection_TP": 47.22039199999999,
+            "prepare_Q_latent": 60.55920100000003,
+            "tail": 0.117081
+          },
+          "total_ms": 297.680644
+        },
+        "ffn": {
+          "parts_ms": {
+            "TP_reduce_cast": 25.62368,
+            "activation": 6.853266,
+            "combine_shared": 42.975378000000006,
+            "down_quant": 2.0974610000000005,
+            "input_quant": 2.061478,
+            "route_weights": 14.061345999999999,
+            "routed_down": 42.668915000000005,
+            "routed_gate_up": 67.126612,
+            "router_topk": 13.346907000000005,
+            "tail": 0.08588100000000001
+          },
+          "total_ms": 216.900924
+        }
+      },
+      "rank_decoder_min_max_ms": [
+        536.022304,
+        536.4038869999999
+      ]
+    }
+  ],
+  "section_scope": "SynchronizedCPUwall intervals include allocation/hostlaunch/drains/collective waits. Extra fences andJSON perturb pipeline; notkernel-onlyutilization orfull512decode latency. Naturalprefix512input/max4output only, regionsprefill+first3decode. DoNOTderivephysicaltok/s ceiling/adoptTPS fromthese diagnosticphases.",
+  "normal_workers_closed": 32,
+  "CPU_fullvocab_raw_files": 112,
+  "all32_IDs_EOS_schedule_verified": true,
+  "all_tail_sameM_raw_repeats_verified": true,
+  "diagnostic_phase_metrics": [
+    {
+      "phase": "g1m1_A1",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 15.41720472695306,
+      "aggregate_useful_decode_tokens_s": 2.9093729113857005,
+      "decode_tokens_s_per_card": 0.09091790348080314,
+      "including_prefill_useful_tokens_s": 0.25945040432699307,
+      "including_prefill_tokens_s_per_card": 0.008107825135218533,
+      "useful_output_tokens": 4,
+      "useful_tokens_per_request": [
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        14.386027744971216
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 35.5900884578076
+    },
+    {
+      "phase": "g1m1_B1",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 15.017329720780253,
+      "aggregate_useful_decode_tokens_s": 2.550545241244936,
+      "decode_tokens_s_per_card": 0.07970453878890425,
+      "including_prefill_useful_tokens_s": 0.26635893826483636,
+      "including_prefill_tokens_s_per_card": 0.008323716820776136,
+      "useful_output_tokens": 4,
+      "useful_tokens_per_request": [
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        13.841098011936992
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 36.99128490806404
+    },
+    {
+      "phase": "g1m1_B2",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 15.05868436023593,
+      "aggregate_useful_decode_tokens_s": 2.6434317039343793,
+      "decode_tokens_s_per_card": 0.08260724074794935,
+      "including_prefill_useful_tokens_s": 0.2656274548500684,
+      "including_prefill_tokens_s_per_card": 0.008300857964064637,
+      "useful_output_tokens": 4,
+      "useful_tokens_per_request": [
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        13.923782841302454
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 36.77161629390269
+    },
+    {
+      "phase": "g1m1_A2",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 14.947400557342917,
+      "aggregate_useful_decode_tokens_s": 2.8043939398610944,
+      "decode_tokens_s_per_card": 0.0876373106206592,
+      "including_prefill_useful_tokens_s": 0.26760505846182053,
+      "including_prefill_tokens_s_per_card": 0.008362658076931892,
+      "useful_output_tokens": 4,
+      "useful_tokens_per_request": [
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        13.877638435922563
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 36.89388525029425
+    },
+    {
+      "phase": "g8m8_A1",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 108.62304135365412,
+      "aggregate_useful_decode_tokens_s": 11.411147041282524,
+      "decode_tokens_s_per_card": 0.35659834504007887,
+      "including_prefill_useful_tokens_s": 0.294596796418309,
+      "including_prefill_tokens_s_per_card": 0.009206149888072156,
+      "useful_output_tokens": 32,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953,
+        106.51981594366953
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 38.4529391429485
+    },
+    {
+      "phase": "g8m8_B1",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 108.77064228570089,
+      "aggregate_useful_decode_tokens_s": 10.664991098966658,
+      "decode_tokens_s_per_card": 0.33328097184270805,
+      "including_prefill_useful_tokens_s": 0.2941970308123,
+      "including_prefill_tokens_s_per_card": 0.009193657212884374,
+      "useful_output_tokens": 32,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259,
+        106.52026996901259
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 38.452775243543336
+    },
+    {
+      "phase": "g8m8_B2",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 108.73002264928073,
+      "aggregate_useful_decode_tokens_s": 10.365621685464658,
+      "decode_tokens_s_per_card": 0.3239256776707706,
+      "including_prefill_useful_tokens_s": 0.29430693768196037,
+      "including_prefill_tokens_s_per_card": 0.009197091802561261,
+      "useful_output_tokens": 32,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656,
+        106.41465619718656
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 38.490938620429354
+    },
+    {
+      "phase": "g8m8_A2",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 108.43110965704545,
+      "aggregate_useful_decode_tokens_s": 11.079679835762828,
+      "decode_tokens_s_per_card": 0.3462399948675884,
+      "including_prefill_useful_tokens_s": 0.2951182562016763,
+      "including_prefill_tokens_s_per_card": 0.009222445506302385,
+      "useful_output_tokens": 32,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382,
+        106.26496265316382
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 38.54516011424063
+    },
+    {
+      "phase": "g32m32_A1",
+      "batch": 32,
+      "micro": 32,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 195.53838283009827,
+      "aggregate_useful_decode_tokens_s": 17.54750707641019,
+      "decode_tokens_s_per_card": 0.5483595961378185,
+      "including_prefill_useful_tokens_s": 0.6546029385505258,
+      "including_prefill_tokens_s_per_card": 0.02045634182970393,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886,
+        190.06748699070886
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        450,
+        0,
+        600,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 86.2009608239883
+    },
+    {
+      "phase": "g32m32_B1",
+      "batch": 32,
+      "micro": 32,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 195.1230484349653,
+      "aggregate_useful_decode_tokens_s": 17.02008212692854,
+      "decode_tokens_s_per_card": 0.5318775664665168,
+      "including_prefill_useful_tokens_s": 0.6559963111823897,
+      "including_prefill_tokens_s_per_card": 0.020499884724449677,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553,
+        189.4826176003553
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        450,
+        0,
+        600,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 86.46703432478483
+    },
+    {
+      "phase": "g32m32_B2",
+      "batch": 32,
+      "micro": 32,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 195.65513586997986,
+      "aggregate_useful_decode_tokens_s": 17.108454524228716,
+      "decode_tokens_s_per_card": 0.5346392038821474,
+      "including_prefill_useful_tokens_s": 0.6542123181732412,
+      "including_prefill_tokens_s_per_card": 0.020444134942913788,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968,
+        190.043838751968
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        450,
+        0,
+        600,
+        0
+      ],
+      "profile_policy": 1,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 86.21168730117716
+    },
+    {
+      "phase": "g32m32_A2",
+      "batch": 32,
+      "micro": 32,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 4,
+      "elapsed_seconds": 194.5921803242527,
+      "aggregate_useful_decode_tokens_s": 17.792504099843903,
+      "decode_tokens_s_per_card": 0.556015753120122,
+      "including_prefill_useful_tokens_s": 0.6577859387088995,
+      "including_prefill_tokens_s_per_card": 0.020555810584653108,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4,
+        4
+      ],
+      "TTFT_seconds_per_request": [
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637,
+        189.19661607127637
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        450,
+        0,
+        600,
+        0
+      ],
+      "profile_policy": 0,
+      "diagnostic_only": true,
+      "input_tokens_per_second_to_all_prefill_complete": 86.59774334350476
+    }
+  ],
+  "wholemodel_performance_adopted": false,
+  "reports": [
+    {
+      "stage": 0,
+      "rank": 0,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank0.json",
+      "report_sha256": "e698bc38d061a51e9db2d0d9d31fe163b7b4bd92f6cd9b0f61ad8be78ad8d078"
+    },
+    {
+      "stage": 0,
+      "rank": 1,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank1.json",
+      "report_sha256": "0f7b730eedb1ffcc6dd17a49cba3c003c7e2aa7b5bfe8e2cd3bef613320b6994"
+    },
+    {
+      "stage": 0,
+      "rank": 2,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank2.json",
+      "report_sha256": "3add7a4d7efd9334fab91a708726783868ddbf5a6fa6157b2703afa5c1d0425e"
+    },
+    {
+      "stage": 0,
+      "rank": 3,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank3.json",
+      "report_sha256": "1ab42e4cd559cb06b83d75631498e21243cb5a8db79b1b0eb6bf7e8268168596"
+    },
+    {
+      "stage": 0,
+      "rank": 4,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank4.json",
+      "report_sha256": "18e4ab565c96784076c29d28aa65fabe4eb4db374334e3efd3270e23aac3b53b"
+    },
+    {
+      "stage": 0,
+      "rank": 5,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank5.json",
+      "report_sha256": "3902c560332acfd498a3e19348e5f5418c496fd7ef4fed63068625504227c387"
+    },
+    {
+      "stage": 0,
+      "rank": 6,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank6.json",
+      "report_sha256": "3cf3b9c49ba1fd68b75b96164adf8e4df4847ada088fee68dcac41d254482609"
+    },
+    {
+      "stage": 0,
+      "rank": 7,
+      "file": "glm-timeline-r3296-910376.287-stage0-rank7.json",
+      "report_sha256": "54cf25e5dee790ad4e98c3810b7f1528bc18672217bf06f7e3dd3c7ff9602fa6"
+    },
+    {
+      "stage": 1,
+      "rank": 0,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank0.json",
+      "report_sha256": "42f2ffdbeba1ade09938c7f99144968af1289e65e2b2f801c3560b1f088eceec"
+    },
+    {
+      "stage": 1,
+      "rank": 1,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank1.json",
+      "report_sha256": "a7e9a4f03cb887e104d6532ffe42eb11245e23f11ef8b13e2a7a29eb72ee2875"
+    },
+    {
+      "stage": 1,
+      "rank": 2,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank2.json",
+      "report_sha256": "15619c593f5e2c3db4c1705c0b4cca2a924c73ea1d09472c759938b462c17528"
+    },
+    {
+      "stage": 1,
+      "rank": 3,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank3.json",
+      "report_sha256": "83a91b2fa4906e1eb655fe292eb9d710c39d04bfe0af1f7fab13cfe5554ce2aa"
+    },
+    {
+      "stage": 1,
+      "rank": 4,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank4.json",
+      "report_sha256": "d283b2e73a28d35b0dc7acd8dd6bc245ac07195ad44281dc2de577615e680726"
+    },
+    {
+      "stage": 1,
+      "rank": 5,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank5.json",
+      "report_sha256": "94873e7395e959b99d4da3e15e85e16e1705d9aa518c4b604a904f206cd2a376"
+    },
+    {
+      "stage": 1,
+      "rank": 6,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank6.json",
+      "report_sha256": "26b1fc1d8f6129fa60a50793280737d83b31d77e4795b68f402df5d90a7c9b81"
+    },
+    {
+      "stage": 1,
+      "rank": 7,
+      "file": "glm-timeline-r3296-910376.287-stage1-rank7.json",
+      "report_sha256": "62f6044ee253d55603f98e6416ed7bd1beff6e72b2df3d9aa0eedccf9aa00713"
+    },
+    {
+      "stage": 2,
+      "rank": 0,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank0.json",
+      "report_sha256": "f056affc175949404a062a54af6b02e3625b8ae8e9762bd277b93d5a204d84fe"
+    },
+    {
+      "stage": 2,
+      "rank": 1,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank1.json",
+      "report_sha256": "373bb4f671dafea9feb6fa7db732a3f28831b82ce4bb4592433615414fc1a5b9"
+    },
+    {
+      "stage": 2,
+      "rank": 2,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank2.json",
+      "report_sha256": "bdaccc3df23e0238480c79dc81b27290eea3d0dae04a31eaff5b67d9506b52a1"
+    },
+    {
+      "stage": 2,
+      "rank": 3,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank3.json",
+      "report_sha256": "ca0449717c7707d96d0934d2f2abe6496904eea6d3e69ce71defc17eb30bd6fa"
+    },
+    {
+      "stage": 2,
+      "rank": 4,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank4.json",
+      "report_sha256": "485c4f18862434f1b8d6c2acd8a1319a1a610848f810f867df81cb3bfe3aee6d"
+    },
+    {
+      "stage": 2,
+      "rank": 5,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank5.json",
+      "report_sha256": "a185edfa70c59ba4a3432078b7a08fb8065c77ff109dc1a9d598160d62ae8a1c"
+    },
+    {
+      "stage": 2,
+      "rank": 6,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank6.json",
+      "report_sha256": "b865b69c3c27a26cee5c9925d0fc3bfbd862a8abd77c6d705c60c742b5046bd8"
+    },
+    {
+      "stage": 2,
+      "rank": 7,
+      "file": "glm-timeline-r3296-910376.287-stage2-rank7.json",
+      "report_sha256": "a43d076fb4f3f915b8473483d87d174a936f7f5e540b9298f7617c536552c219"
+    },
+    {
+      "stage": 3,
+      "rank": 0,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank0.json",
+      "report_sha256": "707abeb6140eef4e2335c4e9da329c08a42e9ffa9cb06202c683e7365c078d41"
+    },
+    {
+      "stage": 3,
+      "rank": 1,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank1.json",
+      "report_sha256": "22dd32585caea1ec11d371be7fa2de60de4db81c0ec596042a216494c5bf6276"
+    },
+    {
+      "stage": 3,
+      "rank": 2,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank2.json",
+      "report_sha256": "3a27392eb079dcd1acb2b372bdae269c35f7508ce597d16e953acec8876baf56"
+    },
+    {
+      "stage": 3,
+      "rank": 3,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank3.json",
+      "report_sha256": "052dbd9f5908b948a23059c29b8c29da2d732ba00dcf0e0400aa54739e1696c4"
+    },
+    {
+      "stage": 3,
+      "rank": 4,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank4.json",
+      "report_sha256": "d32e14917c1f2c45d593e77c01c1d2cbdc7ca3045791fb793b2aca0a14899da7"
+    },
+    {
+      "stage": 3,
+      "rank": 5,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank5.json",
+      "report_sha256": "bcb8c93d124b1ab61709bf4c3a0ffe126e0032d057a336fad9668c268554f5a6"
+    },
+    {
+      "stage": 3,
+      "rank": 6,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank6.json",
+      "report_sha256": "774fa43d183c2b58044fcd0025924dace866ee08ca944e6d96d522c7e2854ab8"
+    },
+    {
+      "stage": 3,
+      "rank": 7,
+      "file": "glm-timeline-r3296-910376.287-stage3-rank7.json",
+      "report_sha256": "075014e9fa2f51704cef7038d20dc12ffed3fc8a51d34eeaf8fa423b6ddae2e4"
+    }
+  ]
+}

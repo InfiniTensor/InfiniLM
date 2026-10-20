@@ -1,0 +1,108 @@
+name: Bug Report
+description: Report a bug, crash, incorrect behavior, or regression
+title: "[Bug]: "
+labels:
+  - bug
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug report.
+
+        Please provide as much detail as possible so we can reproduce the issue.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Preliminary Checks
+      options:
+        - label: I searched existing issues before opening this report
+          required: true
+        - label: I can reproduce this issue consistently
+          required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: Clearly describe the issue
+      placeholder: |
+        Example:
+        Running `AllReduce` across 2 nodes with MPICH hangs during communicator initialization.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction Steps
+      description: Provide the commands and steps
+      placeholder: |
+        1. Configure project
+        2. Build examples
+        3. Launch with mpirun
+        4. Observe failure
+      render: bash
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      placeholder: |
+        The collective should complete successfully.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / Error Output
+      description: Paste relevant logs or stack traces
+      render: shell
+
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      multiple: true
+      options:
+        - OpenMPI
+        - MPICH
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - CPU
+        - NVIDIA
+        - MetaX
+        - Cambricon
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        OS:
+        Compiler:
+        CMake version:
+        SDK and its version:
+        Backend launcher version:
+        Driver version:
+        Number of nodes:
+        Number of devices:
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add screenshots, references, or other useful details

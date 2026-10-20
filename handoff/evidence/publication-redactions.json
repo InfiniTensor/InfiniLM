@@ -1,0 +1,13 @@
+{
+  "scope": "Operational account/home path placeholders only. Numerical source is unchanged. Export manifests retain original capture hashes; snapshot-manifest.json governs shipped file hashes.",
+  "files": [
+    "drivers/resource_wave_local_r3097_outer.sh",
+    "evidence/kimi-wide-realprojection-r3411.json",
+    "dependencies/current/RT/SOURCE_VERIFIED.json",
+    "dependencies/legacy/CCL/SOURCE_VERIFIED.json",
+    "dependencies/legacy/RT/SOURCE_VERIFIED.json",
+    "dependencies/legacy/Ops/Deep/SOURCE_VERIFIED.json",
+    "dependencies/legacy/Ops/GLM/SOURCE_VERIFIED.json",
+    "dependencies/legacy/Ops/Kimi/SOURCE_VERIFIED.json"
+  ]
+}

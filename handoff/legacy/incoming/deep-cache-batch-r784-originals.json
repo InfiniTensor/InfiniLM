@@ -1,0 +1,5 @@
+{
+  "deepseek_v4_csa_attention.cpp": "a35e70b3f9e389b9720b3e37cc9ae5b6b503ab074e54b357fcf590d8fb766f31",
+  "deepseek_v4_hca_attention.cpp": "e4f05dfb4e99dc4ff4683bcbbad70433d2612f280f650c4eca0eb8deff2d32e2",
+  "deepseek_v4_c4_indexer.cpp": "9e13296061369d1939eb7424191dfd8c961d5e24a2935eb2aa557741b1218bad"
+}

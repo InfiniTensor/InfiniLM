@@ -1,0 +1,20 @@
+{
+  "library_sha256": "65f4b5024941cff4a2276615312e40c01322d3f1803378c8b3eaa1931ef5ca01",
+  "helper_sha256": "cb28ba5d92d98dc6ca5a0a9eba6d39699ad4c89a4f220cdaeb0f3879544feebb",
+  "sdk_sha256": "58735f6730d7092efe8cfb44cfd57170d36c0be31d89b3145a79a3504477ae7f",
+  "source_sha256": {
+    "glm_moe_dsa_projected_cache_view_r927.cpp": "708c513ecf4667785bbc68b622898f04c5828ebd7cfe8daa955930417f19c3ac",
+    "glm_fp8_runtime_r809.hpp": "94a13f0cb6378f226960bdf05a30ddb6cfbb430c8127a3ee126b8198582e02db",
+    "glm_fp8_runtime_r809.cpp": "5a9f1c4de4ca1edfd022984687555674e01ff82ed9573cde92489e27459cb4f4",
+    "modern_glm_cached_model_bridge_r809.cpp": "5995f0d84a6d153b67a21f8089b9d581e2bb3f3fa2602b549ff80f1a59f1b8e6",
+    "glm_fp8_cache_r807.cpp": "98499bc7dc070801ddaca969e947fb36ed16ece2c602b46aa86812b7b24e3c50",
+    "glm_fp8_cache_r807.hpp": "54a0f4e858408300a62029187df66f9287ef439f349820f732d41fdddacb080f",
+    "glm_fp8_model_r790.hpp": "f59150212d9cb1261bc59f512020a3cdc1a8ee5633407847bedaf4d81dae028d",
+    "glm_fp8_model_counts_r780.cpp": "d23d89fd5bb8f6528f57a7cfad19cb6c83a716b5cf262be023516d6fd9bafd21",
+    "glm_moe_dsa_attention_prepare_r809.cpp": "344e505d506402903a8f2165b1666d7b796a15815d9456c86d07ce4563e84e9f",
+    "glm_moe_dsa_attention_output_r809.cpp": "2cdbfd3ad99beedd60a6330b61a447e8622176250a1e02cd3591a614403d2da3",
+    "refactor_glm_cache_view_build_r927_inside.sh": "2a5eb0ba53ec88619834eddb6e625ce431e9fb0ab16fb515a67592110f7476c1"
+  },
+  "cache_library_sha256": "62f6c828f5f5e001be67f8af8e81fd78ef07f566facd381b1cbc1efb5ca9b9b4",
+  "scope": "927same809/SDK587/807/776 numericalpath; onlycompletevalidatedlogicalprefix borrowsimmutableKVcacheviews instead oftwoIndexSelect/copies. Subsetfallbackunchanged; modelownedcache survivesWorkdrain anduniquevalidrow checks retained. Frozen811 full512IDs/raw/knownQA/all32/lifecycle required beforeperformance adoption."
+}

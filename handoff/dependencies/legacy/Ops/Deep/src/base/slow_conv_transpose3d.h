@@ -1,0 +1,92 @@
+#ifndef INFINI_OPS_BASE_SLOW_CONV_TRANSPOSE3D_H_
+#define INFINI_OPS_BASE_SLOW_CONV_TRANSPOSE3D_H_
+
+#include <optional>
+#include <vector>
+
+#include "operator.h"
+
+namespace infini::ops {
+
+class SlowConvTranspose3d : public Operator<SlowConvTranspose3d> {
+ public:
+  SlowConvTranspose3d(const Tensor input, const Tensor weight,
+                      const std::optional<Tensor> bias,
+                      const std::vector<int64_t> kernel_size,
+                      const std::vector<int64_t> stride,
+                      const std::vector<int64_t> padding,
+                      const std::vector<int64_t> output_padding,
+                      const std::vector<int64_t> dilation, Tensor out)
+      : input_shape_{input.shape()},
+        input_strides_{input.strides()},
+        input_type_{input.dtype()},
+        weight_shape_{weight.shape()},
+        weight_strides_{weight.strides()},
+        weight_type_{weight.dtype()},
+        out_shape_{out.shape()},
+        out_strides_{out.strides()},
+        out_type_{out.dtype()},
+        has_bias_{bias.has_value()},
+        bias_shape_{bias ? Tensor::Shape{bias->shape()} : Tensor::Shape{}},
+        bias_strides_{bias ? Tensor::Strides{bias->strides()}
+                           : Tensor::Strides{}},
+        bias_type_{bias ? bias->dtype() : DataType::kFloat32},
+        kernel_size_{kernel_size},
+        stride_{stride},
+        padding_{padding},
+        output_padding_{output_padding},
+        dilation_{dilation},
+        device_index_{out.device().index()} {}
+
+  virtual void operator()(const Tensor input, const Tensor weight,
+                          const std::optional<Tensor> bias,
+                          const std::vector<int64_t> kernel_size,
+                          const std::vector<int64_t> stride,
+                          const std::vector<int64_t> padding,
+                          const std::vector<int64_t> output_padding,
+                          const std::vector<int64_t> dilation,
+                          Tensor out) const = 0;
+
+ protected:
+  Tensor::Shape input_shape_;
+
+  Tensor::Strides input_strides_;
+
+  DataType input_type_;
+
+  Tensor::Shape weight_shape_;
+
+  Tensor::Strides weight_strides_;
+
+  DataType weight_type_;
+
+  Tensor::Shape out_shape_;
+
+  Tensor::Strides out_strides_;
+
+  DataType out_type_;
+
+  bool has_bias_{false};
+
+  Tensor::Shape bias_shape_;
+
+  Tensor::Strides bias_strides_;
+
+  DataType bias_type_{DataType::kFloat32};
+
+  std::vector<int64_t> kernel_size_{};
+
+  std::vector<int64_t> stride_{};
+
+  std::vector<int64_t> padding_{};
+
+  std::vector<int64_t> output_padding_{};
+
+  std::vector<int64_t> dilation_{};
+
+  int device_index_{0};
+};
+
+}  // namespace infini::ops
+
+#endif

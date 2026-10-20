@@ -1,0 +1,18 @@
+@PACKAGE_INIT@
+
+# InfiniCCL CMake package configuration file.
+#
+# Provides the imported target:
+#     InfiniCCL::infiniccl
+#
+# which carries the public include directory and the location of
+# `libinfiniccl`. All hardware/backend dependencies (CUDA, MPI, NCCL, ...)
+# are linked PRIVATE into the shared library, so consumers do not need to
+# resolve them just to use InfiniCCL. The `find_dependency` hooks below are
+# intentionally left as a guarded extension point for future builds that may
+# expose such dependencies through the public interface.
+include(CMakeFindDependencyMacro)
+
+include("${CMAKE_CURRENT_LIST_DIR}/InfiniCCLTargets.cmake")
+
+check_required_components(InfiniCCL)

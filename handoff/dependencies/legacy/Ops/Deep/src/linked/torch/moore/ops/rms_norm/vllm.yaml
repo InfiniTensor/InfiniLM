@@ -1,0 +1,3 @@
+library: vllm
+required_symbols:
+  - rms_norm(at::Tensor&, at::Tensor&, at::Tensor&, double)

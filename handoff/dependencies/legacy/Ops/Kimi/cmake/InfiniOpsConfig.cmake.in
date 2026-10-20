@@ -1,0 +1,12 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(InfiniRT CONFIG)
+
+if(@WITH_NVIDIA@ OR @WITH_ILUVATAR@ OR @WITH_HYGON@ OR @WITH_THEAD@)
+    find_dependency(CUDAToolkit)
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/InfiniOpsTargets.cmake")
+check_required_components(InfiniOps)

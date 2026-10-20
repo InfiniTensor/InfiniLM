@@ -1,0 +1,39 @@
+{
+  "recorded_utc": "2026-10-20T11:03:59.188593+00:00",
+  "historical_fixed512": {
+    "Kimi": {
+      "decode_tok_s": 116.17752809433506,
+      "including_prefill_tok_s": 93.35101036219302,
+      "new_recheck": "running_not_qualified"
+    },
+    "GLM": {
+      "decode_tok_s": 63.150028270179234,
+      "including_prefill_tok_s": 40.13345732487818,
+      "new_recheck": "running_not_qualified",
+      "initial_entry_failed": "missing GLM_PIPELINE_TAIL_NODE, corrected in r3414"
+    },
+    "Deep": {
+      "decode_tok_s": 25.316444132397457,
+      "including_prefill_tok_s": 19.982766375780034,
+      "new_recheck": "running_not_qualified"
+    }
+  },
+  "current_GLM_qualified": {
+    "G128_M32_max128_decode_median_tok_s": 42.3794214174,
+    "including_prefill_median_tok_s": 18.1311922471,
+    "cards": 32,
+    "audit": "glm-g128-r3272-audit-r3372-local.json"
+  },
+  "Kimi_wide": {
+    "Common_build": "passed3395",
+    "real_projection_CPU_audit": "passed3411_48cases_384raws_8normalclose",
+    "full_model": "pending",
+    "entry3417": "rejected for stale old Common path check; experimental steps stopped, parent holds retained; same binaries, corrected entry3418/newrun3419"
+  },
+  "legacy_actual_EOS": {
+    "Deep": "running_r3421",
+    "Kimi": "prepared_r3426_waiting_free4nodes",
+    "GLM": "pending_separate_actualEOS_recheck"
+  },
+  "scope": "No new fixed512 recheck or EOS result is qualified until terminal Slurm, independent CPU audit and normal closure."
+}

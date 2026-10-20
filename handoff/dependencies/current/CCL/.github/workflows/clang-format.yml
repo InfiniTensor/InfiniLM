@@ -1,0 +1,48 @@
+name: clang-format
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  clang-format:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install clang-format 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-16
+
+      - name: Verify clang-format version
+        run: clang-format-16 --version
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t FILES < <(
+            git ls-files \
+              '*.h' \
+              '*.hpp' \
+              '*.cc' \
+              '*.cpp' \
+              '*.cuh' \
+              '*.cu' \
+              '*.maca' \
+              '*.mlu'
+          )
+
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "No C++ source files found."
+            exit 0
+          fi
+
+          clang-format-16 --dry-run --Werror "${FILES[@]}"
+          

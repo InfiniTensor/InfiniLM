@@ -1,0 +1,200 @@
+{
+  "utc": "2026-10-20T10:44:35.271244+00:00",
+  "completed": true,
+  "scope": "Independent CPU fullpartial matrices andallrankreduce raws, realcheckpoint TPweightSHA/read-onlymemmap andFP64projection samples. IntegratedCommon3393 nativeBF16 publicAPI withrequestframe-controlledFP64sum; B1packedMguard,busy/nestedguards and actualperownerpromotioncounters verified. Walltimings include D2H/hashobserver andinterop, notisolatedCCLlatency ormodelTPS. No fullmodelB8quality/fixadoption.",
+  "producer": [
+    "910406.96",
+    "kimi-wide-projection-r3410",
+    "COMPLETED",
+    "0:0",
+    "00:02:13"
+  ],
+  "normal_communicators_closed": 8,
+  "cases": 48,
+  "raw_files": 384,
+  "source_checkpoint": "/path/to/cluster-home/shared/Kimi-K3/model-00001-of-000096.safetensors",
+  "weight_key": "language_model.model.layers.0.self_attn.o_proj.weight",
+  "source_checkpoint_meta": {
+    "dtype": "BF16",
+    "shape": [
+      7168,
+      12288
+    ],
+    "data_offsets": [
+      1812730880,
+      1988891648
+    ]
+  },
+  "reports": [
+    {
+      "rank": 0,
+      "report_sha256": "392c32953d87666597fe80620d6701665d1b1256df21482e212ef6807b4a324e",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 1,
+      "report_sha256": "c5860516b08d3eb57d6585b4f8db289572210dc4aba6fe4f74008745e299d4eb",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 2,
+      "report_sha256": "263c7fa4f9980cd11f622997324f5b7a48cd1691d574d29b4008444bbba97f39",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 3,
+      "report_sha256": "d61d2fc803757fe0db8bffbf53707aea0ae880f0e686aa60dc1246d3378df7f0",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 4,
+      "report_sha256": "a8b85a848cf0bf42a52a057fde26a4cdd2b76de4917e78d9c8ed4d995dbe752f",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 5,
+      "report_sha256": "ec009aeec903eb21d9f99ac39cf427c8f581d3b6bcb4aeb8caf04763a419924e",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 6,
+      "report_sha256": "7c304c646ce7920aabab2a06122ec0df90ec50e832d76a1c7b1c17be8bea33b1",
+      "communicator_normally_closed": true
+    },
+    {
+      "rank": 7,
+      "report_sha256": "a679016e0ad263ce9faa47c9f00af0b5f13736cdc01b8d6dac36d3590624d35b",
+      "communicator_normally_closed": true
+    }
+  ],
+  "summary": [
+    {
+      "M": 4,
+      "packed": 0,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 15984,
+          "relative_L2_to_FP64_sum": 0.0036382683899565055
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432899304051575
+        }
+      }
+    },
+    {
+      "M": 4,
+      "packed": 1,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 15984,
+          "relative_L2_to_FP64_sum": 0.0036383707275649702
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432487363511354
+        }
+      }
+    },
+    {
+      "M": 8,
+      "packed": 0,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": false,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 31453,
+          "relative_L2_to_FP64_sum": 0.0036313890927223698
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432573097649437
+        }
+      }
+    },
+    {
+      "M": 8,
+      "packed": 1,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": false,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 31453,
+          "relative_L2_to_FP64_sum": 0.003631385175632762
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432487363511365
+        }
+      }
+    },
+    {
+      "M": 16,
+      "packed": 0,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": false,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 62906,
+          "relative_L2_to_FP64_sum": 0.0036313832748871957
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432597848953755
+        }
+      }
+    },
+    {
+      "M": 16,
+      "packed": 1,
+      "ranks": 8,
+      "all_local_GEMM_rows_and_ownrepeats_exact": true,
+      "max_local_CPU_FP64_sample_NRMSE": 0.002565518394187712,
+      "modes": {
+        "BF16_sum": {
+          "duplicate_rows_fullraw_exact": false,
+          "CPU_FP64_sum_RNE_BF16_exact": false,
+          "changed_words_vs_oracle": 62906,
+          "relative_L2_to_FP64_sum": 0.003631385175632767
+        },
+        "F64_sum_BF16_final": {
+          "duplicate_rows_fullraw_exact": true,
+          "CPU_FP64_sum_RNE_BF16_exact": true,
+          "changed_words_vs_oracle": 0,
+          "relative_L2_to_FP64_sum": 0.0016432487363511388
+        }
+      }
+    }
+  ],
+  "F64_sum_all_cases_match_FP64_RNE_BF16_and_duplicate": true,
+  "root_boundary": "Real local GEMM partials replayed through new Common Mode2; F64 reduction is qualified only for these projection fixtures. Wholemodel retrieval-step2 failure remains a separate gate."
+}

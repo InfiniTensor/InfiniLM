@@ -1,0 +1,29 @@
+{
+  "library_sha256": "3620c4352dc138a92abfdc2fe52075642737b9b8052ee33df9c4cb9f2913bf76",
+  "inputs_sha256": {
+    "incoming/deep_cache_batch_r784.hpp": "8e74e3b19e7c93e4e370224dfd48024c46f4ba6981a80899c18de8b58f4ae2ec",
+    "incoming/deep_cache_batch_counts_r784.cpp": "da8cfea13b940eb24c2df2ddd4f1629bcd3892a26bd35b4cc1b8931bf1e64ec8",
+    "incoming/deepseek_v4_csa_attention_batch_r784.cpp": "850014056d80bd912d544f561ec267e50add92c101bdacb98fc5a59ed7a568cf",
+    "incoming/deepseek_v4_hca_attention_batch_r784.cpp": "fbbec7325398ab332b5edf16fafe074e20ecae69aae607ba025d5f8eb75b976e",
+    "incoming/deepseek_v4_c4_indexer_allselected_r813.cpp": "5c7557a786082e4c4b6fb561933116cda86a7af34eee213528fb409618d51a7d",
+    "incoming/deep-cache-batch-r784-originals.json": "0d8d1be97e83f9da83fa3fc0558de6ac135378314dfe8a67dcc9ad050ac4c831",
+    "incoming/deepseek_v4_latent_model_r685.cpp": "1a76e40a2d0db7ce9fc18c286403299801bf1c2a73b53bc3add53412f590f16f",
+    "incoming/deep_latent_reference_r681.cpp": "267ca5e38fef4310e9d1000fa4f786ab2fca2947cc5376a1e2c80899a887db72",
+    "incoming/deep_latent_fused_r681.cu": "4e699b959577d6455c216b198c9a752d35af4932f0188728b07412f5aedcd5ca",
+    "incoming/deepseek_v4_attention_output.cpp": "cd0693bb14d59780375da15e043b09cc387fd17a5d813d7b25ec7135dddc0152",
+    "incoming/deepseek_v4_moe_prefill_scatter_r194.cpp": "abac0fa09d5d8f6d2ea0ad817eaa3558399c9cb3e7dff5b82c03ddcf49431844",
+    "incoming/deepseek_v4_hyper_connection_r177.cpp": "700c91226fc08574df19a151678c17d966f0135e1a0a45ebe5388753997dbe59",
+    "incoming/refactor_deep_allselected_build_r815_inside.sh": "3750c29664aacc86738c03426370506b3e096d649f51d0a9243ee29e80802b7c",
+    "candidates/deepseek-latent-fused-r681/fused.o": "fdcb6a7400616e20fe64baca8965fce571c8c624b6b9c396136c595ba52aa7a6",
+    "candidates/deepseek-latent-gather-r374/gather.o": "e101ffa95e11ebeb633b17003e893d0ab4d7edf61c12d8c0136264c2fa3341d4",
+    "candidates/native-engine-fp32-reduce-r633/sinkhorn.o": "8a027b285b41f18410abc30759f9c3cc3875ee45a72680643802c43f002529b7",
+    "candidates/mhc-post-register-r168/post.o": "b7801afb2076db13ce3b9f717c2efab81869e5346e896d9ef6828bbb48a4f6d6",
+    "candidates/deepseek-prefill-scatter-r194/scatter.o": "15d95a4280ebe7b40e5dbfa5ad47d9e53bea5a0e0e5b2da7b7f23df22f832682",
+    "results/deep-latent-fused-r684-r681-summary.json": "9d4509e2e0fcb413c9bb79af98bec7416e5d67191671b757ac1016c89cdd21cf"
+  },
+  "sdk_sha256": "8865b8d8e67832884911199d1a667856aadb2b438f5287d17fbaff1f8a3b85db",
+  "fused_min_tokens": 8,
+  "fused_max_tokens": 64,
+  "branch": "6b9cfa6b00cc7ca7431bc18e6c97936c4276e83e",
+  "scope": "815overqualified784/787: opt-in813canonicalallselected M8..64single-token decode whenevervisiblecompressedkeys<=topk. Skipqprojection/features/headscore/TPscore/Topk, keepkeycompressor/cachecommit forfuturepruning. 432actual7weight/TP8 componentcases preserveallstate/cache/selectionset andfullfallbackscores/indices afterboundary; attentionreductionorder intentionallychanges. FullmodelknownQA/own512repeats/raw/all8/owner/shutdown required. Parent784coalesces historical C4feature/cache andCSA/HCAcompressor gathers acrossrequests. Samecachecodec, samerequestorder andviews; fallsbackabove existingboundedcounts. Keepallqueryprojection/score/topk/TPorder/latent681 mathandSDK8865 unchanged. Requirefull686ID/raw compatibility/all8actualbatchcounters/QA/shutdown. Parent685onlylatentattention split64kernel681 overqualified482/635nativeBF16attentionAllReduce, MoEalreadyF32 unchanged. 8..64tokens+metadata<=2048 uses GPUvalidate andF32partial/stablemerge->BF16; scalarandprefillfallbackold374. Sameordinary8owner/cache16/SDK8865/271. IntentionalFP32reductionorderchange, 98component/240invalid/F64samplegate beforefullmodel. No634FP32attentionreduce orTreepolicy."
+}
