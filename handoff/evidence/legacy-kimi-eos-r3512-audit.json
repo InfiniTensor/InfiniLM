@@ -1,0 +1,739 @@
+{
+  "utc": "2026-10-20T13:43:40.603914+00:00",
+  "state": "910373.774|legacy-kimi-realEOS-r3473|COMPLETED|0:0|01:10:30|a02r3n[17-20]\n",
+  "completed": true,
+  "phases": [
+    {
+      "phase": "tokens_only_natural_g16_r1",
+      "G": 16,
+      "M": 16,
+      "decode_tok_s": 30.741898128051293,
+      "including_prefill_tok_s": 25.365592614373274,
+      "per_all32_cards": 0.9606843165016029,
+      "TTFT_seconds": [
+        14.437843528110534,
+        14.437843528110534,
+        14.437843528110534,
+        14.437843528110534,
+        28.63504271628335,
+        28.63504271628335,
+        28.63504271628335,
+        28.63504271628335,
+        42.80297713028267,
+        42.80297713028267,
+        42.80297713028267,
+        42.80297713028267,
+        57.000917938072234,
+        57.000917938072234,
+        57.000917938072234,
+        57.000917938072234
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0
+    },
+    {
+      "phase": "tokens_only_natural_g16_r2",
+      "G": 16,
+      "M": 16,
+      "decode_tok_s": 30.662575558448207,
+      "including_prefill_tok_s": 25.315164251352964,
+      "per_all32_cards": 0.9582054862015065,
+      "TTFT_seconds": [
+        14.331045693252236,
+        14.331045693252236,
+        14.331045693252236,
+        14.331045693252236,
+        28.560348641127348,
+        28.560348641127348,
+        28.560348641127348,
+        28.560348641127348,
+        42.72175890021026,
+        42.72175890021026,
+        42.72175890021026,
+        42.72175890021026,
+        56.95624001417309,
+        56.95624001417309,
+        56.95624001417309,
+        56.95624001417309
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0
+    },
+    {
+      "phase": "tokens_only_natural_g64_r1",
+      "G": 64,
+      "M": 16,
+      "decode_tok_s": 68.7016753009216,
+      "including_prefill_tok_s": 60.09990726378219,
+      "per_all32_cards": 2.1469273531538,
+      "TTFT_seconds": [
+        14.339741078205407,
+        14.339741078205407,
+        14.339741078205407,
+        14.339741078205407,
+        18.378107130061835,
+        18.378107130061835,
+        18.378107130061835,
+        18.378107130061835,
+        22.10561768198386,
+        22.10561768198386,
+        22.10561768198386,
+        22.10561768198386,
+        25.82551788818091,
+        25.82551788818091,
+        25.82551788818091,
+        25.82551788818091,
+        29.407178782857955,
+        29.407178782857955,
+        29.407178782857955,
+        29.407178782857955,
+        33.15556512726471,
+        33.15556512726471,
+        33.15556512726471,
+        33.15556512726471,
+        37.07662710919976,
+        37.07662710919976,
+        37.07662710919976,
+        37.07662710919976,
+        40.534624287858605,
+        40.534624287858605,
+        40.534624287858605,
+        40.534624287858605,
+        43.93000780325383,
+        43.93000780325383,
+        43.93000780325383,
+        43.93000780325383,
+        47.46597898704931,
+        47.46597898704931,
+        47.46597898704931,
+        47.46597898704931,
+        51.09724250389263,
+        51.09724250389263,
+        51.09724250389263,
+        51.09724250389263,
+        54.76393006416038,
+        54.76393006416038,
+        54.76393006416038,
+        54.76393006416038,
+        58.35991619993001,
+        58.35991619993001,
+        58.35991619993001,
+        58.35991619993001,
+        61.903428234159946,
+        61.903428234159946,
+        61.903428234159946,
+        61.903428234159946,
+        65.54598851688206,
+        65.54598851688206,
+        65.54598851688206,
+        65.54598851688206,
+        69.19631833722815,
+        69.19631833722815,
+        69.19631833722815,
+        69.19631833722815
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0
+    },
+    {
+      "phase": "tokens_only_natural_g64_r2",
+      "G": 64,
+      "M": 16,
+      "decode_tok_s": 68.53325169455755,
+      "including_prefill_tok_s": 59.888238893738965,
+      "per_all32_cards": 2.1416641154549234,
+      "TTFT_seconds": [
+        14.414394031278789,
+        14.414394031278789,
+        14.414394031278789,
+        14.414394031278789,
+        18.084991103038192,
+        18.084991103038192,
+        18.084991103038192,
+        18.084991103038192,
+        21.828603497240692,
+        21.828603497240692,
+        21.828603497240692,
+        21.828603497240692,
+        25.458656361326575,
+        25.458656361326575,
+        25.458656361326575,
+        25.458656361326575,
+        29.190145464148372,
+        29.190145464148372,
+        29.190145464148372,
+        29.190145464148372,
+        32.88241285644472,
+        32.88241285644472,
+        32.88241285644472,
+        32.88241285644472,
+        36.55845380527899,
+        36.55845380527899,
+        36.55845380527899,
+        36.55845380527899,
+        40.28010224504396,
+        40.28010224504396,
+        40.28010224504396,
+        40.28010224504396,
+        43.84884595219046,
+        43.84884595219046,
+        43.84884595219046,
+        43.84884595219046,
+        47.5584855331108,
+        47.5584855331108,
+        47.5584855331108,
+        47.5584855331108,
+        51.37518657138571,
+        51.37518657138571,
+        51.37518657138571,
+        51.37518657138571,
+        54.85383028304204,
+        54.85383028304204,
+        54.85383028304204,
+        54.85383028304204,
+        58.58285546442494,
+        58.58285546442494,
+        58.58285546442494,
+        58.58285546442494,
+        62.25687605701387,
+        62.25687605701387,
+        62.25687605701387,
+        62.25687605701387,
+        65.92063642200083,
+        65.92063642200083,
+        65.92063642200083,
+        65.92063642200083,
+        69.95349412411451,
+        69.95349412411451,
+        69.95349412411451,
+        69.95349412411451
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0
+    }
+  ],
+  "scalar_QA": [
+    {
+      "epoch": "after",
+      "label": "json",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "json",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "literal",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "literal",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "multiply",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "multiply",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "python",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "python",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "retrieval",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "retrieval",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_1",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_1",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_2",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_2",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_3",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sort_probe_3",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "subtract",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "subtract",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sum",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "after",
+      "label": "sum",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "json",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "json",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "literal",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "literal",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "multiply",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "multiply",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "python",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "python",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "retrieval",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "retrieval",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_1",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_1",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_2",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_2",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_3",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sort_probe_3",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "subtract",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "subtract",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sum",
+      "repeat": 1,
+      "known_IDs_raw_repeat_EOS_verified": true
+    },
+    {
+      "epoch": "before",
+      "label": "sum",
+      "repeat": 2,
+      "known_IDs_raw_repeat_EOS_verified": true
+    }
+  ],
+  "batch_QA": [
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "multiply",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "multiply",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "retrieval",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "retrieval",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "sort",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "after",
+      "label": "sort",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "multiply",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "multiply",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "retrieval",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "retrieval",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "sort",
+      "repeat": 1,
+      "known_IDs_EOS_raw_repeat_verified": true
+    },
+    {
+      "batch": 16,
+      "epoch": "before",
+      "label": "sort",
+      "repeat": 2,
+      "known_IDs_EOS_raw_repeat_verified": true
+    }
+  ],
+  "scope": "Independent historical r963 actual EOS first retirement on two480..512 long prompts repeated G16/M16 andG64/M16; alloutputs reached512 ceiling. Frozen44scalar and12B16QA/own first4+late raw/CPUargmax/inputSHA/SDK/model/32normalclose/terminal passed. Historical standalone space220 sort allowance retained. Static cohort with EOS polling and feedback wall, no HTTP or mixed length continuous serving/SLO/physical maximum claim.",
+  "reports_available": 4,
+  "natural_raw_files": 120,
+  "all32_owners_normal_close": true,
+  "source_sha256": {
+    "legacy_kimi_eos_r3472.py": "6b1a47eb7c8ce625fa83df2f9f23c17d46079895c18046ac31be3238b0f4ba26",
+    "legacy_kimi_eos_r3472_inside.sh": "9802e9c9a091f88f311276e7dadf499afdd6bf4c8aadf6879132caf2794d82e8"
+  }
+}

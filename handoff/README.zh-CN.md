@@ -34,3 +34,5 @@ GitHub 中保存可审查的 C++、GPU 内核、Python、构建入口、测试�
 旧版三模型固定 512 已按原有审计重新测出相近速度。新结果和限制见 [性能](PERFORMANCE.zh-CN.md) 与 `evidence/recheck-status.json`。当前性能基线仍为 `3e0d89fe`；新上游 `c3deba4` 的迁移单独记录于 [最新上游迁移](UPSTREAM_UPDATE.zh-CN.md)，尚无合格性能。
 
 **先恢复已验证版本再继续修复。** `runtime-r3432` 只恢复原来稳定构件，不含后续 Cast64、Kimi F64 Common 或 Deep F64 Model；新增源码须在隔离目录重新构建和验收。
+
+更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。

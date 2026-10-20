@@ -7,3 +7,5 @@
 上游统一 Mul/MulScalar，Pad 取代 PadConstant。私有 Hygon Cast64、归约、生命周期和参数校验需要保留；9 套 Ops/Model/Common 源已合并，5 处 Pad 冲突显式解决。三个 SDK 编译安装后在 CPU-only 加载阶段 abort，尚无 GPU 算子、Common、Model 或性能验收。后续先保留失败首错，在隔离进程核对 Torch 预加载和依赖，再完整重建新 API 使用者。
 
 当前交接的稳定性能仍锁定 `3e0d89fe`。不要将旧版 117/63/26 或当前 GLM/DeepB4 的结果标到本次新提交下。
+
+更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。

@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T13:32:53.378138+00:00",
+  "utc": "2026-10-20T13:49:17.198594+00:00",
   "scope": "SHA256 of shipped handoff files. Original export manifests preserve capture hashes; operational-path redactions may differ. No weights, private keys, raw-runtime archives or container images committed.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 6356,
-      "sha256": "63a81668a47886878cf72759b0ba94c16ac26a30902a2a603ef50629b1b578de"
+      "bytes": 6890,
+      "sha256": "8f3b520ec2308fb52c3ec68c1b7c49ddec15fb703f2f668f733aae471e38f938"
     },
     "config.example.env": {
       "bytes": 826,
@@ -4599,8 +4599,8 @@
       "sha256": "27dc470d4d8056aff8f2b71a5b64b7924ebc489cbf8e72064e55cfed385641f1"
     },
     "DELIVERY.zh-CN.md": {
-      "bytes": 1842,
-      "sha256": "5c1ca41872365de000fcdb44368db217b196d7f0aa24eab01e9edc3c4fa8328e"
+      "bytes": 2376,
+      "sha256": "6e90c3daeaf154f3ea78ad5f8c8ab2bccf4d58476be0c6be10379319516f6360"
     },
     "dependencies/current/CCL/.github/ISSUE_TEMPLATE/bug_report.yml": {
       "bytes": 2518,
@@ -25882,6 +25882,10 @@
       "bytes": 7896,
       "sha256": "85226a8e4874d868c8052885cea60e92f0d937c10ec3f2500c179b1e539ff317"
     },
+    "drivers/audit_deep_chunked_r3511.py": {
+      "bytes": 8166,
+      "sha256": "0a7d58ed41df4334df6a98ea55f116aea50d35c1a7792e91a74bd661be760497"
+    },
     "drivers/audit_deep_f64_component_r3449.py": {
       "bytes": 5951,
       "sha256": "fb90fa5364e951746ab30cc172728fa9fbd4fa968c221119c980d5205873711e"
@@ -25954,6 +25958,10 @@
       "bytes": 7929,
       "sha256": "243daf36d9b17219a503b70ee160555548a78b74c41c644bc5966c7e93537e8b"
     },
+    "drivers/audit_legacy_kimi_eos_r3512.py": {
+      "bytes": 9389,
+      "sha256": "04b0c325f4c6dafee257a1335748970890c4305d207adfdf4a9d99e2d4db712f"
+    },
     "drivers/build_cast64_sdk_r3316_inside.sh": {
       "bytes": 3158,
       "sha256": "3e51d913787002c64c0d13c2ec97d2f56e64e4b0a1d22e740249bedefe005604"
@@ -26022,6 +26030,10 @@
       "bytes": 860,
       "sha256": "d1cc1e5168db629ccb66d00f1e26c328f659302d63d537b96da17c32c3687fb7"
     },
+    "drivers/deep_attention_f64_r3509_inside.sh": {
+      "bytes": 860,
+      "sha256": "e6e8749f04e1416567ed70905add3944135fd2eef9764bd504f9dd165984ca6c"
+    },
     "drivers/deep_attention_f64_serving_r3474.py": {
       "bytes": 5599,
       "sha256": "9dbd37d8fdc427cc552788058c89fb9c3b28a59a12a7114b52e33ed92be17b0f"
@@ -26029,6 +26041,10 @@
     "drivers/deep_attention_f64_serving_r3496.py": {
       "bytes": 5594,
       "sha256": "075c3e066190cef7ea24657cad52699fcb273cba656b3e3ea6801b576acb1d55"
+    },
+    "drivers/deep_attention_f64_serving_r3509.py": {
+      "bytes": 6514,
+      "sha256": "3caab309becf11ae981a05c9f46b8f50d9326f2e3e31a6b2751c69e2c47ffd29"
     },
     "drivers/deep_cache_batch_r784.hpp": {
       "bytes": 74,
@@ -26390,6 +26406,14 @@
       "bytes": 1221,
       "sha256": "4fa9c584e4395c2996149fe98addfa2300cf646b3f54c60a3376ab6994a7d1c5"
     },
+    "drivers/legacy_kimi_eos_r3472.py": {
+      "bytes": 34537,
+      "sha256": "6b1a47eb7c8ce625fa83df2f9f23c17d46079895c18046ac31be3238b0f4ba26"
+    },
+    "drivers/legacy_kimi_eos_r3472_inside.sh": {
+      "bytes": 1221,
+      "sha256": "9802e9c9a091f88f311276e7dadf499afdd6bf4c8aadf6879132caf2794d82e8"
+    },
     "drivers/model_affinity_check_r2628.py": {
       "bytes": 902,
       "sha256": "c439554f0e942078abdf880f3e872959389715d3650f2b894881fe942e8a36f4"
@@ -26405,6 +26429,10 @@
     "drivers/modern_deep_attention_f64_r3496.py": {
       "bytes": 13946,
       "sha256": "69998a2ef5b48a2e4cecdb4d032f36aeb526fd5cb7c8f0dde1df822b1fb6c219"
+    },
+    "drivers/modern_deep_attention_f64_r3509.py": {
+      "bytes": 13946,
+      "sha256": "8f9a95c0a36614a7421c60aade4450a3a115379500a7cc440f3a96ab84351f0c"
     },
     "drivers/modern_deep_wide_r3457.py": {
       "bytes": 13933,
@@ -26510,6 +26538,14 @@
       "bytes": 1665,
       "sha256": "fd7f7e09dd2857bb6626e92b5af5be57c05c9c3b21a42bffafd4d4538e0f4b30"
     },
+    "drivers/sdk_gpu_load_r3508.py": {
+      "bytes": 1917,
+      "sha256": "1b10fa14b71f0d65571a1057bce76e41dab5e398d44ff761cc59bb257051a818"
+    },
+    "drivers/sdk_gpu_load_r3508_inside.sh": {
+      "bytes": 558,
+      "sha256": "69b4d7974d053dbbdb70015074fe6959de4d4524287ef3bcde0b26e7b8770981"
+    },
     "drivers/stage_cast64_sdks_r3315.py": {
       "bytes": 2753,
       "sha256": "b8c268e65428915b88e126b9ba700e79c4ebfa96ab091802afa182c5e2f0349a"
@@ -26533,6 +26569,10 @@
     "drivers/stage_kimi_wide_common_r3393.py": {
       "bytes": 3856,
       "sha256": "58194f3880dd96683497b722158e1550968866c2846ead9948755e06865baae4"
+    },
+    "evidence/audit-terminals-r3516.json": {
+      "bytes": 540,
+      "sha256": "babaa3c105ea3f5b6fbc78e9e2b37a006cd33a65c33b0a0b082f29f2545c4329"
     },
     "evidence/batch-performance-r1080-20261018.json": {
       "bytes": 8220,
@@ -26578,6 +26618,10 @@
       "bytes": 30865,
       "sha256": "8f5305d354cdc0feeb6bd56b3a277ad23c4cd6ee7902001530b7dbf1b3abb71c"
     },
+    "evidence/glm-fastpath-r3440-audit.json": {
+      "bytes": 46282,
+      "sha256": "15981ac8edf9dd1ddd23a416eece9446b20f56dfe91b16b63cd5fcacabde6426"
+    },
     "evidence/glm-fp8-cached-model-r929-910380.228-audit.json": {
       "bytes": 6521,
       "sha256": "7085bd13de57920df81f7d50c81c9ac25a87106a2d296977cf0ea486f6b10c3e"
@@ -26614,9 +26658,25 @@
       "bytes": 6686,
       "sha256": "926824842fc680ac4fc8b15b66c9ca3257ae5b982eba3dacfb573d17441ea21a"
     },
+    "evidence/latest-sdk-r3508-Deep-GPU-load.json": {
+      "bytes": 2001,
+      "sha256": "8b37f68cb517e4bd1b07aa3ed2e34d65527b99a88c9dac1a38105adcf6799d0f"
+    },
+    "evidence/latest-sdk-r3508-GLM-GPU-load.json": {
+      "bytes": 1999,
+      "sha256": "d4d061389384db2ae0830a07728678735b25f4b430d8553289329a07b6a5045a"
+    },
+    "evidence/latest-sdk-r3508-Kimi-GPU-load.json": {
+      "bytes": 2001,
+      "sha256": "abada255b693732818099543293e1d1779d1b13aa03b714d4e4ead72246f7210"
+    },
     "evidence/legacy-deep-eos-r3453-audit.json": {
       "bytes": 27025,
       "sha256": "b5ab80207ac505bb0da371c6fdf741f9e217dda0df8b601722f09c8c526148f4"
+    },
+    "evidence/legacy-kimi-eos-r3512-audit.json": {
+      "bytes": 16310,
+      "sha256": "bb0d14aef620d4d6940f6cf8a0c17a0616d3be9c139aee8ad9a9f95fcbb805af"
     },
     "evidence/publication-redactions.json": {
       "bytes": 641,
@@ -26627,8 +26687,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 6095,
-      "sha256": "436643a8b4ca0a45bad43a371f6e16844d475f984655ec861e744566b2039fd5"
+      "bytes": 7625,
+      "sha256": "c0cebb7f4067368bd1eb458fe6c789e9743578dd5fbacdf3ebde8e7d7f820702"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -33047,20 +33107,20 @@
       "sha256": "cdd7135c6ca3ceae6bb3f08df8bb6d54aa7069a1831c5ea0afc859cf78be2253"
     },
     "NUMERICS.zh-CN.md": {
-      "bytes": 6618,
-      "sha256": "4e12a18279a3155d00cd3bca2be8945b6e4515a2fd74f779ac56123393cbba95"
+      "bytes": 7152,
+      "sha256": "851de28c15304cbf23dc3ec2ccfdb5f8cdfe1073ec3ea8d57ef2d0dcf8091a4c"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 10353,
-      "sha256": "930f075a570c4120264e598a93c0ece3348ffe4cb7caf8eb030954d9fa158701"
+      "bytes": 12359,
+      "sha256": "72c949c66e1616d896153d471fdf74b8d41d028b6b1bddfdc4b3082a22e1551e"
     },
     "pins.json": {
-      "bytes": 4097,
-      "sha256": "4b11af7f4fcc5480a0939cd4140e460e3a8bb09643c24b88682dcb83022e38df"
+      "bytes": 4167,
+      "sha256": "8813a35608e7e6956b21bcd7b91e0396756706e221651a8abad1842c09eb2a2b"
     },
     "README.zh-CN.md": {
-      "bytes": 3336,
-      "sha256": "49acfeca8dd80ad51e2d6f38ac385a6563c5c2515331a75c5d6f010a1baed3df"
+      "bytes": 3870,
+      "sha256": "4b5bb26adc82614315e0750bab4872cfe0a22ba51e75df7b94f2e908cb717208"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -33127,8 +33187,8 @@
       "sha256": "b15ad3e8a2a4f96b063b3cba8638bf23bd370636ab778eee1650ed9675bcb9cf"
     },
     "UPSTREAM_UPDATE.zh-CN.md": {
-      "bytes": 1336,
-      "sha256": "5452f10f8ca71477b313d62845b01bae96c04d661f40bdfb6277da0d51b52010"
+      "bytes": 1870,
+      "sha256": "b7bd039b6a4ce08f40a43eb8aca6d2460aaa144394c2e763fb11200190eaedd8"
     }
   }
 }

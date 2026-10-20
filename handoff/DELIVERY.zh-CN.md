@@ -11,3 +11,5 @@
 先读 [交接总览](README.zh-CN.md)，再按 [迁移步骤](MIGRATION.zh-CN.md) 和 [Agent 接手文档](AGENT_HANDOFF.zh-CN.md) 执行。参考数据和运行时归档独立交付，不在 GitHub，原集群访问配置在本地私有附录。
 
 10 月 20 日晚更新：旧版 Kimi 116.68–117.06、GLM 62.89–62.91、Deep 25.52–25.82 tok/s 已复现。新增当前 GLM 长输出、Deep B4 的严格审计和性能；Kimi 多 batch 与新上游构建问题仍在修复，详见追加状态。
+
+更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。

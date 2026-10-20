@@ -47,3 +47,5 @@ Kimi 整模型 F64 `r3419` 最终在 B2 sort 的冻结答案 ID 检查失败。`
 Deep `r3443` mode2 已通过 B4 完整测试并获得实际吞吐；B2 在 retrieval 首步重复行 raw gate 失败。五种模式诊断提示升精度并非通用修复，且原诊断遗漏 affinity 环境变量导致末尾失败，不能把其收集到的矩阵当完整合格运行。B8 当前入口报 Native Engine CAPI input differs，应先检查输入宽度和 4096 元素上限、prefill 分块及协议约束，再分析数学路径；不是已证明的硬件错误。
 
 最新上游 SDK 三个变体已编译/安装，但 CPU-only 加载检查 abort，尚待读取完整首个错误区分 Torch 注册与库依赖问题。`c3deba4` 不得直接继承旧版数值或吞吐验收。
+
+更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。

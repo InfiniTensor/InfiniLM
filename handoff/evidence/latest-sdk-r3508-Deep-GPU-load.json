@@ -1,0 +1,71 @@
+{
+  "completed": true,
+  "utc": "2026-10-20T13:39:57.553893+00:00",
+  "variant": "Deep",
+  "step": "910407.100",
+  "pins": {
+    "InfiniLM": "c3deba450a631d79e3a183048726b4a1f4acabdd",
+    "InfiniCore": "14a8bd52b586c26fcfdf7ecc04efde38640467fb",
+    "InfiniOps": "bcfe96daf338b9f9992049f7965b27b6afe88b68",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "library_sha256": "319cb2519d8d09cb0da28329b17ab6d812841b0bb3cbe4af26efbb9c10a7e1ac",
+  "RT_sha256": "92b8eb6c419e17002bdcc47360b97b9bca87f19dcc62effabeea08d5f23df342",
+  "CCL_sha256": "ec6d8b23641be3eb163c4d746a4f7e39d9b8176d5e7d87634399560ad9c0eca3",
+  "hardware": [
+    {
+      "device": 0,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 1,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 2,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 3,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 4,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 5,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 6,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    },
+    {
+      "device": 7,
+      "name": "BW",
+      "bytes": 68702699520,
+      "small_compute_passed": true
+    }
+  ],
+  "mapped_ops": [
+    "/refactor/install/hygon-deep-c3deba4-r3491/lib/libinfiniops.so"
+  ],
+  "source_sha256": "1b10fa14b71f0d65571a1057bce76e41dab5e398d44ff761cc59bb257051a818",
+  "scope": "Fresh bcfe native library loads with GPU visible; all8 small Torch compute. CPU-only no-device abort retained. Actual InfiniOps math/guards/Common/Model/performance not qualified."
+}
