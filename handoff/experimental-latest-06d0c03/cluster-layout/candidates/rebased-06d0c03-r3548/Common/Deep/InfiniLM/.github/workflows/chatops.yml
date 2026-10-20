@@ -1,0 +1,135 @@
+name: ChatOps
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+
+jobs:
+  dispatch:
+    name: Parse comment command
+    if: github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify comment author
+        id: auth
+        env:
+          ASSOC: ${{ github.event.comment.author_association }}
+        run: |
+          case "$ASSOC" in
+            OWNER|MEMBER)
+              echo "trusted=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "trusted=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Parse command
+        id: cmd
+        env:
+          BODY: ${{ github.event.comment.body }}
+        run: |
+          command=""
+          if printf '%s' "$BODY" | grep -qE '(^|[[:space:]])/retest([[:space:]]|$)'; then
+            command="retest"
+          elif printf '%s' "$BODY" | grep -qE '(^|[[:space:]])/test([[:space:]]|$)'; then
+            command="test"
+          fi
+          echo "command=$command" >> "$GITHUB_OUTPUT"
+
+      - name: Ignore unrecognized commands
+        if: steps.cmd.outputs.command == ''
+        run: echo "No ChatOps command found; skipping."
+
+      - name: Reject untrusted users
+        if: steps.cmd.outputs.command != '' && steps.auth.outputs.trusted != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content="-1" >/dev/null || true
+          gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
+            -f body="⛔ Only repository members can run \`${{ steps.cmd.outputs.command }}\`." \
+            >/dev/null
+          exit 1
+
+      - name: Load pull request metadata
+        if: steps.cmd.outputs.command != '' && steps.auth.outputs.trusted == 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          json=$(gh api "repos/$REPO/pulls/$ISSUE")
+          head_sha=$(echo "$json" | jq -r '.head.sha')
+          head_ref=$(echo "$json" | jq -r '.head.ref')
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$head_ref" >> "$GITHUB_OUTPUT"
+
+      - name: React to command
+        if: steps.cmd.outputs.command != '' && steps.auth.outputs.trusted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=eyes >/dev/null || true
+
+      - name: Handle /retest and /test
+        if: (steps.cmd.outputs.command == 'retest' || steps.cmd.outputs.command == 'test') && steps.auth.outputs.trusted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+          HEAD_REF: ${{ steps.pr.outputs.head_ref }}
+          COMMAND: ${{ steps.cmd.outputs.command }}
+        run: |
+          set -euo pipefail
+
+          run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&event=workflow_dispatch&per_page=5" \
+            | jq -r '.workflow_runs[0].id // empty')
+
+          if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+            gh api -X POST "repos/$REPO/actions/runs/$run_id/rerun" >/dev/null
+            gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
+              -f body="🔁 Re-running CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` (triggered by \`/$COMMAND\`)." \
+              >/dev/null
+          else
+            gh workflow run ci_test.yml --ref "$HEAD_REF" -R "$REPO" -f infinicore_branch=main
+
+            sleep 8
+            run_id=$(gh api "repos/$REPO/actions/workflows/ci_test.yml/runs?head_sha=$HEAD_SHA&event=workflow_dispatch&per_page=3" \
+              | jq -r '.workflow_runs[0].id // empty')
+
+            if [ -n "$run_id" ] && [ "$run_id" != "null" ]; then
+              gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
+                -f body="✅ Started CI workflow run [$run_id](https://github.com/$REPO/actions/runs/$run_id) for commit \`${HEAD_SHA:0:7}\` on branch \`$HEAD_REF\` (triggered by \`/$COMMAND\`)." \
+                >/dev/null
+            else
+              gh api -X POST "repos/$REPO/issues/$ISSUE/comments" \
+                -f body="✅ Dispatched CI via \`workflow_dispatch\` for branch \`$HEAD_REF\` (commit \`${HEAD_SHA:0:7}\`, via \`/$COMMAND\`). The workflow run should appear in Checks shortly." \
+                >/dev/null
+            fi
+          fi
+
+      - name: React success
+        if: success() && steps.cmd.outputs.command != '' && steps.auth.outputs.trusted == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+        run: |
+          gh api -X POST "repos/$REPO/issues/comments/$COMMENT_ID/reactions" \
+            -f content=rocket >/dev/null || true

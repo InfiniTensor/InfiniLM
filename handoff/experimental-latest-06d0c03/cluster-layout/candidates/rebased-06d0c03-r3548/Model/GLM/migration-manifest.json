@@ -1,0 +1,17 @@
+{
+  "kind": "Model",
+  "variant": "GLM",
+  "pins": {
+    "InfiniLM": "06d0c03cc860d730afe5f35e41e53a443221da23",
+    "InfiniCore": "046f012a3ac0d2a91aede1791c0cebc47ed27b45",
+    "InfiniOps": "f998e4d6b445e29a950d048d0bc31f494ca7cce9",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "parent": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-c3deba4-r3485/Model/GLM/InfiniLM",
+  "target": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-06d0c03-r3548/Model/GLM/InfiniLM",
+  "ready": true,
+  "changes": [],
+  "conflicts": [],
+  "scope": "Source-only latest06d/f998 migration; scalarMul metadata+Hygon streamguard fixes and isolatednativePad. Earlier history: reverse-checked three-way migration from3e0/030/c86 onto c3de/14a8/bcfe. ParentOps retains allmodel-specific extensions and qualifiedCast64; Kimi Common3393 F64 and Model3261 privatecommABI/TLS preserved. GLM batchcache/expertorder and Deep3443 overlays remain separate model-assembly work. No binary/performance inheritance; actual new Mul/Pad contracts and all3 models require rebuild and qualification. Removedgitlinks unlinked in newtargetonly. AllnewSDK/Common/model/GPUhelpers require rebuild/qualification; no inheritedperformance. Same pinnedRT/CCL may reuse onlyafterSHAcheck; allOps/Common/modelbinaries must newlybuild/test. No mathguard/capturemetadata relaxation and no inherited performance."
+}

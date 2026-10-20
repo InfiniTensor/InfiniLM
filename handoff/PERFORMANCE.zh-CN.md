@@ -122,3 +122,14 @@ G128 两轮 candidate decode 为 60.4585–60.5711，含 prefill 为 20.8263–2
 | legacy GLM，实际EOS协议 | 32卡，G64/M16，512输入/最多512输出 | 36.57–36.69 | 27.43–27.48 |
 
 各行均通过各自独立审计，详见 `evidence/qualified-performance-r3578.json`。自然长文测试仍为冻结输入、静态队列，所有这些长文输出到达上限；不是混合请求 HTTP 生产吞吐。用户最新明确仅要求完整 token 序列一致，logits 位模式差异只诊断；Kimi/Deep 的原生低精度重测已启动，以上 F64 数字仅作参考，不是默认性能路线。GLM 当前长输出使用 Socket-over-IB，RDMA 对照仍在测，见 [实际通信](NETWORK.zh-CN.md)。
+
+
+## 10月21日追加：已审计旧3e0结果
+
+| 模型/精度 | 配置 | decode tok/s | 含prefill tok/s |
+| --- | --- | --- | --- |
+| Kimi，F64参考 | 32卡，G64/M8，512输入/最多128输出 | 57.73–58.26 | 38.16–38.39 |
+| GLM，fastpath | 32卡，G128/M8，512输入/最多512输出 | 中位54.47 | 中位38.10 |
+| Deep，attention FP32归约 | 8卡，B8，prefill micro4，512输入/最多512输出 | 17.60–17.74 | 15.01–15.11 |
+
+这些结果均不是最新06d性能。Kimi一行仅作F64参考；Deep此次完整输出token与冻结F64参考相同，未使用F64AllReduce。不同节点/轮次的结果不构成因果加速比较。均为静态冻结输入及原生计时，不是HTTP生产吞吐或硬件极限。独立审计摘要见 `evidence/qualified-performance-r3649.json`。

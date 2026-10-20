@@ -1,0 +1,37 @@
+[build-system]
+requires = ["scikit-build-core>=1.1.1", "pybind11", "libclang", "packaging", "pyyaml", "jinja2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "InfiniOps"
+version = "0.1.0"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "pytest-xdist", "ruff==0.15.22", "torch", "pyyaml"]
+
+[tool.scikit-build.wheel]
+install-dir = "infini"
+
+[tool.scikit-build.sdist]
+cmake = true
+force-include = { "build/sdist/marlin-source" = "third_party/marlin-source", "build/sdist/flash-attention-source" = "third_party/flash-attention-source", "build/sdist/flash-attention-cutlass-source" = "third_party/flash-attention-cutlass-source" }
+
+[[tool.scikit-build.overrides]]
+if.state = "sdist"
+build-dir = "build/sdist"
+
+[tool.scikit-build.cmake.define]
+AUTO_DETECT_DEVICES = "ON"
+AUTO_DETECT_BACKENDS = "ON"
+GENERATE_PYTHON_BINDINGS = "ON"
+
+# Enables `compile_commands.json` under `SKBUILD_BUILD_DIR` (or the default
+# `scikit-build` build dir) for `clang-tidy -p <build-dir> <file>` used by
+# the `code-lint` skill.
+CMAKE_EXPORT_COMPILE_COMMANDS = "ON"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "smoke: minimal representative tests for routine development and PR validation",
+]

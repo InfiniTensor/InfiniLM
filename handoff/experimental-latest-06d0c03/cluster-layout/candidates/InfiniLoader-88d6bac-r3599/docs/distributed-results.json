@@ -1,0 +1,306 @@
+{
+  "date": "2026-10-18",
+  "scope": "Small deterministic integration fixtures; not production LLM benchmarks",
+  "final_code_commit": "758f8c866a4de4dc4a8a9057ce14680e78e44b8d",
+  "environment": {
+    "nodes": 4,
+    "python": "3.11.9",
+    "torch": "2.9.0",
+    "hip": "6.3.26093",
+    "device": "Hygon BW DCU, approximately 64 GiB",
+    "gpu_devices_used_per_node": 1,
+    "transport": "Gloo/RCCL sockets; no RDMA qualification"
+  },
+  "local_regression": {
+    "passed": 119,
+    "skipped_real_device": 2
+  },
+  "ci": "https://github.com/InfiniTensor/InfiniLoader/actions/runs/39107252516",
+  "distributed_cases": [
+    {
+      "case": "tp4",
+      "commit": "123c6e2dd3f9e69a1df6cd9422d27ba0bd2628f5",
+      "backend": "gloo",
+      "device": "cpu",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 68608,
+      "per_rank_tensor_bytes": [
+        17152,
+        17152,
+        17152,
+        17152
+      ],
+      "per_rank_resident_file_bytes": [
+        25505,
+        25505,
+        25505,
+        25505
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "8827169242156e4ed206ef26947e99cc1ae82fadb59534fda9d8f4a0a8e43ba8",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 4,
+          "pp": 1,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        329339904,
+        331081728,
+        329254912,
+        328738816
+      ]
+    },
+    {
+      "case": "pp4",
+      "commit": "123c6e2dd3f9e69a1df6cd9422d27ba0bd2628f5",
+      "backend": "gloo",
+      "device": "cpu",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 67072,
+      "per_rank_tensor_bytes": [
+        16768,
+        16768,
+        16768,
+        16768
+      ],
+      "per_rank_resident_file_bytes": [
+        19917,
+        19917,
+        19917,
+        19917
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "54d4ce8c585635f0024d84c8511a3ea86b3ef900485f6104b7d2e86b98369598",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 1,
+          "pp": 4,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        448529408,
+        448201728,
+        448129024,
+        448111616
+      ]
+    },
+    {
+      "case": "tp2pp2-startup180",
+      "commit": "758f8c866a4de4dc4a8a9057ce14680e78e44b8d",
+      "backend": "gloo",
+      "device": "cpu",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 67584,
+      "per_rank_tensor_bytes": [
+        16896,
+        16896,
+        16896,
+        16896
+      ],
+      "per_rank_resident_file_bytes": [
+        21785,
+        21785,
+        21785,
+        21785
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "09340703d164c34492330c70b70276f3948de8f1cdf7a82f0e026d941413c98c",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 2,
+          "pp": 2,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        448126976,
+        447916032,
+        447982592,
+        447778816
+      ]
+    },
+    {
+      "case": "switch-owncollection",
+      "commit": "758f8c866a4de4dc4a8a9057ce14680e78e44b8d",
+      "backend": "gloo",
+      "device": "cpu",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 268288,
+      "per_rank_tensor_bytes": [
+        67072,
+        67072,
+        67072,
+        67072
+      ],
+      "per_rank_resident_file_bytes": [
+        75521,
+        75521,
+        75521,
+        75521
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "9302c0d3822e6b80e0c75008086fcfd6c79d87ef86f6a04c4dabc585820028fc",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 4,
+          "pp": 1,
+          "max_abs_error": 7.450580596923828e-09
+        },
+        {
+          "tp": 2,
+          "pp": 2,
+          "max_abs_error": 7.450580596923828e-09
+        },
+        {
+          "tp": 1,
+          "pp": 4,
+          "max_abs_error": 7.450580596923828e-09
+        },
+        {
+          "tp": 4,
+          "pp": 1,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        448324608,
+        448145408,
+        448058368,
+        447993856
+      ]
+    },
+    {
+      "case": "gpu-tp4",
+      "commit": "758f8c866a4de4dc4a8a9057ce14680e78e44b8d",
+      "backend": "nccl",
+      "device": "cuda:0",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 68608,
+      "per_rank_tensor_bytes": [
+        17152,
+        17152,
+        17152,
+        17152
+      ],
+      "per_rank_resident_file_bytes": [
+        25505,
+        25505,
+        25505,
+        25505
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "8827169242156e4ed206ef26947e99cc1ae82fadb59534fda9d8f4a0a8e43ba8",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 4,
+          "pp": 1,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        2524764160,
+        2409260032,
+        2405049344,
+        2528457728
+      ]
+    },
+    {
+      "case": "gpu-pp4",
+      "commit": "758f8c866a4de4dc4a8a9057ce14680e78e44b8d",
+      "backend": "nccl",
+      "device": "cuda:0",
+      "unique_tensor_bytes": 67072,
+      "aggregate_tensor_bytes": 67072,
+      "per_rank_tensor_bytes": [
+        16768,
+        16768,
+        16768,
+        16768
+      ],
+      "per_rank_resident_file_bytes": [
+        19917,
+        19917,
+        19917,
+        19917
+      ],
+      "distinct_host_count": 4,
+      "distinct_boot_count": 4,
+      "model_content_id": "9412c39d7796ccf3d177504ce019a335e9ebfcb0e67e2b991700553dec485f4b",
+      "layout_id": "54d4ce8c585635f0024d84c8511a3ea86b3ef900485f6104b7d2e86b98369598",
+      "original_rank_path_available": false,
+      "topologies": [
+        {
+          "tp": 1,
+          "pp": 4,
+          "max_abs_error": 7.450580596923828e-09
+        }
+      ],
+      "pss_after_map_bytes": [
+        2524720128,
+        2528584704,
+        2524154880,
+        2528459776
+      ]
+    }
+  ],
+  "expert_pool": {
+    "code_commit": "123c6e2dd3f9e69a1df6cd9422d27ba0bd2628f5",
+    "nodes": 4,
+    "tests_per_node": 11,
+    "cpu_tensor_bytes": 524288,
+    "gpu_weight_budget_bytes": 131072,
+    "max_abs_error": 1.7881393432617188e-07,
+    "peak_allocated_bytes": 33700352,
+    "peak_reserved_bytes": 35651584,
+    "final_gpu_calls_per_node": [
+      8,
+      8,
+      8,
+      8
+    ],
+    "final_cpu_calls_per_node": [
+      24,
+      24,
+      24,
+      24
+    ],
+    "final_evictions_per_node": [
+      6,
+      6,
+      6,
+      6
+    ]
+  },
+  "closure": {
+    "reservation_rounds": 2,
+    "all_cleanup_confirmed": true,
+    "active_worker_count": 0
+  },
+  "private_raw_evidence_sha256": {
+    "infiniloader-four-node-verified-cpu.json": "482e663e45fbddaece5d78be997ebea14eb7186203a2ac29d33445ee0697891c",
+    "infiniloader-four-node-verified-rccl.json": "2ce13dfef202d9d5d009c4ba3c4758c784e09be861ea538943c4267616799783",
+    "infiniloader-four-node-gpu.json": "def4222f684338159d102c617ee321845abf6a90a6d47117f841a3bc5fdab8e5",
+    "infiniloader-own-node-results.json": "4e2b0ead848f81350fde98568bccbde88c4254e1873dc95ff509cba25bd3eeea",
+    "infiniloader-reservation-initial-closed-receipt.json": "c2ae7c7e08a08db158dc5c6b844a0bcedda77aea29de20e779e6d46a06666b1e",
+    "infiniloader-cluster-cleanup.json": "a6e6297e608a832be52e3f4adc54a73c54806eae7097f60beca5be3635f30a12",
+    "infiniloader-reservation-round2-closed-receipt.json": "7b368fba5e463a14eebd98015ade04f7653f02f0bcd78c471cfae11cbb8f3af3"
+  }
+}

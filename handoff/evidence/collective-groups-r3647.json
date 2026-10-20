@@ -1,0 +1,7580 @@
+{
+  "utc": "2026-10-20T17:57:35.994974+00:00",
+  "completed": true,
+  "producer": [
+    "910379.230",
+    "parallel-collectives-r3638",
+    "COMPLETED",
+    "0:0",
+    "00:01:52"
+  ],
+  "normal_GPU_owner_contexts": 32,
+  "rank_cases": 11520,
+  "group_cases": 840,
+  "actual_crossnode_backend": "IBext_v8 in real channel logs onall4nodes",
+  "integer_fixture": "rankmod4+1,group totals20/40/80; allintermediatepositiveintegers<=80 exactlyBF16 representable",
+  "prior_negative_evidence": "3612 lastcommunicator recreation pluginerror; 3620 rank1..32 intermediateSUM oracle couldround above256 even final528 representable. Both preserved; no rootcause proof or softwarefix inferred solely from newfixture.",
+  "scope": "Hardware communication components only, no fullmodelEP/pureTP qualification. All8/16/32communicators keptalive, then normaldestroy. Host wall includes owner/producersync boundaries; not wirebandwidth/networkpeak. F64 only control.",
+  "performance": [
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.032280804589390755
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04841838963329792
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03301231190562248
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.061440980061888695
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03271931782364845
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.032156286761164665
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03132224082946777
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07555063348263502
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03352530766278505
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03729530144482851
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03158724866807461
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.060701509937644005
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.042170844972133636
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05090446211397648
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04349234513938427
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06256101187318563
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0543009489774704
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0492993975058198
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.05016694776713848
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.060892500914633274
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07532716263085604
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04974938929080963
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07529009599238634
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06256806664168835
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07519214414060116
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.052378466352820396
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10296839755028486
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06459904834628105
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09826528839766979
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06156505551189184
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.09604180231690407
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07944670505821705
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.13954865280538797
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0969788059592247
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.13832820113748312
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0986343715339899
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.14703449172278246
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.12000262116392453
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.21569686941802502
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11305270406107108
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2332884663095077
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1345078150431315
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.22965366952121258
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1571246733268102
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4160634707659483
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.16846794945498308
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.4210401481638352
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1998733108242353
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.41765510104596615
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.22304515975217024
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.6305536565681299
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.25219695332149666
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7941699586808681
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.24987547658383846
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.8068035046259562
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.28595079978307086
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.5405913194020588
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.4137818856785695
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.5544979833066463
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.45386701822280884
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.032456754706799984
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03412580117583275
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03333429340273142
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0616864999756217
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.032755243591964245
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03309629391878843
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.031904736533761024
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07662815041840076
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03373229410499334
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03747830633074045
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03172124270349741
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07453514263033867
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.04224386066198349
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05090590566396713
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04448085092008114
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06339750252664089
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06804154254496098
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04938840866088867
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.06711154710501432
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.062277051620185375
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07728664204478264
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04990994930267334
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07777514401823282
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06316055078059435
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07704361341893673
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05292345304042101
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10403790511190891
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06603156216442585
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.10483732912689447
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0645950436592102
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10675040539354086
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.08051169570535421
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16550340224057436
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.11021338868886232
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.1537388190627098
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.13282510917633772
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1725497810790936
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1357311848551035
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.25314387554923695
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1580296860386928
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2655471519877513
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13734446838498116
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.2701121848076582
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.15974130171040693
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4778140379736821
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18570168564716974
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.48493586170176667
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.21576019935309887
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.47800565759340924
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2342820322761933
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.724567643677195
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2638855172942082
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.9194544982165098
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2867591877778371
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.9343778559317192
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3261643772323926
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.7952668325354655
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.4782958421856165
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8057901567469041
+    },
+    {
+      "ranks": 8,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5204593762755394
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03357559908181429
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.034875120036304
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03396004904061556
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06269265431910753
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.033774529583752155
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03292355686426163
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03232655581086874
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0770751852542162
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03474454861134291
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.037817563861608505
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.032254052348434925
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06174864247441292
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.04310011863708496
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0520775793120265
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.044655101373791695
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06431965157389641
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.054428097791969776
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05009758751839399
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.05092115607112646
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06256215274333954
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07608621381223202
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05046611186116934
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07590765599161386
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0635011587291956
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07642519194632769
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05330760031938553
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10393375996500254
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0658941688016057
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09960825555026531
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06089659873396158
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0971747562289238
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0805106945335865
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.13950485736131668
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.098165194503963
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.1385232899338007
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09964925702661276
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.14813702243069807
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.12297012532750766
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.21500388781229654
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11631202263136704
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2344388049095869
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13594701886177063
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.2325255579004685
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1594986921797196
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4206091786424319
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1707336244483789
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.42206413733462494
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.20189552257458368
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.41840248741209507
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.22463717808326086
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.633279870574673
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.258935693030556
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7978251669555902
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2534872231384118
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.8059566995749871
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2888673140356938
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.5404268633574247
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.41366748822232086
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.554506675650676
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4529408955325683
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.033194106072187424
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03495858982205391
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03386854659765959
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06281409878283739
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03360360860824585
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.033631036058068275
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03248054999858141
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07787216454744339
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03472459502518177
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03814904484897852
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03324954304844141
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07563070394098759
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.044094608165323734
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.051644095219671726
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04501962102949619
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0637156656011939
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06854215171188116
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.049875094555318356
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0679991440847516
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06292460020631552
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07817915175110102
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.051082600839436054
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07957019843161106
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06383615545928478
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07875519804656506
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05412760656327009
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10538769420236349
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0671726418659091
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.10468773543834686
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06553416606038809
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10678570251911879
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.08208414074033499
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.165081350132823
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.11077476665377617
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.15473635867238045
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.134063302539289
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.17500218624869981
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13750535435974598
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.25414217573901016
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16180534536639848
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26601902209222317
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13738016908367476
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.27255403498808545
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16280869022011757
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4809661768376827
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18649214568237463
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.4848226283987363
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22035216291745505
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4781843163073063
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.23570889607071877
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7255616753051678
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26659721819063026
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.9235171601176262
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.28603733517229557
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.932847149670124
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.32981904223561287
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.788797400270899
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.47964113764464855
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8195923573027055
+    },
+    {
+      "ranks": 8,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5218944667528073
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.033593038097023964
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03483209293335676
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03315454814583063
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.060909613966941833
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03299610689282417
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03356558736413717
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.031296536326408386
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07572215981781483
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03349310718476772
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03758003003895283
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.031189550645649433
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06067461799830198
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.04240558482706547
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.051029608584940434
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04356659483164549
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06269814912229776
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.053376611322164536
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0487741082906723
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.050678104162216187
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.061298604123294353
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07532264571636915
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04955760668963194
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0755181536078453
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.062496098689734936
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0755631597712636
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05633658729493618
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10348069481551647
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06473164539784193
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09830466005951166
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.060609099455177784
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0965361949056387
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07951564621180296
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1394727500155568
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09673114400357008
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.13827425427734852
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09882869198918343
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.14713204776247343
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.11981519249578317
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.2130021651585897
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11353202474613984
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.23385222690800825
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1313269603997469
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.23229544361432394
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.15658016006151834
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.41849918973942596
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.16939865114788213
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.4213859016696612
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1988688794275125
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4171891293178002
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.22271213432153067
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.6317329437782367
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2535337892671426
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7903864607214928
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2506955061107874
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.808559979001681
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.28619069295624894
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.5430530377974112
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.41362418172260124
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.553793204948306
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4567025074114402
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.036865053698420525
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03423255402594805
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.033440557308495045
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06198165938258171
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03305755089968443
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03286357969045639
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03181854262948036
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07707616314291954
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03383203875273466
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.037473603151738644
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03164403606206179
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07497514598071575
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.042652618139982224
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05519960541278124
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04461610224097967
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06345664151012897
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0678441021591425
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04954205360263586
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.06721459794789553
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06269211880862713
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07711516227573156
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0502035953104496
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07848064415156841
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06317165680229664
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07691564969718456
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05313160363584757
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10464170482009649
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06584413349628448
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.10397869627922773
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06474058609455824
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10785975027829409
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.08059216197580099
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16535879112780094
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.10987769346684217
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.15379581600427628
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.13246675953269005
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.17077700855831304
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13754679821431637
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.25269218410054844
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.15780523729821047
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26517050961653393
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.136397002885739
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.26895889701942605
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16101527338226637
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4773941667129596
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18499217306574187
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.482592498883605
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2154303559412559
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.477342555920283
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.23336545564234257
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7242196394751469
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26666388536492985
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.9231768393268188
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2850087669988473
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.9326701983809471
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3276607021689415
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.7902070345977943
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.47965099414189655
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8116917926818132
+    },
+    {
+      "ranks": 8,
+      "group": 2,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.521224302550157
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.033281766809523106
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03564178477972746
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03367180470377207
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06106954533606768
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03278125077486038
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03234224859625101
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03140580374747515
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07584565319120884
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03322474658489227
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03739281091839075
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03140831831842661
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.060666981153190136
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.04230134654790163
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05101240240037441
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04345641937106848
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06258555222302675
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.053241453133523464
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04880339838564396
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04996545612812042
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06095299031585455
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07490664720535278
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.04964894615113735
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.07570015732198954
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.062486063688993454
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0752490945160389
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.052106939256191254
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10337389539927244
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06575854495167732
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09826580062508583
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.061282538808882236
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.09598131291568279
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07940169889479876
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1407397212460637
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09696234483271837
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.13976264744997025
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09851730428636074
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.14662781419853368
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.119739289705952
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.21241845873494944
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11341770490010579
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.23348194857438406
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1313909888267517
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.22954012577732405
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1558280394723018
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.41578679035107297
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.16877156061430773
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.4210517896960179
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1995283334205548
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4167018147806327
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.22262870334088802
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.6307019696881374
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.25149714201688766
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7966867027183374
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2489037966976563
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.8052284829318523
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2846074445794026
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.5381944831460714
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.4144418053328991
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.5539079904556274
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.45551382936537266
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03264725673943758
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.034290808252990246
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03299578092992306
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06171704735606909
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03274376504123211
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03279575612396002
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.031874747946858406
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0768851488828659
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.03370728809386492
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.03751586191356182
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.03188324626535177
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07459514308720827
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0423213467001915
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05080639384686947
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.04435288719832897
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06316304206848145
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06757555529475212
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.049048964865505695
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.06686756387352943
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.062004500068724155
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07715914398431778
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.049765920266509056
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0776311382651329
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.0628145644441247
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.07687713950872421
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05289989057928324
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10421241167932749
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.06562003400176764
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.10375536512583494
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06437203846871853
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10703138541430235
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.08031213656067848
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16492540016770363
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1098843989893794
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.15490578953176737
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.13271814677864313
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.17089800288279852
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13625117329259714
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.2523205087830623
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.15739638668795428
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26618215876321
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13500770243505636
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.270577147603035
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.15945647222300371
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.47675233023862046
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18583315735061964
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.48382401776810485
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.21621515043079853
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.47705733838180703
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.23254038145144781
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7243976773073276
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.26317716886599857
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.925169326364994
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.282175683726867
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.934957837065061
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.328436183432738
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.7899800247202318
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.47897066300113994
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8057601992040873
+    },
+    {
+      "ranks": 8,
+      "group": 3,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5209895316511393
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.09364925790578127
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0576250022277236
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.0932392431423068
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.12540854513645172
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16855585854500532
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05916415248066187
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.16865541692823172
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.12514623813331127
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3325192490592599
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06601209752261639
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3274022601544857
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1696764025837183
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.35068378783762455
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.07916013710200787
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.359597010537982
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.150363240391016
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3575604874640703
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09588580578565598
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3569620195776224
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1856070477515459
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3746476024389267
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.12883455492556095
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.37389814388006926
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.33223479986190796
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.37714820355176926
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13388930819928646
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3869292326271534
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3347312565892935
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.39887335151433945
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.17557889223098755
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.39920336566865444
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.6487249163910747
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5046712467446923
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18018539994955063
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.5087971221655607
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7004333892837167
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5160761841883262
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.24225888773798943
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.6265180030216774
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7168742983291546
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8979019864151875
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.24998545025785765
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.9106202827145656
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7184859520445267
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6231285408139229
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.3528841771185398
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.6427338123321533
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7571549310038487
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6264103663464387
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.46284714092810947
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.9452129490673542
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.767911629130443
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.197843519349893
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5289294446508089
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.23989219032228
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8044251396010319
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 6.351642310619354
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.8659654607375463
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 6.405102166657646
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0223220257709424
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11395574547350407
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05838258657604456
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10772771202027798
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.12916724663227797
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16707389149814844
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06246855482459068
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.17048085574060678
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1264587277546525
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.38810085970908403
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.07036109454929829
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.38788835518062115
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.17245595809072256
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3527424531057477
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.08554121013730764
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3589679952710867
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1974041573703289
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36311105359345675
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.10346686467528343
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3613758133724332
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.20866096019744873
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.37929185200482607
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1491127535700798
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.37760885898023844
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3334387904033065
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.378805841319263
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1479658531025052
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.39233029820024967
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.33458524849265814
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4082049475982785
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1609158469364047
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.41068491991609335
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.76748370192945
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.574341369792819
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.19192290492355824
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.581425754353404
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.6991063477471471
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.6012516872336467
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2588138449937105
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7420695231606563
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7200426577279965
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0064251255244017
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2670905087143183
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.02915878718098
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.731050968170166
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.8857109049956005
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.38790252680579823
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.9089593552052975
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7645949566115936
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.883527496829629
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5129860558857521
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 2.2441388573497534
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7772649017473062
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.751546610146761
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.58766834748288
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.8191136748840413
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8378336982180675
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 7.416338970263799
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.9780131125201782
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 7.512259840344389
+    },
+    {
+      "ranks": 16,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.1676191352307796
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.08782220538705587
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05450793541967869
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.08732774294912815
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11979651171714067
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1697948668152094
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.05604615435004234
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.1691198442131281
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.11980023700743914
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3313572611659765
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06325964350253344
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3267186461016536
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1673438586294651
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.344325415790081
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.07616013754159212
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3541167126968503
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.14051268808543682
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3500756807625294
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09156765881925821
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3500402206555009
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.17261479515582323
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3677782602608204
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.12584354262799025
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3666855627670884
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.33166264183819294
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36667725071310997
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13083410449326038
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3806597553193569
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3319408046081662
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.39162877947092056
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.17412644810974598
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3917292691767216
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.6546264979988337
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.49792020581662655
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.17625701148062944
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.5026712082326412
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.6852862425148487
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5044110585004091
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.23838885438938937
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.6258335585395495
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7079758991797765
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8787934978802999
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.24298702677090964
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.9003259862462679
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7053946610540152
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6282169769207637
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.347641296684742
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.6378904692828655
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7403295021504164
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6278019951035578
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.45984929117063683
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.9489696715027094
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7546264678239822
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.2026730477809906
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5272644727180401
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.2607406998674073
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.792170021062096
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 6.359989133973916
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.861007176960508
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 6.418986013159156
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0131703068812687
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.10200617834925652
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.055171106941998005
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.10173169430345297
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1208275556564331
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.16803285107016563
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.055982451885938644
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.16843986231833696
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.12039525900036097
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3884948091581464
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.06668909918516874
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3869012463837862
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1688548130914569
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3459671977907419
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.0847082119435072
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.35363370552659035
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.1907335827127099
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.35816975869238377
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09712779428809881
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.35630420316010714
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.19979439675807953
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3723852103576064
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.140232197009027
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3700606990605593
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3337986534461379
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3718906082212925
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.14746675733476877
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.3845466999337077
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.33316779881715775
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.40162084624171257
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.15709029976278543
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.4035163205116987
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7649514125660062
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5697238026186824
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.18812310881912708
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.5794696509838104
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.686121336184442
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.5810782313346863
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.25202551235755283
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7371962225685517
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7075796990344921
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.010766951367259
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2623121254146099
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.0244920073697965
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7195812650024891
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.8808303866535425
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.38311583921313286
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8992543530960877
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7493014757831892
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.8792536575347185
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5082477194567522
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 2.2417076397687197
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7654515405495962
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.759477442751328
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5877495277673006
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.812189136321346
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8112835542609295
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 7.453032691652576
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.9782315076639255
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 7.520426685611407
+    },
+    {
+      "ranks": 16,
+      "group": 1,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.167126465588808
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.18830159679055214
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.08992566727101803
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.1882335403934121
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22708037868142128
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36488319747149944
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09389074984937906
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.36293205339461565
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22235140204429626
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7148095639422536
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.10804925113916397
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.712939933873713
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22712843492627144
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0586743941530585
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.13493625447154045
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.0544348508119583
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.34145573154091835
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7039464311674237
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1679438864812255
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.701717403717339
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2548066433519125
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7402149494737387
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.20147820468991995
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7403827039524913
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36900918930768967
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7424542680382729
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2582306507974863
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7683439645916224
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36895880475640297
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7891661487519741
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.22496101446449757
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7889335975050926
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7303250953555107
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0081070009618998
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.26199070271104574
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.0102557018399239
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4192549046128988
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.0169372738649447
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.33373447755972546
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.250147121027112
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4329836703836918
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.784276682883501
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.36334300724168617
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.8105984975894291
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 2.103750826790929
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.2557956874370575
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.5730165479083856
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.29830435415109
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4162232012798388
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.261662321165204
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.6682573196788629
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.9139745446542897
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4306795007238786
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 6.427464463437597
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.9611713079114755
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 6.506196378419797
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4859925334652264
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 12.806100848441323
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 1.688301640873154
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 12.978310619170466
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 6144,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.5848083421587944
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2078298944979906
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.08808220736682415
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.20696094725281
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.2311389660462737
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.36781709641218185
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.09308331646025181
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.36627084482461214
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22137344349175692
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.832949997857213
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.11696000583469868
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.8334026671946049
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 1,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.22662240080535412
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.121097942814231
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1467162510380149
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.1171359568834305
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3474504454061389
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7228350499644876
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.1803853316232562
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7165955845266581
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.3365396987646818
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7523577893152833
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.20897944923490286
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.747208297252655
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 8,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.41159794200211763
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7473017554730177
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.260405195876956
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.7713794941082597
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.4146493971347809
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 0.8059873012825847
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.23429400753229856
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 0.8111122995615005
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 0.7269030902534723
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.150042563676834
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.2842495683580637
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.1625227518379688
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 32,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.656838902272284
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 1.1799533385783434
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.3611263819038868
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 1.4735156825433176
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6662690322846174
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 2.038315792257587
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.4138691195597251
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 2.0598155291130147
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 2.230505303790172
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.787778395538529
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.6320479636391004
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 3.833498883371552
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 128,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.447160340224703
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 3.794250156109532
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 0.7299148322393497
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 4.499975669508179
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.bfloat16",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.4727390371263027
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 7.503884611651301
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 1.0799071751534939
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 7.630327017977834
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float32",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.503424330924948
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllGather",
+      "max_rank_median_wall_ms_per_call": 14.943937848632535
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "AllReduce",
+      "max_rank_median_wall_ms_per_call": 1.911970553919673
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter",
+      "max_rank_median_wall_ms_per_call": 15.06175318111976
+    },
+    {
+      "ranks": 32,
+      "group": 0,
+      "hidden": 7168,
+      "batch": 512,
+      "dtype": "torch.float64",
+      "mode": "ReduceScatter+AllGather",
+      "max_rank_median_wall_ms_per_call": 1.6370170439283054
+    }
+  ]
+}

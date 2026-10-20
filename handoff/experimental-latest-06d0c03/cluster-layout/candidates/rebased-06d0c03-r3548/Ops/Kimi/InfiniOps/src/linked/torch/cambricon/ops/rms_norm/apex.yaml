@@ -1,0 +1,3 @@
+library: apex_fused_layer_norm
+required_symbols:
+  - rms_norm_affine(at::Tensor const&, at::Tensor const&, at::Tensor const&, double, long)

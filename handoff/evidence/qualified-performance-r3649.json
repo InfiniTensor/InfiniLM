@@ -1,0 +1,187 @@
+{
+  "utc": "2026-10-20T17:59:58.082787+00:00",
+  "Kimi_G64_M8_F64_reference": {
+    "audit": "kimi-pipeline-r3555-audit.json",
+    "source_commit": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+    "ABBA_summary": {
+      "G": 64,
+      "M": 8,
+      "cards": 32,
+      "baseline_decode_median": 20.726264538172433,
+      "candidate_decode_median": 57.99441494675554,
+      "candidate_including_prefill_median": 38.2732776041519,
+      "per_all32_cards": 1.8123254670861106,
+      "speed_ratio": 2.7981122618571614
+    },
+    "scope": "32cards,512input/max128,F64 reference only; no native/latest06d adoption"
+  },
+  "GLM_long512_M8": {
+    "audit": "glm-fastpath-r3488-audit.json",
+    "source_commit": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+    "ABBA_summary": [
+      {
+        "batch": 64,
+        "micro": 8,
+        "baseline_total_decode_tok_s_median": 35.14047781499694,
+        "candidate_total_decode_tok_s_median": 47.78430849944622,
+        "candidate_decode_tok_s_per_card": 1.4932596406076943,
+        "throughput_speed_ratio": 1.3598081605780914,
+        "including_prefill_baseline_median": 26.644700491547766,
+        "including_prefill_candidate_median": 33.319619036907696,
+        "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+      },
+      {
+        "batch": 128,
+        "micro": 8,
+        "baseline_total_decode_tok_s_median": 40.37598181649375,
+        "candidate_total_decode_tok_s_median": 54.46725017321582,
+        "candidate_decode_tok_s_per_card": 1.7021015679129943,
+        "throughput_speed_ratio": 1.3490012557655187,
+        "including_prefill_baseline_median": 30.635145945551752,
+        "including_prefill_candidate_median": 38.1020500361635,
+        "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+      }
+    ],
+    "scope": "Independent CPU audit of terminal GLM32card G64/G128 M8 fastpathbundle ABBA;ctx128/cap1024,512input/max512output andtwofrozenprompts repeated, separatefrom128output results; all32 reports/fullIDs/EOS/CPUfullvocabraw/checksums/sameMrepeat/normalclose. Native+harness timing, no HTTP or hardware-peak claim."
+  },
+  "Deep_B8_FP32": {
+    "utc": "2026-10-20T17:06:35.762864+00:00",
+    "completed": true,
+    "producer": [
+      "910407.106",
+      "deep-FP32-token-r3589-B8",
+      "COMPLETED",
+      "0:0",
+      "00:30:01"
+    ],
+    "source_commit": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+    "full_B1_QA": 12,
+    "full_B8_QA": 12,
+    "natural_phases": 4,
+    "full_tokens_exact_to_frozen_F64_reference": true,
+    "logits_bitwise_equality_required": false,
+    "actual_FP32_attention_promotion_calls_per_device": [
+      93396,
+      93396,
+      93396,
+      93396,
+      93396,
+      93396,
+      93396,
+      93396
+    ],
+    "normal_owned_workers_closed": 8,
+    "CPU_fullvocab_files": 116,
+    "report_sha256": "7f1c3e80b947a4603743cc17bdbfbb1855e21f435c2c5294828cd56bd13cca7c",
+    "performance": [
+      {
+        "phase": "natural-l0-r1",
+        "batch": 8,
+        "cards": 8,
+        "decode_tok_s": 17.67255244088553,
+        "including_prefill_tok_s": 15.089040911870425,
+        "output_lengths": [
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512
+        ]
+      },
+      {
+        "phase": "natural-l0-r2",
+        "batch": 8,
+        "cards": 8,
+        "decode_tok_s": 17.74169772237724,
+        "including_prefill_tok_s": 15.110838593571751,
+        "output_lengths": [
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512
+        ]
+      },
+      {
+        "phase": "natural-l1-r1",
+        "batch": 8,
+        "cards": 8,
+        "decode_tok_s": 17.72802393028932,
+        "including_prefill_tok_s": 15.114900790698771,
+        "output_lengths": [
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512
+        ]
+      },
+      {
+        "phase": "natural-l1-r2",
+        "batch": 8,
+        "cards": 8,
+        "decode_tok_s": 17.59867312286862,
+        "including_prefill_tok_s": 15.01469127015075,
+        "output_lengths": [
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512,
+          512
+        ]
+      }
+    ],
+    "scope": "Locked3e0 Model2904/SDK2844/Common2845: B8 attention-outputBF16->FP32 SUM->BF16 only, nativeFFN/indexer, noF64AllReduce. Original2904 requalified under explicitfulltokenpolicy. Two512input frozenprompts/max512, prefillmicro4; allcompleteIDs match F64reference. Static native+harness, notHTTP, broaderquality, latest06d qualification or hardwaremaximum."
+  },
+  "loading_component": {
+    "utc": "2026-10-20T17:06:35.707468+00:00",
+    "completed": true,
+    "producer": [
+      "910377.462",
+      "weight-reload-component-r3613",
+      "COMPLETED",
+      "0:0",
+      "00:01:14",
+      "COMPUTE_NODE_77b8d291"
+    ],
+    "normal_worker_processes": 8,
+    "prepared_cache_stopped": true,
+    "file_bytes": 5363940952,
+    "tensor_payload_bytes_per_GPU": 5363919104,
+    "preload_seconds": 14.755137506872416,
+    "four_epoch_all8_completion_seconds": [
+      2.573052049614489,
+      1.4438826171681285,
+      1.4408988510258496,
+      1.4493082938715816
+    ],
+    "source_all8_seconds_mean": 2.0111801717430353,
+    "resident_all8_seconds_mean": 1.442390734096989,
+    "speed_ratio": 1.3943379725065537,
+    "scope": "Whole onecheckpointfile, all8GPUs simultaneously parse andH2D unchangedbytes. All8 normalspawnexit, 4epochs andbyte-samples independently checked. Preparation warmed sourceOS cache, so Aiswarmshared andBisresident; no coldstorage or fullmodel loading speedup claim. Max of perGPU durations is all8completion proxy after sharedstartbarrier; not synchronized deviceeventbandwidth.",
+    "reports_sha256": {
+      "gpu0": "9dffc8113eecc0a1c2326e699efbc4f7b9640a21719cd8dd28a6636b11c0e3dd",
+      "gpu1": "2515f846b5fe4de06bfe1609caa9eb8746a7c7b48c057d762c2ea8e556759401",
+      "gpu2": "bd12196cf9a4fad7c65887e6ded800c0cf9e75ab29e334e627ca479b1e6e514e",
+      "gpu3": "e2612490dac9f80816a2f78d4b6364b2647b67a2a472412ef5e7c8c63f583839",
+      "gpu4": "7e7d1e26acb19f70d776c4a898e90f613a48df1192956ab70abb1018612ccefd",
+      "gpu5": "2066a8f5f56abd1b622a27b3f3fa0da5c58681bb54f96d6d026dbab2a7337e6c",
+      "gpu6": "f2bbadedf15007c7258b7283a3fab61517264ee0c3f6e54f38a539446cbb6db6",
+      "gpu7": "92a9a38f63841eb490d31c27efc2704857dcf4653709ec08fcbcf657185530be"
+    }
+  },
+  "latest06d_fullmodel_performance_qualified": false,
+  "speculative_end_to_end_speedup_available": false
+}

@@ -1,0 +1,75 @@
+{
+  "excluded_from_main_goal_metric": true,
+  "checkpoint_has_no_MTP_head": true,
+  "latest_verifier_build_completed": true,
+  "CPU_contract": {
+    "GPU_math_tested": false,
+    "batch_sizes": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32,
+      64
+    ],
+    "completed": true,
+    "invalid_metadata_cases": 10,
+    "valid_metadata_cases": 56,
+    "widths": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ]
+  },
+  "fullmodel_launch": "kimi-spec-r3634-launch.json",
+  "audit_queue": "kimi-spec-r3639-audit-queue.json",
+  "actual_status": [
+    {
+      "node": 0,
+      "phase": "loading_weights",
+      "completed": false,
+      "loading_elapsed_seconds": 589.5423956378363,
+      "cases": 0
+    },
+    {
+      "node": 1,
+      "phase": "loading_weights",
+      "completed": false,
+      "loading_elapsed_seconds": 568.2391665377654,
+      "cases": 0
+    },
+    {
+      "node": 2,
+      "phase": "loading_weights",
+      "completed": false,
+      "loading_elapsed_seconds": 588.5872914684005,
+      "cases": 0
+    },
+    {
+      "node": 3,
+      "phase": "loading_weights",
+      "completed": false,
+      "loading_elapsed_seconds": 535.0133006069809,
+      "cases": 0
+    }
+  ],
+  "DSpark_multibatch_producer": [
+    "910377.466",
+    "dspark-batch-r3640",
+    "COMPLETED",
+    "0:0",
+    "00:04:19"
+  ],
+  "DSpark_independent_audit": "dspark-batch-r3646-audit.json",
+  "online_DSpark_integrated": false,
+  "DSpark_independent_audit_completed": true,
+  "DSpark_audit": "dspark-draft-batch-r3646.json",
+  "end_to_end_speedup_measured": false,
+  "current_target_phase": "B1-lookup-K1-B1"
+}

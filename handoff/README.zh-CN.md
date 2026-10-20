@@ -46,3 +46,8 @@ GitHub 中保存可审查的 C++、GPU 内核、Python、构建入口、测试�
 更新至本轮末：新上游三个 SDK 已在健康节点通过 GPU 可见加载（每节点8卡小计算检查）；原 CPU-only 加载失败是无可见 ROCm 设备，保留负例。新 Common/Model、算子与吞吐仍须验收。旧版 Kimi 长文已独立审计 68.53–68.70/59.89–60.10 tok/s；当前 GLM G128/M32、最多128输出的组合优化已审计 60.51/20.83 tok/s（decode/含prefill），详见性能末表。Deep B8 分块 prefill 已重新测试；Kimi 流水线 producer 已结束，独立审计待完成。
 
 最新实际通信路径与 GLM RDMA 对照见 [网络检查](NETWORK.zh-CN.md)。本轮新增审计参考性能见性能末表；原生低精度新结果仍在测。
+
+
+## 10月21日追加：加载、并行与独立投机实验
+
+最新实际源码补充在 `experimental-latest-06d0c03/`，固定 LM06d0c03/Core046f012/Opsf998e4d；原 legacy/current 两份源快照逐字节保留。这是实验源码附加包，尚无最新06d整模型合格吞吐。新的已审计旧3e0性能、加载限制和Kimi投机试验见 [加载与并行](LOADING_AND_PARALLELISM.zh-CN.md)、[投机实验](SPECULATIVE_EXPERIMENT.zh-CN.md)。投机结果明确排除主目标指标。

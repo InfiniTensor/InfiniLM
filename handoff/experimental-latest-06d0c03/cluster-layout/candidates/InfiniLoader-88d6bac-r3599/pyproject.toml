@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "infiniloader"
+version = "0.1.0"
+description = "InfiniLoader: userspace LLM weight loading and residency manager"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "InfiniLoader contributors" }]
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8"]
+torch = ["torch>=2.2"]
+
+[project.scripts]
+iloader = "infiniloader.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

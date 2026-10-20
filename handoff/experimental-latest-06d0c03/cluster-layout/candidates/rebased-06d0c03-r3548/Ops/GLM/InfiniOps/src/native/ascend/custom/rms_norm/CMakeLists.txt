@@ -1,0 +1,1 @@
+ascendc_add_operator(OP_NAME rms_norm)

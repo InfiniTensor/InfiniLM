@@ -1,0 +1,70 @@
+{
+  "kind": "Ops",
+  "variant": "Kimi",
+  "pins": {
+    "InfiniLM": "06d0c03cc860d730afe5f35e41e53a443221da23",
+    "InfiniCore": "046f012a3ac0d2a91aede1791c0cebc47ed27b45",
+    "InfiniOps": "f998e4d6b445e29a950d048d0bc31f494ca7cce9",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "parent": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/hygon-pad-c3de-r3531/Ops/Kimi/InfiniOps",
+  "target": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-06d0c03-r3548/Ops/Kimi/InfiniOps",
+  "ready": true,
+  "changes": [
+    {
+      "path": "src/base/causal_conv1d.h",
+      "mode": "adopt_new_f998_legal_state_rotary_semantics_preserve_release_checks",
+      "private_sha256": "8d7c2d42d0d26b91391728838ae71203a2d63d69a41c3d8a6437740ae18f9e84",
+      "base_sha256": "4a262809d93ce8155f69af3a6052c69e9499ca5cf62813b039a06cb1f9f1347d",
+      "upstream_sha256": "a2acc554eb89720de12daf2ac0abef52fb87322a7062c43ccc18708dfc694af0",
+      "merged_sha256": "7d338bfea1037fb0f64d16df65ae0f45481fc5a25f967a73b21741d6d7448fc5"
+    },
+    {
+      "path": "src/base/chunk_gated_delta_rule.h",
+      "mode": "adopt_new_f998_legal_state_rotary_semantics_preserve_release_checks",
+      "private_sha256": "820e3ac82fced8929a625a6b61d401201e0bab7b8c91f8239357c7d3e06868ec",
+      "base_sha256": "e52fb27aa972d6a3e75fb66e2d196339978c40f6361dcb25dabfbe2bb8060362",
+      "upstream_sha256": "8f5b714e562df310855e5b5b93e87a72d9f7f59d9cc271708aba59125f6d8879",
+      "merged_sha256": "f1a96e62765a2721c45a0e3663df715cf776ef8f379197efb83c667331e62502"
+    },
+    {
+      "path": "src/base/mrope.h",
+      "mode": "adopt_new_f998_legal_state_rotary_semantics_preserve_release_checks",
+      "private_sha256": "978de60019ee97c263af3fb2f5d207e1ecc280fa2dc43f40fc7c31b009206ca3",
+      "base_sha256": "c9b678eeb28d4b76e23c6094b7487b37ae7ab445462a3f787616a4b0d2740200",
+      "upstream_sha256": "6a7df2d590b26a04c786b7a3d4dca2895aaf05b0aa9ac9121cd8acc704812087",
+      "merged_sha256": "f1c0fdeb2728e5cc1c1578717b2362d04ccfcd8035bf2d7a1fb1763c1d1bc103"
+    },
+    {
+      "path": "src/base/recurrent_gated_delta_rule.h",
+      "mode": "adopt_new_f998_legal_state_rotary_semantics_preserve_release_checks",
+      "private_sha256": "63fce4dd589492d75f150ab7fdf815c4968e5a297e52df76db73855499bd073b",
+      "base_sha256": "fc8ab7581ce719c1f02d3deb0e9eb089d6d8532645b95878f361ca115463bbe4",
+      "upstream_sha256": "87cdc8628278835593e7ebcea2f7b6fa98112e1749ff51d4768d235c56fbb05b",
+      "merged_sha256": "497af00a190acc79655e6accc6c126bcc6af6bf8559773f570ec40abc6ff69f4"
+    },
+    {
+      "path": "src/native/cpu/ops/separate_table_rope/kernel.h",
+      "mode": "retain_release_CPU_device_guard_over_upstream_ctor_removal",
+      "private_sha256": "d75b2dc0fdf13e3dc83605c44c4314db0eaa29b785bd0690321fd012d0137df3",
+      "base_sha256": "d75b2dc0fdf13e3dc83605c44c4314db0eaa29b785bd0690321fd012d0137df3",
+      "upstream_sha256": "f5879b75ed75036823014472d12164b442dee8c0f7b6dec8d7a6304a790214fb",
+      "merged_sha256": "d75b2dc0fdf13e3dc83605c44c4314db0eaa29b785bd0690321fd012d0137df3"
+    },
+    {
+      "path": "src/base/mul.h",
+      "mode": "fix_scalar_Mul_actualshape_stride_metadata_instead_of_zero_dim_onlyfirstelement",
+      "parent_sha256": "3bf29cdd8cf00f6ec7c3f1da50503bafd320629789f74141f1f877a7b22c1f8a",
+      "merged_sha256": "954eaa5d56238ed207da92dc4902eeb442d1ab361e4762cd5ea270b63fa3cc82"
+    },
+    {
+      "path": "scripts/generate_torch_ops.py",
+      "mode": "HygonTorch_C10_guard_import_and_stream_routing_existing_C10_HIP_specialization",
+      "parent_sha256": "0ec092e6f79306347f8c0006832ac5aa69c287a50a0f0ffe59bd9f9c0c004bc9",
+      "merged_sha256": "80f64ae8c8078a61dbe454f6c991c1a7ba5c734bc8e33dce2b8254de065b7e3a"
+    }
+  ],
+  "conflicts": [],
+  "scope": "Source-only latest06d/f998 migration; scalarMul metadata+Hygon streamguard fixes and isolatednativePad. Earlier history: reverse-checked three-way migration from3e0/030/c86 onto c3de/14a8/bcfe. ParentOps retains allmodel-specific extensions and qualifiedCast64; Kimi Common3393 F64 and Model3261 privatecommABI/TLS preserved. GLM batchcache/expertorder and Deep3443 overlays remain separate model-assembly work. No binary/performance inheritance; actual new Mul/Pad contracts and all3 models require rebuild and qualification. Removedgitlinks unlinked in newtargetonly. AllnewSDK/Common/model/GPUhelpers require rebuild/qualification; no inheritedperformance. Same pinnedRT/CCL may reuse onlyafterSHAcheck; allOps/Common/modelbinaries must newlybuild/test. No mathguard/capturemetadata relaxation and no inherited performance."
+}

@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T15:35:00.320763+00:00",
+  "recorded_utc": "2026-10-20T18:04:41.129595+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -195,5 +195,13 @@
   "Deep_B16_chunked": {
     "completed": true,
     "audit": "deep-attention-r3536-B16-audit.json"
-  }
+  },
+  "latest_source_addition": "experimental-latest-06d0c03",
+  "latest_progress": "qualified-performance-r3649.json",
+  "latest_experiment": "speculative-experiment-r3649.json",
+  "latest06d_model_performance_qualified": false,
+  "speculative_in_main_metric": false,
+  "DSpark_draft_component_audit": "dspark-draft-batch-r3646.json",
+  "communication_component_audit": "collective-groups-r3647.json",
+  "latest_speculative_fullmodel_performance_qualified": false
 }

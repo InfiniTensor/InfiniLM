@@ -1,0 +1,2 @@
+python_distribution_package: apex
+library_glob: glu_activation*.so

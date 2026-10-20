@@ -1,0 +1,10 @@
+#include <cuda_runtime.h>
+#include <cstdint>
+#include <cmath>
+#include <algorithm>
+#include <stdexcept>
+namespace infini::ops::dsv4_index_cache_detail {
+__global__ void validate(const int64_t*slots,const unsigned char*values,const float*scales,size_t count,size_t capacity,unsigned*seen,int*status,bool write){for(size_t i=size_t(blockIdx.x)*blockDim.x+threadIdx.x;i<count;i+=size_t(gridDim.x)*blockDim.x){auto slot=slots[i];if(slot<0||size_t(slot)>=capacity)atomicOr(status,1);else if(write){unsigned bit=1u<<(unsigned(slot)%32);if(atomicOr(seen+size_t(slot)/32,bit)&bit)atomicOr(status,2);}if(write){if(!isfinite(scales[i])||scales[i]<=0)atomicOr(status,4);for(size_t d=0;d<128;++d)if((values[i*128+d]&127)==127)atomicOr(status,4);}}}
+__global__ void copy_rows(unsigned char*cache,const int64_t*slots,unsigned char*values,uint32_t*scales,size_t stride,const int*status,bool write){if(*status)return;size_t row=blockIdx.x,lane=threadIdx.x,slot=size_t(slots[row]),page=slot/64,offset=slot%64;auto data=cache+page*stride+offset*128;auto scale=reinterpret_cast<uint32_t*>(cache+page*stride+8192+offset*4);if(write){data[lane]=values[row*128+lane];if(lane==0)*scale=scales[row];}else{values[row*128+lane]=data[lane];if(lane==0)scales[row]=*scale;}}
+void Launch(void*cache,const void*slots,void*values,void*scales,void*status,void*workspace,size_t count,size_t pages,size_t stride,size_t mode,cudaStream_t stream){auto check=[](cudaError_t x){if(x!=cudaSuccess)throw std::runtime_error(cudaGetErrorString(x));};auto flag=static_cast<int*>(status);check(cudaMemsetAsync(flag,0,4,stream));if(mode==0)check(cudaMemsetAsync(workspace,0,pages*8,stream));validate<<<unsigned(std::min<size_t>((count+255)/256,256)),256,0,stream>>>(static_cast<const int64_t*>(slots),static_cast<const unsigned char*>(values),static_cast<const float*>(scales),count,pages*64,static_cast<unsigned*>(workspace),flag,mode==0);check(cudaGetLastError());copy_rows<<<unsigned(count),128,0,stream>>>(static_cast<unsigned char*>(cache),static_cast<const int64_t*>(slots),static_cast<unsigned char*>(values),static_cast<uint32_t*>(scales),stride,flag,mode==0);check(cudaGetLastError());}
+}

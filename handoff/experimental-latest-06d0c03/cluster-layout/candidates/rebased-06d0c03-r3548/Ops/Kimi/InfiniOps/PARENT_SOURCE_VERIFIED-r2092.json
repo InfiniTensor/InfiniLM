@@ -1,0 +1,75 @@
+{
+  "variant": "Kimi",
+  "upstream_parent_before": "bdd60986b54255a8d3b48cc50494f8a398623210",
+  "upstream_parent_after": "2e58fbceb318b5e8096bb86391aa9d4fa0e06cbc",
+  "parent_source": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/kimi-static-sdk-r330/InfiniOps",
+  "LM_target": "d520e6ccc05ccb2f318b7d96ed1b246b9a8d407a",
+  "ready": true,
+  "changes": [
+    {
+      "path": "CMakeLists.txt",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "0ca0744680ac6226d03bd9bfaca63f033ed4807ac95fde26b681a87ad2d59b12",
+      "upstream_old_sha256": "0ca0744680ac6226d03bd9bfaca63f033ed4807ac95fde26b681a87ad2d59b12",
+      "upstream_new_sha256": "7e4a9a7571dc46fa6e80a897069cdc59a955d49956bb05deaa475c3df0400aa2",
+      "merged_sha256": "7e4a9a7571dc46fa6e80a897069cdc59a955d49956bb05deaa475c3df0400aa2"
+    },
+    {
+      "path": "README.md",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "c4d7a03dc82a8f4c544ddb6e7471fee68673e3fd4288414b82b35f35109e618b",
+      "upstream_old_sha256": "c4d7a03dc82a8f4c544ddb6e7471fee68673e3fd4288414b82b35f35109e618b",
+      "upstream_new_sha256": "7012d2c6ba35cddf7b99a0cbb096644c57839e20b7702c4952d5afc6d0d5a22a",
+      "merged_sha256": "7012d2c6ba35cddf7b99a0cbb096644c57839e20b7702c4952d5afc6d0d5a22a"
+    },
+    {
+      "path": "cmake/NativeW4Marlin.cmake",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "655b7ee88a08c842ef55435ef2065aa2365167c11db3758e01a68944bd1482f0",
+      "upstream_old_sha256": "655b7ee88a08c842ef55435ef2065aa2365167c11db3758e01a68944bd1482f0",
+      "upstream_new_sha256": "b0201f9d1279d64a7f70a1eba278a91058ce6b3a9cd25329989bbc5302ce0429",
+      "merged_sha256": "b0201f9d1279d64a7f70a1eba278a91058ce6b3a9cd25329989bbc5302ce0429"
+    },
+    {
+      "path": "docs/build-nvidia-inference.md",
+      "mode": "upstream_add",
+      "private_before_sha256": null,
+      "upstream_old_sha256": null,
+      "upstream_new_sha256": "5762323185a09cf612577bd964d9fb6f3303857d69c252cd03e205e55da956ec",
+      "merged_sha256": "5762323185a09cf612577bd964d9fb6f3303857d69c252cd03e205e55da956ec"
+    },
+    {
+      "path": "scripts/generate_wrappers.py",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "7cff9d2a9082fc2befe6be0670189c0d3c8d400dcf494eb3900dad603507ef28",
+      "upstream_old_sha256": "7cff9d2a9082fc2befe6be0670189c0d3c8d400dcf494eb3900dad603507ef28",
+      "upstream_new_sha256": "b9efb50a3698a50d4286d940c45c6cc1a374b710c95c58fffc4fbf58e95cacb0",
+      "merged_sha256": "b9efb50a3698a50d4286d940c45c6cc1a374b710c95c58fffc4fbf58e95cacb0"
+    },
+    {
+      "path": "src/CMakeLists.txt",
+      "mode": "three_way_with_exact_reverse",
+      "private_before_sha256": "8e7ba879716e904561e0645b459e67249c788316b9ab4a6f013a1f585120f5b9",
+      "upstream_old_sha256": "d78fe39349cb6313cf2e821904d304e9fc8e24d3b2fffc730155c8c6dd149fa0",
+      "upstream_new_sha256": "ea9f51770042c46951c7a76bc3543cd35ffde4b077e2c8b244975b0ca5f4c82f",
+      "merged_sha256": "0e82e1e56dd3fc5bd70297341ae9fd182c269624f34796ab9261c517a20dba8b"
+    },
+    {
+      "path": "src/native/cuda/nvidia/ops/gemm/cublas.h",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "08cca2ab3f21dac59bd4dcc489aa4c87dbc506f3a07f98818a68745773ea3265",
+      "upstream_old_sha256": "08cca2ab3f21dac59bd4dcc489aa4c87dbc506f3a07f98818a68745773ea3265",
+      "upstream_new_sha256": "545d73ed153ac18e28852a24395295c2d3ee0d399317c1a300e0ca831a202f85",
+      "merged_sha256": "545d73ed153ac18e28852a24395295c2d3ee0d399317c1a300e0ca831a202f85"
+    },
+    {
+      "path": "src/native/cuda/nvidia/ops/gemm/handle_owner.h",
+      "mode": "unchanged_parent_to_upstream",
+      "private_before_sha256": "c8103d2dbec0e0d449c73d4546fa698c5ddd12616eab0c00697cccb6e43014d6",
+      "upstream_old_sha256": "c8103d2dbec0e0d449c73d4546fa698c5ddd12616eab0c00697cccb6e43014d6",
+      "upstream_new_sha256": "bb0a963b8355fa4a38e8320dc99f3ec2fe5d432151af8e609d26cec325bbbb32",
+      "merged_sha256": "bb0a963b8355fa4a38e8320dc99f3ec2fe5d432151af8e609d26cec325bbbb32"
+    }
+  ],
+  "scope": "Retain existing custom Hygon source, merge every exact upstream Ops change. Forward and reverse merge required for private modifications. Source preparation only; not binary/model qualification."
+}

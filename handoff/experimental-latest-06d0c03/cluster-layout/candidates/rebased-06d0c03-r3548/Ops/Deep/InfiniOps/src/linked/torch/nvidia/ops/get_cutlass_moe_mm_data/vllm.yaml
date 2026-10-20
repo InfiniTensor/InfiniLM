@@ -1,0 +1,7 @@
+library: vllm
+operator_schema: >-
+  _C::get_cutlass_moe_mm_data(Tensor topk_ids, Tensor! expert_offsets,
+  Tensor! problem_sizes1, Tensor! problem_sizes2, Tensor! input_permutation,
+  Tensor! output_permutation, int num_experts, int n, int k,
+  Tensor? blockscale_offsets) -> ()
+dispatch_key: CUDA

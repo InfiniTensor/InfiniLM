@@ -1,0 +1,6 @@
+library: vllm_moe
+operator_schema: >-
+  _moe_C::grouped_topk(Tensor scores, Tensor scores_with_bias, int n_group,
+  int topk_group, int topk, bool renormalize, float routed_scaling_factor) ->
+  (Tensor, Tensor)
+dispatch_key: CUDA

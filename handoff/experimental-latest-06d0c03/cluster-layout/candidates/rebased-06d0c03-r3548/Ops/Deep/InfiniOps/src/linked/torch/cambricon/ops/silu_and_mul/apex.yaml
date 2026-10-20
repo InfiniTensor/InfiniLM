@@ -1,0 +1,3 @@
+library: apex_glu_activation
+required_symbols:
+  - bias_swiglu_fwd(at::Tensor const&, at::Tensor const&)
