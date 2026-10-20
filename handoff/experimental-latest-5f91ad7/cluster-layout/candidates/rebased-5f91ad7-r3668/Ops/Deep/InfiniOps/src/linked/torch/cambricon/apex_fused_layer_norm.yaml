@@ -1,0 +1,2 @@
+python_distribution_package: apex
+library_glob: fused_layer_norm_cuda*.so

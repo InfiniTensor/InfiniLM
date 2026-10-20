@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T18:23:28.956790+00:00",
+  "recorded_utc": "2026-10-20T20:10:10.392506+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -196,7 +196,7 @@
     "completed": true,
     "audit": "deep-attention-r3536-B16-audit.json"
   },
-  "latest_source_addition": "experimental-latest-06d0c03",
+  "latest_source_addition": "experimental-latest-5f91ad7",
   "latest_progress": "qualified-performance-r3649.json",
   "latest_experiment": "speculative-experiment-r3649.json",
   "latest06d_model_performance_qualified": false,
@@ -210,5 +210,19 @@
     "reason": "Complete tokenID mismatch andslower; not logitraw-only"
   },
   "KDA_operator_component": "kda-roundstep-component-r3657.json",
-  "KDA_wholemodel_fix_implemented": false
+  "KDA_wholemodel_fix_implemented": true,
+  "latest_qualified_06d": "qualified-06d-r3707.json",
+  "latest5f91_fullmodel_performance_qualified": true,
+  "first_complete_speculative_matrix_qualified_comparisons": 0,
+  "latest5f91_builds": "latest-5f91-build-status-r3707.json",
+  "latest5f91_model_qualified": {
+    "Deep": "qualified-latest-Deep-r3729.json",
+    "Kimi": null,
+    "GLM": null
+  },
+  "latest5f91_allthree_models_qualified": false,
+  "KDA_wholemodel_fix_qualified": false,
+  "latest_speculative_gain_adopted": false,
+  "latest_Kimi_failure": "kimi-latest-failures-r3711.json",
+  "latest_diagnostics": "kimi-small-diagnostics-r3734.json"
 }

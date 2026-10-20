@@ -1,0 +1,346 @@
+{
+  "utc": "2026-10-20T19:38:40.577869+00:00",
+  "pins": {
+    "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+    "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+    "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+    "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+  },
+  "source_archive_sha256": "94cf41f08651eeda2e8a70539fa8b53b70a5bfa5c5dcd5cfa00a1a150ba5e6a4",
+  "source_files": 8401,
+  "source_bytes": 32034729,
+  "sanitized_files": {
+    "candidates/rebased-5f91ad7-r3668/Model/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "d411a9d3548736498c23341e44ec1fc64410cc6cb46dda47a008e9f503ce4a3f",
+      "shipped_sha256": "9c67ad07c9876a0e04c02a204bd04855e87b121620a80b7c0a0ecaa8e3416e1e",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "2ba261bd769ca94c7411d57fc50b227fce5d9834d87ceeb81466f94fe633a904",
+      "shipped_sha256": "9ecc810ac219f02c472b4a1425b11d983704b2385c926674d5fde857fd5a6608",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "5d4e9f0e88f7a949c094354446e0a0850e0480786f79ae6167fe69f62e4b4c4f",
+      "shipped_sha256": "4bdbd768215fb33090448dd954d210efb7193dbe969fd3d95976d70708769093",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Kimi/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "e1d581176174bc6e5c67c06c3912e8623fd063ea0db4fb3a93c3e0b7a1ba604d",
+      "shipped_sha256": "ac19f4f9c27479396e4d036e83864afa9d62b260ce5b3edd0cafcba93cd4630d",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Kimi/migration-manifest.json": {
+      "source_sha256": "707f1811f5788bbd2fb8ca0d9d97c852bdf09258280fbc842599e0d98ec1e476",
+      "shipped_sha256": "d001be972f7f49010d4b8a876f752e30b510ba3c223f71d03c448aaa69156ecf",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "3e7bfa134712bf736334ef6863df4c09ae9e65e3892651a3a512240c25d762c2",
+      "shipped_sha256": "82b9ca41c1f8b9c45f8e15d1d0a24b91f9af2773c18bc62087d76e01d20d48de",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "649d9800b518c86aae90da44e604a90fcdd81c77d26d4b03322e873f1be66c86",
+      "shipped_sha256": "2e9b8ae50d7f90d9de8195843ce6197d6df395a6c0e088f35be40fd3c14dab75",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "9b2373d1d791d87791c274d2ac0f5980e5d37d0174baac72e53d61b47967d36b",
+      "shipped_sha256": "a4b4c2704192d9592810d260b1eb323240e287a48ffa054c5fcf85b6af130afe",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/GLM/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "5fc12a279fa722aab249a6544f1513103138da11139f2c27e555ac1e98115708",
+      "shipped_sha256": "92615e65e1480860c54cfdfec2096aed867ee7bf256c9d2cf195b9a1396849b6",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/GLM/migration-manifest.json": {
+      "source_sha256": "2cb35019460f5884b7ea6af897a91e6bb096585249aaff5fe43cd2ee81aba411",
+      "shipped_sha256": "57352e1b355bb305d392cf13cd9cf496a4a5e9cbe30d9d9a1cec3a18e447270f",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "e1ccc5aeae7845218b24fbd0343e6ef9ad0950274e091a65ddeea3a139c3a227",
+      "shipped_sha256": "5c5fd4c1fd6db6ed668cf54d5130e99d4af3fdf00fd006bd3e4b2bd8f80ef76d",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "7568f55e86c430d8cb493fcd73cfa33abed97b432b67957deeecb1b9a3302aca",
+      "shipped_sha256": "46e6f052a27cb2f53566db661c9d059a85eee75cbac4c4cf569811748f67753a",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "5cad21d1a9f2f5ae898652f50869c156b028df73019aafb8c99ab5cadd09d061",
+      "shipped_sha256": "8bd4fafe8f9b1371df6b34bb05210c2f084142be92b886501718074420c1ef01",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Deep/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "4de80aaf58fbf7e019808bae43e16b947c26d4d0dceed401395019383a52fb75",
+      "shipped_sha256": "b3d6c8f8d0177843f9fd618e00b6345251b3bd5522b5e7a2875aaf6236911f26",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Model/Deep/migration-manifest.json": {
+      "source_sha256": "4170c8686106f9968458bbea6824a0549e4be454285389093a8c612584509053",
+      "shipped_sha256": "d36feb5b654a8b790d25ed3de1202646198eb5cc27a20b7ccb42d03cdb44b5a2",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "70077598f9620dadc506553e4b1447da5db2c361c37f20fcacdf608b61e2a624",
+      "shipped_sha256": "9afa21f7770adf391df3e0ac9b02487af552a01eb436bad4f84c1cea6511f073",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "ab4e5d327424d00bfeba81a7f4c85c6db4e7cb825b27d9cf30bb3e7f1fee8c2d",
+      "shipped_sha256": "20e82bb8541902bf024ba20b450fbb35c894dff0dfad721f610438e99cb67fa5",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "aa8fc98a14d9f6da82881a901f267e7676e89c83ec65a99d28654de8cbe74f60",
+      "shipped_sha256": "45fb579da70ffd1efac0cc5e15e24e664369652a7e2548a4d97197464236e20d",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "38491481dc094b465392b6c8cea19fa598adcd958bfa960e6e98a009bf8e0c38",
+      "shipped_sha256": "187921830b3faf968e4715cf8e7b93673d719bd89350bba29edd745fc3f6e17a",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "44a08b421765ea2318776afbd6c69aac83474e93213ff1403b9e124056b17413",
+      "shipped_sha256": "9705dff54812a0c9c54ec821969208e21e0ef903c0ad8d815987b10efb6c87c3",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "be079c67d097da997c27af5bd0e3417bf0569731f737bc2882f7caa8784bcf04",
+      "shipped_sha256": "b965af77def55f4cc98efe6168e84e902a7a58871ad581bed806ac1ee351675d",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Kimi/migration-manifest.json": {
+      "source_sha256": "c9893e7d5ed8c9ddfce6c515a28b331ae8230a3b1a067d9e27efcf124e0b5333",
+      "shipped_sha256": "fe7506b659d2fec1af125c89df45fea08f25bf3ec8d10f3d916511d61aa13637",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "562e4b33bbd8f00720523577ac2c243345425b9b6ea376eaecc260e2ad4c04aa",
+      "shipped_sha256": "6f4b353b8ef6b7efadb4272ded8ee0d89f3288b5885fe425d2a1e520d45c1a7f",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "dbc028214fe4027f513063c3878f4cce0c76e245bec4c71d15379fc1aae352e5",
+      "shipped_sha256": "860224a15d18cb4e1ccee943d70ea2cad11e03942a3b0cbc165f1aa45c7a55e2",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "8bcff8f7c872488fdc11a0e2ff97138ab4c35c95617835b48dc0ad608f8aedb0",
+      "shipped_sha256": "1827080955a21dd41f6cf4eac6db97a5415eef9cb9fe917a7435817fabea52e6",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "b6bbe118346a15f47f4d2eb9712d657ef0439cb44d6b02d7d117bf2852434280",
+      "shipped_sha256": "3505b9de8ae6a404dc645ee47c07d53705b06df33ec9542aa3717aaeceee6958",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "90e6f92eb54b4818a594c09b38393e8fdd23bd658957a4f92be1fe7f9d824444",
+      "shipped_sha256": "f711ca757d960ab3ccabf409f6b7548a2722fa82b55f059393abf3cf84dadae5",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "c2afcd1d81a70af931291e10c54dd1c7d953ab945fad15c38431d13f66e4f087",
+      "shipped_sha256": "2233454240bbb17d517bd608ce3f3f83aba2d5c0656a18e3790a0e3dd75ef5ef",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/GLM/migration-manifest.json": {
+      "source_sha256": "e871243cb72de930fb289cd895046184565ec2aaf6e10c88460785e4a0d48da0",
+      "shipped_sha256": "7f6653d16a76128b4afdcd08624d48e017ef2d07b48cbc73501beac308e50f87",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "313e388333431b6976baee14f47326575c9bda92598c10fd2b5e6519f1e5d96a",
+      "shipped_sha256": "823f1e6ce0eac5fb2530e2cedfdc56132851f5556329366d624e3a2db3405831",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "81710378c9ec390d8c15fba2d18dbc26166172acf859bc6fa881e7dccffecf2b",
+      "shipped_sha256": "40e1b54a8b8ae0224b3eebfdc26f0137d7bd173ea4219f9d5c3e408c0a0b5400",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "7db36fd4ed9e99afd6d40da951de2584e098220a73360fed795e01c873ec7c5b",
+      "shipped_sha256": "ac8eb2a86f3e553c9625d58e17de284b45d6fb1b3c1d40a1dc8a8d0cf154e294",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "2e0fbd7937b454116e0ca44f1149221f5246b247507a184d07427ed066b66388",
+      "shipped_sha256": "284123cb304aefe753a4f84e4951711cb0b130d3cfd9723ff6960e1837d47906",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "741303c4076fef0febc8ae5758c1f19f7ab9048351e224ee2c313cf7038e61ee",
+      "shipped_sha256": "ed580c5de1340248179a4adee6e8ea1fc9259115ad17498c4a56d09583bd7f7a",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/InfiniLM/SOURCE_VERIFIED.json": {
+      "source_sha256": "3a2eab44b1c894c4db9c176e356b49fdf29c7fb9759e1d2b5db0876759b69e08",
+      "shipped_sha256": "33ec13960cd708626483c30db67b25e32ad03d7a0e136f383d45449a703d3962",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Common/Deep/migration-manifest.json": {
+      "source_sha256": "52050325a040303f802f6adc004ac030b9907ddc985405fd921fc9e187506bdb",
+      "shipped_sha256": "1de86dae8cd77369a9da7209f6049e6290925ca569e71757c515b4eae5078424",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED-r1887.json": {
+      "source_sha256": "dcb953a86b93ac8622ff2f2ab3a90f6332ff4132ae987e882d766d24e17da81d",
+      "shipped_sha256": "9fc2eb5fdb5290e98e277d9a86fa668aa3f71b32e28ff4ceedc1c73fca3155b7",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED-r2092.json": {
+      "source_sha256": "2c917a7da3fe4263ca0682d7f5f91b10dd03195a20b8bf56a42d28317de85a04",
+      "shipped_sha256": "6c4413f7d578b3ba319105a6de083969d6af15608c7cedf1cc9e6f5efc678add",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r2298.json": {
+      "source_sha256": "2c761cbe51d257e86e8c558f2c83c3362041ac008460bf162ef690942518a5e7",
+      "shipped_sha256": "64fb42ab59d9978d8ed4bd40c74c33175df8ecbbb9d51813d35bb6b4c6674844",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "55fce1851abab0f9bb41a69ef61d3fd9392d71f8c5cbe629301a69e4b8f0f337",
+      "shipped_sha256": "8045213885c9496f338c78528abec5fa38b3e15a172cee8e82ce86c547a5ddb9",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "a43b46683afa3225cc72b09fbe57ab918245cb6ef3a6fb224212f241006e0e42",
+      "shipped_sha256": "2961bafa2017f9fd6af4a66871c592f58ea00b390348af804eb3839067876411",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "832b27142a6a33234eb05c80e6ef61299bf22df5880045c363a4c591cfd7e33f",
+      "shipped_sha256": "03bb5d3b1fdeb2480cf40591ef68ee07668ce953e9f7bab3c524c81a8f51e67a",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "72dfdb54f71ceeceb11278c8ec937859caf4d1ceaf5c161d77ca6dee7150a6d3",
+      "shipped_sha256": "6a0af7188007323adaf85636dfc9ddcf56aaf58abab5181877537ba1d63e88f9",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "a6b19f719a22b510dad7ff57ff474a3aaff58ca8ed8a32f79e173335dad07579",
+      "shipped_sha256": "2c7d123e0c4cc18d5c2d8f7a2e857193d9948c3950b009150bb95d8f04cc3208",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/InfiniOps/SOURCE_VERIFIED.json": {
+      "source_sha256": "34bbffedd39ec7cfed1976f0930f2365296d1c4434d9623389da46f965c95eee",
+      "shipped_sha256": "6fb9b25063e5f624010ab389e9005dfe6acc50325b1e88c0f43d80935e1dbb29",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Kimi/migration-manifest.json": {
+      "source_sha256": "26550f7aef09d255ae80d088a29123583c6b9bc5c01a14c5e442cb6be5693478",
+      "shipped_sha256": "0e91bef6c62260df215fcfc5593aaf39571204ce52802f0061d974c4100e31b6",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED-r1887.json": {
+      "source_sha256": "dcb953a86b93ac8622ff2f2ab3a90f6332ff4132ae987e882d766d24e17da81d",
+      "shipped_sha256": "9fc2eb5fdb5290e98e277d9a86fa668aa3f71b32e28ff4ceedc1c73fca3155b7",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED-r2092.json": {
+      "source_sha256": "84507e7826c52698992b082db5e2481a3ec1ac71fb4e5b12295e2ca009dc1bef",
+      "shipped_sha256": "d9cc5fad5feca2ce5bb3c75f0e8ab36a4eaf0ae363c39e0a57683f7149b49625",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r2298.json": {
+      "source_sha256": "9c20baa51939baac630baa01f62ce5578c704606b9fa7fb1361353e7c779b3bf",
+      "shipped_sha256": "7dda413bb24e016d066d931d7cbf6018dc27889eeb0fa3bf5388ec63bc419031",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "2075b079de345e7c2c45dd2d026e783df9920cb0aedcb60b7006caa94bc24497",
+      "shipped_sha256": "059b5885d22b3b381f1cfec6ff9311e7741d85ff0f1b4932c48d31f4ccc7f0c6",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "d280faab8d4d5fea57f82d048fa8c0108b800a53e0eb457b8484ff89fe25db1f",
+      "shipped_sha256": "e93b20bd051edaa3a42c77efbef85f432e417569965c22e452056ebc9de4d73b",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "97e737a1ce540d6c0ef299e35970363e280c13226f18457a352ef55762ce69b2",
+      "shipped_sha256": "09c4a2dd0305e2d0f21c2c868e04db7603a9948aa94710bb93faff1efb43789a",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "c5d68a6b49eed5d2699f54bc90d5ea6717752370cc1d6ac731d8d1043dad65dc",
+      "shipped_sha256": "a4d5f5d25811257a0d7df0f2d0fadbbaafe6eb4e48f87567fc2d3532860596c8",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "bf0d471050bdd7e2995cfdd1e07a7a75bcdaaaccab1dd11b409dfa1b661ad4eb",
+      "shipped_sha256": "756852cb6d9652b6845db49144d08f2d116d95dfa4f932aac428ecef7cde9579",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/InfiniOps/SOURCE_VERIFIED.json": {
+      "source_sha256": "04165280a93c55766b03338f3a92a7bda4680e970b3630d7f3f21081513964a5",
+      "shipped_sha256": "b2c87bf9b6bacb6218258a55901f7ee39880d2edaea40d88d109203ce96f798f",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/GLM/migration-manifest.json": {
+      "source_sha256": "b80aab4d3d1b617c3e173a57098d23708a3bbd925d62a5ace7b350c6483bf8f1",
+      "shipped_sha256": "356bb20f390e9a061fdfa6465305dae2557700c514d87828a045d694028b04da",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED-r1887.json": {
+      "source_sha256": "dcb953a86b93ac8622ff2f2ab3a90f6332ff4132ae987e882d766d24e17da81d",
+      "shipped_sha256": "9fc2eb5fdb5290e98e277d9a86fa668aa3f71b32e28ff4ceedc1c73fca3155b7",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED-r2092.json": {
+      "source_sha256": "d45576ab7bdacc65730c455aa8cec83a5dc6d439264cb480914557d54157cbd8",
+      "shipped_sha256": "a44c517904904cfda4bb773a209d781ba12bc0685da99937ac957e45833a163e",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r2298.json": {
+      "source_sha256": "2ebbdd151c2b57a9b1d8f87198da97ac2c08f57480974a353cff6fdb63e15e51",
+      "shipped_sha256": "b73ea3c4bafe5b704efc38f38ab022b03a26a4c0d4c236f01ac76d26b50b7961",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r2555.json": {
+      "source_sha256": "930028345b95400fa42601da1edf0de9d25efd9156dd2b5df508769484a64772",
+      "shipped_sha256": "a7a8971bcf332119bb493ef2038abc22a5207ce53fe76e3d1fd385001781272f",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r2640.json": {
+      "source_sha256": "ef3e1c0de440916e22e1b715040bd2db92840770f163dffead8b0b5c1d9599dc",
+      "shipped_sha256": "501d98025cd4491deb5bd5bb7ccfba92272a8eb32134204e2566d9e827d2c327",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r2842.json": {
+      "source_sha256": "ba9d40c27da8d6dad56033931feb68f038de8f5987638b3b638d60b5f50d2b9e",
+      "shipped_sha256": "2397797529897a83f94a73e043f172557a5e949eec8dda15a015384ce423578e",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r3485.json": {
+      "source_sha256": "a06c3940eb73f695fd63509cc66e44bdea8fd1a4efb101fce3e1691d443f3f4f",
+      "shipped_sha256": "dc03f91c9662419af8174682c1276bf3e5a875d91f64a12a6436261dc35225a8",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/PARENT_SOURCE_VERIFIED_r3668.json": {
+      "source_sha256": "4a2b3e57acf1a5c8430467e756ceb69710e92d9805958e749ed849cf51257a35",
+      "shipped_sha256": "be0435a6aca094fba677a0d5ddf710d7ce9d5582f22f6a540cf652b81bdead2f",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps/SOURCE_VERIFIED.json": {
+      "source_sha256": "bd05131054ce97ccfe222643c1a41be9ff43e094d468378318055f33c3b1ff1b",
+      "shipped_sha256": "050875dcaf926d5530ea62b9071ebe143c5d2531d2492f0775e07dfd92b9d5e0",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    },
+    "candidates/rebased-5f91ad7-r3668/Ops/Deep/migration-manifest.json": {
+      "source_sha256": "315b8fcbae2f464fd79e1ab0faec3f9f020105eb569ed5bd94cae1ae9fe845bb",
+      "shipped_sha256": "fe5c9ba80e5c903959b2926fe6afd1ab2cea755d511fd226afeb061ab3597862",
+      "reason": "Replace cluster access/path/physicalhost placeholders only."
+    }
+  },
+  "scope": "Actualnew9sourcecopies, freshmodel/helperrecipes,Kimi verifier candidate,nativeRT/CCLsources. No objects/sharedlibs/weights/vendor/keys. This isexperimentalsource, notqualifiedlatestwholemodelthroughput."
+}

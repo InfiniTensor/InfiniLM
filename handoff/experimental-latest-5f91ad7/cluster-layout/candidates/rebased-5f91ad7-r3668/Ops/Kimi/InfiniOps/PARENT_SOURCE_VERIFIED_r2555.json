@@ -1,0 +1,14 @@
+{
+  "pins": {
+    "InfiniLM": "b7b37077b3a014a3a1c35b5ef07ca91722dbbef0",
+    "InfiniCore": "59d0faae8979fee6e9c28308e01457927ce95125",
+    "InfiniOps": "254c4343b569ec49837a13ad5830f945d6337f10",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "migration_manifest": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-b7b370-r2298/Ops/Kimi/migration-manifest.json",
+  "manifest_sha256": "78a5df38c46c8f066fa0e3f3641faf6ffdb47da3e7129dcf8a7c4ab6f36f32f0",
+  "upstream_blobs_independently_verified": true,
+  "private_patches_present": true,
+  "qualified_build": false
+}

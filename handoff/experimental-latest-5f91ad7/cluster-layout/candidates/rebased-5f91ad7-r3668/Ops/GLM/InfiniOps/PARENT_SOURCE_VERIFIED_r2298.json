@@ -1,0 +1,12 @@
+{
+  "pins": {
+    "LM": "1f598fe3dcd8bccd6174eb200281361c5720ba1a",
+    "Core": "9cdb81bdcccee30b1e79dc5b76fbfda940475b99",
+    "Ops": "0739b278c72d2179b289217d2772884730f6bd0f",
+    "RT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "CCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "migration_manifest": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/latest-upstream-r2084/Ops/GLM/migration-manifest.json",
+  "migration_sha256": "3a8b4d8166edede125b239f4f4b61d7b6d6f0f885069aac32b7845ebc25575c3",
+  "scope": "Latest upstream plus private patches; parent provenance preserved separately. Build and qualification pending."
+}

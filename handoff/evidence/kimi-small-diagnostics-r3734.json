@@ -1,0 +1,275 @@
+{
+  "IndexSelect": {
+    "utc": "2026-10-20T19:49:34.579226+00:00",
+    "completed": true,
+    "GPUs": [
+      {
+        "completed": true,
+        "device": 0,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 1,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 2,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 3,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 4,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 5,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 6,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      },
+      {
+        "completed": true,
+        "device": 7,
+        "BF16_IndexSelect_full_output_exact": true,
+        "owner_Runtime_closed": true
+      }
+    ],
+    "scope": "Actual BF16 IndexSelect firstoperator tinyGPU+owningRuntime/all8normalclose using installedSDKheaders. No checkpointload or fullKimiqualification.",
+    "library_sha256": "cd0f6019a8193a6a069e46cbf27740e24fc3a0e0b74171c12cee3b509c0ae95f"
+  },
+  "includeorder": {
+    "utc": "2026-10-20T19:56:21.424504+00:00",
+    "completed": true,
+    "comparison": {
+      "math_first": {
+        "Add": {
+          "CPU": [
+            0,
+            1
+          ],
+          "Hygon": [
+            0,
+            1
+          ]
+        },
+        "Cast": {
+          "CPU": [
+            0
+          ],
+          "Hygon": [
+            0
+          ]
+        },
+        "Gemm": {
+          "CPU": [
+            0,
+            2
+          ],
+          "Hygon": [
+            0,
+            2
+          ]
+        },
+        "IndexSelect": {
+          "CPU": [
+            8
+          ],
+          "Hygon": [
+            8
+          ]
+        },
+        "IndexedKimiDeltaAttention": {
+          "CPU": [],
+          "Hygon": [
+            0
+          ]
+        },
+        "Mul": {
+          "CPU": [
+            0,
+            8
+          ],
+          "Hygon": [
+            8
+          ]
+        },
+        "RmsNorm": {
+          "CPU": [
+            0
+          ],
+          "Hygon": [
+            0
+          ]
+        },
+        "Softmax": {
+          "CPU": [
+            8
+          ],
+          "Hygon": [
+            0,
+            8
+          ]
+        }
+      },
+      "registry_first": {
+        "Add": {
+          "CPU": [
+            0,
+            1
+          ],
+          "Hygon": [
+            0,
+            1
+          ]
+        },
+        "Cast": {
+          "CPU": [
+            0
+          ],
+          "Hygon": [
+            0
+          ]
+        },
+        "Gemm": {
+          "CPU": [
+            0,
+            2
+          ],
+          "Hygon": [
+            0,
+            2
+          ]
+        },
+        "IndexSelect": {
+          "CPU": [
+            8
+          ],
+          "Hygon": [
+            8
+          ]
+        },
+        "IndexedKimiDeltaAttention": {
+          "CPU": [],
+          "Hygon": [
+            0
+          ]
+        },
+        "Mul": {
+          "CPU": [
+            0,
+            8
+          ],
+          "Hygon": [
+            8
+          ]
+        },
+        "RmsNorm": {
+          "CPU": [
+            0
+          ],
+          "Hygon": [
+            0
+          ]
+        },
+        "Softmax": {
+          "CPU": [
+            8
+          ],
+          "Hygon": [
+            0,
+            8
+          ]
+        }
+      }
+    },
+    "scope": "Compile-time registry include-order diagnostic, no checkpointload or modelmath."
+  },
+  "embedding": {
+    "utc": "2026-10-20T19:56:20.259402+00:00",
+    "completed": true,
+    "comparison": {
+      "06d0c03-r3550": {
+        "CPU": {
+          "Embedding": [
+            0
+          ],
+          "Embedding_default_config_ok": true,
+          "IndexSelect": [
+            8
+          ]
+        },
+        "Hygon": {
+          "Embedding": [
+            0
+          ],
+          "Embedding_default_config_ok": true,
+          "IndexSelect": [
+            8
+          ]
+        }
+      },
+      "5f91ad7-r3672": {
+        "CPU": {
+          "Embedding": [
+            0
+          ],
+          "Embedding_default_config_ok": true,
+          "IndexSelect": [
+            8
+          ]
+        },
+        "Hygon": {
+          "Embedding": [
+            0
+          ],
+          "Embedding_default_config_ok": true,
+          "IndexSelect": [
+            8
+          ]
+        }
+      }
+    },
+    "scope": "Actual embeddingop compile/defaultconfig comparison, noGPU/modelmath.",
+    "configuration_differences": {
+      "CMAKE_INSTALL_PREFIX:PATH": {
+        "3550": "/refactor/install/hygon-kimi-06d0c03-r3550",
+        "3672": "/refactor/install/hygon-kimi-5f91ad7-r3672"
+      },
+      "INFINI_RT_INCLUDE_DIRS:STRING": {
+        "3550": "/refactor/install/hygon-modern/include",
+        "3672": "/refactor/install/hygon-kimi-5f91ad7-r3672/include"
+      },
+      "INFINI_RT_LIBRARY:FILEPATH": {
+        "3550": "/refactor/install/hygon-modern/lib/libinfinirt.so",
+        "3672": "/refactor/install/hygon-kimi-5f91ad7-r3672/lib/libinfinirt.so"
+      },
+      "INFINI_RT_ROOT:PATH": {
+        "3550": "/refactor/install/hygon-modern",
+        "3672": "/refactor/install/hygon-kimi-5f91ad7-r3672"
+      },
+      "INFINI_RT_SOURCE_DIR:PATH": {
+        "3550": "",
+        "3672": "/refactor/candidates/upstream-5f91ad7-r3667/InfiniTensor-InfiniRT-cd1d48258f0a"
+      }
+    }
+  },
+  "scope_correction": "IndexSelect GPUprobe isnotactualEmbedding wholemodelqualification. Testedregistry/headerordersgaveidenticalcounts; source-headerfix3712isnotprovedrootfix."
+}

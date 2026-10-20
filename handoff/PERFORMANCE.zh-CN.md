@@ -133,3 +133,19 @@ G128 两轮 candidate decode 为 60.4585–60.5711，含 prefill 为 20.8263–2
 | Deep，attention FP32归约 | 8卡，B8，prefill micro4，512输入/最多512输出 | 17.60–17.74 | 15.01–15.11 |
 
 这些结果均不是最新06d性能。Kimi一行仅作F64参考；Deep此次完整输出token与冻结F64参考相同，未使用F64AllReduce。不同节点/轮次的结果不构成因果加速比较。均为静态冻结输入及原生计时，不是HTTP生产吞吐或硬件极限。独立审计摘要见 `evidence/qualified-performance-r3649.json`。
+
+
+## 最新06d原生路径已验收（与5f91在测结果分开）
+
+| 模型 | 配置 | decode tok/s | 含prefill tok/s |
+| --- | --- | --- | --- |
+| GLM-5.3，fastpath | 32卡，G1/M1，512输入/最多128输出 | 5.32 | 3.40 |
+| GLM-5.3，fastpath | 32卡，G8/M8，同上 | 19.53 | 6.51 |
+| GLM-5.3，fastpath | 32卡，G16/M8，同上 | 30.85 | 10.32 |
+| GLM-5.3，fastpath | 32卡，G16/M16，同上 | 25.14 | 9.60 |
+| Deep-v4-Flash，attention FP32 SUM | 8卡，B8，prefill micro4，512输入/最多512输出 | 18.26–18.54 | 15.42–15.65 |
+
+GLM为同进程ABBA候选中位数，G16/M8相对同配置基线22.56提高36.8%；完整多batch输出与冻结参考一致，B1自然长输出仅同配置OFF/ON全ID对照，已知QA使用外部参考。Deep完整输出匹配冻结F64参考，FFN/indexer保持原生；不使用F64 AllReduce。这些是06d/046/f998/b413/6f32栈，不是5f91栈。512输入不代表每例都自然EOS：Deep所测长例都触及512输出上限。均为静态输入原生+harness计时，不是HTTP、混合到达或硬件极限。不同batch、输出长度或节点轮次的数字不能直接解释为版本回退。详见 `evidence/qualified-06d-r3707.json`。
+
+
+最新5f91 Deep B8已独立通过：18.27–18.44 decode / 15.43–15.56 含prefill tok/s，8卡；512输入/最多512输出，attention FP32归约，其余原生，完整ID/EOS/CPUargmax/8owner/Slurm均验收。原06d结果仍按06d保留，不能混标。详见 `evidence/qualified-latest-Deep-r3729.json`。

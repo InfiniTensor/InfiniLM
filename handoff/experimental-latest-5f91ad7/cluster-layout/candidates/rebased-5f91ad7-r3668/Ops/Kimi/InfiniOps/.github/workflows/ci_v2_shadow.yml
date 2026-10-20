@@ -1,0 +1,37 @@
+name: CI v2 Shadow
+
+concurrency:
+  group: ci-v2-shadow-${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to run"
+        type: choice
+        required: true
+        default: active
+        options:
+          - active
+          - nvidia
+          - iluvatar
+          - metax
+          - moore
+          - cambricon
+          - ascend
+          - all
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master", "ci/ci-online"]
+
+jobs:
+  ci-v2-shadow:
+    uses: InfiniTensor/ci/.github/workflows/infiniops-ci-v2-shadow.yml@b45d360c8cc529747ee31c5451d7eac96ac9f309
+    with:
+      config_path: .github/ci_config.yml
+      ci_ref: b45d360c8cc529747ee31c5451d7eac96ac9f309
+      max_parallel: 10
+      platform: ${{ github.event_name == 'workflow_dispatch' && (inputs.platform == 'all' && 'nvidia,iluvatar,metax,moore,cambricon,ascend' || inputs.platform == 'active' && 'nvidia,iluvatar,metax,moore,cambricon,ascend' || inputs.platform) || 'nvidia,iluvatar,metax,moore,cambricon,ascend' }}
+    secrets: inherit

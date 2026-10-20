@@ -1,0 +1,3 @@
+library: vllm
+required_symbols:
+  - silu_and_mul(at::Tensor&, at::Tensor&)

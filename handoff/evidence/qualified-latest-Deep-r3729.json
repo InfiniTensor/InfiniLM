@@ -1,0 +1,101 @@
+{
+  "utc": "2026-10-20T20:03:11.607116+00:00",
+  "completed": true,
+  "producer": [
+    "910407.111",
+    "deep-token-r3699-mode5",
+    "COMPLETED",
+    "0:0",
+    "00:30:56"
+  ],
+  "source_commit": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+  "full_B1_QA": 12,
+  "full_B8_QA": 12,
+  "natural_phases": 4,
+  "full_tokens_exact_to_frozen_F64_reference": true,
+  "logits_bitwise_equality_required": false,
+  "actual_FP32_attention_promotion_calls_per_device": [
+    93396,
+    93396,
+    93396,
+    93396,
+    93396,
+    93396,
+    93396,
+    93396
+  ],
+  "normal_owned_workers_closed": 8,
+  "CPU_fullvocab_files": 116,
+  "report_sha256": "8b1f58d2bab4a3f121fa826dbd91711a14e4d30e3bb53a3d30622bd971a50cba",
+  "performance": [
+    {
+      "phase": "natural-l0-r1",
+      "batch": 8,
+      "cards": 8,
+      "decode_tok_s": 18.443281474460512,
+      "including_prefill_tok_s": 15.560156074584095,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l0-r2",
+      "batch": 8,
+      "cards": 8,
+      "decode_tok_s": 18.314920621862786,
+      "including_prefill_tok_s": 15.455498778897631,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l1-r1",
+      "batch": 8,
+      "cards": 8,
+      "decode_tok_s": 18.275115110970017,
+      "including_prefill_tok_s": 15.430202742793025,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l1-r2",
+      "batch": 8,
+      "cards": 8,
+      "decode_tok_s": 18.272517433588046,
+      "including_prefill_tok_s": 15.436774344575985,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    }
+  ],
+  "scope": "Latest5f91 Model3688/SDK3672/Common3673: B8 attention-outputBF16->FP32 SUM->BF16 only, nativeFFN/indexer, noF64AllReduce. Latest5f91 requalified under explicitfulltokenpolicy with unchanged mode5 math; field5 peak-scratch semantics independently checked. Two512input frozenprompts/max512, prefillmicro4; allcompleteIDs match F64reference. Static native+harness, notHTTP, broaderquality, broader quality or hardwaremaximum."
+}

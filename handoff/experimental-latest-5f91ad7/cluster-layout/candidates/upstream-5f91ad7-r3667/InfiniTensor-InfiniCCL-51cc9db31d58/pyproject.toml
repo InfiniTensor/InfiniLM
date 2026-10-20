@@ -1,0 +1,4 @@
+[tool.ruff]
+src = [".", "scripts"]
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]

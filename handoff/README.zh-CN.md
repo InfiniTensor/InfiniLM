@@ -51,3 +51,21 @@ GitHub 中保存可审查的 C++、GPU 内核、Python、构建入口、测试�
 ## 10月21日追加：加载、并行与独立投机实验
 
 最新实际源码补充在 `experimental-latest-06d0c03/`，固定 LM06d0c03/Core046f012/Opsf998e4d；原 legacy/current 两份源快照逐字节保留。这是实验源码附加包，尚无最新06d整模型合格吞吐。新的已审计旧3e0性能、加载限制和Kimi投机试验见 [加载与并行](LOADING_AND_PARALLELISM.zh-CN.md)、[投机实验](SPECULATIVE_EXPERIMENT.zh-CN.md)。投机结果明确排除主目标指标。
+
+
+## 最新补充：5f91重构依赖与投机修复实验
+
+最新递归提交和实际源码见 [5f91实验接手](experimental-latest-5f91ad7/README.zh-CN.md)。RT/CCL和三模型所有层已重建，新32卡高速通信组件验收通过。06d GLM与Deep已有独立全token验收性能；5f91整模型仍在测，不能混标。Kimi首轮B1–16的15组投机比较均发生真实token差异，未得到可采用的投机加速；KDA/MLA修复两组及B16/32/64流水线第三组继续独立测试，全部排除主指标。
+
+
+## 本轮终态补充（覆盖前文“在测”）
+
+最新5f91栈Deep-v4-Flash已完成独立审计：8卡B8、512输入/最多512输出、attention BF16->FP32 SUM->BF16，decode18.27–18.44 tok/s，含prefill15.43–15.56 tok/s，完整token与冻结F64参考一致，8个owner正常关闭、Slurm0。不使用F64 AllReduce；四个长例都到512上限，不代表混合真实流量。见 `evidence/qualified-latest-Deep-r3729.json`。
+
+Kimi M1/M2最新两组均在首次前向失败：operator has no active implementation；尚未进入token与性能验收。普通IndexSelect8卡小测试通过；所测include顺序及新旧Embedding注册均相同，不能认定header改动3712已修复根因。已准备一次带过滤异常调用栈的4节点原失败重放3731，复用stage0部分CPU缓存，先定位实际算子再重新加载多组。
+
+大batch流水线3703在加载前因128行上下文仍套用了32行尺寸断言而失败，32owner正常关闭，未取消父任务或任何健康步骤；另外发现继承的大写FROZEN环境变量名需一致。B32/64还须把paired-state shadow偏移由17改65，并验证128行/516页/129状态槽。该流水线没有可用速度，不能按已运行成功交接。旧M1/M2和原始15组token负例均保留。
+
+GLM cap640两组3698因retrieval QA的518输入+固定256输出上限检查失败，属于驱动容量约束；3721把QA上限设为min(256,640-input+1)，仍要求完整EOS和token参考，未放宽质量或6GiB余量。96/128行两组继续验证；没有合格大batch新结果可采用。
+
+KDA129槽disjoint read/write同池测试3733用于判断能否省去每层整池快照，单次约48.4MiB；3728仅因缺动态helper路径在kernel前失败，不能当算子失败。独立算子通过也不代表整模型已修复。训练DSpark在线集成仍未完成，当前没有可采用的投机加速，投机始终排除主目标指标。

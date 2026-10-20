@@ -1,0 +1,3 @@
+library: tvm_ffi
+required_symbols:
+  - TVMFFIEnvSetStream

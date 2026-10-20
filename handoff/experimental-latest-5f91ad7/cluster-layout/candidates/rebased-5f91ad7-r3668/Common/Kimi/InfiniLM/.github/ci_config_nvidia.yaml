@@ -1,0 +1,74 @@
+repo:
+  url: https://github.com/InfiniTensor/InfiniLM.git
+  branch: main
+
+github:
+  status_context_prefix: "ci/infinilm"
+
+platforms:
+  nvidia:
+    image:
+      dockerfile: images/nvidia/
+      build_args:
+        BASE_IMAGE: nvcr.io/nvidia/pytorch:25.12-py3
+        CUDA_ARCH: sm_80,sm_86,sm_89,sm_90
+        APT_MIRROR: https://mirrors.tuna.tsinghua.edu.cn/ubuntu
+        PIP_INDEX_URL: https://pypi.org/simple
+        InfiniCore_BRANCH: __Branch_Name__
+    docker_args:
+      - "--user=root"
+      - "--network=host"
+      - "--privileged"
+      - "--cap-add=ALL"
+      - "--pid=host"
+      - "--ipc=host"
+      - "--workdir=/workspace"
+    volumes:
+      - /data:/data
+      - /data-aisoft:/data-aisoft
+      - /data-aisoft/artifacts/CI_nvidia_test/__WORKSPACE__:/artifacts
+    setup: pip install .[dev] --no-build-isolation
+    jobs:
+      gpu_inferencetest:
+        type: inferencetest
+        resources:
+          ngpus: [1, 4]
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        stages:
+          - name: test
+            run: python InfiniLM/examples/test_infer.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/
+      gpu_benchtest:
+        type: benchtest
+        resources:
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['default']
+        stages:
+          - name: test
+            run: python InfiniLM/examples/bench.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8 <TEST_PARAM>
+      gpu_accuracytest:
+        type: accuracytest
+        resources:
+          gpu_style: nvidia
+          shm_size: 64g
+          timeout: 3600
+        env:
+          TEST_PARAM: ['--bench mmlu']
+        stages:
+          - name: test
+            run: python InfiniLM/test/bench/test_benchmark.py --device nvidia --model /data-aisoft/mechdancer/models/9g_8b_thinking/ --bench mmlu --backend cpp --max-new-tokens 5 --cache-dir /data-aisoft/pepe/datasets/ --split=val <TEST_PARAM>
+      gpu_servicetest:
+        type: servicetest
+        resources:
+          shm_size: 64g
+        env:
+          MODEL_LIST: 9g_8b_thinking
+          ENGINE: InfiniLM
+          TEST_PARAM: ['default']
+        stages:
+          - name: test
+            run: python InfiniLM/scripts/test_perf.py --verbose

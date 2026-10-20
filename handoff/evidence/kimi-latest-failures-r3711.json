@@ -1,0 +1,156 @@
+{
+  "model_errors": [
+    {
+      "file": "kimi-spec-r3679-math3679-mode2-c71ddf22348faf6e5cd7-node1.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 672.7114202459343
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode1-b86f7a08157ab50b8d37-node1.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 751.423796930816
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode2-c71ddf22348faf6e5cd7-node2.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 817.8755667400546
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode1-b86f7a08157ab50b8d37-node2.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 1053.6442163218744
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode2-c71ddf22348faf6e5cd7-node0.json",
+      "error": "RuntimeError('operator has no active implementation for this device')",
+      "phase": "failed",
+      "completed": false,
+      "loading_seconds": 654.4136464470066,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode2-c71ddf22348faf6e5cd7-node3.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 663.4035552637652
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode1-b86f7a08157ab50b8d37-node3.json",
+      "phase": "QA-before-multiply",
+      "completed": false,
+      "loading_seconds": 872.9021775159054
+    },
+    {
+      "file": "kimi-spec-r3679-math3679-mode1-b86f7a08157ab50b8d37-node0.json",
+      "error": "RuntimeError('operator has no active implementation for this device')",
+      "phase": "failed",
+      "completed": false,
+      "loading_seconds": 942.1051136977039,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3703-pipeline3703-6116ed4d66f02d574e9d-node2.json",
+      "error": "AssertionError()",
+      "phase": "failed",
+      "completed": false,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3703-pipeline3703-6116ed4d66f02d574e9d-node0.json",
+      "error": "AssertionError()",
+      "phase": "failed",
+      "completed": false,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3703-pipeline3703-6116ed4d66f02d574e9d-node1.json",
+      "error": "AssertionError()",
+      "phase": "failed",
+      "completed": false,
+      "all8_owned_workers_shutdown_completed": true
+    },
+    {
+      "file": "kimi-spec-r3703-pipeline3703-6116ed4d66f02d574e9d-node3.json",
+      "error": "AssertionError()",
+      "phase": "failed",
+      "completed": false,
+      "all8_owned_workers_shutdown_completed": true
+    }
+  ],
+  "logs": {
+    "kimi-spec-pipeline-r3703-910374.364-2.log": [
+      "Traceback (most recent call last):\n  File \"/refactor/incoming/modern_kimi_spec_r3703.py\", line 77, in <module>\n    geometry=json.loads(lib.modern_kimi_engine_cache_geometry_r2475(ctx));assert geometry=={'max_rows':32,'pages':132,'page_size':256,'KDA_pool_rows':33};report['cache_geometry']=geometry;report['memory_after_create']=memory();assert all(free>3*1024**3 for free,total in report['memory_after_create']),('insufficient_workspace_reserve_after_create',report['memory_after_create'])\nAssertionError"
+    ],
+    "kimi-spec-pipeline-r3703-910374.364-3.log": [
+      "Traceback (most recent call last):\n  File \"/refactor/incoming/modern_kimi_spec_r3703.py\", line 77, in <module>\n    geometry=json.loads(lib.modern_kimi_engine_cache_geometry_r2475(ctx));assert geometry=={'max_rows':32,'pages':132,'page_size':256,'KDA_pool_rows':33};report['cache_geometry']=geometry;report['memory_after_create']=memory();assert all(free>3*1024**3 for free,total in report['memory_after_create']),('insufficient_workspace_reserve_after_create',report['memory_after_create'])\nAssertionError"
+    ],
+    "kimi-spec-pipeline-r3703-910374.364-0.log": [
+      "Traceback (most recent call last):\n  File \"/refactor/incoming/modern_kimi_spec_r3703.py\", line 77, in <module>\n    geometry=json.loads(lib.modern_kimi_engine_cache_geometry_r2475(ctx));assert geometry=={'max_rows':32,'pages':132,'page_size':256,'KDA_pool_rows':33};report['cache_geometry']=geometry;report['memory_after_create']=memory();assert all(free>3*1024**3 for free,total in report['memory_after_create']),('insufficient_workspace_reserve_after_create',report['memory_after_create'])\nAssertionError"
+    ],
+    "kimi-spec-pipeline-r3703-910374.364-1.log": [
+      "Traceback (most recent call last):\n  File \"/refactor/incoming/modern_kimi_spec_r3703.py\", line 77, in <module>\n    geometry=json.loads(lib.modern_kimi_engine_cache_geometry_r2475(ctx));assert geometry=={'max_rows':32,'pages':132,'page_size':256,'KDA_pool_rows':33};report['cache_geometry']=geometry;report['memory_after_create']=memory();assert all(free>3*1024**3 for free,total in report['memory_after_create']),('insufficient_workspace_reserve_after_create',report['memory_after_create'])\nAssertionError"
+    ],
+    "kimi-spec-r3679-M2-910375.400-2.log": [],
+    "kimi-spec-r3679-M2-910375.400-3.log": [],
+    "kimi-spec-r3679-M2-910375.400-0.log": [
+      "  File \"/refactor/incoming/kimi_spec_protocol_r3679.py\", line 42, in forward\n    if initial:check(lib.modern_kimi_engine_forward_r2475(ctx,N,B,3,*args))\n  File \"/refactor/incoming/modern_kimi_spec_r3679.py\", line 44, in check\n    if code:raise RuntimeError(lib.modern_kimi_engine_error_r2475().decode())\nRuntimeError: operator has no active implementation for this device",
+      "    if initial:check(lib.modern_kimi_engine_forward_r2475(ctx,N,B,3,*args))\n  File \"/refactor/incoming/modern_kimi_spec_r3679.py\", line 44, in check\n    if code:raise RuntimeError(lib.modern_kimi_engine_error_r2475().decode())\nRuntimeError: operator has no active implementation for this device"
+    ],
+    "kimi-spec-r3679-M2-910375.400-1.log": [],
+    "kimi-spec-r3679-M1-910380.238-2.log": [],
+    "kimi-spec-r3679-M1-910380.238-3.log": [],
+    "kimi-spec-r3679-M1-910380.238-1.log": [],
+    "kimi-spec-r3679-M1-910380.238-0.log": [
+      "  File \"/refactor/incoming/kimi_spec_protocol_r3679.py\", line 42, in forward\n    if initial:check(lib.modern_kimi_engine_forward_r2475(ctx,N,B,3,*args))\n  File \"/refactor/incoming/modern_kimi_spec_r3679.py\", line 44, in check\n    if code:raise RuntimeError(lib.modern_kimi_engine_error_r2475().decode())\nRuntimeError: operator has no active implementation for this device",
+      "    if initial:check(lib.modern_kimi_engine_forward_r2475(ctx,N,B,3,*args))\n  File \"/refactor/incoming/modern_kimi_spec_r3679.py\", line 44, in check\n    if code:raise RuntimeError(lib.modern_kimi_engine_error_r2475().decode())\nRuntimeError: operator has no active implementation for this device"
+    ]
+  },
+  "steps": [
+    [
+      "910374.363",
+      "kimi-pipeline-bootstrap-r3703",
+      "COMPLETED",
+      "0:0",
+      "00:00:00"
+    ],
+    [
+      "910374.364",
+      "kimi-spec-pipeline-r3703",
+      "FAILED",
+      "1:0",
+      "00:01:31"
+    ],
+    [
+      "910375.399",
+      "kimi-math-bootstrap-r3679",
+      "COMPLETED",
+      "0:0",
+      "00:00:01"
+    ],
+    [
+      "910375.400",
+      "kimi-spec-r3679-M2",
+      "FAILED",
+      "1:0",
+      "00:15:42"
+    ],
+    [
+      "910380.237",
+      "kimi-math-bootstrap-r3679",
+      "COMPLETED",
+      "0:0",
+      "00:00:01"
+    ],
+    [
+      "910380.238",
+      "kimi-spec-r3679-M1",
+      "FAILED",
+      "1:0",
+      "00:19:33"
+    ]
+  ]
+}

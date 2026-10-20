@@ -1,0 +1,53 @@
+# ==============================================================================
+# InfiniCCL Cluster Configuration Template
+# ==============================================================================
+# This file defines node information, build flags, runtime environments, etc.
+
+# [REQUIRED] The root directory of your `project/source` code.
+# For internal examples, set this to the InfiniCCL source root.
+common_dir: "/path/to/your/project"
+
+# [OPTIONAL] The common or default username for SSH access to remote nodes.
+# Can be overridden by node-specific `user` fields.
+# If not specified and no node-specific `user` is provided, `root` is used.
+common_user: "username"
+
+# [OPTIONAL] Base directory for library installation.
+# If not specified, defaults to `common_dir`.
+# Libraries will be installed under: `<install_dir>/install/<arch>`.
+install_dir: "/path/to/install/artifacts" 
+
+# [OPTIONAL] Global CMake flags applied to ALL nodes.
+# Can be overridden by node-specific `cmake_flags`.
+cmake_flags: "-D..."
+
+# [OPTIONAL] Global arguments passed to the backend launcher.
+# Format: `"flag": ["value1", "value2"]`.
+backend_args:
+  "arg1":
+    - "value1"
+    - "value2"
+
+# [OPTIONAL] Global environment variables applied to ALL nodes.
+# Useful for network tuning or library paths shared across the cluster.
+# Note: node-specific `backend_env` entries override these values.
+backend_env:
+  ENV_VAR1: "value1"
+  ENV_VAR2: "value2"
+
+# [REQUIRED] List of nodes participating in the job.
+nodes:
+  - ip: "localhost"           # IP address or hostname.
+    user: "node1_username"    # [OPTIONAL] Overrides `common_user` for this node.
+    dir: "path/to/project"    # [OPTIONAL] Node-specific path to the project, overrides `common_dir`.
+    type: "nvidia"            # Architecture type.
+    slots: 8                  # Number of GPUs/Processes to run on this node.
+    cmake_flags: "-D..."      # [OPTIONAL] Node-specific CMake options (e.g., `-DUSE_CUDA=ON`).
+    backend_env:              # [OPTIONAL] Node-specific environment variables.
+      NODE1_ENV_VAR1: "value1"
+
+  # Add more nodes as needed, following the same structure.
+  - ip: ""
+    type: "..."
+    slots: 8
+    cmake_flags: "-D..."

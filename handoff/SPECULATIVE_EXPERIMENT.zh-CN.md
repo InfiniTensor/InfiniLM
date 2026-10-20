@@ -42,3 +42,28 @@ CPU 已通过 batch 1/2/4/8/16/32/64、宽度 1–8 的 56 组合法元数据及
 
 
 KDA隔离候选重试已正常结束：8卡、288个请求数/验证宽度/重复组合中，逐token写回BF16的块内核全部与原逐步内核输出及最终状态一致；原块内核在这些组合均与逐步路径不同。此结果证明该算子的状态存储边界会改变数值，仍不是整模型修复完成。接下来需在专用验证请求中接入候选，保留原prefill，并分别消除q_a/q_b/g投影的prefill/decode分支差异，再重新检查完整生成ID和性能。见 `evidence/kda-roundstep-component-r3657.json`。
+
+
+## 首轮完整矩阵与新修复实验
+
+首轮06d原生BF16、TP8PP4共32卡、512输入/最多128输出、B1/2/4/8/16、prompt-lookup K1/3/7已完整结束，32 owner正常关闭并经CPU独立审计；15组均真实token不一致，合格比较为0。B16的AR中位24.10 tok/s，K1/3/7分别14.50/10.63/7.39 tok/s；B1 AR5.35，K1/3/7为3.84/3.45/3.21。后者全部是失败候选诊断值，不是有效性能，也没有获得正加速。完整负例见 `evidence/speculative-full-negative-r3639.json`。
+
+KDA逐token BF16舍入288组算子对照通过后，已接入最新5f91专用验证路径：M1仅改KDA，M2额外对齐MLA q_a/q_b/g投影，两组各4节点，B1–16；保留原512输入prefill。另4节点试B16/32/64、micro4预填充/micro8验证，把跨PP反馈从每micro改为每轮；先测AR串行/流水线ABBA，再比较同流水线AR与投机，避免把调度收益当投机收益。加载一次测多组；M2 stage0尝试InfiniLoader部分CPU缓存。完整冻结AR、实际逐层分派计数、CPU finite/argmax、拒绝重放及终态审计均保留。在测结果暂不声称正确或加速。
+
+训练草稿DSpark只有离线组件测试；最新目标五层features接入、PP传输和增量draft KV仍未完成。现有K3权重没有可直接用的MTP层。不要把离线draft毫秒数当线上acceptance或模型吞吐。三个投机实验始终排除主目标指标。
+
+
+## 本轮终态补充（覆盖前文“在测”）
+
+最新5f91栈Deep-v4-Flash已完成独立审计：8卡B8、512输入/最多512输出、attention BF16->FP32 SUM->BF16，decode18.27–18.44 tok/s，含prefill15.43–15.56 tok/s，完整token与冻结F64参考一致，8个owner正常关闭、Slurm0。不使用F64 AllReduce；四个长例都到512上限，不代表混合真实流量。见 `evidence/qualified-latest-Deep-r3729.json`。
+
+Kimi M1/M2最新两组均在首次前向失败：operator has no active implementation；尚未进入token与性能验收。普通IndexSelect8卡小测试通过；所测include顺序及新旧Embedding注册均相同，不能认定header改动3712已修复根因。已准备一次带过滤异常调用栈的4节点原失败重放3731，复用stage0部分CPU缓存，先定位实际算子再重新加载多组。
+
+大batch流水线3703在加载前因128行上下文仍套用了32行尺寸断言而失败，32owner正常关闭，未取消父任务或任何健康步骤；另外发现继承的大写FROZEN环境变量名需一致。B32/64还须把paired-state shadow偏移由17改65，并验证128行/516页/129状态槽。该流水线没有可用速度，不能按已运行成功交接。旧M1/M2和原始15组token负例均保留。
+
+GLM cap640两组3698因retrieval QA的518输入+固定256输出上限检查失败，属于驱动容量约束；3721把QA上限设为min(256,640-input+1)，仍要求完整EOS和token参考，未放宽质量或6GiB余量。96/128行两组继续验证；没有合格大batch新结果可采用。
+
+KDA129槽disjoint read/write同池测试3733用于判断能否省去每层整池快照，单次约48.4MiB；3728仅因缺动态helper路径在kernel前失败，不能当算子失败。独立算子通过也不代表整模型已修复。训练DSpark在线集成仍未完成，当前没有可采用的投机加速，投机始终排除主目标指标。
+
+
+流水线准备稿3736已补齐128行/516页/129状态槽、shadow偏移65及继承的大写FROZEN变量；**未提交**，launcher要求实际首次前向根因修复与QA新receipt后才能启动。include顺序改动3712自身没有证明能解决算子故障，不应据此加载整组大矩阵。

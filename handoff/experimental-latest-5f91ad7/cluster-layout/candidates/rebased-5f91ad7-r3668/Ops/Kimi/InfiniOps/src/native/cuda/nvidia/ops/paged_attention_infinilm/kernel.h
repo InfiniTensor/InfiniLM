@@ -1,0 +1,22 @@
+#ifndef INFINI_OPS_NVIDIA_PAGED_ATTENTION_INFINILM_KERNEL_H_
+#define INFINI_OPS_NVIDIA_PAGED_ATTENTION_INFINILM_KERNEL_H_
+
+#include <utility>
+
+#include "native/cuda/nvidia/caster.cuh"
+#include "native/cuda/nvidia/runtime_.h"
+#include "native/cuda/ops/paged_attention_infinilm/kernel.h"
+
+namespace infini::ops {
+
+template <>
+class Operator<PagedAttentionInfinilm, Device::Type::kNvidia>
+    : public CudaPagedAttentionInfinilm<Runtime<Device::Type::kNvidia>> {
+ public:
+  using CudaPagedAttentionInfinilm<
+      Runtime<Device::Type::kNvidia>>::CudaPagedAttentionInfinilm;
+};
+
+}  // namespace infini::ops
+
+#endif

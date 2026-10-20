@@ -1,0 +1,115 @@
+THIRD-PARTY SOURCE ATTRIBUTION
+
+Imported/ported material is identified below; new Ops integration glue is not claimed as third-party code.
+Direct donor: https://github.com/InfiniTensor/InfiniCore
+Pinned direct donor: 1ab85ef1d3c2bce49edf1fc73a5b48becaf7552e
+Core material: MIT, Copyright 2025 InfiniTensor; original text: LICENSES/InfiniCore-MIT.txt.
+The Core MIT notice does not replace the original licenses or notices of the upstream projects below.
+Earlier upstream revisions are not asserted where only the fixed direct Core donor is recorded.
+
+Path prefixes:
+P = src/native/cuda/nvidia/ops/
+C = src/infiniop/ops/ in the pinned direct Core donor
+
+W4 / Marlin
+Upstream projects: https://github.com/IST-DASLab/marlin and https://github.com/vllm-project/vllm
+Current kernel source: the fixed vLLM source archive at commit
+ffc4f08c8ee130d4ea6347c1bf31ffd4f8af28ab,
+SHA256 d8f3d663347dff35ea8123d3eb570f67d2dd6c4258ee8b8a8ec2996c42ada678,
+csrc/libtorch_stable/quantization/marlin and csrc/core/scalar_type.hpp.
+Its source kernels, native pointer host entry, scalar definition and generator
+are consumed; the vLLM/Torch runtime is not a dependency of this native target.
+cmake/MarlinSource.cmake acquires that archive through standard FetchContent.
+Complete source distributions contain LICENSE plus the same eleven inputs under
+third_party/marlin-source, and use those files without downloading.
+The original Ops port came through the fixed Core donor above; this selected
+vLLM revision is not asserted to be the unique historical origin of that port.
+Preparation applies patches/marlin to build-directory copies, retaining the
+existing Torch-free includes, repack bindings and activation-order index behavior.
+CUDA template instances and their selector are generated together in the build
+directory. The native marlin.cu host entry and scalar_type.hpp use a private
+declaration/check adapter, retaining CUDA error propagation without Torch types.
+Marlin notices retain Copyright 2024 Elias Frantar, modifications by Neural Magic, Apache-2.0.
+The original generator identifies Apache-2.0 / Copyright contributors to the vLLM project.
+Marlin original Apache headers remain in the prepared source, including marlin.cu;
+Apache text: LICENSE. Original source notices remain in prepared files.
+The prepared dequant.h INT4/INT8 conversion portions also derive from NVIDIA FasterTransformer:
+https://github.com/NVIDIA/FasterTransformer/blob/release/v5.3_tag/src/fastertransformer/cutlass_extensions/include/cutlass_extensions/interleaved_numeric_conversion.h
+The dequant.h references map INT4 FP16/BF16 to upstream lines 215-287/327-385
+and INT8 FP16/BF16 to upstream lines 53-85/125-175; packing, bias and scalar
+specializations are adapted by the Marlin donor, not source-identical copies.
+Original Copyright (c) 2017 - 2022 NVIDIA CORPORATION & AFFILIATES and the
+complete BSD-3-Clause terms are retained in the prepared dequant.h and
+LICENSES/FasterTransformer-BSD-3-Clause.txt. The separate CUTLASS dependency's
+2017-2026 notice does not replace this original copyright notice.
+ADAPTED P/w4_marlin/parameters.cu implements the scale/zero permutations from
+vLLM's vllm/model_executor/layers/quantization/utils/marlin_utils.py;
+the fixed reference revision and loading-only CUDA adaptation are noted in that file.
+
+MoE / recurrent-state ports
+ADAPTED P/deepseek_moe/kernel.cu <- C/deepseek_moe/nvidia/deepseek_moe_nvidia.cu
+ADAPTED P/moe_fused_dense/kernel.cu <- C/moe_fused_dense/nvidia/moe_fused_dense_nvidia.cu
+ADAPTED P/moe_fused_gate/kernel.cu <- C/moe_fused_gate/nvidia/moe_fused_gate_nvidia.cu
+SGLang project: https://github.com/sgl-project/sglang; earlier upstream path: sgl-kernel/csrc/moe/moe_fused_gate.cu.
+The gate keeps the original Copyright 2025 SGLang Team / Apache-2.0 notice; Apache text: LICENSE.
+PORTED P/chunk_gated_delta_rule/chunk_gated_delta_rule_legacy_kernel.cuh <- C/chunk_gated_delta_rule/cuda/kernel.cuh
+Only the active helpers/state-workspace kernel are ported; the disabled donor branch is not copied.
+ADAPTED P/recurrent_gated_delta_rule/recurrent_gated_delta_rule_legacy_kernel.cuh <- C/recurrent_gated_delta_rule/cuda/kernel.cuh (formatting and source notice only)
+PORTED P/recurrent_gated_delta_rule/recurrent_delta_rule_common.cuh <- C/recurrent_gated_delta_rule/cuda/recurrent_delta_rule_common.cuh
+ADAPTED src/native/cuda/ops/mamba_selective_scan/kernel.h <- C/mamba_selective_scan/nvidia/mamba_selective_scan_nvidia.cu
+Namespace, layout/backend binding and resource adaptations are not described as source-identical copies.
+
+FlashAttention / CUTLASS
+Projects: https://github.com/Dao-AILab/flash-attention and https://github.com/NVIDIA/cutlass
+Official fixed source archives, acquired source-only by cmake/FlashAttentionSource.cmake:
+FlashAttention 060c9188beec3a8b62b33a3bfa6d5d2d44975fab (v2.8.3),
+SHA256 64391cfec73fc5a25932b2c0c2fb3b4d9f97af001164e5220af21049fc17e04e.
+Its private CUTLASS dc4817921edda44a549197ff3a9dcf5df0636e7b,
+SHA256 f2a3a9df5e6f010c8b02716aa2644a6f071827fafa606fac5f5241cab6a1ab56.
+scripts/prepare_flash_attention_inference.py prepares csrc/flash_attn/src
+forward headers with patches/flash-attention, preserving source notices, and
+copies upstream LICENSE and AUTHORS. CUTLASS headers are included directly
+from that separate private source; its LICENSE.txt is copied for distribution.
+Complete sdists bundle the 17 original FA inputs and private CUTLASS include/
+plus LICENSE.txt under third_party/flash-attention{,-cutlass}-source.
+The adapted scheduling heuristic comes from csrc/flash_attn/flash_api.cpp and retains Copyright 2023 Tri Dao.
+The original FlashAttention/CUTLASS notices govern those portions; the Core MIT notice does not relicense them.
+Native launch templates, descriptors and workspace/lifetime integration are glue around the imported forward mathematics.
+
+Additional vLLM / TensorRT-LLM / Ascend adaptations
+Apache-2.0 text: LICENSE; per-file source paths, revisions and original notices are retained:
+src/native/cuda/ops/topk_softmax/kernel.cuh <- vLLM 2f75e7f712fb2a013ce05ff357d94135231c8ae2
+P/topk_sigmoid/kernel.cuh <- vLLM 88402a41c4ab272ebbbd33f4a77fbbac0431cbb9
+P/grouped_topk/kernel.cuh <- vLLM ffc4f08c8ee130d4ea6347c1bf31ffd4f8af28ab
+P/get_cutlass_moe_mm_data/kernel.cuh <- vLLM 2f75e7f712fb2a013ce05ff357d94135231c8ae2
+P/moe_wna16_gemm/kernel.cu and kernel.cuh <- vLLM ffc4f08c8ee130d4ea6347c1bf31ffd4f8af28ab
+src/native/ascend/custom/{ops.h,torch_binding.cpp,utils/torch_kernel_helper.h}
+retain their Huawei/InfiniTensor notices and vLLM-Ascend source links.
+
+Distribution
+SDK installation includes LICENSE, this attribution list and LICENSES under
+share/licenses/InfiniOps. Native FlashAttention installation also includes the exact
+upstream LICENSE and AUTHORS and the private CUTLASS LICENSE.txt.
+CUTLASS-BSD-3-Clause.txt records the separate CMake dependency at
+087c84df83d254b5fb295a7a408f1a1d554085cf. CUTLASS notices apply separately to its compiled headers.
+Linked libraries are not relicensed by Ops: distributions bundling sampling.so or
+libtvm_ffi.so must retain the resolved FlashInfer/TVM-FFI licenses, NOTICE files and
+applicable third-party notices. See docs/build-nvidia-inference.md for the pinned recipe.
+LICENSES/Apache-2.0-components.txt records the fixed native recipe's copyrights
+and maps the common Apache terms to LICENSE. The original FlashInfer and TVM-FFI
+NOTICE files and libbacktrace terms are retained verbatim. DLPack's Apache terms
+are shared, with its distinct copyright recorded in that component list.
+FlashInfer v0.6.7 (56ed54098411946525da17eca2bcfd7ec72a515e) generates sampling
+from csrc/{sampling.cu,renorm.cu,flashinfer_sampling_binding.cu}; their source
+include closure does not contain FA3, CUTLASS, fmt or spdlog. TVM-FFI v0.1.10
+(1fed0ae0421e614d45662e8ee6bcae353d3ab2ea) builds libtvm_ffi from the native
+object lists in CMakeLists.txt, including DLPack interfaces and optional
+libbacktrace. Its PyTorch-derived optional Python DLPack addon is not in those
+object lists. These source-based distinctions, not Python import behavior,
+scope the checked-in fallback materials to the two native artifacts.
+They do not cover arbitrary replacement binaries or the complete Python wheels.
+The resolver additionally collects existing license/NOTICE/COPYING materials
+from actual package metadata. That conservative package inventory can include
+materials for components outside these two DSOs; it is intentionally not filtered
+by fixed hashes or used to restrict build capability. A complete wheel or SDK
+redistribution must retain its own applicable notices, including secondary ones.

@@ -1,0 +1,14 @@
+{
+  "pins": {
+    "InfiniLM": "10eb4caec1611519c58576ffbda6f7259fd25288",
+    "InfiniCore": "5e57673c900ac60bea3a58418ff624c40cbcffda",
+    "InfiniOps": "945184c02d767f9dfc343ba7a17f3409f111f32c",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "migration_manifest": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-10eb4cae-r2555/Common/GLM/migration-manifest.json",
+  "manifest_sha256": "031ee50343988557e4b554f1879a3a842421fa01695b0ee1744d1e7372ccb039",
+  "upstream_blobs_independently_verified": true,
+  "private_patches_present": true,
+  "qualified_build": false
+}

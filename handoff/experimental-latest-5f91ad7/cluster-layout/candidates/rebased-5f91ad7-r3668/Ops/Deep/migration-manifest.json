@@ -1,0 +1,106 @@
+{
+  "ready": true,
+  "pins": {
+    "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+    "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+    "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+    "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+  },
+  "kind": "Ops",
+  "variant": "Deep",
+  "parent": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-06d0c03-r3548/Ops/Deep/InfiniOps",
+  "target": "/path/to/cluster-home/hygon-inference-refactor-20261014/candidates/rebased-5f91ad7-r3668/Ops/Deep/InfiniOps",
+  "changes": [
+    {
+      "path": "src/CMakeLists.txt",
+      "mode": "three_way_reverse_exact",
+      "private_sha256": "0255009408d198de595e4ee6b9919ab1873e11d26deca8214fe0271a46f4e965",
+      "old_upstream_sha256": "e4781c7a8c3ea015c272b06d6c8237063b44867ea9fbae1562a0ff8dc00e6b74",
+      "new_upstream_sha256": "3d4a4c04d94d7d3c8527a769c9e113478aca584414ac2e30c122dd30c0a10bd9",
+      "merged_sha256": "3c087fc269af0edfe4027c9151250a10e8799cbfb1f4225fb8c52a68bd7220cf"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/mate.h",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "00aa8ebf2b82dc86744a4c35034b0d04f6fa682a18f29706dad6cbe9fb357ea2",
+      "merged_sha256": "00aa8ebf2b82dc86744a4c35034b0d04f6fa682a18f29706dad6cbe9fb357ea2"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_varlen_func/mate.cc",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "48677801be2f4b1bee67440f51ad4376ce20d5468ca644d0a1022aca718bd036",
+      "merged_sha256": "48677801be2f4b1bee67440f51ad4376ce20d5468ca644d0a1022aca718bd036"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_varlen_func/mate.h",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "6d4230d5c39acaf0291d7ef1c7cf011dc62ce9e39d5476310df5a351e5c25ec2",
+      "merged_sha256": "6d4230d5c39acaf0291d7ef1c7cf011dc62ce9e39d5476310df5a351e5c25ec2"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_varlen_func/mate.yaml",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "2927247a151c048de33be069a5d9d07bb21a98e7b49db1c73df94a740f24c13e",
+      "merged_sha256": "2927247a151c048de33be069a5d9d07bb21a98e7b49db1c73df94a740f24c13e"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_with_kvcache/mate.cc",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "7d0763ac2b09b9bf8731fce67a43130c80d35e17af7e6f013a31c6d900e50e36",
+      "merged_sha256": "7d0763ac2b09b9bf8731fce67a43130c80d35e17af7e6f013a31c6d900e50e36"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_with_kvcache/mate.h",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "2dca070e52cedccb87ba33a380cce2ee6ebd340d34a0998aa1d262e9374fedbc",
+      "merged_sha256": "2dca070e52cedccb87ba33a380cce2ee6ebd340d34a0998aa1d262e9374fedbc"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/ops/flash_attn_with_kvcache/mate.yaml",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "2927247a151c048de33be069a5d9d07bb21a98e7b49db1c73df94a740f24c13e",
+      "merged_sha256": "2927247a151c048de33be069a5d9d07bb21a98e7b49db1c73df94a740f24c13e"
+    },
+    {
+      "path": "src/linked/tvm_ffi/moore/tvm_ffi.yaml",
+      "mode": "upstream",
+      "private_sha256": null,
+      "old_upstream_sha256": null,
+      "new_upstream_sha256": "7245725b22196fd1537a8070ae51feb595c0acf448bc79b4818c621755a2898c",
+      "merged_sha256": "7245725b22196fd1537a8070ae51feb595c0acf448bc79b4818c621755a2898c"
+    },
+    {
+      "path": "tests/test_flash_attn_varlen_func.py",
+      "mode": "upstream",
+      "private_sha256": "e4851ecbbe49a4733fb82dbdaa49a1266aeefea38b29cd7b25d2c492d882d87f",
+      "old_upstream_sha256": "e4851ecbbe49a4733fb82dbdaa49a1266aeefea38b29cd7b25d2c492d882d87f",
+      "new_upstream_sha256": "18b265703a3b17d27283ee8358d2e318e9bffbfd9f290a62ccf6c57660e01f22",
+      "merged_sha256": "18b265703a3b17d27283ee8358d2e318e9bffbfd9f290a62ccf6c57660e01f22"
+    },
+    {
+      "path": "tests/test_flash_attn_with_kvcache.py",
+      "mode": "upstream",
+      "private_sha256": "da05faf5466e432f7fbaf9fa7f5f3fd7e40708dba38e7501c5d79bfe98dd7a88",
+      "old_upstream_sha256": "da05faf5466e432f7fbaf9fa7f5f3fd7e40708dba38e7501c5d79bfe98dd7a88",
+      "new_upstream_sha256": "251914081bba86fe1b75ed52d899cf6867d784e973d654c51a2c455e5a89cfd2",
+      "merged_sha256": "251914081bba86fe1b75ed52d899cf6867d784e973d654c51a2c455e5a89cfd2"
+    }
+  ],
+  "conflicts": [],
+  "scope": "New5f91 source copy and reverse-checked privateoverlay migration fromactual06d sources. LM blobs unchanged; coreREADME/OpsMoore paths andRT/CCLgitlinks updated. NativeHygon Mulmetadata/Pad/C10guard and model contracts retained. FreshnewRT/CCL,allSDK/Common/Model/helpers mustbuild, no performance inheritance."
+}

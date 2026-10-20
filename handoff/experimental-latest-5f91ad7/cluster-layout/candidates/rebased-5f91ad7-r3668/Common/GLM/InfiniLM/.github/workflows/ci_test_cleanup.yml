@@ -1,0 +1,40 @@
+name: Cleanup CI Docker Images
+
+on:
+  schedule:
+    # Every hour at minute 0 (UTC)
+    - cron: "0 * * * *"
+  workflow_dispatch:
+    inputs:
+      keep_count:
+        description: Number of newest images to keep per prefix
+        required: false
+        default: "5"
+        type: string
+      dry_run:
+        description: Dry run only (list without deleting)
+        required: false
+        default: false
+        type: boolean
+      platform:
+        description: Platform to clean
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - nvidia
+          - metax
+          - moore
+          - cambricon
+          - hygon
+
+jobs:
+  ci:
+    uses: InfiniTensor/ci/.github/workflows/cleanup_ci_images.yml@infiniCore_ci
+    with:
+      keep_count: ${{ github.event.inputs.keep_count || '5' }}
+      dry_run: ${{ github.event.inputs.dry_run == true }}
+      platform: ${{ github.event.inputs.platform || 'all' }}
+      ci_ref: infiniCore_ci
+    secrets: inherit

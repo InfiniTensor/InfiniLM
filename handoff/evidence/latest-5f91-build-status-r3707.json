@@ -1,0 +1,159 @@
+{
+  "pins": {
+    "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+    "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+    "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+    "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+  },
+  "builds": {
+    "latest-sdk-r3672-Kimi-build.json": {
+      "completed": true,
+      "library_sha256": "6d5a6204f7eef70e84deb9cc737a36c6ae2c1fbc75a0f70645557c8441ed85ca",
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      }
+    },
+    "latest-sdk-r3672-GLM-build.json": {
+      "completed": true,
+      "library_sha256": "0bd37990340f39bbcaf185abbc990ebeb9f56ea1b9992327eda96d627446a863",
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      }
+    },
+    "latest-sdk-r3672-Deep-build.json": {
+      "completed": true,
+      "library_sha256": "e1d9432e6de79cf09782fc3b3b332fb969d1a948dbac513b3da677d78f7f1f09",
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      }
+    },
+    "common-latest-r3673-Kimi-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "runtime_sha256": "04a6a1a86c97d176e4304b9bb4c1d6fcb8550784beaa47e0f5841fb7603ffabf"
+    },
+    "common-latest-r3673-GLM-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "runtime_sha256": "dc8542f14f70b85c67c227532f61756d432bbfee02308d373ff7ae5b9a540c36"
+    },
+    "common-latest-r3673-Deep-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "runtime_sha256": "c04e19df5fa07bb52c0acf7be9768d258f5e2aa706647db32761e23426b153ec"
+    },
+    "model-latest-r3675-Kimi-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "library_sha256": "27adfe1b244e2897a992d7be7554a9740e66040134e7bb187c588e5ccbd766d8",
+      "fresh_GPU_objects": {
+        "tile.o": "1a30210f74965f145bc5dd1a8a36e3f56ecfe3088f95bd249ccfec7ee60d2fff",
+        "raw.o": "98070d3b3b6b1985b39eb02c35f0a241e212345f2db66d06a7cbed0a2e527771",
+        "kernel.o": "8602e0af61e3db4891459339021f4edc332de1474f04597255d4526f84a4d923",
+        "helpers/grouped.o": "5a653bbf75252d66f372197d618b79ffda88ddc9e69864a64fea56c159b14fcb"
+      },
+      "fresh_helpers": {
+        "helpers/libkimi_grouped_prefill.so": "a171060a1b568b302812f3952bdda144c320b4f28a33fc78db585b7135030b1c"
+      }
+    },
+    "model-latest-r3675-GLM-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "library_sha256": "d011013c41a0bd94f1e46ed3a6b5c32055b32cef60b56e857e2bf941717b845d",
+      "fresh_GPU_objects": {
+        "helpers/scale.o": "547a9f879d5580c8c543e9db0970335a9e9e9429497c15deaf1eaa2f52696883",
+        "helpers/routed.o": "e10632453a7b950afd3078076da7f2a68e0828436ee2d5c725045c30e4a4ef69",
+        "helpers/mask.o": "3ae381662a905d9afaf082b050c2e6dbc4876244fb463c21b4480db5341d1f3a",
+        "helpers/pair.o": "b5c85754028f8b598a20e488b092be60957ef422790cd3951b7ae7a4d6eb9225"
+      },
+      "fresh_helpers": {
+        "helpers/libglm_fp8_batched_r776.so": "e32b4dc2749b4012efbf4322d334b6460dd091190bca78bb8f41e4384f09a7e8",
+        "helpers/libglm_fp8_cache_r807.so": "1bd9ddbe75aad77a1ee59fa45784037a4aa00b7d2a44fc033a0a5cc41803268c"
+      }
+    },
+    "model-latest-r3675-Deep-build.json": {
+      "completed": true,
+      "pins": {
+        "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+        "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+        "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+        "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+        "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+      },
+      "library_sha256": "271cddd67d7e822a739f328754fae5c23e3f3afcaddc78a589a32c299a4525fa",
+      "fresh_GPU_objects": {
+        "helpers/routed.o": "08ed7c8bfb7fe56cee66a6d6bdc5a5d569b05574ae68b2e7741d755a563ea756",
+        "helpers/aux_glm_routed.o": "e10632453a7b950afd3078076da7f2a68e0828436ee2d5c725045c30e4a4ef69",
+        "helpers/fused.o": "fdcb6a7400616e20fe64baca8965fce571c8c624b6b9c396136c595ba52aa7a6",
+        "helpers/post.o": "b7801afb2076db13ce3b9f717c2efab81869e5346e896d9ef6828bbb48a4f6d6",
+        "helpers/scatter.o": "15d95a4280ebe7b40e5dbfa5ad47d9e53bea5a0e0e5b2da7b7f23df22f832682",
+        "helpers/sinkhorn.o": "8a027b285b41f18410abc30759f9c3cc3875ee45a72680643802c43f002529b7",
+        "helpers/gather.o": "e101ffa95e11ebeb633b17003e893d0ab4d7edf61c12d8c0136264c2fa3341d4"
+      },
+      "fresh_helpers": {}
+    }
+  },
+  "RT": {
+    "utc": "2026-10-20T18:43:58.982159+00:00",
+    "completed": true,
+    "pins": {
+      "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+      "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+      "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+      "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+      "ci": "b45d360c8cc529747ee31c5451d7eac96ac9f309",
+      "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+    },
+    "RT_sha256": "edf6b66f306b449df60bf7b126ed8003a2d7d306d2675640912e7240bf25e103",
+    "CCL_sha256": "76eb65adacc8a6832970991ca276b32562543b7fb7e8dd09cda9f4c269f24809",
+    "RT_CMakeCache_sha256": "3eb8e1c2e5f6bfdc8e1dce757e0fbd1035c64a678e95ba5b45249f106afa6147",
+    "CCL_CMakeCache_sha256": "991eabd2a173d186818c26424b2162b4e7319c6970ebf2d23d66082aa0a741a6",
+    "RT_tests": "Start testing: Oct 21 02:43 CST\n----------------------------------------------------------\n1/13 Testing: test_smoke\n1/13 Test: test_smoke\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_smoke\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_smoke\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\n<end of output>\nTest time =   0.01 sec\n----------------------------------------------------------\nTest Passed.\n\"test_smoke\" end time: Oct 21 02:43 CST\n\"test_smoke\" time elapsed: 00:00:00\n----------------------------------------------------------\n\n2/13 Testing: test_core\n2/13 Test: test_core\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_core\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_core\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\n<end of output>\nTest time =   0.08 sec\n----------------------------------------------------------\nTest Passed.\n\"test_core\" end time: Oct 21 02:43 CST\n\"test_core\" time elapsed: 00:00:00\n----------------------------------------------------------\n\n3/13 Testing: test_device_guard\n3/13 Test: test_device_guard\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_device_guard\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_device_guard\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\nInfiniRT device scope unsupported target device type\n<end of output>\nTest time =   0.15 sec\n----------------------------------------------------------\nTest Passed.\n\"test_device_guard\" end time: Oct 21 02:43 CST\n\"test_device_guard\" time elapsed: 00:00:00\n----------------------------------------------------------\n\n9/13 Testing: test_hygon_runtime\n9/13 Test: test_hygon_runtime\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_hygon_runtime\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_hygon_runtime\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\n<end of output>\nTest time =   0.19 sec\n----------------------------------------------------------\nTest Passed.\n\"test_hygon_runtime\" end time: Oct 21 02:43 CST\n\"test_hygon_runtime\" time elapsed: 00:00:00\n----------------------------------------------------------\n\n10/13 Testing: test_hygon_graph\n10/13 Test: test_hygon_graph\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_hygon_graph\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_hygon_graph\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\n<end of output>\nTest time =   0.17 sec\n----------------------------------------------------------\nTest Passed.\n\"test_hygon_graph\" end time: Oct 21 02:43 CST\n\"test_hygon_graph\" time elapsed: 00:00:00\n----------------------------------------------------------\n\n11/13 Testing: test_runtime_dispatch\n11/13 Test: test_runtime_dispatch\nCommand: \"/refactor/build/rt-5f91ad7-r3669/tests/test_runtime_dispatch\"\nDirectory: /refactor/build/rt-5f91ad7-r3669/tests\n\"test_runtime_dispatch\" start time: Oct 21 02:43 CST\nOutput:\n----------------------------------------------------------\n<end of output>\nTest time =   0.16 sec\n----------------------------------------------------------\nTest Passed.\n\"test_runtime_dispatch\" end time: Oct 21 02:43 CST\n\"test_runtime_dispatch\" time elapsed: 00:00:00\n----------------------------------------------------------\n\nEnd testing: Oct 21 02:43 CST\n",
+    "CCL_ldd": "\tlinux-vdso.so.1 (0x00007ffe29ebb000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007f9d6fdfd000)\n\tlibgalaxyhip.so.5 => /opt/dtk/lib/libgalaxyhip.so.5 (0x00007f9d6f200000)\n\tlibrccl.so.1 => /opt/dtk/lib/librccl.so.1 (0x00007f9d64be3000)\n\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007f9d649b7000)\n\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007f9d6fddb000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f9d64600000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f9d6ff02000)\n\tlibpthread.so.0 => /lib/x86_64-linux-gnu/libpthread.so.0 (0x00007f9d6fdd6000)\n\tlibrt.so.1 => /lib/x86_64-linux-gnu/librt.so.1 (0x00007f9d649b2000)\n\tlibnuma.so.1 => /.singularity.d/libs/libnuma.so.1 (0x00007f9d64200000)\n\tlibdl.so.2 => /lib/x86_64-linux-gnu/libdl.so.2 (0x00007f9d649ab000)\n\tlibrocm_smi64.so.2 => /opt/hyhal/lib/librocm_smi64.so.2 (0x00007f9d63e00000)\n",
+    "scope": "Fresh latestcd1RT/51ccCCL, installedisolatedprefix; actualHygonRT native/deviceguard/dispatch/graph tests passed. No inherited b413/6f binaries. RealCCL group numeric/lifecycle and wholemodels still required."
+  },
+  "scope": "Build/CPUcontracts/native32GPUcollectives only; no newwholemodelthroughput inherited."
+}

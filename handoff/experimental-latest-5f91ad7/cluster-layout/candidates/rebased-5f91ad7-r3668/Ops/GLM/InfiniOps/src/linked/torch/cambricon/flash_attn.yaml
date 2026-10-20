@@ -1,0 +1,2 @@
+python_distribution_package: flash-attn
+library_glob: flash_attn_2_bang*.so

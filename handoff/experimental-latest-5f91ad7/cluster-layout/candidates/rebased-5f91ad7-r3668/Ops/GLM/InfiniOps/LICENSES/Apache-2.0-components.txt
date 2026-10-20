@@ -1,0 +1,30 @@
+Apache-2.0 components in the fixed native sampling/runtime recipe
+
+The complete common Apache License, Version 2.0, including sections 1-9 and
+the application appendix, is in repository LICENSE, installed beside this file
+as share/licenses/InfiniOps/LICENSE. Distribute it with these copyrights,
+the original project NOTICE files and the applicable secondary terms.
+This is not a notice inventory for complete Python wheels or arbitrary binaries.
+
+FlashInfer 0.6.7
+https://github.com/flashinfer-ai/flashinfer/tree/v0.6.7
+Commit: 56ed54098411946525da17eca2bcfd7ec72a515e
+Copyright 2025-2026 NVIDIA
+Copyright 2023-2026 FlashInfer community (https://flashinfer.ai/)
+Native source headers also retain Copyright (c) 2023, 2024, 2025 and 2026 by
+FlashInfer team. Shared terms: LICENSE. Original NOTICE: FlashInfer-0.6.7/NOTICE.txt.
+
+Apache TVM FFI 0.1.10
+https://github.com/apache/tvm-ffi/tree/v0.1.10
+Commit: 1fed0ae0421e614d45662e8ee6bcae353d3ab2ea
+Copyright 2024-present The Apache Software Foundation
+Shared terms: LICENSE. Original NOTICE: TVM-FFI-0.1.10/NOTICE.txt.
+
+DLPack: Copyright 2017 by Contributors
+Shared Apache-2.0 terms: LICENSE. Its interfaces are used by the native runtime.
+libbacktrace: original complete copyright and BSD-3-Clause terms retained in
+TVM-FFI-0.1.10/LICENSE.libbacktrace.txt; retain them for the optional compiled support.
+CUDA toolkit supplied headers/libraries remain subject to their own applicable
+redistribution terms; this list does not replace those materials.
+
+Source scope and resolved-package redistribution: repository THIRD_PARTY.txt.
