@@ -1,0 +1,133 @@
+{
+  "utc": "2026-10-20T22:55:36.096467+00:00",
+  "completed": true,
+  "producer": [
+    "910407.112",
+    "deep-token-r3798-mode5",
+    "COMPLETED",
+    "0:0",
+    "00:37:58"
+  ],
+  "source_commit": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+  "full_B1_QA": 12,
+  "full_B16_QA": 12,
+  "natural_phases": 4,
+  "full_tokens_exact_to_frozen_F64_reference": true,
+  "logits_bitwise_equality_required": false,
+  "actual_FP32_attention_promotion_calls_per_device": [
+    94772,
+    94772,
+    94772,
+    94772,
+    94772,
+    94772,
+    94772,
+    94772
+  ],
+  "normal_owned_workers_closed": 8,
+  "CPU_fullvocab_files": 116,
+  "report_sha256": "3bfebb6e7f6dcc861bb168a317cba64f0075e1d6d93a3bc4f63bd0d77bb650eb",
+  "performance": [
+    {
+      "phase": "natural-l0-r1",
+      "batch": 16,
+      "cards": 8,
+      "decode_tok_s": 32.26660124133158,
+      "including_prefill_tok_s": 24.301470130728486,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l0-r2",
+      "batch": 16,
+      "cards": 8,
+      "decode_tok_s": 32.067338812000145,
+      "including_prefill_tok_s": 24.160452155640098,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l1-r1",
+      "batch": 16,
+      "cards": 8,
+      "decode_tok_s": 32.291103077139915,
+      "including_prefill_tok_s": 24.334736633297812,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    },
+    {
+      "phase": "natural-l1-r2",
+      "batch": 16,
+      "cards": 8,
+      "decode_tok_s": 31.396437469712854,
+      "including_prefill_tok_s": 23.58497845165295,
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512,
+        512
+      ]
+    }
+  ],
+  "scope": "Latest5f91 Model3688/SDK3672/Common3673: B16 attention-outputBF16->FP32 SUM->BF16 only, nativeFFN/indexer, noF64AllReduce. Latest5f91 requalified under explicitfulltokenpolicy with unchanged mode5 math; field5 peak-scratch semantics independently checked. Two512input frozenprompts/max512, prefillmicro4; allcompleteIDs match F64reference. Static native+harness, notHTTP, broaderquality, broader quality or hardwaremaximum."
+}

@@ -1,5 +1,15 @@
 # 海光 InfiniLM 双版本迁移交接
 
+## 新增实验进展（2026-10-20T23:43:10.529633+00:00，覆盖后文旧状态）
+
+Kimi 的两种块验证修复模式均完成：32卡TP8PP4、B1/2/4/8/16 × draft上限1/3/7，共30个配置比较，**全部完整token与普通解码不同，而且更慢，合格加速结果为0组**。正常32owner退出、Slurm0；不是运行报错。B16/K1模式2诊断值为普通21.54、投机13.67 tok/s，接受率20.36%；token失败，该速度不作为可用结果或主目标。首个真实接受块已完成追踪与两次未追踪重放，均在第26个生成token分歧；串行完整ID相同。末尾脚本把二维generated_ids直接与一维参考比较，Slurm FAILED1；3836事后独立核对实际前后AR完整ID相同，32worker报告关闭，但只有8项beforeQA，afterQA与末尾affinity未执行，不当正常模型验收。原失败源码/终态保留，3837仅修索引后准备与下轮诊断合并，不为末尾脚本单独重载。首KDA0的8卡投影/活动初态/提交后卷积与SSM状态全同；最早generic raw差异为layer1 attention首token一个BF16元素，次token首次在该层ffn输出430元素；这些是诊断，不是raw gate或已确认根因。实际配置layer1为第二个KDA、layer3为首个MLA。下一轮同次加载抓KDA1详细状态、MLA3 W1/W2，另测n3/K3、n4/K1选择性草稿B1/8/16，前后AR与投机各两次；需实际有草稿并接受、完整ID/EOS/重复/owner/Slurm全部通过才列可用实验结果，仍排除主指标。3841只改host追踪并原样复用旧GPU对象，3847队列等真实成功构建再提交。只比较最终完整token；逐层raw差异用于定位。证据 `evidence/Kimi-spec-M1-complete-negative-r3760.json`、`evidence/Kimi-spec-M2-complete-negative-r3760.json`。
+
+Deep最新5f91、8卡B16已通过独立3799审计，512输入/最多512输出、prefill micro4，decode **31.40–32.29**、含prefill **23.58–24.33 tok/s**；每卡分别3.925–4.036及2.948–3.042。完整ID与冻结F64参考相同、有限值/CPUargmax/正常8owner/Slurm通过，实际仅attention FP32 SUM，无F64 AllReduce。两类重复prompt四阶段均到512上限，不是HTTP/混合流量。
+
+GLM容量prefill计划缓存完成8卡304组完整矩阵新旧对照、修改权重/scale检查及912个独立CPU样本；768MiB/16LRU边界、owner/stream/释放通过。相对每次新建销毁计划，组件host计时比中位2.91，stream计时比3.19，包含分配与调用间隙，**不是整模型加速或纯kernel峰值**。首次16GiB主机内存OOM，96GiB同代码重试通过；Model3816首次host编译const输出指针失败，3822仅按现有809约定补显式mutable输出cast，失败源保留。默认关闭的3822实际Model源码已加入；两/四节点的同次加载B8/M8、B16/M8各20阶段缓存ABBA已提交，decodebundle固定ON，完整token/owner/网络/性能审计已排队。不能继承组件加速比。
+
+GLM128行扫描已独立验收，M8/M16全部冻结完整ID通过，M4仍淘汰；最新B128/M16为70.1499 decode /21.8239含prefill tok/s，每全部32卡2.19218/.68200，prefill输入126.27tok/s，512输入/max128，两次正反序中位。大batch配置收益不能直接称代码因果加速。共享完整1M RoPE的PP2/PP4均已完整验收；同B16/M8，2节点总25.3407、每16卡1.58379，4节点总30.8713、每32卡.96473。不同节点和容量下的描述性比较，未证明最优机器数。3790旧scope字符串与all32字段名沿用32卡字样，但PP2实际循环/normal_workers_closed/服务卡数为16，速率除16；保留原证据并在此澄清。当前目标仍是三模型有效总吞吐/全部服务卡数，投机排除主指标；最优节点数、纯TP/EP、HTTP和硬件极限未完成。
+
 ## 最新进展（2026-10-20T22:24:21.619999+00:00，覆盖后文旧状态）
 
 最新5f91栈GLM的32卡TP8PP4、512输入/最多128输出、640上下文、96行容量完整扫描已结束；32owner正常关闭、Slurm0，3797独立审计后M8/M16全部QA及自然生成完整token与冻结3330相同且重复稳定。**M4 QA真实token不同，整套M4几何淘汰，不采用其速度**。B96/M16 decode中位64.8568 tok/s，含prefill20.5901，每全部32卡为2.0268/0.64344；prefill输入吞吐约120.23 input tok/s。是静态两类重复prompt、两次正反序测量，不是HTTP/混合流量，也不能和旧max512输出数值直接算回归或加速。详见 `evidence/qualified-GLM-profiles-r3797.json`。

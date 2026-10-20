@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T22:24:21.619999+00:00",
-  "scope": "Exactpublicbytes;16220originalsourceblobsverifiedunchanged. GLMM8/M16qualified; M4negative. SharedfullRoPEactualmemory/lifetime only; KimiSpecnegative; DeepB16pending. No inheritednewserver/peak/HTTPclaim.",
+  "utc": "2026-10-20T23:43:10.529633+00:00",
+  "scope": "Exactpublicbytes;16220originalsourceblobsunchanged. DeepB16qualified;KimiM1/M2all30negative;capacityprefillcomponentpassed,newModelABBApending. Roottracepending. Mainall3objectiveactive.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 16837,
-      "sha256": "9e11edf707e664e35fbbf196e42df43a9f58dce04b2dc31d284196f371ba2b9e"
+      "bytes": 20580,
+      "sha256": "eecc6f7cee30abbe35e13b1610a75387a9df9de28a0e497e4332af66995b0719"
     },
     "config.example.env": {
       "bytes": 826,
@@ -25870,6 +25870,14 @@
       "bytes": 921195,
       "sha256": "a4c130112f2c720e4cb4f40f4038d3b796149f9ae27ba3a12130074d72e0dddf"
     },
+    "drivers/analyze_kimi_KDA_pair_r3830.py": {
+      "bytes": 3912,
+      "sha256": "2ef995a512e294093ba19aa9a6c63cf09da6fa2dc56435696d9403e9f9e00fd0"
+    },
+    "drivers/analyze_kimi_KDA_pair_r3838.py": {
+      "bytes": 4024,
+      "sha256": "4994ec28dc0e58cf3bff72df4998775bb57accee66a0dd29e4cece18d51ed392"
+    },
     "drivers/audit_cast64_contract_r3382.py": {
       "bytes": 8252,
       "sha256": "be37c91149b9c4e1197e6165df4a5f4450051c0f54592ce21b3f6da51c8bdc20"
@@ -25925,6 +25933,14 @@
     "drivers/audit_glm_capacity_r3272.py": {
       "bytes": 10775,
       "sha256": "48f3aa7f83ef432b6925ae64aa6000785c019bc5c58997fe8f38f833f29cb8a6"
+    },
+    "drivers/audit_glm_capacity_r3823.py": {
+      "bytes": 15309,
+      "sha256": "05e0c8ce89ea257e93620418d08eb66b6c207de47f9d71da8301f172d5671d34"
+    },
+    "drivers/audit_glm_capcache_r3814.py": {
+      "bytes": 5274,
+      "sha256": "27ef1349409416c6c3ef669eccadd7ddb1325d5ba1e3dc3c0d2ce88eb6254a84"
     },
     "drivers/audit_glm_cohort_r3098.py": {
       "bytes": 8567,
@@ -26038,6 +26054,18 @@
       "bytes": 7071,
       "sha256": "3ab95e1367ae475cebb5d6d46bd1c2b0b2f5c5bb1911f18d3d1f8ba3f796b224"
     },
+    "drivers/audit_kimi_root_postmortem_r3836.py": {
+      "bytes": 7112,
+      "sha256": "6601e8043bb97e06c1c5f30289234476d8116bfd1974742925ab61a2fc22da3e"
+    },
+    "drivers/audit_kimi_root_r3818.py": {
+      "bytes": 6623,
+      "sha256": "d26e242a8f53cbd963d0f54a4c2c1a634ea4863c2c75f2450eda2dca79dd8582"
+    },
+    "drivers/audit_kimi_selective_r3845.py": {
+      "bytes": 10714,
+      "sha256": "b1ed88d4fc09c255bd1f6df059cf6377e56a84698a2e56d160cf642f308c6eab"
+    },
     "drivers/audit_kimi_spec_r3639.py": {
       "bytes": 6864,
       "sha256": "708f41a9ec0d9e7c724494f05ef676a62ae74a2b14f65018ea9b215f2a99cc4b"
@@ -26094,6 +26122,14 @@
       "bytes": 4101,
       "sha256": "2862d61e55671227f5292fb4f89da679fdfa4b68938c00eb6cfc791c324bfbdd"
     },
+    "drivers/build_glm_prefill_capacity_r3816_inside.sh": {
+      "bytes": 4579,
+      "sha256": "d5e96b9d7ed288bc14b6ccd0b3115f01e61d8b8c8f12d74fe901208d7380e611"
+    },
+    "drivers/build_glm_prefill_capacity_r3822_inside.sh": {
+      "bytes": 4579,
+      "sha256": "bb4f2d23c39a178b6db2216d720af555135dd714f3e7f5368ad74705edfe6621"
+    },
     "drivers/build_glm_serving_cases_r1186.py": {
       "bytes": 3620,
       "sha256": "601358c576871a464dfaedcd251f5a92dced4341f15897a50cbd698b1b2cc4a5"
@@ -26121,6 +26157,10 @@
     "drivers/build_kimi_latest_r2863_inside.sh": {
       "bytes": 7060,
       "sha256": "b6034fff28944e79b0791d1e4ec9ba9f4465faa2ab20716f4714c93f4b63f301"
+    },
+    "drivers/build_kimi_MLA_trace_r3841_inside.sh": {
+      "bytes": 4411,
+      "sha256": "f99907ab6a87655272666bdd5682380eaa5b0395cc5eb140247f93210e8cb631"
     },
     "drivers/build_kimi_reduce_abi_r3262_inside.sh": {
       "bytes": 3509,
@@ -26370,9 +26410,25 @@
       "bytes": 11752,
       "sha256": "4b6067ad490b502f97a239609f61c6b7755ee0096c69d368f9f45ea90d537cf0"
     },
+    "drivers/glm_capacity_probe_r3820.py": {
+      "bytes": 14891,
+      "sha256": "37a73ab9643627dc26f5af0b14222080eb20b5223721bb84456ce64c93814028"
+    },
     "drivers/glm_capacity_r3270_inside.sh": {
       "bytes": 1118,
       "sha256": "bde97afb353a06bea90e53d4d13e894b12d26bca52348319af10b076531f83d9"
+    },
+    "drivers/glm_capacity_r3820_inside.sh": {
+      "bytes": 1927,
+      "sha256": "a747e372d2a9eec17a13a12b306f76f651581559d561d4e6f4654efab7e886dc"
+    },
+    "drivers/glm_capcache_r3806_inside.sh": {
+      "bytes": 1149,
+      "sha256": "c53223a150e92280699611d606f080844f437d56fc3861fbdefba8ae3f0fe8ed"
+    },
+    "drivers/glm_capcache_r3812_inside.sh": {
+      "bytes": 736,
+      "sha256": "d3aacdc0d78cadb8403ea3846f531178ba75d7a2c07a75f7cc9f24893193eeda"
     },
     "drivers/glm_chat_template_r20.py": {
       "bytes": 2936,
@@ -26474,6 +26530,18 @@
       "bytes": 541,
       "sha256": "54a0f4e858408300a62029187df66f9287ef439f349820f732d41fdddacb080f"
     },
+    "drivers/glm_fp8_capcache_r3806.cpp": {
+      "bytes": 4975,
+      "sha256": "84978aef30e254ddd3b9b68b4cd43857c7770a7f696775bbb35d202902fb494f"
+    },
+    "drivers/glm_fp8_capcache_r3806.hpp": {
+      "bytes": 651,
+      "sha256": "e5dacaabc70a4e3c99a54355afb9f13c3710fea3457e297b2dd7fc5106cf74a4"
+    },
+    "drivers/glm_fp8_capplan_r3806.cu": {
+      "bytes": 6413,
+      "sha256": "f45a69b1cba3b1bf4dcc64f59b1e7bb68b9da5b49d4d331d2a113ec34055e34b"
+    },
     "drivers/glm_fp8_model_r790.hpp": {
       "bytes": 2007,
       "sha256": "89b60c43051bd994ed2a41137e564d564b47e4bbe551b11e2f0f23ca4d3c82a7"
@@ -26561,6 +26629,10 @@
     "drivers/glm_network_r3573_inside.sh": {
       "bytes": 1916,
       "sha256": "ea74464c407f903fe46828c18db723641a4ff166d71f0810a3ad14ae393e150f"
+    },
+    "drivers/glm_prefill_capacity_bridge_r3816.cpp": {
+      "bytes": 989,
+      "sha256": "5db0445ae0adcf4b3ed9d7d9daaa96a2c1eb76de51e15d234431649244c06b98"
     },
     "drivers/glm_routed_fp8_kernels_r19.cu": {
       "bytes": 4198,
@@ -26730,6 +26802,22 @@
       "bytes": 500,
       "sha256": "0a6e25a68b94ca98f57c65375bc2698608acc879eaedeb45d3960c77f85f4ac2"
     },
+    "drivers/kimi_root_protocol_r3810.py": {
+      "bytes": 14969,
+      "sha256": "587d8a14329f7037bffa3d206367dae34f3491798c6fbbf01c7e9f880a983359"
+    },
+    "drivers/kimi_root_protocol_r3837.py": {
+      "bytes": 16485,
+      "sha256": "1a6c9deb01e6986e57fc32fa12c8d4ae56ac84499c45e9ba80aa331e327ca67d"
+    },
+    "drivers/kimi_root_r3810_inside.sh": {
+      "bytes": 2689,
+      "sha256": "68f93c1785a893a81ee97775f7580f106f812cd59120f13d802cbca9d4dccd89"
+    },
+    "drivers/kimi_root_r3837_inside.sh": {
+      "bytes": 2689,
+      "sha256": "025bde9ca139fdef90de5030f1f84c6be1e6940908778ed2a88ffd47c2ecb916"
+    },
     "drivers/kimi_sdk_smoke_r3714.cpp": {
       "bytes": 1851,
       "sha256": "963103da31b24f6d1b841d4c64aaa97f372cd14fcdcf8ad41ae6e77aeab7f9b5"
@@ -26858,9 +26946,25 @@
       "bytes": 5217,
       "sha256": "5a6ad94033242835db58ae31d33110ee70dd9d80288c84c7fdc4495fbe7db8fd"
     },
+    "drivers/launch_capcache_audit_r3814.py": {
+      "bytes": 777,
+      "sha256": "485cb9bafbff9dda9b4dcd5b8aa474de59a5e03c62ae052ade208127c5a340af"
+    },
     "drivers/launch_deep_B16_r3798.py": {
       "bytes": 1667,
       "sha256": "ff4ac20906cb4b78b26e9c5676cfe882b45dea67f94ea56065b313438c863bae"
+    },
+    "drivers/launch_glm_capacity_r3820.py": {
+      "bytes": 2871,
+      "sha256": "f9e17e94cbd042daec1fe41931962d42820ce75cb9cc6b8e0beea59816f0bdc7"
+    },
+    "drivers/launch_glm_capcache_r3806.py": {
+      "bytes": 1255,
+      "sha256": "6d0f5fc7f5e5439a34bf144372ee017f8586d872a683e711ab3dd2443ddbed46"
+    },
+    "drivers/launch_glm_capcache_r3812.py": {
+      "bytes": 1474,
+      "sha256": "73abd119a5584ffa0714d847995fafe6a7d04559cb08aaf1cace286508eef165"
     },
     "drivers/launch_glm_idle_build_r3771.py": {
       "bytes": 1461,
@@ -26869,6 +26973,14 @@
     "drivers/launch_glm_idle_serving_r3772.py": {
       "bytes": 2404,
       "sha256": "2fc948b788d64223a1f693abd1a10897e82ee16b6b3a1c2d54e45067b3311cd6"
+    },
+    "drivers/launch_glm_prefill_capacity_r3816.py": {
+      "bytes": 1489,
+      "sha256": "b266e87e0d83738ebb3ab2e5c7721037e6d19111a3906b869c5ac7a891bb4ebc"
+    },
+    "drivers/launch_glm_prefill_capacity_r3822.py": {
+      "bytes": 1489,
+      "sha256": "ce2e684c4ec6bfb99e22745916686305326725a0822ffd5e2061c907c3619bb1"
     },
     "drivers/launch_glm_profile_audit_r3797.py": {
       "bytes": 829,
@@ -26918,6 +27030,10 @@
       "bytes": 4024,
       "sha256": "a5abecac1831219094b61e0924caec5adc3060472f8f6797c8e5dd7d02717750"
     },
+    "drivers/launch_kimi_MLA_trace_r3841.py": {
+      "bytes": 1444,
+      "sha256": "bd08608c72ba05c7829437737227560d6e6cb0cb73939ca7b3a64e4a4f67c587"
+    },
     "drivers/launch_kimi_pipeline_spec_r3703.py": {
       "bytes": 2728,
       "sha256": "8c1e2ed6c60da3b38d07ffbfc9841f6eae5dfd1ad0ea131ac98964f600ddc57d"
@@ -26930,6 +27046,14 @@
       "bytes": 3066,
       "sha256": "258a1f93148e12baa7a53d84b6a4e5b6660e8a7d02da5f95fc97af776925e624"
     },
+    "drivers/launch_kimi_root_r3810.py": {
+      "bytes": 4461,
+      "sha256": "754e3f7110d570828f20693375c46255da6929e4254346f20c1a5d061dc9869b"
+    },
+    "drivers/launch_kimi_root_r3837.py": {
+      "bytes": 4801,
+      "sha256": "df961e1aca2656ef85a5ed3b3e09fb867d18e4be3fec0109234d130fa738e8a4"
+    },
     "drivers/launch_kimi_trace_trial_r3731.py": {
       "bytes": 2846,
       "sha256": "b64e658c97c024a3d567587dfaec99da16a64fc212bb8cbe70f5c7f7f8846711"
@@ -26937,6 +27061,10 @@
     "drivers/launch_parallel_collectives_r3685.py": {
       "bytes": 1532,
       "sha256": "c8693ea292e128c66de50f2a156b8398a72c06953c2db915fb425f828bcdcf53"
+    },
+    "drivers/launch_root_postmortem_r3836.py": {
+      "bytes": 789,
+      "sha256": "ba18e944e8579fd389d339c2c07d83a98e62118eefe6476ece71501e0a3ed72f"
     },
     "drivers/legacy-deep-eos-r3453-source-lock.json": {
       "bytes": 304,
@@ -27026,6 +27154,10 @@
       "bytes": 15922,
       "sha256": "76387e540646ba3ac8ae8897f7455ad452a745cd6c6bda5658091ee34b9e4e45"
     },
+    "drivers/modern_glm_capacity_r3820.py": {
+      "bytes": 21184,
+      "sha256": "444cdab4843e0884867c1a11e739ac26f3a394441a302a701414e307652cffdf"
+    },
     "drivers/modern_glm_cohort_r3090.py": {
       "bytes": 14188,
       "sha256": "ac7cc6810c767bbcfb585ef4d6fdac57c2511349e824424d834dfe6f3af77588"
@@ -27102,6 +27234,14 @@
       "bytes": 15366,
       "sha256": "9b51c2a013771540fb657c364ea66d441b95e86d7bed10bb0179aed2ff1b3750"
     },
+    "drivers/modern_kimi_root_r3810.py": {
+      "bytes": 15408,
+      "sha256": "6005f80b1b75a0c458227219050deaf1621eda0a430464b0fd1b7f6b7da30ba4"
+    },
+    "drivers/modern_kimi_root_r3837.py": {
+      "bytes": 15405,
+      "sha256": "cebfab7f97b04e8b4f371f662e65751a37f9d4a4b462eb43b63b7bfcb4231556"
+    },
     "drivers/modern_kimi_spec_r3634.py": {
       "bytes": 15350,
       "sha256": "69d6b464b5366dd8e007dd640e750ae1f7de9000b929a37bf87b867e14d9b930"
@@ -27158,6 +27298,26 @@
       "bytes": 2169,
       "sha256": "15cfdd80edbb71ef8c17a7840df64589d61b1a4185ad3a4a7ab2f64bea529070"
     },
+    "drivers/prepare_glm_capcache_r3806.py": {
+      "bytes": 982,
+      "sha256": "04aee4ea34adbc3ddd488f3c872a5e4f7351b061361574ae6d704daac71772f2"
+    },
+    "drivers/prepare_kimi_MLA_trace_r3841.py": {
+      "bytes": 3003,
+      "sha256": "26a1ad3ed6ba3dce8e04b5d39b678af6d92b34f17f9c88ac1c98637663fd1d50"
+    },
+    "drivers/prepare_kimi_root_retry_r3837.py": {
+      "bytes": 735,
+      "sha256": "841645135d22278c9b6d70fa6cc4af2428d3c0e09651167fe731d9ff5eced968"
+    },
+    "drivers/prepare_kimi_root_trace_r3810.py": {
+      "bytes": 6351,
+      "sha256": "41aeef761f85bad91a34c12c509da5ce2c5bda780ab3fd2faf796d7920b8564e"
+    },
+    "drivers/prepare_kimi_selective_lookup_r3843.py": {
+      "bytes": 3264,
+      "sha256": "0666b1d2731f9e44db25f848f377e01192a5ee66291fab96740f95766fbe5002"
+    },
     "drivers/probe_cast64_contract_r3376.py": {
       "bytes": 7642,
       "sha256": "6237a68d39435d419eb0e3f8d53245b03f77c6e0bbe728a1e0ead07c422764ac"
@@ -27169,6 +27329,10 @@
     "drivers/probe_glm_batch_r506.py": {
       "bytes": 430,
       "sha256": "d4328b116f60aad543204cf3b58cba002f6d1368c9ddbaad8fc063718c0d5396"
+    },
+    "drivers/probe_glm_capcache_r3806.py": {
+      "bytes": 7195,
+      "sha256": "9bc72823d58a0341b2ad80e20529dca78e4ec1d4606f53dd0673cbd667a49a1c"
     },
     "drivers/probe_kda_alias_r3733.py": {
       "bytes": 5061,
@@ -27226,6 +27390,10 @@
       "bytes": 2155,
       "sha256": "06c890e7cebda6236275e093e96f73a6a8a0c735f55cc13c5bfb339b0b613942"
     },
+    "drivers/queue_glm_capacity_audit_r3823.py": {
+      "bytes": 2702,
+      "sha256": "2ed83576864df6783dcc596eb7e2a5966dbd9e859cb4ad2d2c4479340f0f9767"
+    },
     "drivers/queue_glm_idle_audit_r3773.py": {
       "bytes": 2529,
       "sha256": "fa546b0647c85eceb53132275511bbc04096027952788ce919d602ee884713ff"
@@ -27233,6 +27401,10 @@
     "drivers/queue_glm_idle_serving_r3772.py": {
       "bytes": 1196,
       "sha256": "1d04628fc5bafbd658a7eb08ebb280d7fc55e2d5f1a0b8ea440aeffa77801f51"
+    },
+    "drivers/queue_glm_profiles128_r3803.py": {
+      "bytes": 1420,
+      "sha256": "6516ab7465889291b03197fb13aee3436b6ef68f8c92259f91d8b3cee093e262"
     },
     "drivers/queue_glm_shared_rope_audit_r3790.py": {
       "bytes": 2700,
@@ -27266,6 +27438,14 @@
       "bytes": 2113,
       "sha256": "6d7f2d7dd2eeb3e8266593f08096bc7d4e9c58af0ceeb17ca38c196445edce5e"
     },
+    "drivers/queue_kimi_KDA_pair_r3830.py": {
+      "bytes": 1251,
+      "sha256": "10f3e9e756ac4253bb1944b8499842b3cc6604b7732f7d082c8c7b147bc20d00"
+    },
+    "drivers/queue_kimi_KDA_pair_r3838.py": {
+      "bytes": 1093,
+      "sha256": "051092038b4a680dc8f826360b694121a18ef603b70482db7112987711a407e0"
+    },
     "drivers/queue_kimi_math_audit_r3690.py": {
       "bytes": 2104,
       "sha256": "562c8d46594d65a9825482904a36e09b56c728cc1ae9abc5361ae7be84cc5d31"
@@ -27290,9 +27470,21 @@
       "bytes": 1506,
       "sha256": "68c78c2527abcbc5d41ee6cc206f372ecb40a8985a691ebb68471f8aedac224d"
     },
+    "drivers/queue_kimi_root_audit_r3818.py": {
+      "bytes": 1272,
+      "sha256": "fc60d573686acf047a68bf5d329ec9bd7e38ef085ca220b45a6680384c64c4a0"
+    },
+    "drivers/queue_kimi_selective_audit_r3845.py": {
+      "bytes": 1287,
+      "sha256": "bbbabbd6f039c559627525adf237e4c40b9ce93b728217d7e02989fa29952bed"
+    },
     "drivers/queue_kimi_spec_audit_r3639.py": {
       "bytes": 1515,
       "sha256": "022ac3efbe62fedcd0cb5d1e7b106d620ffec402028f5e46889db83cc4171299"
+    },
+    "drivers/queue_kimi_targeted_r3847.py": {
+      "bytes": 1438,
+      "sha256": "05506c34f3af51d01e02e91bd17ccdc8b05148a1c0136af1b75c9e96f73fae33"
     },
     "drivers/queue_kimi_trace_r3731.py": {
       "bytes": 1203,
@@ -27354,6 +27546,14 @@
       "bytes": 1790,
       "sha256": "ad2e43522e16efbf8f8c08dcb4a547830c12d3c3ea005c14b1b17cadba5324d5"
     },
+    "drivers/stage_glm_prefill_capacity_r3816.py": {
+      "bytes": 6853,
+      "sha256": "c5b60a4d0734259c9ad7b50c24054213742685a26aff3e3519343591fef27d5d"
+    },
+    "drivers/stage_glm_prefill_capacity_r3822.py": {
+      "bytes": 1598,
+      "sha256": "63c5b4ecbfab01ec15360099d2067c2bf03e60c0a1b1766a4fef4c8d5a5282e7"
+    },
     "drivers/stage_glm_scale_r3603.py": {
       "bytes": 3394,
       "sha256": "eff0e7d4242ac0e977e4f1b755315ff3b7ed0e08dd55868343cbb27f8c86d3a0"
@@ -27381,6 +27581,10 @@
     "drivers/stage_kimi_header_fix_r3712.py": {
       "bytes": 1762,
       "sha256": "c816073cbe9ffc92af16dde2bce57fd14e56d9a0c104e030d8a66ef2f7a6780e"
+    },
+    "drivers/stage_kimi_MLA_trace_r3841.py": {
+      "bytes": 2630,
+      "sha256": "34f13102724c61294958a55bbe4654c19fe6622d32c37573ff1efdfea3687b69"
     },
     "drivers/stage_kimi_reduce_abi_fix_r3261.py": {
       "bytes": 3012,
@@ -27422,6 +27626,10 @@
       "bytes": 472,
       "sha256": "79cfd5cdd7e77b5089cca4c4683c4cfd753fca0c4accab35764795bcdf25cff4"
     },
+    "drivers/start_glm_capacity_audit_r3823.py": {
+      "bytes": 449,
+      "sha256": "409085740891e050c017e0aa97c6c9ea8cbd30536d7bcb00726c3f435d117af0"
+    },
     "drivers/start_glm_shared_rope_audit_r3790.py": {
       "bytes": 476,
       "sha256": "62961c2170187a237e1d921d81af0c0d2bb8edd3a7cdc29f2a8518086868e4a2"
@@ -27442,6 +27650,14 @@
       "bytes": 483,
       "sha256": "2d9cbd333779477e3664293bc6fe3765f19c4904837ed3dd268b95af3db9c5b5"
     },
+    "drivers/start_kimi_KDA_pair_r3830.py": {
+      "bytes": 434,
+      "sha256": "83608ae9951e533e0f7b1640c968c8c35934df2ff422c89e681a574ce407f6e4"
+    },
+    "drivers/start_kimi_KDA_pair_r3838.py": {
+      "bytes": 434,
+      "sha256": "261e772edec9d378720328043e0440791f2590fa6372ee23044b98321217e741"
+    },
     "drivers/start_kimi_pipeline_admission_r3761.py": {
       "bytes": 488,
       "sha256": "36e35d67e998d210dac2f42d12891b299a539f86cdb879ac23058e281ad3a957"
@@ -27449,6 +27665,18 @@
     "drivers/start_kimi_pipeline_audit_r3762.py": {
       "bytes": 484,
       "sha256": "a1efaf6995cb68cd4025c9fc5297baccac749b5044e5b72c83400497b6bea0a5"
+    },
+    "drivers/start_kimi_root_audit_r3818.py": {
+      "bytes": 440,
+      "sha256": "d1df5ea51cb8291039b7468729483fc4abcdc2900c21b9511e2c99116e4d60b8"
+    },
+    "drivers/start_kimi_selective_audit_r3845.py": {
+      "bytes": 455,
+      "sha256": "e97ab4c068ef5f1ac5e587a42deadda503ab65d39eb8e841e18c96fe6b0beda4"
+    },
+    "drivers/start_kimi_targeted_r3847.py": {
+      "bytes": 434,
+      "sha256": "e3617a6a6ba50a9b78cf46f3953f35983fbe924dd18e690371e7dfed230078fe"
     },
     "drivers/throw_trace_r3730.cpp": {
       "bytes": 1047,
@@ -27498,6 +27726,10 @@
       "bytes": 11762,
       "sha256": "5bbb4fff4dcedec0666161fe08d4468a0e239716fed2068f03ae723e1349ea89"
     },
+    "evidence/driver-provenance-r3828.json": {
+      "bytes": 124621,
+      "sha256": "32fde68e387cd412115e243341a203a92a18428b6bc8fb407e71ebc88adcf807"
+    },
     "evidence/dspark-draft-batch-r3646.json": {
       "bytes": 85944,
       "sha256": "19e637b6c66e102dfccaf4a4eceb4a4efa2ca5802f5ea7f22e9366b3daf01009"
@@ -27505,6 +27737,10 @@
     "evidence/environment.json": {
       "bytes": 369,
       "sha256": "c2aa8761d6b934129d27be08ba5b99c755dfc33537f8e799e43705f8d827d2c7"
+    },
+    "evidence/GLM-capacity-prefill-component-r3814.json": {
+      "bytes": 58286,
+      "sha256": "bf39455374ad1f1aa976c7c4298a190a8de3caeca8e547293078927fd85b504f"
     },
     "evidence/glm-cohort-r3098-audit-r3372-local.json": {
       "bytes": 34826,
@@ -27590,6 +27826,14 @@
       "bytes": 7140,
       "sha256": "cba2379883bb076713b606e3d84c842eff08aa1fa03e405e8f7b13759c8d0f95"
     },
+    "evidence/Kimi-failed-root-postmortem-r3836.json": {
+      "bytes": 1495870,
+      "sha256": "00aee818bd55159fe4af7237fb836b7982ca9ec7caf10bfea3403edf96b8dfba"
+    },
+    "evidence/Kimi-first-KDA-pair-r3838.json": {
+      "bytes": 174502,
+      "sha256": "99198fc1e9e3bee0cd17a22378159fe4b5f5ca5e4ed4d588464201d2dd2c25b6"
+    },
     "evidence/kimi-latest-failures-r3711.json": {
       "bytes": 7595,
       "sha256": "0bbeeb084858ad178eb1f235ef161e5ab7043a7c90d9580b7dd6201b7c9d9275"
@@ -27601,6 +27845,14 @@
     "evidence/kimi-small-diagnostics-r3734.json": {
       "bytes": 6096,
       "sha256": "d96a306dddd7c9d731331a006ca2f20a7f84b4569b4ade2fa1e108d79155e4a5"
+    },
+    "evidence/Kimi-spec-M1-complete-negative-r3760.json": {
+      "bytes": 15197,
+      "sha256": "0ccea421eda985003be2c5e5675ddb9c407b3e4eeee518eec04bf2e6de381cf4"
+    },
+    "evidence/Kimi-spec-M2-complete-negative-r3760.json": {
+      "bytes": 15196,
+      "sha256": "74b770b499d3aaa671d7e9404f5d4272cab4458e36542d84cef2ef49d877271d"
     },
     "evidence/kimi-throw-site-r3741.json": {
       "bytes": 3673,
@@ -27654,6 +27906,22 @@
       "bytes": 67629,
       "sha256": "653251cec1e204d485c8f3abd3db1b90a960ddd0834b3ed5bc02f2f8a773053f"
     },
+    "evidence/qualified-GLM-shared-RoPE-PP2-r3790.json": {
+      "bytes": 27699,
+      "sha256": "6b1241bf6d48cc47e9dd5c50624350dbe88c0804c31c8ef5173231f037b96ed4"
+    },
+    "evidence/qualified-GLM-shared-RoPE-PP4-r3790.json": {
+      "bytes": 31303,
+      "sha256": "ace83da8ea3937e336679c3fdacebfbeead0ad7e068c944d745751a70850153d"
+    },
+    "evidence/qualified-GLM128-r3797.json": {
+      "bytes": 107037,
+      "sha256": "a247c9f0355c4143994a91b123df2409e4b87dfbbd7544894406e0129896c36b"
+    },
+    "evidence/qualified-latest-Deep-B16-r3799.json": {
+      "bytes": 2837,
+      "sha256": "11ebf3c9df8714ebd14e85ee2acbfb0457f9f70249b537689f297ae7aa0c17e6"
+    },
     "evidence/qualified-latest-Deep-r3729.json": {
       "bytes": 2417,
       "sha256": "115da618034523b4a5dfe19c103ce26c00866d3e7484fd8ca1af4010d028c5ed"
@@ -27671,8 +27939,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 10113,
-      "sha256": "7085e9649f099decf4cc3375b38b45d51ca6d37d7b158230a7415a1f75433d22"
+      "bytes": 10829,
+      "sha256": "2ab78d261a719a730080df28eaaf21d0ef7ff25a0e1f0d3246cadf5a7dd9995e"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -61090,6 +61358,214 @@
       "bytes": 466,
       "sha256": "20c5d6d8284efb293b9ebc1642f0b41baa721879f14eadc87ffd063b653dc7e7"
     },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/compile.sh": {
+      "bytes": 2309,
+      "sha256": "896506861c49d15e649f5ee292cc13650eee6eb95e9278e6b6d198c12f58e7ac"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_dense_causal_mask_r25.cu": {
+      "bytes": 725,
+      "sha256": "dc5ea9ff957af4a58e91c168f132182441e13e19dbc666fc304320ab1252719b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_fp8_batched_r776.cu": {
+      "bytes": 5862,
+      "sha256": "56f3e4b7a7c85a8a73ca8ab586348bb0ea897007f75fc7eb8de200c0ef93faac"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_fp8_cache_r807.cpp": {
+      "bytes": 5186,
+      "sha256": "b5620e80ab6b5280991e1f2b7fd611715bd8be49a9b0f934b0990834317b0ed2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_fp8_cache_r807.hpp": {
+      "bytes": 541,
+      "sha256": "54a0f4e858408300a62029187df66f9287ef439f349820f732d41fdddacb080f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_kv_pair_r544.cu": {
+      "bytes": 1471,
+      "sha256": "09f81b5a0cda27b194ed0e431dedd8d1c4a9c34b0e024bf04dfd1ee3bea955bf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_routed_fp8_kernels_r19.cu": {
+      "bytes": 4198,
+      "sha256": "c9b899fbf5a6f8eb715d806bc592e79b8b738b4334dd938d83e6f1e40f4e326a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/helpers/src/glm_scale_round_r392.cu": {
+      "bytes": 915,
+      "sha256": "c54698d5c7fcb24e6ecadfea89fdffda305db508e049a0902eac1dc18ac61496"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/owner_affinity_report_r2392.cpp": {
+      "bytes": 466,
+      "sha256": "20c5d6d8284efb293b9ebc1642f0b41baa721879f14eadc87ffd063b653dc7e7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_all_selected_decode_r601.cpp": {
+      "bytes": 3096,
+      "sha256": "863a4864a63cb997ea8faf86cb4c45eea4c85c27953ea5f946cf3e8eeb512a05"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_batch_cache_geometry_r3068.hpp": {
+      "bytes": 604,
+      "sha256": "6261315e374433febcec8219de3d3db15f177d1e645aa3c745b88afd1cc3bbd0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_decode_leases_r1354.hpp": {
+      "bytes": 4076,
+      "sha256": "b28cd3620755d7b0fb7f56976916814430f9972b558f9ec79df0c534f3058563"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_cache_r807.hpp": {
+      "bytes": 541,
+      "sha256": "54a0f4e858408300a62029187df66f9287ef439f349820f732d41fdddacb080f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_capcache_r3806.hpp": {
+      "bytes": 651,
+      "sha256": "e5dacaabc70a4e3c99a54355afb9f13c3710fea3457e297b2dd7fc5106cf74a4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_model_counts_r780.cpp": {
+      "bytes": 293,
+      "sha256": "de75a51d85978b9d0da859bfb753e692021b0ac9c15cc4aa409ad8db55fd19fc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_model_r780.hpp": {
+      "bytes": 1983,
+      "sha256": "bdd9dfa1fde1523e558fb22b0d46af87401dc57a83e28c76197644867bdf5a20"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_model_r785.hpp": {
+      "bytes": 2002,
+      "sha256": "2ebad7793e3ab7f401e4a18be360f362af5cdd34a53bc754f487928293678659"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_model_r790.hpp": {
+      "bytes": 2007,
+      "sha256": "89b60c43051bd994ed2a41137e564d564b47e4bbe551b11e2f0f23ca4d3c82a7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_runtime_r809.cpp": {
+      "bytes": 8857,
+      "sha256": "9d514dff097e97641edc7f9272813329a4f2213818c73fda2d568a9703e9ec83"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_fp8_runtime_r809.hpp": {
+      "bytes": 769,
+      "sha256": "43ad0eba9bc24dea8de5da97c58465f0ec10d4b91d7a0e688a65ff4dce63c977"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_attention_output.hpp": {
+      "bytes": 737,
+      "sha256": "fdb161df77b12a9d8abdd2b99d73c1dd73cdf29cc24bad0b5619fc24b30213f5"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_attention_output_r809.cpp": {
+      "bytes": 3648,
+      "sha256": "a7c0b7fb17e67a9ba00806f05e8af53f042165edec487c97b312e38197082b19"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_attention_prepare.hpp": {
+      "bytes": 1565,
+      "sha256": "79b5d89e96cc8b2d236bc21bbecd307c03f9ab14ce22d85cbb8c16e223fa32dc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_attention_prepare_r809.cpp": {
+      "bytes": 8883,
+      "sha256": "80ac6223f8fb61a9408f39172ebba773218bf936a93507b385140df96ac8d64e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_balanced_text_model_r126.cpp": {
+      "bytes": 9623,
+      "sha256": "ff43106cb5ee05459555969e3f64a84040d84aad929f33ccc22c9cdec33777d0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_decoder.hpp": {
+      "bytes": 1098,
+      "sha256": "2f58ee05e90ad75e38539560949c701cacf0b857f1563500e678d73d9d5a634b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_dense_modes_r48.cpp": {
+      "bytes": 12796,
+      "sha256": "5d27978cced7d942a0f91ee8233aae30a29198cc8f494779db788e3f88f4a435"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_ffn.hpp": {
+      "bytes": 1201,
+      "sha256": "dca9aad99e403213e5f4d844df1aad00fe69743b6f3a7bac67ef923d77f31290"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_index_plan.hpp": {
+      "bytes": 1464,
+      "sha256": "5f92fd12254cb3e06d5a7b6266ffcdce247b7c2ab29b253316e98217bfa9bcdd"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_indexer_rotary.cpp": {
+      "bytes": 1271,
+      "sha256": "9e08792cec0fdb224201823450b9398e1eb6a474b3b90a49f386d09e2d0d594a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_indexer_rotary.hpp": {
+      "bytes": 622,
+      "sha256": "2d1954dc331fcd19fd7554ec23ab4feefedd87a093df518e25635dd253bd06bd"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_indexer_selection.cpp": {
+      "bytes": 13040,
+      "sha256": "e9f2fdd7daad7b56ea51039514129a2b2661b6648667957aebf7de1cfc13951b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_indexer_selection.hpp": {
+      "bytes": 2332,
+      "sha256": "dc55e5b38e697aba3cb31b39ea93836f668e1281edbc2064619bcb75faf5c22d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_indexer_selection_r980.hpp": {
+      "bytes": 1390,
+      "sha256": "8ea6a9ad07e8042d0ac43369c6ff098b20880551b31a6c11a77f89a92ea94808"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_native_attention.cpp": {
+      "bytes": 11806,
+      "sha256": "ee4ac8c1f38b538a8fbfdea96598adcf00693e2b047501e5615bb1fb08bc9e21"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_native_attention.hpp": {
+      "bytes": 2126,
+      "sha256": "ec680a94093e6b78ef0b300fe63011de90b1ffe2d3136d90bf6eda876ac412d1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_projected_cache_r22.hpp": {
+      "bytes": 1879,
+      "sha256": "762940771bf2e5385497be61eb95814122bd2be193eb3c3646bc9f0a6ea3c8ad"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_projected_cache_view_r927.cpp": {
+      "bytes": 13972,
+      "sha256": "48c0038f99e8e18f10346403f5552518c5b00dfc72d5e1fcd8c977759e02b7d4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_projected_decoder_r22.cpp": {
+      "bytes": 4305,
+      "sha256": "d3e5bbb64bafc3b61b3adf6cbf82a5c01eb1600f227e6bb01625ce3f93f741d2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_projected_decoder_r22.hpp": {
+      "bytes": 1362,
+      "sha256": "1c6717c826d7553484dd9d56a24647b8a2e8d7c11e971bdd499fd33f7e81af98"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_projected_text_model_r22.hpp": {
+      "bytes": 1610,
+      "sha256": "79111a6d1b39d775de6dcd1b5618a48d61ebea1c1cbcfc56b8b0041cc97a0cd2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_routed_decoder_r19.hpp": {
+      "bytes": 1121,
+      "sha256": "60ba6bdd771760c78fa1c588b1951cc23e81d5898dea6789fabfcb3975132383"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_routed_ffn_r19.cpp": {
+      "bytes": 14210,
+      "sha256": "5f5c9ea32212f4f48807be8d17c783d88b5e82e62b4f62a90f4c1ce8a22b6756"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_routed_ffn_r19.hpp": {
+      "bytes": 1355,
+      "sha256": "9dfb0e7c22caa23ab81fb4095982b09a3a66aa51f7abe417970174cfe718c227"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_routed_text_model_r19.hpp": {
+      "bytes": 1367,
+      "sha256": "9bf4bc9368a8ae04f7f2ffa7a0426048a09331f5c7e1c46ba432145c9d83a081"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_sparse_attention.hpp": {
+      "bytes": 1279,
+      "sha256": "e1164f05010e21093af2068e713c33080a40cfb592a3ded2e9a092cf88c93c91"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_sparse_pair_r544.cpp": {
+      "bytes": 5532,
+      "sha256": "ebed2dec74227b9a5c8fc4e0f167be6feb17112582a796d3192f1750f3d66d58"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_moe_dsa_text_model.hpp": {
+      "bytes": 1347,
+      "sha256": "8365e3e2d34dabca185d14eb27c6f765640afde06ca0df273aa9f6d7df5d3189"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_prefix_proof_r1645.hpp": {
+      "bytes": 1971,
+      "sha256": "4df185ee83bc7706e524d99ffc24ac151142f003334a700d6db1197b82b013da"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_selection_map_r302.hpp": {
+      "bytes": 1436,
+      "sha256": "38062a1097a1194ca9721cdb4f5035f59bc3795b192d3b00f7f471c3126bc70b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/glm_shared_rope_r3783.hpp": {
+      "bytes": 1708,
+      "sha256": "6262ac0387d4dfcb274f912a026780d218dde19e59701bf589746ee8ae46b11c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/glm-prefill-capacity-5f91ad7-r3822/src/modern_glm_cached_model_bridge_r809.cpp": {
+      "bytes": 14772,
+      "sha256": "481c90a06c17b42e518e366d4f95d1c4ae7fe79fb5d1d28a5d6ce75a6025f522"
+    },
     "experimental-latest-5f91ad7/cluster-layout/candidates/glm-scale-5f91ad7-r3694/compile.sh": {
       "bytes": 2090,
       "sha256": "e09be2c9b24f03697f094e3ed836105fffc8ba6eb75beaf907f49d52e9a4110e"
@@ -61289,6 +61765,1346 @@
     "experimental-latest-5f91ad7/cluster-layout/candidates/glm-scale-5f91ad7-r3694/src/modern_glm_cached_model_bridge_r809.cpp": {
       "bytes": 11998,
       "sha256": "7c6738f986764ae16a7b770105a2e6dd86dbc05bea856ded3a17993de6027c33"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/compile.sh": {
+      "bytes": 1290,
+      "sha256": "9ae6253f5d700bda11a4f56ffe17a6d79328a3d4612075ba59cf97f3c803cbcf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/global_tp_runtime_contract_r2347.cpp": {
+      "bytes": 6031,
+      "sha256": "68b27e388946efbd400c6d8471c0bd8493b414557d41ad3632225ba9a0dec519"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/backends/attention_backends.hpp": {
+      "bytes": 1746,
+      "sha256": "0755872f63af7f89520115843a42ea237c3169d5e697ad6b7d31384c1a5433e8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/base_cache.hpp": {
+      "bytes": 382,
+      "sha256": "e6ddc34713fa4d3bcb8b9760b6f5e0f63420d43f9bd064971827dc7dc3777744"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/cache.hpp": {
+      "bytes": 64,
+      "sha256": "8b5cc6597c62ac8688ebf31bea7ad6c4560a7b092f236b9b24fbf2e2a12b5891"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/kv_cache.cpp": {
+      "bytes": 7915,
+      "sha256": "1372115b57bbb8203cfaaf87454016f406b3a3f4d53439fd009fe5c37a150e52"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/kv_cache.hpp": {
+      "bytes": 2442,
+      "sha256": "12a3a4f0a22c37c8d08ca1c3270a6fcb5fc94ca0273274b7505a2358b61af6f0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/mamba_cache.cpp": {
+      "bytes": 4781,
+      "sha256": "f476eeee214aa87bb71e5c8523cfaddc17b71578ce42b074a3b8b4dd990a36d1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/cache/mamba_cache.hpp": {
+      "bytes": 1394,
+      "sha256": "d28ea3ff8d0dc3eb2fc5f8293d78a98798206e91233afea98e7df82ebbd86442"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/config_factory.cpp": {
+      "bytes": 860,
+      "sha256": "ec854caf234c8f99db3db401568df8e3ffd2fdd576872590d0dede572bc909cf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/config_factory.hpp": {
+      "bytes": 278,
+      "sha256": "675c88a5cc9e3c375f1071ef06193ab9c22e785620e7bf176f1e4c7c66bbc35c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/model_config.cpp": {
+      "bytes": 2228,
+      "sha256": "d4e480f5033c28ad15b3fe48dad30c29cb55d3257adf9cf0465845ba62ba0c0a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/model_config.hpp": {
+      "bytes": 5706,
+      "sha256": "c852a8f32e775c89a9e9087cf33489c4b145041658a0f075a1653f92d5c9d8bd"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/quant_config.cpp": {
+      "bytes": 5025,
+      "sha256": "57e2e53f6cee465ef5f762a213ab03a3c9f0b3c4877fec52e71717969e822b23"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/config/quant_config.hpp": {
+      "bytes": 1847,
+      "sha256": "04c8a73126b611fdd64beb6badc0042157ac524aaeb3054080c22af3e9fb0cd8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/debug_utils/hooks.cpp": {
+      "bytes": 1516,
+      "sha256": "c2bc076fb020019abe6dc560f12fc3e554ebbbba5ed965644ef012918befc49c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/debug_utils/hooks.hpp": {
+      "bytes": 10400,
+      "sha256": "f63d4dcb0a6e792403571b27979e9443efdd3c34e08551f3e6a70814ddf71575"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/debug_utils/tensor_utils.hpp": {
+      "bytes": 8680,
+      "sha256": "8cc78922a77e05d56a7ac50d814cbe769bda4e463a3fef14ddd1c23f79e141e9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/graph_compiler.hpp": {
+      "bytes": 4233,
+      "sha256": "c8d4a6902b53d880b9005d993548b5c09fa9568434a4235032b5b3a5accfcb52"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/paged_compiler.cpp": {
+      "bytes": 22903,
+      "sha256": "ebf5a2b2e61cdb878dd67003a9ef155f651e7b19ba9d893117cffd80fb53dd79"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/paged_compiler.hpp": {
+      "bytes": 2408,
+      "sha256": "63cb93d2daaaf5aa98e00e50ed276cfba2b1a3cfa8b6191c2566f8a91b0ca963"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/paged_decode_bucket.hpp": {
+      "bytes": 4941,
+      "sha256": "ac807a7dd1b416232c5d22c8cba62faf944b754f0efdefe44c642b4b16dbe96f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/paged_prepare_inputs.hpp": {
+      "bytes": 1980,
+      "sha256": "581512845c7340fa4ad45483a516537d414880ea7d73bd34ae1a615caca6c662"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/prepare_state_guard.hpp": {
+      "bytes": 7746,
+      "sha256": "98d76cdae817700c1dcec1e1fc45c4f1fceb7759e32baffd47989765c4f429e2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/static_batching_compiler.cpp": {
+      "bytes": 12587,
+      "sha256": "b1943e49450b06238c235473a18ff55f95becaaf134cdab50b4d388e1c09231d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/compiler/static_batching_compiler.hpp": {
+      "bytes": 1226,
+      "sha256": "94e2d5019c44495666387b25ebfef9409d8db9ab4ad669cabf509da774b8ccb7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/communication_group.cpp": {
+      "bytes": 24311,
+      "sha256": "0e1a0c59dffc0eb55bf1bbb98e1a623e5a3f2369253e7f178e16b74fd1fcdf6e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/communication_group.hpp": {
+      "bytes": 5170,
+      "sha256": "4ca95d8824deda71d98f104ac63681d92c35a4dff045aaedbb61818f401ec585"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/dist_config.cpp": {
+      "bytes": 1246,
+      "sha256": "df0568190aa14cd0ccaef837640c33af22d2390b7fee5be4f01828bef700ee2f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/dist_config.hpp": {
+      "bytes": 852,
+      "sha256": "ff65d50e0ce0be15a1ce58e992a4b475a2818bd6acfbcc846b27a5b7c90837e2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/distributed.hpp": {
+      "bytes": 76,
+      "sha256": "a74eab1374bb07ef5daef6e8ed682dac13e1c2d43295dcf7cee91c041bf31060"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/kimi_reduce_precision_r3226.hpp": {
+      "bytes": 993,
+      "sha256": "404a3079a032a74b673456dafd3e47e1f828c2dc2ef954c0ae58ecdc6b665316"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/tcp_rendezvous.cpp": {
+      "bytes": 6806,
+      "sha256": "f8e13fe8f5e11c2af52bc621b8c23971d799756fe24d67ac7e8be8fd5addd323"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/distributed/tcp_rendezvous.hpp": {
+      "bytes": 1241,
+      "sha256": "c3404365a9f463d1858d5209f699b1f192ad24a9f035c82b3a5e7d4e966d126c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/infer_engine.cpp": {
+      "bytes": 28461,
+      "sha256": "074d1a1ee5153058e7c97bfeaa3b9142e428b8b9f53f21d053e19cb8182a8d00"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/infer_engine.hpp": {
+      "bytes": 3737,
+      "sha256": "5ede891e984641fbec04f909730fc89e02102022ef357175f275f41ca51f494e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/nsa_owner_input.hpp": {
+      "bytes": 5454,
+      "sha256": "66536c6ded111bf7d2f75a8ccb3169d52a609b12294882c818a6c55997c748b9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/nsa_run_failure.hpp": {
+      "bytes": 1083,
+      "sha256": "4772314cb301288b1d0696c9bbedf0f50193fd2026f1bd741357978fd3349849"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/rank_barrier.cpp": {
+      "bytes": 2255,
+      "sha256": "f4c75fbad7c6ce4d8591b1a6fb3b31d988ce380eecd8a9cdf8e0b70a56ca47d3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/rank_barrier.hpp": {
+      "bytes": 597,
+      "sha256": "bc7e4263ebfae7cf390baa1d9829d592a149cd4633b2337955c2c3f0e4c516db"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/rank_worker.cpp": {
+      "bytes": 61763,
+      "sha256": "2503f72854e871f1f79d9ffa66bbe9119ff9db0213797876b0b022dd19b670ce"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/rank_worker.hpp": {
+      "bytes": 9636,
+      "sha256": "cc366867e69dc74db254ac0fbe634e70d0e3196e859bd6156f1bed62dc017c02"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/request_sampling.cpp": {
+      "bytes": 5529,
+      "sha256": "4c0634da77e03973d08b0f7d606a30095af8e773998e7b1b1b38aebaa2b12cd9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/request_sampling.hpp": {
+      "bytes": 365,
+      "sha256": "27bb566c8015ba8f42c131d0b432d57fbe461d621fbc33446e903ff949081719"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/engine/static_decode_metadata.hpp": {
+      "bytes": 13111,
+      "sha256": "38c31594de94bf20588f6a7e4c91bd7e29ad8f447dd4b8139e1838571a50c64c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/graph/graph.hpp": {
+      "bytes": 4835,
+      "sha256": "85422d73f5539e77546778531ebbae15d33bbe4d33b45b77cae92bafecc1ab89"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/graph/graph_manager.hpp": {
+      "bytes": 812,
+      "sha256": "089d073acf672eeee7028459bc2d5d535c03be071af5585d2f71ee6be586df74"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/owner_affinity_r2392.hpp": {
+      "bytes": 2028,
+      "sha256": "de2ffe645329558634740ed6b8a9ac7c70030160786eab38d065ce513afce71d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/paged_cache_checks.hpp": {
+      "bytes": 806,
+      "sha256": "b26a5361a92cb3221ace362ee5198a3eeb471a97b77a34765af3827b07ff7832"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/submit.hpp": {
+      "bytes": 7476,
+      "sha256": "8c0bd70a372b0017bca78e54f037493fe79918f97b5fed6d885f5b5d8eb0c20d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/tensor_checks.hpp": {
+      "bytes": 10452,
+      "sha256": "4630e143853f36bcf0fafa7263c8cd6eb035a45f210c6e8c98962b0f25ef21bc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/tensor_expressions.hpp": {
+      "bytes": 3523,
+      "sha256": "1252751336de53fe4697baf7d2c54bdb3db9248274a833254b39fc3b68b0f80c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/trace/op_trace.hpp": {
+      "bytes": 3096,
+      "sha256": "fce23266cb63377ca9f9fbf5c70b566a29c15d848da8cb745c61565a86bb132c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/trace/op_type.hpp": {
+      "bytes": 3955,
+      "sha256": "75d903e06368a10cd706b9b55ee6b06ab44d750a9de418be3bb8ffd3dccc9d19"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/execution/trace/op_type_registry.hpp": {
+      "bytes": 1661,
+      "sha256": "84b7aaa3e025a74e78e28cd94d4d23bd91269503d56587d1387eb788dcd9a7b9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/global_state/forward_context.hpp": {
+      "bytes": 6702,
+      "sha256": "93269dcc5cad15e3f503863668172ec42151fbca1e1aa070983165f93cca3963"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/global_state/global_state.hpp": {
+      "bytes": 76,
+      "sha256": "258a4c3a398a2b2e58b32ee67fbbc102a093cc97c153696b435aeb0c55781d5a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/global_state/infinilm_config.hpp": {
+      "bytes": 1326,
+      "sha256": "a3886b4177c17147051779b081c1ec3a9144e2ba6d31ce3498ea7852e4b9cb3d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_engine_input_r145.hpp": {
+      "bytes": 6358,
+      "sha256": "b8c06f3669f287a5f1fb7d6897fb2a56c4e8a3d5d9f377eb2f7ac95ec52ddb82"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_owned_indices_r1213.cpp": {
+      "bytes": 5423,
+      "sha256": "5411faf820ccf8f5d3df7a49ebcee46df76e02a4cde3ee94e6d110f7aa577d2f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_owned_indices_r1213.hpp": {
+      "bytes": 1462,
+      "sha256": "e5f9fd4354baf4ce12ab32600f81905b52e3c5ca0be640142bf64c3aec0a6afa"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_owned_indices_raw_r1213.cu": {
+      "bytes": 6071,
+      "sha256": "55c4e9aec97650282b7cb294724944ccc8f5d0485416872b36e9ba58ac1522dc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_owned_indices_raw_r1213.hpp": {
+      "bytes": 716,
+      "sha256": "973497aa6afa6f59ee2e3d5cc92e8e5f8ec8291c629bbec5acfeb5d99be53ebf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_spec_math_r3676.cpp": {
+      "bytes": 6433,
+      "sha256": "4bd8cf7748cd154925ef7d37648c911c5f40793f8d4181d8f3b5d6b48e2e7a9b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_spec_math_r3676.hpp": {
+      "bytes": 2082,
+      "sha256": "e23325bf930e6af300e1ed0779c1c4fa3d10a3c008e0324c163b9d3ca1312943"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/kimi_spec_proof_r3632.hpp": {
+      "bytes": 1537,
+      "sha256": "e046ad85dbf2a2cddcd9289561478a9cd31ce29b9a601055338e4a2c6afff935"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/attention.cpp": {
+      "bytes": 11823,
+      "sha256": "b6f434a9a74a978249577a3d8794e5089d57e15f5039737e196f4d6a18ef9bae"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/attention.hpp": {
+      "bytes": 3605,
+      "sha256": "5133ef4aa96539df2633a28ddbea11fb303504f314d4e6d036051305b0bfb17b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/attention_checks.hpp": {
+      "bytes": 1310,
+      "sha256": "613c7e37c157268a0248c572060c4f39d1d33ca1ddb98a36065e3aa2ac34500c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/attention_layer.cpp": {
+      "bytes": 7030,
+      "sha256": "5b04fb949554afe299ecd593fb618055ec067950b20f4ef7b6b724d3705b22b8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/attention_layer.hpp": {
+      "bytes": 2726,
+      "sha256": "73d2c9c8e8fa768bceee1a951167f8c0f2bc3f0873d402a4917c374664839bcf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/flash_attn.cpp": {
+      "bytes": 8740,
+      "sha256": "35aa7c4a8a42466ccff5304095c1b395825b8b462e5981ac9b20e4066a576a60"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/flash_attn.hpp": {
+      "bytes": 2642,
+      "sha256": "a3b0082f80c86ea01d2cfc132d26e0d4c73df21eae4581a3a2d3dfd19fdaa277"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/paged_attn.cpp": {
+      "bytes": 7893,
+      "sha256": "5e4eba982854b17c7d281c45129e89d7cf6d9dae95414b5c2010b5ebd2fbdcde"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/paged_attn.hpp": {
+      "bytes": 2639,
+      "sha256": "cf285c221f40a964206eb049d3e02a395d93724eab4482c18a0d5112a2635086"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/static_attn.cpp": {
+      "bytes": 28336,
+      "sha256": "0fceaa3cfcaf4b75849f3f7bb63feb3064208557a5e9bf45466f2d98dae1d8fd"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/backends/static_attn.hpp": {
+      "bytes": 3736,
+      "sha256": "17b2a6879491641326fc4e559da09c070efa963e98f93928898497910a75425a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/attention/kv_cache_quant_params.cpp": {
+      "bytes": 1671,
+      "sha256": "b5852373a96a47c0bfc72fb3c301ea6c95c7fa0105037469102bd637373dce9e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/causal_lm_templates/text_causal_lm.hpp": {
+      "bytes": 7704,
+      "sha256": "cd3f2e9306e9605f1ea5540809f4cf811b42000091d91e19d25120c411dfd845"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/causal_lm_templates/text_decoder_layer.hpp": {
+      "bytes": 4283,
+      "sha256": "f53776921e86b329e53edb0d1e45b74b47138df7a869cb2d57560da6b2be57e4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/causal_lm_templates/text_model.hpp": {
+      "bytes": 12752,
+      "sha256": "a704e2ed309f243ad9297efa3ca9ca9f5ed1e0e5bb9b7445ccdb506643023913"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/common_modules.hpp": {
+      "bytes": 521,
+      "sha256": "52a7899925ff4b072c0e8ea18cce9d7bf7270248f2842028d8fee15471a540af"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/embedding/embedding.cpp": {
+      "bytes": 2892,
+      "sha256": "706b20150b0877f3096db2486b2f3cea5a8f61d14c66e882fb553d1b15a976d5"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/embedding/embedding.hpp": {
+      "bytes": 2955,
+      "sha256": "7e195914d73bdc9e2e2280657fde8f153c7b875e6e1abf847039a9310d9dd64f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/base_linear.cpp": {
+      "bytes": 16877,
+      "sha256": "5bd430bdf3a42a285ecbca531295bfb74a049a49334a341981d33156ff710806"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/base_linear.hpp": {
+      "bytes": 4694,
+      "sha256": "cc4d6e0c8bfbc24dc3f588ce20c2d3a8df28a5b66a2d0e9d1cab26f1fc5c2029"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/dense.hpp": {
+      "bytes": 4517,
+      "sha256": "8b3833828db1c1c071203d2bed4381f140df151d9338402ba25422dbb3bf41ec"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/dense_prefill_f32_r2475.hpp": {
+      "bytes": 994,
+      "sha256": "4fecfa4e4586991690d426dc3a80e9a57dc134bb5b574c46cb01fbc1e786d147"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/fused_linear.cpp": {
+      "bytes": 14789,
+      "sha256": "d08dfe376270d8b26a68f37e4c95f9239a3a170ce841c8fb8f6c5509aeda32f0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/fused_linear.hpp": {
+      "bytes": 6166,
+      "sha256": "2fe235572f88368920fde3334909925ed5eb0ce308cfcc4d5741511639555c16"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/linear.cpp": {
+      "bytes": 5476,
+      "sha256": "07b4ed6fc6d21fb25b04ecfa09c3a89e98ac9f9fa73b607b192c2c0630858e89"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/linear/linear.hpp": {
+      "bytes": 3824,
+      "sha256": "811cc1c0ed04c9e045b7e7fe88dec7c28c79f79767d1656acb0ffdab6f646310"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/mlp/fused_activation.hpp": {
+      "bytes": 6041,
+      "sha256": "2e0e45ddc6d49f40f3c6545fdb1a90a5b6f2433f976441470f9d141d67a3586f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/mlp/mlp.cpp": {
+      "bytes": 3956,
+      "sha256": "3678253fee74713f2b37535f0fbdf49a80585811e98982e2cfc7b4c1d25a2bd3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/mlp/mlp.hpp": {
+      "bytes": 1928,
+      "sha256": "771599a7b83d256f0fad2f4a8473de0581ca5762f726f3bbbc77bc7be17a193d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/common/moe_types.hpp": {
+      "bytes": 2721,
+      "sha256": "505f9a708c128a7b74d2c43c868c3a710fb3e717d6372d56dcd72da784dc8b20"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/common/topk_output.hpp": {
+      "bytes": 270,
+      "sha256": "ec831b2f54e74ee46517282aa1228238b8ddd468c9882429532a7fbd8f2fd706"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/dispatcher/base_dispatcher.hpp": {
+      "bytes": 1012,
+      "sha256": "544e9087446a269dd2d4d50a4597e39722b03b7a4ddbcbb8a66b5026eca14ded"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/dispatcher/dispatcher_factory.cpp": {
+      "bytes": 1129,
+      "sha256": "b8b5456c6dea8f5e8a08a5a14d43ec7bac509439938187f38c3bd2695d87f77b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/dispatcher/dispatcher_factory.hpp": {
+      "bytes": 491,
+      "sha256": "a6f38ef32adbf06008538073834ca98414d3b18f82bd5f335649e9649c797c60"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/dispatcher/standard_dispatcher.cpp": {
+      "bytes": 3458,
+      "sha256": "af76576fdba43a26b00d46eca6b882bd130d954aef5796d9b9cc572ae0a920fa"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/dispatcher/standard_dispatcher.hpp": {
+      "bytes": 1269,
+      "sha256": "4ab4de4ea4e9a1ebebd9be65b6c3962f8a21480f325e1496311bc07b2fbd2187"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/allgather_reduce_scatter_dispatcher.cpp": {
+      "bytes": 7986,
+      "sha256": "9665cf0a508bf91d337f8ddb0eb93fb98580d992360ab3c68aa32423ea077c4f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/allgather_reduce_scatter_dispatcher.hpp": {
+      "bytes": 1350,
+      "sha256": "8aa775d9daa407a1b808266c63e31d61e0584e8c8bc933d82ac6ceafbfd80473"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/base_ep_dispatcher.cpp": {
+      "bytes": 4013,
+      "sha256": "69a98548c6475bd56f1985b9c7da0139f6aa001555415cc9e9186dbf0dee6eeb"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/base_ep_dispatcher.hpp": {
+      "bytes": 1099,
+      "sha256": "595c76aaa1fd3df7b06e5b5081f40c9383a407d48cd5e6644f372646396daa95"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/deepep_dispatcher.cpp": {
+      "bytes": 1914,
+      "sha256": "79be97eb8c5faf8ea82547825940a6e87acffd4d14072390689e06b2851fa861"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/deepep_dispatcher.hpp": {
+      "bytes": 1079,
+      "sha256": "d4b2ebacfb9a959ccab403c8fd865c318cbc429d681de392102363a59e09262e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/ep_config.cpp": {
+      "bytes": 3769,
+      "sha256": "6b5e94fb89a7ba3c09557d22d397feb82532fed2d1cf3dff35d3d2ada9b3d5c2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/ep_config.hpp": {
+      "bytes": 1188,
+      "sha256": "6a85cdac6ec13ed8490dfb0830d0e259063f486523619b23ead1c8281dd5f69e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/local_allreduce_dispatcher.cpp": {
+      "bytes": 2614,
+      "sha256": "e5101bf59d7093c8c98fc6248ad6f188aa9bd793c4aa3e0a1d1f03f799d471a5"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/ep/local_allreduce_dispatcher.hpp": {
+      "bytes": 843,
+      "sha256": "5ad323d9fdbf2924012f43b5432e01a6408df2dca9b76abc43e3041f667ea863"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/experts/fused_moe_experts.cpp": {
+      "bytes": 6346,
+      "sha256": "0fe3da68de66cd9fac2742c6793ceee61d3eb2b9a13365112e25dfadbd19461a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/experts/fused_moe_experts.hpp": {
+      "bytes": 982,
+      "sha256": "5702daa4a6a85778f6c802fe7517d7b6407dc8fb9c249b0d2b538cdb6028dd64"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/fused_moe.cpp": {
+      "bytes": 4963,
+      "sha256": "ea160bfd8b3adab631da44b5e364b9bc8a1aa5fe147a23fc8f0e3a28e3ce4d57"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/fused_moe.hpp": {
+      "bytes": 1161,
+      "sha256": "dcb4cb1ac08b112959c80aa0709dae893cf27b099bcb1f627f9aabf5f463bafe"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/legacy/moe_mlp.cpp": {
+      "bytes": 3394,
+      "sha256": "2d4bf7fbf69c1904953e7e3f557d3fe8875f90ee18a1db47b6016f253b46187d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/legacy/moe_mlp.hpp": {
+      "bytes": 1424,
+      "sha256": "2864da1f81635608e25ec81e620dc4a76c31736e9be7b9f65e6eda5e902a0f89"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/router/topk_router.cpp": {
+      "bytes": 8906,
+      "sha256": "9d15f8ebec5d28eb52d9e85f486de3d80bf33d72982ff75bfb0eaf3e6626c308"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/router/topk_router.hpp": {
+      "bytes": 1378,
+      "sha256": "0e1af6b8c603a65e138faf01d6367c010b9ddfc7f24c59bf598172209b87c4c6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/runner/cuda_fused_moe_runner.cpp": {
+      "bytes": 12122,
+      "sha256": "22bc48258d67285730a2acd1107f40ed2586aed903db2f69b49b73e447364ddf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/runner/cuda_fused_moe_runner.hpp": {
+      "bytes": 1557,
+      "sha256": "38905871b6af79c25bcee3c0fad924defdb8b8c08a2182cf861fbbc1b926e82a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/moe/runner/cuda_fused_moe_runner_fail_stop.hpp": {
+      "bytes": 484,
+      "sha256": "7b218a0a8430aecb117789efdf08517d5520e938a4694d703d4430e32a06c657"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/normalization/checks.hpp": {
+      "bytes": 2035,
+      "sha256": "6f378d936dedde6cff72a95c32abaf4f803ee57a2997c6c3be9b5b6b4adf0c17"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/normalization/layer_norm.cpp": {
+      "bytes": 2308,
+      "sha256": "cc6e67e330cb965acec9d37226de3bf00cb41fff7082da9e4e53ad7e594e9154"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/normalization/layer_norm.hpp": {
+      "bytes": 1763,
+      "sha256": "8793e6ed5366ad55567665a5d559788f350570c63bb91949cc84475ef8f2fcba"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/normalization/rmsnorm.cpp": {
+      "bytes": 3895,
+      "sha256": "5234d47a2c2e51c9b8bfd16a61cda88936dc82af63d371ee0a47d6c071d898a9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/normalization/rmsnorm.hpp": {
+      "bytes": 3147,
+      "sha256": "fc703ae05c2f6c00eacf86d4ff10e11ae36e2c188aa36d8a4fdb0885be6feb7c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/awq.cpp": {
+      "bytes": 6419,
+      "sha256": "59afdb2c2373302fcfde01ef68e573e6afa042fb8396e17de26b03aeffd9eb70"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/awq.hpp": {
+      "bytes": 2174,
+      "sha256": "114c9f8ebf7f2eba2b05d6f81e18c64905cbfded5fa368cd6306cbb80af0ad7c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/base_quantization.cpp": {
+      "bytes": 1261,
+      "sha256": "e1f9ba875fb803f17b043dead9db77e86f2beebe77f2bfa8f67472491ea91392"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/base_quantization.hpp": {
+      "bytes": 5156,
+      "sha256": "e1aa152de58b9b057f8e3ab6c80526b352d78baa05210e2bfcc9540b1e86550e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/compressed_tensors.cpp": {
+      "bytes": 7592,
+      "sha256": "b3c22ee1766833df45d740dc5f8d0e636ed22de860640a20a17745d574a85245"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/compressed_tensors.hpp": {
+      "bytes": 2353,
+      "sha256": "bcede1516c4ed11fc05b53180990a3f752af940f8ba82cdc0e0074b5483ba770"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/gptq.cpp": {
+      "bytes": 6346,
+      "sha256": "1321f7f6df3845b5f8d4e2501eedd0d13372a939e31b3de66531e9c5b36e3895"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/gptq.hpp": {
+      "bytes": 2059,
+      "sha256": "b02f5ba9f6a2ba778c25b060ec81c03660014134aa1dbfc33a65d70d23af97fb"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/kv_quant.cpp": {
+      "bytes": 4430,
+      "sha256": "d1dd5590f1200d4b66139671e0fb5315df1b9a4e5f14fe7548b4751305180320"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/kv_quant.hpp": {
+      "bytes": 1471,
+      "sha256": "cdbe568f61ee998c86f22477dc03bf51525f7885575a47cf2d363153a3aa2ad8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/none_quantization.cpp": {
+      "bytes": 5559,
+      "sha256": "e97b8ba7b32ac31d91c42e154e1959b81eea8b593395d72e8a261303b763e2be"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/none_quantization.hpp": {
+      "bytes": 1986,
+      "sha256": "2426c4f48ebbae55a92722ec261b68eb9ecb73d1bf1a385cc29728daf5cb316e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/quantization.hpp": {
+      "bytes": 188,
+      "sha256": "c801dc8ecb1e5499e42e607f07a4b195fc98447541471f6c023f4069424e96fc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/quantization_scheme.hpp": {
+      "bytes": 237,
+      "sha256": "c204df03350a6e0426f732c1425b8503a6bd58039b251ece109266b99d33b889"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/w4_execution.cpp": {
+      "bytes": 4506,
+      "sha256": "65211f7f23f012de6eef3cc122a2d132796da83145126924999a2764885bcc3a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/w4_execution.hpp": {
+      "bytes": 1553,
+      "sha256": "6f8fbe327c3c6e28780e64da08c95aef0b747e711ee619b465b55cd3ed463ab7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/w4_marlin_adapter.cpp": {
+      "bytes": 12571,
+      "sha256": "7f688ac710c269868cbb5bb728f4fde6053305e39979f714bb65a18810ab2a12"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/w4_marlin_adapter.hpp": {
+      "bytes": 1200,
+      "sha256": "10a66a369faaecb1f038855b612087e159b03ebc5e89bd217648f2f6d75e2f6c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/quantization/w4_model_plan.hpp": {
+      "bytes": 4018,
+      "sha256": "4790959dffc48849e7557defde472aa6a54a062b8cd86b2af3a02f6317b3236c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rope.cpp": {
+      "bytes": 19201,
+      "sha256": "6f8f6cbc60e386befc4f2dbd8ae23627f7f95dc848ae904ddd507ec3807d50bc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rope.hpp": {
+      "bytes": 5411,
+      "sha256": "fe755b1b7b8d50df991fafb31944233949530a8bd800906cdd718dbccfcc4c29"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rope_scaling_configs.cpp": {
+      "bytes": 6909,
+      "sha256": "e03c2ec2c7eb728d40d8481d4baf6946d721051f7e2bb2fdc47d11ce04e215f7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rope_scaling_configs.hpp": {
+      "bytes": 4503,
+      "sha256": "d2d387fa7ea5abe101b12883f4d3f4b7325519aea73d78a4c772597b3d7ff9ed"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rope_scaling_creators.cpp": {
+      "bytes": 5110,
+      "sha256": "c4fd66e78678ef69dee9a22e1d809421b4b6c17707af2458b6b877124c746fd9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rotary_embedding.cpp": {
+      "bytes": 5611,
+      "sha256": "8812acb9d50c126b018eb9293f9bdba550e70264b68e84767a7f372fa3b907fc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rotary_embedding.hpp": {
+      "bytes": 1378,
+      "sha256": "26a467dba6899f6682b65e6ed7eb6cd2949e17a133112faac3c3de8485d55700"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rotary_embedding_factory.cpp": {
+      "bytes": 1576,
+      "sha256": "f6d02dc13df0f32ea4fd52a1d45fcc9a6455ce3f0f0c7326a4acf9f14c85265a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/layers/rotary_embedding/rotary_embedding_factory.hpp": {
+      "bytes": 1170,
+      "sha256": "5eacc59caf9c822bcf65a87e92fa1f5ee4b0fea96eafe26e15543e6559d103c6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/baichuan/baichuan_for_causal_lm.cpp": {
+      "bytes": 1431,
+      "sha256": "92f6412fd1987aff343b234d59ca49688e8ff5275c8d4e0817187852abf033ad"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/baichuan/baichuan_for_causal_lm.hpp": {
+      "bytes": 374,
+      "sha256": "39985e19cd69136099301f08d0b50eab7321d62881cc624af6b9649c025b9f0e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/chatglm/chatglm_for_causal_lm.cpp": {
+      "bytes": 2134,
+      "sha256": "831e0843183904fbfce8ca51c474c6f6f889106a174b1f6ba76be392387c658e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/chatglm/chatglm_for_causal_lm.hpp": {
+      "bytes": 718,
+      "sha256": "abf683538da6ace1aa7277ae1007d0bfc9294654804235676c0c1efbccb58797"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek/deepseek_decoder_layer.cpp": {
+      "bytes": 3899,
+      "sha256": "1847a644bb1c999069cc311593dcfe3241bdfe8b6f99cb97ec0362a33996e413"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek/deepseek_decoder_layer.hpp": {
+      "bytes": 1673,
+      "sha256": "e28f409f372b1f25c01f212297a85aaf3ca84e298307b41cd226e1a2af08d5a3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek/deepseek_for_causal_lm.cpp": {
+      "bytes": 4670,
+      "sha256": "50da7cd27e9651953a2dbfec39185418caecc3afc9cef387947a1cb81032c257"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek/deepseek_for_causal_lm.hpp": {
+      "bytes": 1076,
+      "sha256": "5a78ab765e943c924a093c976e122d10de88245382920f8c7febce8116b62c02"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_allocate_kv_cache_tensors.cpp": {
+      "bytes": 4308,
+      "sha256": "dd2232cb8d6ce862f1f1050305afc093c0aee8498fba494d8d7f994e491db634"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_attention.cpp": {
+      "bytes": 13620,
+      "sha256": "8fc80dd250157350675f9d03c926f6d2bdf589fc3cccdd7d62c1e487a8d54f70"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_attention.hpp": {
+      "bytes": 2895,
+      "sha256": "16efefa9feccb47de5e8973b6cd607142fa0e0534674d6ab5959a5a62f199114"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_decoder_layer.cpp": {
+      "bytes": 4179,
+      "sha256": "0e01b767b9845682abf2c6f964b25654e6c3e2279bdcd0e05867b325f85b72cb"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_decoder_layer.hpp": {
+      "bytes": 1939,
+      "sha256": "66d5be3b6f238faf6d1d5aeca6a482455c1ab5855743eb3e788b79af889fbc99"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_for_causal_lm.cpp": {
+      "bytes": 9422,
+      "sha256": "6d9d1929bf3c9969aeff5ffceb16f96fffb93f8923726b0d5b00a469d267e4af"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_for_causal_lm.hpp": {
+      "bytes": 2786,
+      "sha256": "a4638af693c22174f419cf6ffff99f813891cf8b0b42ab0c59d596ce267ec742"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_mla_attention.cpp": {
+      "bytes": 21121,
+      "sha256": "5f545ea51f99bd2c3d715e9af31123b4b7193106d0d8dfbccd134904870681f9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_mla_attention.hpp": {
+      "bytes": 3373,
+      "sha256": "43e77155c089d364376d07facde9ffee9c0120d8197c2607d64c011b37eca1e1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_moe.cpp": {
+      "bytes": 16259,
+      "sha256": "cbedcda3901799194fd64de1c3ff856e323f5501df64203fb2a76abe53b1ae47"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_moe.hpp": {
+      "bytes": 3444,
+      "sha256": "add4017a9553b7a24e06e327cb20d2c7edbb34bf343874a02e22331f6136190f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v2/deepseek_v2_utils.hpp": {
+      "bytes": 1127,
+      "sha256": "e81c0619b3084f32d13306d27a1f0f7157d662e36e3523ae668f723a1d22658a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v4/deepseek_v4_int8_mlp.cpp": {
+      "bytes": 5477,
+      "sha256": "f2af176fb5f2083136a6b0082933005b31a7a7a81a34c27b725efc971d8d433e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/deepseek_v4/deepseek_v4_int8_mlp.hpp": {
+      "bytes": 942,
+      "sha256": "6dc78d3b0ecc8594f3deec18a8fa6d654d9b3d0382e5ba042cb8426fa5a62189"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_attention.cpp": {
+      "bytes": 21629,
+      "sha256": "05603075033f7f31b38814c659aec2ee48fd5bd4e00ff9e0bf60d9d985df93a0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_attention.hpp": {
+      "bytes": 3262,
+      "sha256": "2094042bed2b728273ea061f9de024d808a02b2392173684f5c8246e4ab042c6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_decoder_layer.cpp": {
+      "bytes": 5177,
+      "sha256": "76d2bccc4f109bd98c2abd3402e4295bde472615cbb6b9457a2d7f7ecad3e587"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_decoder_layer.hpp": {
+      "bytes": 1694,
+      "sha256": "c6091c47d8a13db40eb930406fa10ec3b250387e431a24098087e64a198d2d81"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_for_causal_lm.cpp": {
+      "bytes": 7030,
+      "sha256": "4917ea0515fb23b9eb2702d830006cc38086ca219044e5151112daef40a18448"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_for_causal_lm.hpp": {
+      "bytes": 1343,
+      "sha256": "78a0ebe8233c41473532b6b9db8b67e36aef6ff0f3d5ca0f992a20589cf32d29"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_model.cpp": {
+      "bytes": 8673,
+      "sha256": "fd7405dcdb522f604536763963ca4a84828d976648dc614059162d6799ae1628"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_model.hpp": {
+      "bytes": 2301,
+      "sha256": "114411f7405dc360eb80aa3e6c8f89a7d80a9e1a80579bce5640597386890e28"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_moe.cpp": {
+      "bytes": 25795,
+      "sha256": "63ff8f2fa13697c13809920d47e3e4db3df2683937b8ef605874904194626dd8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_moe.hpp": {
+      "bytes": 4587,
+      "sha256": "335aef14c1131d782caaed93f41a0b78199eeac8f35b147b8ded4bcaaffc5549"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_vision.cpp": {
+      "bytes": 28096,
+      "sha256": "7553d7431b5b5aa1a4ad6a2ca2cdd95473f8f7078e252caefec5be095f7c4e48"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/ernie4_5_vl/ernie4_5_vision.hpp": {
+      "bytes": 6003,
+      "sha256": "242c814f7bc239fccf10c24f75877d4727de275629e0cec48c923e3bdbd0ee75"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/fm9g/fm9g_for_causal_lm.cpp": {
+      "bytes": 1086,
+      "sha256": "faefa90d33453f473ba1f417230bd00b1eb6747ccb897e41f263f54a34ab5a5c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/fm9g/fm9g_for_causal_lm.hpp": {
+      "bytes": 4093,
+      "sha256": "96877a4d1dc33de73b19425f84e02d6ee8c346c7635e07caa3d6878cc29270ad"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/glm4/glm4_decoder_layer.cpp": {
+      "bytes": 4297,
+      "sha256": "3865ae99940b7d5a61554d2dda31f230e794cbff2a96d4a4120e13f3906f7f70"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/glm4/glm4_decoder_layer.hpp": {
+      "bytes": 1462,
+      "sha256": "ce157716555ce650c2295691f73cd47f54cfd3e97847dfdf066b9b29652fddb4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/glm4/glm4_for_causal_lm.cpp": {
+      "bytes": 1115,
+      "sha256": "8b68096cb4c15341ac0f66bf0a68f4f5227eeaa9a55edc434082a33dd74a542c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/glm4/glm4_for_causal_lm.hpp": {
+      "bytes": 463,
+      "sha256": "47c0767ae30352232f95e40ad7ba24a284cc982cb5dc28f07985c44c72e2b61b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/gpt2/gpt2_for_causal_lm.cpp": {
+      "bytes": 19631,
+      "sha256": "f89b50c2a9ea277a8d5787b2034df98d4f81aa2dce8b9229999d0f3a3c9d58f2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/gpt2/gpt2_for_causal_lm.hpp": {
+      "bytes": 4901,
+      "sha256": "780c690dbc5107a356cafc725bf6c6f1c87962d806fda70131e1b88e7fe7d340"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/infinilm_model.cpp": {
+      "bytes": 9740,
+      "sha256": "ad7ef51a1049d9aab15ff4d0a09b641bca673b945adc1d097d88c65bcd3724a9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/infinilm_model.hpp": {
+      "bytes": 6558,
+      "sha256": "cec2cbdc9b96addba398435b9488709407b16550a28ad79b9695d870d33790cc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/internlm3/internlm3_for_causal_lm.cpp": {
+      "bytes": 976,
+      "sha256": "45acab64655f0e3bd4c347b9c20681463c92dcf45620e8ca061f9cdd17dd7ab2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/internlm3/internlm3_for_causal_lm.hpp": {
+      "bytes": 378,
+      "sha256": "9c74576d63bdc67621b0c44e9cec7ea779f5de5b3330ecbf5d821ed22f979494"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_attention.cpp": {
+      "bytes": 11549,
+      "sha256": "747e1324fac125e1cd2b356d8325fec6cca48404f9d4cb42faff00d316f68c0c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_attention.hpp": {
+      "bytes": 2403,
+      "sha256": "6b37d49bf63b2514af84c32e5a05dddee7fb008ee849f0f82cb9132da0a1800d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_decoder_layer.cpp": {
+      "bytes": 3845,
+      "sha256": "2fcee1ec06389d4b01fcb19bc7b6635ea05fbb8cb16232e1c3f68f643f39ffd7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_decoder_layer.hpp": {
+      "bytes": 1438,
+      "sha256": "d1860702e4564cbb99e3998ad41fa01948f7304164bbdee8ec7b0d1b5ece93b8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_for_conditional_generation.cpp": {
+      "bytes": 8410,
+      "sha256": "41c370323d03960bc9ee9c7c9da8019a9faa34d313031d868bf7d315ac074b46"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_for_conditional_generation.hpp": {
+      "bytes": 1629,
+      "sha256": "3d634f047da2446bedfa8b2a6d18f7aa41771a7b26e3b798cdd0c651754e2028"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_moe.cpp": {
+      "bytes": 8859,
+      "sha256": "cf853d77ee70a3be9fbd1b06d8a41600bfdd68635bda32a09e03f90e9f83d841"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_moe.hpp": {
+      "bytes": 2361,
+      "sha256": "029fdbb743a81166963f1ac6df37f187942e6139b0e583a65bc49bd2d255ffb8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_vision.cpp": {
+      "bytes": 24749,
+      "sha256": "6c3b2f85a4815c1790bc278b1467ed99f91eb947c320297ed4dffcaa41905d68"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k25/kimi_k25_vision.hpp": {
+      "bytes": 5759,
+      "sha256": "8703f6821c6bb31b9d6dc887f61f4ae6f7759d1b15ea1478a4cec1507c41e89f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_allocate_cache.cpp": {
+      "bytes": 4202,
+      "sha256": "d4241ab5e426d7a10b78a9e9db351837fdea04c7cb70550b80a20341ac280306"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_allocate_cache.hpp": {
+      "bytes": 506,
+      "sha256": "576d539307932e8dfca98b0364428ed305d9c9e615d0fde7221d88cebf3ee10d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_decoder_layer.cpp": {
+      "bytes": 11503,
+      "sha256": "498cdd5108a6131dd0f48dea855826d6cec65285ec80a9f80e2fa20c5f433f07"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_decoder_layer.hpp": {
+      "bytes": 2510,
+      "sha256": "03d7fdbffd68e192e1824bc3400d125ffb43232d7f595020ce092e728744895c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_delta_attention.cpp": {
+      "bytes": 25009,
+      "sha256": "1ac86c825785e9ffe584577e63302f8245f181adec910edd63c25711ff584e30"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_delta_attention.hpp": {
+      "bytes": 2954,
+      "sha256": "c4f11dc9af11c7f695758a75557cda06462218599a2108e274608e808edfb1d0"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_for_conditional_generation.cpp": {
+      "bytes": 10815,
+      "sha256": "917e233d35c470f62f3642598aeb1a6f101153fa01c308774ffbfd7a1eff4aa1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_for_conditional_generation.hpp": {
+      "bytes": 1711,
+      "sha256": "cafc31d5c6a40bdb793e18e4434bdf89238971df357c17c76b1c422939823de8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_kda_trace.cpp": {
+      "bytes": 4004,
+      "sha256": "29a16830e6a93d4f1d90ef09a867873b247eec819d76b7d85abdd090570fbfb8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_kda_trace.hpp": {
+      "bytes": 782,
+      "sha256": "3d19fb226bbf76394047365a92f797e4653556ce6b8cc278be5bb42f4e532e20"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_mla_attention.cpp": {
+      "bytes": 15736,
+      "sha256": "c992ebdda1e804d16ed43fc24ef7a57b5fa41239036345495899e202ca583db7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_mla_attention.hpp": {
+      "bytes": 1943,
+      "sha256": "de732360bad8e813a4151f5190396735e40cff55d044bc2b64e67082f081caa6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_moe.cpp": {
+      "bytes": 16798,
+      "sha256": "cc998d85a10561fef0649db30d103f35097ff747891eab2a8333eaa1aaf6a381"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_moe.hpp": {
+      "bytes": 3575,
+      "sha256": "ae7096f85da8953c99ceb3fe4e33d6e430887112210dd1927e8b227f23075a78"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_pipeline_partition.hpp": {
+      "bytes": 1593,
+      "sha256": "084ab999daa97d5b5b2cfc5e2db5e254616d6b136f37df3a282c7af258de249d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_text_model.cpp": {
+      "bytes": 12578,
+      "sha256": "9a8b992b6739eb39e04199aadb372bc7212a0f4489d2366e99d87679de925aef"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_text_model.hpp": {
+      "bytes": 3283,
+      "sha256": "b4f6fd75297212e0b975af86aeac0be1be3b0ffc7713be6128818b0936960767"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_trace.cpp": {
+      "bytes": 4393,
+      "sha256": "84e60f038bc93ce4586704718576c280729ad148a8503104240e356d1d46934b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_trace.hpp": {
+      "bytes": 277,
+      "sha256": "f0d26a7471a5c8196f096750cabf09a400febb878be802c8e393db7f7dd208d2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_vision.cpp": {
+      "bytes": 22604,
+      "sha256": "420efdf87babbb6dd89500f432c56b2204a667ffe047dfb65fe9501458a81baf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/kimi_k3/kimi_k3_vision.hpp": {
+      "bytes": 5422,
+      "sha256": "7f94c80f80a822ef1d17cddc956251ab9b53c80bc33fdb29085d8f436cbcec7a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/llama/llama_for_causal_lm.cpp": {
+      "bytes": 1586,
+      "sha256": "bbf1df712396601d0b20c90eb3a50ced7642a725746ebd27568efb17f3224970"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/llama/llama_for_causal_lm.hpp": {
+      "bytes": 766,
+      "sha256": "c2b05fd848e1b0a4eb3c36435377a11fedac8f7f36efe99e00da7de51d2a381e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/mamba/mamba_for_causal_lm.cpp": {
+      "bytes": 32641,
+      "sha256": "f22e60348c2301a519ce605834cdeb4be2bd439f17fd5bba919dec7ccb4dc7a7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/mamba/mamba_for_causal_lm.hpp": {
+      "bytes": 4752,
+      "sha256": "08075705a04c2814ab11bfa8c8049f12d6e888d0f5d7e3ed612d87be64da8038"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/mamba/mamba_state_routing.hpp": {
+      "bytes": 4375,
+      "sha256": "23ec5dbc0095dea3664c8770ce4c9b48aa74773c2f73b8d14f9d1441d1c3a010"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpm4/minicpm4_for_causal_lm.cpp": {
+      "bytes": 12204,
+      "sha256": "4d11a2de62614aad1b383d951e1cd13c112751903ee3e21787dd77cff96b06b9"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpm4/minicpm4_for_causal_lm.hpp": {
+      "bytes": 4266,
+      "sha256": "4894e4b1da49b70a35e9179cd4ca019dc1a7a3e9defc77da692ba9e007e4611d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpm_eagle/minicpm_eagle_for_causal_lm.cpp": {
+      "bytes": 8144,
+      "sha256": "0dec02d54873cede847d6e691ce4f7d33291f26a148fc8d5758e2cfe569deb05"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpm_eagle/minicpm_eagle_for_causal_lm.hpp": {
+      "bytes": 2376,
+      "sha256": "2936b67083843b90b159583d990da7bd73cfd8ac23a844855a834ef465aff62a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/minicpmv_media_mapping.hpp": {
+      "bytes": 4251,
+      "sha256": "dce9276865a2740acd43ae2d9014b7c2ce80e550c5934fb6bc82ecc055d68dda"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/minicpmv_model.cpp": {
+      "bytes": 12757,
+      "sha256": "1bf111c5bc0d05e47af6457914315ffb0d82b8edf18fbedf2a6fe49dc8ad57fe"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/minicpmv_model.hpp": {
+      "bytes": 2044,
+      "sha256": "8da4606c82f5769eb9bb8ca6109fe1a57e7da6b293c0619cda574c684404fd6e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/resampler.cpp": {
+      "bytes": 16934,
+      "sha256": "1abef10fb7823102c6287cc696ce99200150b6c2b61db1bb31bfbaa3606eb311"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/resampler.hpp": {
+      "bytes": 2299,
+      "sha256": "5f8ff6b6345182fc377632c503d2d911d080e65b06c617accfe1ebf18a211af8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/siglip_vision.cpp": {
+      "bytes": 23581,
+      "sha256": "7b10c98b94389084b7deba75745ba3b72dc784645c41f8f37bc27353432bc531"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/minicpmv/siglip_vision.hpp": {
+      "bytes": 5484,
+      "sha256": "b5786387e518576943f90ba0144a0f1a79437a95d4fb3b060f45505f0985466a"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/mistral/mistral_for_causal_lm.cpp": {
+      "bytes": 2298,
+      "sha256": "a55e2a1239f6759c830c93163bd33ccc16e9292adeb32f59cb249ef716952932"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/mistral/mistral_for_causal_lm.hpp": {
+      "bytes": 794,
+      "sha256": "699d78559bdde824f2ac33eda5599b99cce83cec6b3c833c94ad6039c893a145"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/model_factory.cpp": {
+      "bytes": 2974,
+      "sha256": "8036e42554b3c007cb1a03310102d9a0e259b1373586d7222a79d7f035968461"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/model_factory.hpp": {
+      "bytes": 563,
+      "sha256": "ada266492b7c4c8cfcc3b7c8f5eabd392e7fb3726dc5ad88d8e48cdfb97c6c6d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/models_registry.cpp": {
+      "bytes": 901,
+      "sha256": "1bea5f00ac15a38f826c3835fd4ccfa230ee0cfa0c9ab445b19372cfc5f3f90c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/models_registry.hpp": {
+      "bytes": 8008,
+      "sha256": "7f73cb92cccb542343bd9bd9a5ad807168f2d1ad434c97c0bdde75c9846f936f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen2/qwen2_for_causal_lm.cpp": {
+      "bytes": 1453,
+      "sha256": "8839fe3c561e0136073eb4cbec3d822851eeef824049b5d707988d84976c1fb2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen2/qwen2_for_causal_lm.hpp": {
+      "bytes": 766,
+      "sha256": "35d46263657bbdcb90dfa52fd80c7b6b7eebe13baf8103563ab90b6762615354"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3/qwen3_attention.cpp": {
+      "bytes": 8821,
+      "sha256": "14112780e71841b1d94d5c1d68562642b62b92779e9b85ef7e2bbe9764f16e68"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3/qwen3_attention.hpp": {
+      "bytes": 2733,
+      "sha256": "eb928cea354d82179885cd7ede8d9a515b7d754b70d2889aab5444d6b4703cd8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3/qwen3_for_causal_lm.cpp": {
+      "bytes": 938,
+      "sha256": "a98116e5d34aa4f27d9e46d62e069b42099556bd00b8b03d43108ef0fdef8cbe"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3/qwen3_for_causal_lm.hpp": {
+      "bytes": 737,
+      "sha256": "c1b0051f066507d75c8386d92e431a23c22988245e3371d3cd2d641608c9b933"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_attention.cpp": {
+      "bytes": 13354,
+      "sha256": "f9218d3053403dc45f80ae24c966f7c0093bb93ec6ee260f52c53dbddc65e440"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_attention.hpp": {
+      "bytes": 3050,
+      "sha256": "1d78b79208bc2d1fc7ae368049e4abd47f55ea8f6bacf5e67ecdd03f565c1c81"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_decoderLayer.cpp": {
+      "bytes": 4272,
+      "sha256": "9dc9c6256469562b642e8aa536f156ef891d5c11c770b2c66b6b87e64820d7f7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_decoderLayer.hpp": {
+      "bytes": 1698,
+      "sha256": "bc44d3964f646537749854d37beb6e54d2a19076fb87e87a7c49c48e0f976eea"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_for_causal_lm.cpp": {
+      "bytes": 14434,
+      "sha256": "5532d34aa51716e490ef7abad1536a54ac40d0e0c0a86dd62c936e132bbae52d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_for_causal_lm.hpp": {
+      "bytes": 1371,
+      "sha256": "d13990e44b8771944f32ee40fdcd9a6ea4e0d3ff0b6c9bd3456a96e528579037"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_fused_qkv_linear.cpp": {
+      "bytes": 7945,
+      "sha256": "db344225460960282cb33d2f0dfb407def9aa97bbaf16de8c17375831904f108"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_fused_qkv_linear.hpp": {
+      "bytes": 2095,
+      "sha256": "0a579efbfc942ca5696f314b324c784eb9a99b0c70013b87872a8e106c3a44e3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_model.cpp": {
+      "bytes": 7325,
+      "sha256": "7b28aee21a94a0f4142812a73600c89c10dab7bdd8a2f57447e0a80ed08a1e13"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_model.hpp": {
+      "bytes": 3449,
+      "sha256": "8fb8f607c152fdcd6d26d328a2eea62ad92b362cf5f15cda018fc132e50d4b3e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_vision.cpp": {
+      "bytes": 26605,
+      "sha256": "553cd6376c36ce691b465a50cd31920509b3b65870e1f0e0e4b6b19814345ff7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5/qwen3_5_vision.hpp": {
+      "bytes": 5548,
+      "sha256": "2dbe58e78c87e4865868e75f736e2159e3a83df5db8ba85698256f310aaee92f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5_moe/qwen3_5_moe_decoder_layer.cpp": {
+      "bytes": 4506,
+      "sha256": "5eb1991e40f539ebd974de2ffd09f8d5b4ad124203804318cad565e0d849de1f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5_moe/qwen3_5_moe_decoder_layer.hpp": {
+      "bytes": 1621,
+      "sha256": "05e758c8a0239ff172d84ad2f9d070c337bd6c9782ee005df67c7abfc560ae67"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5_moe/qwen3_5_moe_for_causal_lm.cpp": {
+      "bytes": 1128,
+      "sha256": "716df3a166e60d8e78c82c7ca32e884de7556271eb98ef5b10bcd760ccaee212"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_5_moe/qwen3_5_moe_for_causal_lm.hpp": {
+      "bytes": 1963,
+      "sha256": "46ce9bb095b7ecfcc2ea8fee8abacb2e30e8bd303033463a3772ad2cc053ee8e"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_experts.cpp": {
+      "bytes": 3761,
+      "sha256": "9856ea569df58a0b630a0efd65b81948a7bad38fa328e6e4839ba17a470539b2"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_experts.hpp": {
+      "bytes": 934,
+      "sha256": "e4ebcc93c369e4f9dc4c76e845d5512cc89d63af19753d270e9c736616b910f8"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_for_causal_lm.cpp": {
+      "bytes": 3310,
+      "sha256": "9fe9c9d43a8b5a4bb74640ade15474d7decbd8804c2ea9720767fcc6b57d615f"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_for_causal_lm.hpp": {
+      "bytes": 1207,
+      "sha256": "b892883eee0af9816c120e31f32568366b90b5b7a865734e1839d20bfbe6d228"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_sparse_moe_block.cpp": {
+      "bytes": 3081,
+      "sha256": "c2e99bc0f80a4be71f15ded2a3800c97614baae397419f52c4b3fcae331b2de5"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_sparse_moe_block.hpp": {
+      "bytes": 986,
+      "sha256": "28aebc4a2c52cd920b869f5a461ba045b6d0b9ed4c483b031991d30e24595e63"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_topk_router.cpp": {
+      "bytes": 4471,
+      "sha256": "d142f736caa9e59c7292a936a527c28b7d9c8798c1f2ba9c51bbafb621cea058"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_moe/qwen3_moe_topk_router.hpp": {
+      "bytes": 1096,
+      "sha256": "3622f72a968b3816b753efb6f23adc1f3f1fe476bc81fdfcdee1cf16e395bf15"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_allocate_kv_cache_tensors.cpp": {
+      "bytes": 8029,
+      "sha256": "ce44a6b97a63682635ce898540556469de64c294d577667a14807dcbc82dbd30"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_allocate_kv_cache_tensors.hpp": {
+      "bytes": 885,
+      "sha256": "123b6390cde303cf21fbc89fc26a4066a6771ed3bfe1283f2d287f38a3c1a7bc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_attention.cpp": {
+      "bytes": 10666,
+      "sha256": "0e6d5351cf2214c10f96866425b609d9509cf890b9af6096f65f802c1fd4b020"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_attention.hpp": {
+      "bytes": 2958,
+      "sha256": "0077926959fe2c2a43e4846925ad637440acdbbcd5d4332521d2a1fefa73f603"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_decoderLayer.cpp": {
+      "bytes": 4407,
+      "sha256": "7d9f699474fe0df617958cee2c5b7b52dcef9c5b05b1e3c11aacd56ba03f6800"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_decoderLayer.hpp": {
+      "bytes": 1750,
+      "sha256": "ba71b920fcd0fae7371d0f56d84ab9f0127b682d10fa201daf5f3a881e04b6dc"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_for_causal_lm.cpp": {
+      "bytes": 8815,
+      "sha256": "72546ba47971a0581fe6462a33b9123cb57789442ab10a03475c49277f19808c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_for_causal_lm.hpp": {
+      "bytes": 1345,
+      "sha256": "401f5ef972ba37733963d11bc9b2870807ac499e48c2932897718874c496bb8b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_gated_deltanet.cpp": {
+      "bytes": 26152,
+      "sha256": "07e182231098f7898ffb1fcec1a337ac4ad56c0c417de5f139f5c4ba6e85a8a4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_gated_deltanet.hpp": {
+      "bytes": 3232,
+      "sha256": "18ad3b16bd6ef6a14bcba4a512b219ed3b8592b81b1e92128c6ed1f6bfbd274b"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_sparse_moe_block.cpp": {
+      "bytes": 7381,
+      "sha256": "cdfa59de29c55647eac4895775589cc2fa1283ba034fc4ed8c396ef2425dedff"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_next/qwen3_next_sparse_moe_block.hpp": {
+      "bytes": 2527,
+      "sha256": "f3c2da2020d5ae5e7d8bbf2cec2864861e8dc2f3e1d3712aa008ea5c08bd2950"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_vl/qwen3_vl_for_conditional_generation.cpp": {
+      "bytes": 7006,
+      "sha256": "af9103502ca7b2b32a5f4001030305a9e3004e97cd784b8952f603042f333b85"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/qwen3_vl/qwen3_vl_for_conditional_generation.hpp": {
+      "bytes": 2140,
+      "sha256": "33318cd236d9f713861d4b0fe95a98a541dd643114403025ff255aba37c762b3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/nsa_serial_lane.hpp": {
+      "bytes": 6923,
+      "sha256": "2b122eddd995dd5954877d455177244315ecdf099820a7bc7a6c2e784f4a7583"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_attention.cpp": {
+      "bytes": 38875,
+      "sha256": "75ffe6ec24d0e7933f3ea9cc0d5b63bc95ace9a2fb0372445e0196432c340e93"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_attention.hpp": {
+      "bytes": 2135,
+      "sha256": "a4bb2103ff5385abf23b0370a46a2a0e62de544a7874b5d34c059b7637718659"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_for_conditional_generation.cpp": {
+      "bytes": 13959,
+      "sha256": "d2c4208dab01f9e59ca41b00f06964526151983999a03a5be8d7453e98ad3b2c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_for_conditional_generation.hpp": {
+      "bytes": 2120,
+      "sha256": "7a244333a8279b5a15931f83d21e5caba4c4b22edcb581e972b61b0e8ea0ebd1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_vision.cpp": {
+      "bytes": 24027,
+      "sha256": "dc3e8d8b50f2ffd0b46fe4885862c02c26e68d6e58106bd394c9afe59afc4856"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/models/videonsa/videonsa_vision.hpp": {
+      "bytes": 5194,
+      "sha256": "69b1f5dceb215428947c2ed7b1f4b9a13daba473a5f5444681dbaffe4dfabc43"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/owned_kda_indices_r1183.hpp": {
+      "bytes": 3203,
+      "sha256": "7029f8b96421caa18543e4169b2fd61657222836fab05c249ce7abf1a635c2f3"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/parallel/global_tp_layout_r1261.hpp": {
+      "bytes": 1851,
+      "sha256": "61271bd5446283031b52022c7308d262ce1359d5a6917a6e7774f7a1f3f171df"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/parallel/topology.hpp": {
+      "bytes": 2567,
+      "sha256": "a86edf1dbe887513595ad4ed200eaa889bb5f25608175acb8a374bd4be8b4ec6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/cache/cache.hpp": {
+      "bytes": 2088,
+      "sha256": "df36692b8431e4b94847d3d30fc4e0e6f54be492b0d1458504fbae5b3f9b27e1"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/engine/engine.hpp": {
+      "bytes": 18433,
+      "sha256": "22afb2b4ebef742fb834325fa9dbc3a16fa8d146882987b1d39e48af0240e9f7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/context.hpp": {
+      "bytes": 1061,
+      "sha256": "09fe8335da76cf4ccca0f38bdacc4c5773e9ed9329da0a8a05b69bb749a33068"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/device.hpp": {
+      "bytes": 988,
+      "sha256": "1d861f5266f07332070e3c1fb2e5464beb554648f867f88eb3221905bd1207ec"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/dtype.hpp": {
+      "bytes": 781,
+      "sha256": "84fe1c838d4c3e32deeea701cb887609ffa564542173c1cdc91b8556f114e498"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/ops/add.hpp": {
+      "bytes": 1194,
+      "sha256": "d76f3c3ef050a7b047e3d30b110e04e24648e72b13f9958d6d681a27d3648d97"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/ops/cat.hpp": {
+      "bytes": 1941,
+      "sha256": "6c267b6ad8dd698f88da691f485fa6b2ea173494aaa314de7ffee388eb01fa19"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/pybind11/runtime/tensor.hpp": {
+      "bytes": 5652,
+      "sha256": "7574feff204ce275ac448cf781d9abf8c15b8bb5f7b9df26498469f51d55d704"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/api.hpp": {
+      "bytes": 44,
+      "sha256": "0645127b0c6a0309813e4ee594e69ae89b298fc66315f05c4192017fa845efcf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/context.hpp": {
+      "bytes": 482,
+      "sha256": "3738f6c84ec1309b0953795445766e1bb9c47fc13aa2b6afd87eb83efdeea920"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/context_impl.hpp": {
+      "bytes": 1414,
+      "sha256": "598b79e692b39f59e9f94fc93def01c46345b9f76ac6c4230ff5f04b5018e1d6"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/custom_types.h": {
+      "bytes": 2344,
+      "sha256": "f712558a9db5ff0af8b59574869e68469cb031bc48f3a2c2529d895420455c67"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/device.hpp": {
+      "bytes": 138,
+      "sha256": "1774bd14a820323bab660dcb8b573855a30599732b23cf1f602488c47f2f6e00"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/dtype.hpp": {
+      "bytes": 268,
+      "sha256": "8565799e8ef5645b996a64d3c3fbc8d5926d32cceb1c3843ed6ad74dc04b2a89"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/memory.hpp": {
+      "bytes": 1008,
+      "sha256": "855379ed4d0b4663644178e1a7bfaae958861e80b39b2fdaec0df00c31baf291"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/owner_drain_fail_stop.hpp": {
+      "bytes": 430,
+      "sha256": "6e9cb7f97622fad711ba9d3c18285f9265adaddcec959d7b1703ed7d73c1719d"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/runtime.hpp": {
+      "bytes": 3017,
+      "sha256": "c127b4cf91ab3b64721efe7c9a3e90a84cca9e35dc004ddb6abd9c5e067896d4"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/tensor.hpp": {
+      "bytes": 10726,
+      "sha256": "dfc787f233bef2fb5888d0954440746334386023bad3f6207164024b377eb658"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/runtime/utils.hpp": {
+      "bytes": 4288,
+      "sha256": "685a7881ae675f647f54a2c304fe19f0e476818fe5dec9a3cf08f1e3a1b762fa"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/utils.hpp": {
+      "bytes": 5224,
+      "sha256": "87e881249dab7fe2964811c93adb62fe9e61c4eeca9244db4d18a4d80ccb1f1c"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/weights/weights.cpp": {
+      "bytes": 8541,
+      "sha256": "789c8a895d21ac8e4377b785d025c0e2200b6565233de0b3916a16b891d4ea11"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/InfiniLM/csrc/weights/weights.hpp": {
+      "bytes": 5054,
+      "sha256": "1056d753a7c5be68ef493b547062eea63a48bb218d710b2616aeac60ca379cca"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/kimi_engine_probe_r2475.cpp": {
+      "bytes": 22533,
+      "sha256": "3b6d957f4200e362642707c618189cc6717237c13e01488c6aac5aed4ec63daf"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/kimi_spec_kda_r3676.cu": {
+      "bytes": 2279,
+      "sha256": "292c9f7faea6fd0fdd11f8a2575a9b87fb74877b17f23785c6db4589c9544372"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/owner_affinity_report_r2392.cpp": {
+      "bytes": 466,
+      "sha256": "20c5d6d8284efb293b9ebc1642f0b41baa721879f14eadc87ffd063b653dc7e7"
+    },
+    "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-MLA-trace-5f91ad7-r3841/roundstep.cuh": {
+      "bytes": 7627,
+      "sha256": "cbf1806bed0710ab6a97beb11532806add5db39d9fd81227788ca338182e5426"
     },
     "experimental-latest-5f91ad7/cluster-layout/candidates/kimi-spec-math-5f91ad7-r3683/compile.sh": {
       "bytes": 1303,
@@ -94043,8 +95859,8 @@
       "sha256": "6a757a07cd16d4f21ace8c0a6fcae877374223254ecf4608b52a1c76e18b4a0e"
     },
     "experimental-latest-5f91ad7/README.zh-CN.md": {
-      "bytes": 10199,
-      "sha256": "923cf15adac3d4757a32fdbbd18dea55e73d90ca26b0604693844c88d8731da8"
+      "bytes": 13942,
+      "sha256": "d23fd8738802884b67d1b9ba26d4f2d4f0558b908150f65f8800f944b156226a"
     },
     "experimental-latest-5f91ad7/source-provenance.json": {
       "bytes": 24461,
@@ -100471,16 +102287,16 @@
       "sha256": "11e2d0ee8e19df76ccd3f84d3b701c827f3dfefd1f7f59fd4b7e513bcb18cacf"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 16798,
-      "sha256": "d54c488d7032c6c92224c0255cd8257363703ac646a42ff4b1dc3a8e53036814"
+      "bytes": 18706,
+      "sha256": "5282e1090a001840ec4d1fb6a578b9b0930010f2551b7450226c13182d15e918"
     },
     "pins.json": {
       "bytes": 4167,
       "sha256": "8813a35608e7e6956b21bcd7b91e0396756706e221651a8abad1842c09eb2a2b"
     },
     "README.zh-CN.md": {
-      "bytes": 13095,
-      "sha256": "6d17509ed52bde2a477590d2940100ab14c8a31ff1d60b1d22496a3eac19ee2b"
+      "bytes": 16838,
+      "sha256": "c1209ed0b059f2a3c47589c2467fdff4c3e620417f7f7550c5333594745a9c48"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -100523,8 +102339,8 @@
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
     },
     "SPECULATIVE_EXPERIMENT.zh-CN.md": {
-      "bytes": 14794,
-      "sha256": "a87fc58d9d2ee102ba5f43c562bf8f2624fef9e7783b06321f95e88c9cbdb217"
+      "bytes": 19557,
+      "sha256": "098c0a416abfc60bdd22c738894d665f5a9f44bf963dd0b73c950309d9b42e7b"
     },
     "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
       "bytes": 1856,

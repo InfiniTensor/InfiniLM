@@ -1,0 +1,6 @@
+g++ -std=c++17 -O2 -shared "$BASE/owner_affinity_report_r2392.cpp" -fPIC -pthread -D_GLIBCXX_USE_CXX11_ABI="$ABI" -DINFINICORE_RANDOM_SAMPLE_OMITTED \
+ "$BASE/kimi_engine_probe_r2475.cpp" "$LM/csrc/kimi_spec_math_r3676.cpp" "$BASE/spec_kda.o" "$LM/csrc/kimi_owned_indices_r1213.cpp" "$BASE/tile.o" "$BASE/raw.o" "$BASE/kernel.o" "$BASE/global_tp_runtime_contract_r2347.cpp" "$LM/csrc/engine/distributed/dist_config.cpp" "$LM/csrc/engine/distributed/communication_group.cpp"  "$LM/csrc/engine/infer_engine.cpp" "$LM/csrc/engine/rank_worker.cpp" "$LM/csrc/engine/request_sampling.cpp" \
+ "$LM/csrc/config/config_factory.cpp" "$LM/csrc/config/model_config.cpp" "$LM/csrc/config/quant_config.cpp" "$LM/csrc/models/models_registry.cpp" "$LM/csrc/models/model_factory.cpp" "$LM"/csrc/models/kimi_k3/*.cpp \
+ -I"$LM/csrc" -I"$SDK/include" -I"$SDK/include/infiniccl" -I"$COMMON/third_party/json/include" -I"$COMMON/third_party/spdlog/include" -I/opt/dtk/cuda/cuda/include \
+ -L"$HELPER" -lkimi_grouped_prefill -L"$COMMON/python" -l:_infinilm.cpython-310-x86_64-linux-gnu.so -L"$COMMON/python/infinilm/_lib" -linfinilm_runtime \
+ -L"$SDK/lib" -linfiniops -linfiniccl -linfinirt -L/opt/dtk/cuda/cuda/lib64 -lcudart -lcuda -Wl,-Bsymbolic -Wl,--no-undefined -o "$BASE/libmodern_kimi_MLA_trace_r3841.so"

@@ -1,5 +1,34 @@
 # 性能与可复现性
 
+## 最新GLM128通过冻结完整token验收（3797）
+
+32卡TP8PP4，512输入/max128，640上下文。M4失败整套淘汰，仅M8/M16合格，两次正反序中位。不是HTTP/最优规模或代码因果加速。
+
+| Batch / micro | Decode总tok/s | 含prefill总tok/s | Decode/32卡 | 含prefill/32卡 | Prefill输入tok/s |
+|---|---:|---:|---:|---:|---:|
+| 64 / 8 | 54.12 | 18.25 | 1.691 | 0.570 | 109.70 |
+| 96 / 8 | 59.49 | 20.02 | 1.859 | 0.625 | 120.19 |
+| 128 / 8 | 62.62 | 21.05 | 1.957 | 0.658 | 126.32 |
+| 64 / 16 | 55.39 | 18.40 | 1.731 | 0.575 | 109.79 |
+| 96 / 16 | 64.30 | 20.55 | 2.010 | 0.642 | 120.39 |
+| 128 / 16 | 70.15 | 21.82 | 2.192 | 0.682 | 126.27 |
+
+共享完整RoPE的小批量另已验收：B16/M8，PP2总25.34/含prefill8.52，16卡每卡1.584/.533；PP4总30.87/含prefill10.33，32卡每卡.965/.323。节点、容量和并行规模不同，尚无最优规模结论。3790原proof文字scope沿用all32，但PP2实测分母和normal_workers_closed为16。
+证据：`evidence/qualified-GLM128-r3797.json`、`evidence/qualified-GLM-shared-RoPE-PP2-r3790.json`、`evidence/qualified-GLM-shared-RoPE-PP4-r3790.json`。
+
+## 最新5f91 Deep B16完整token验收（3799）
+
+8卡，512输入/max512输出、真实EOS规则、两类重复prompt，四阶段均到上限。无F64 AllReduce。
+
+| 阶段 | Decode总tok/s | 含prefill总tok/s | Decode/8卡 | 含prefill/8卡 |
+|---|---:|---:|---:|---:|
+| natural-l0-r1 | 32.27 | 24.30 | 4.033 | 3.038 |
+| natural-l0-r2 | 32.07 | 24.16 | 4.008 | 3.020 |
+| natural-l1-r1 | 32.29 | 24.33 | 4.036 | 3.042 |
+| natural-l1-r2 | 31.40 | 23.58 | 3.925 | 2.948 |
+
+完整ID、QA、CPUargmax、8owner、Slurm独立检查见 `evidence/qualified-latest-Deep-B16-r3799.json`。不可据不同batch或输出上限直接算代码加速。Kimi本轮30组投机均token失败，无可采用加速结果。GLM新prefill缓存尚无整模型验收收益。
+
 ## 最新5f91 GLM通过完整token验收的配置（3797）
 
 32卡TP8PP4；512输入/最多128输出、真实EOS、2类prompt重复，正反序各1次。M4淘汰；仅下表M8/M16通过所有32rank对应几何的冻结QA/自然ID、重复、有限值/CPUargmax、owner关闭和Slurm验收。

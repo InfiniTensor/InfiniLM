@@ -1,0 +1,2421 @@
+{
+  "completed": true,
+  "utc": "2026-10-20T23:01:21.587335+00:00",
+  "whole_model_performance_qualified": false,
+  "producer": [
+    "910373.826",
+    "glm-capcache-r3812",
+    "COMPLETED",
+    "0:0"
+  ],
+  "devices": 8,
+  "cases": 304,
+  "independent_CPU_math_points": 912,
+  "CPU_math_max_relative_error": 0.00376945483809948,
+  "complete_matrix_baseline_equality_producer_checked": true,
+  "changed_content_checked": true,
+  "all_plans_destroyed": true,
+  "reports": [
+    {
+      "device": 0,
+      "file": "glm-capcache-r3806-910373.826-gpu0.json",
+      "sha256": "eda7ce262990a7373f219d6d39957b1a677250dc1be42d2504139c6a48c44a67",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 1,
+      "file": "glm-capcache-r3806-910373.826-gpu1.json",
+      "sha256": "d5b40c7ac497eb6a08e7910f67ad3d01e454250934975c55d3d55dcafe82fcb8",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 2,
+      "file": "glm-capcache-r3806-910373.826-gpu2.json",
+      "sha256": "d2b3b39ce5cb3028b93b0aaac5ff6955919cb218d8c9752c0e51f376ee7e4f70",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 3,
+      "file": "glm-capcache-r3806-910373.826-gpu3.json",
+      "sha256": "0888b67e773a856cd4233c0945bff1b0f4bad5148e775f565ce06f1187f21a31",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 4,
+      "file": "glm-capcache-r3806-910373.826-gpu4.json",
+      "sha256": "b004f758fc49abc3d4a2283a3de260cfbdb12c95bfbf29f3daa61b8b8aaa95f0",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 5,
+      "file": "glm-capcache-r3806-910373.826-gpu5.json",
+      "sha256": "37ec3df0b4e3050d7fa27e4a216ba2c6cba9e0bb4b3d414c763514a6fcd193da",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 6,
+      "file": "glm-capcache-r3806-910373.826-gpu6.json",
+      "sha256": "806ffb3611202704509e3e100e2f9ce9a67c7810299dba6c449ed35dba247166",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    },
+    {
+      "device": 7,
+      "file": "glm-capcache-r3806-910373.826-gpu7.json",
+      "sha256": "6f56494f2a7d98ab92de4cfc8f22211029929b729e997f3c218c760d983b3545",
+      "before_clear": [
+        30,
+        15,
+        236,
+        30,
+        15,
+        15,
+        801587200,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ],
+      "after_clear": [
+        30,
+        30,
+        236,
+        30,
+        15,
+        0,
+        0,
+        805306368,
+        266,
+        0,
+        4096,
+        4096
+      ]
+    }
+  ],
+  "ratios": [
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.8588639835614083,
+      "stream_uncached_to_cache": 3.1404926061358958
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.943417315469929,
+      "stream_uncached_to_cache": 3.179882660116027
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.9141891874216865,
+      "stream_uncached_to_cache": 3.141868590849366
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.9042540290243624,
+      "stream_uncached_to_cache": 3.127082212021848
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7732711862277384,
+      "stream_uncached_to_cache": 2.9726702560628024
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.703677274003668,
+      "stream_uncached_to_cache": 2.8675605427920385
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.058889465239441,
+      "stream_uncached_to_cache": 2.137081434471928
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6348539008621417,
+      "stream_uncached_to_cache": 1.6663488223281506
+    },
+    {
+      "device": 0,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.4059806292790433,
+      "stream_uncached_to_cache": 1.4183916697673213
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.9540257841445063,
+      "stream_uncached_to_cache": 3.1974821409510086
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.9622603743527383,
+      "stream_uncached_to_cache": 3.2354858926836116
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.941044782075464,
+      "stream_uncached_to_cache": 3.1867104439835483
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 3.0326167834138644,
+      "stream_uncached_to_cache": 3.288631085747607
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.686483670507684,
+      "stream_uncached_to_cache": 2.8633171039377436
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.560797741969251,
+      "stream_uncached_to_cache": 2.7013145330527535
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.0216487499805535,
+      "stream_uncached_to_cache": 2.091394955119182
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6587957717818134,
+      "stream_uncached_to_cache": 1.6909228935210576
+    },
+    {
+      "device": 0,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3863005233563244,
+      "stream_uncached_to_cache": 1.398702510387898
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.098994186253879,
+      "stream_uncached_to_cache": 4.398150782139216
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.9128373150156968,
+      "stream_uncached_to_cache": 4.150470193809975
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.8293521919041695,
+      "stream_uncached_to_cache": 4.054804837927147
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.5613693621425337,
+      "stream_uncached_to_cache": 3.913099251499237
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.2987521033690754,
+      "stream_uncached_to_cache": 3.5989426107894924
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.8500423325162383,
+      "stream_uncached_to_cache": 3.056967214811152
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.074690839915342,
+      "stream_uncached_to_cache": 2.148903785716763
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6250849198913315,
+      "stream_uncached_to_cache": 1.6561539067443791
+    },
+    {
+      "device": 0,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.391662638390614,
+      "stream_uncached_to_cache": 1.4039953644453536
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.249892350109578,
+      "stream_uncached_to_cache": 5.818515648958755
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.247572987243512,
+      "stream_uncached_to_cache": 5.836721494227509
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.206149177845763,
+      "stream_uncached_to_cache": 5.733734871758562
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.132069649684182,
+      "stream_uncached_to_cache": 5.677450391719403
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 4.983066431913308,
+      "stream_uncached_to_cache": 5.49610331292876
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.5006694690189395,
+      "stream_uncached_to_cache": 4.85501263603931
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.2059645539274446,
+      "stream_uncached_to_cache": 3.5081832751247672
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.341977636760633,
+      "stream_uncached_to_cache": 2.4822942102086913
+    },
+    {
+      "device": 0,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8159645290762372,
+      "stream_uncached_to_cache": 1.866095732710311
+    },
+    {
+      "device": 0,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.8480272296731952,
+      "stream_uncached_to_cache": 1.9067818576656956
+    },
+    {
+      "device": 0,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.50414503490918,
+      "stream_uncached_to_cache": 10.869139096000572
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.88219195306512,
+      "stream_uncached_to_cache": 3.1593798933341146
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9186944060424183,
+      "stream_uncached_to_cache": 3.195559292379359
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.848593643645603,
+      "stream_uncached_to_cache": 3.1415340332264727
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.905785439151825,
+      "stream_uncached_to_cache": 3.1740249501314284
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7391135406565086,
+      "stream_uncached_to_cache": 2.961471402351098
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.6948807944773776,
+      "stream_uncached_to_cache": 2.8759352030591057
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.042962551954324,
+      "stream_uncached_to_cache": 2.1224868493029443
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6274389763421568,
+      "stream_uncached_to_cache": 1.6679410145741802
+    },
+    {
+      "device": 1,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3430622642026029,
+      "stream_uncached_to_cache": 1.3597508862569656
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.9148224250493597,
+      "stream_uncached_to_cache": 3.218714518606853
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.9038728128617777,
+      "stream_uncached_to_cache": 3.210495754059579
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.882010286676373,
+      "stream_uncached_to_cache": 3.160026507955683
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.617927919987382,
+      "stream_uncached_to_cache": 2.8466931485020477
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.994122994645933,
+      "stream_uncached_to_cache": 3.2531012362072267
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.6101134564964865,
+      "stream_uncached_to_cache": 2.777665912583413
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.0675199365146466,
+      "stream_uncached_to_cache": 2.1548114483749043
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.7128645375238982,
+      "stream_uncached_to_cache": 1.7528610490394156
+    },
+    {
+      "device": 1,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.394364074072123,
+      "stream_uncached_to_cache": 1.4108773405692479
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.071742329671704,
+      "stream_uncached_to_cache": 4.3458594270926945
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.877208643465433,
+      "stream_uncached_to_cache": 4.117779907114738
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.832489218936054,
+      "stream_uncached_to_cache": 4.055137073405501
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.6520685660070975,
+      "stream_uncached_to_cache": 3.933970894311797
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.2564175052005226,
+      "stream_uncached_to_cache": 3.6035049533832226
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.8667487477056586,
+      "stream_uncached_to_cache": 3.0672896912909184
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.102609863567394,
+      "stream_uncached_to_cache": 2.1925166456282077
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6825871050917423,
+      "stream_uncached_to_cache": 1.7239360262066499
+    },
+    {
+      "device": 1,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3741625655352334,
+      "stream_uncached_to_cache": 1.3895295967225032
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.153384531717116,
+      "stream_uncached_to_cache": 5.713578306499959
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.196616039995702,
+      "stream_uncached_to_cache": 5.707823838397087
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.014521476038358,
+      "stream_uncached_to_cache": 5.556338022010695
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.10084518155471,
+      "stream_uncached_to_cache": 5.6098708372699315
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 4.875713240052792,
+      "stream_uncached_to_cache": 5.359862111453409
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.526517021135528,
+      "stream_uncached_to_cache": 4.879400380321725
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.1095884415226305,
+      "stream_uncached_to_cache": 3.5112260558420356
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.3471803522754207,
+      "stream_uncached_to_cache": 2.4892140345117992
+    },
+    {
+      "device": 1,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8469200167199389,
+      "stream_uncached_to_cache": 1.9094991817767952
+    },
+    {
+      "device": 1,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.8363463231027797,
+      "stream_uncached_to_cache": 1.9057427448790563
+    },
+    {
+      "device": 1,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.460959363586467,
+      "stream_uncached_to_cache": 10.765243752028839
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.934781572536112,
+      "stream_uncached_to_cache": 3.186043310398893
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9246938570890477,
+      "stream_uncached_to_cache": 3.194513050319844
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.859477720149106,
+      "stream_uncached_to_cache": 3.1253047118657675
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.847411868542651,
+      "stream_uncached_to_cache": 3.105704349864778
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7654591654829344,
+      "stream_uncached_to_cache": 2.95398629646706
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.685851798189736,
+      "stream_uncached_to_cache": 2.843161850589061
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.04358184710528,
+      "stream_uncached_to_cache": 2.119277356391435
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6083032095374272,
+      "stream_uncached_to_cache": 1.6511577223414373
+    },
+    {
+      "device": 2,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3356084829015262,
+      "stream_uncached_to_cache": 1.3526611047973387
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.939294297574831,
+      "stream_uncached_to_cache": 3.2006253207336086
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.9201858373472414,
+      "stream_uncached_to_cache": 3.1778437640812287
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.880478677349932,
+      "stream_uncached_to_cache": 3.1465002107583033
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.681488651543251,
+      "stream_uncached_to_cache": 2.8820398797697653
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.737819238348056,
+      "stream_uncached_to_cache": 2.9529415169015123
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.8351522954926147,
+      "stream_uncached_to_cache": 3.020392039560454
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.0871205990552744,
+      "stream_uncached_to_cache": 2.1666653224031265
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6662580248874923,
+      "stream_uncached_to_cache": 1.705155590746648
+    },
+    {
+      "device": 2,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3798922120564432,
+      "stream_uncached_to_cache": 1.397146898338162
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.072327573972895,
+      "stream_uncached_to_cache": 4.3686406356171945
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.881689786153491,
+      "stream_uncached_to_cache": 4.115439831984175
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.823469969684539,
+      "stream_uncached_to_cache": 4.076980421205588
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.651443293471205,
+      "stream_uncached_to_cache": 3.9016505418901084
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.2640473800563443,
+      "stream_uncached_to_cache": 3.5949701394349423
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.8630662363071093,
+      "stream_uncached_to_cache": 3.0656968699227245
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.0583557627136844,
+      "stream_uncached_to_cache": 2.142171385325217
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6634544855039226,
+      "stream_uncached_to_cache": 1.714021792310515
+    },
+    {
+      "device": 2,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.356262843336874,
+      "stream_uncached_to_cache": 1.3722839912784612
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.137787983355323,
+      "stream_uncached_to_cache": 5.663391172205672
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.174119273115645,
+      "stream_uncached_to_cache": 5.753071362424313
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.068449569115139,
+      "stream_uncached_to_cache": 5.654438088427815
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.04964620956192,
+      "stream_uncached_to_cache": 5.568395921026924
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 4.897126487920112,
+      "stream_uncached_to_cache": 5.357221878010498
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.534955509388107,
+      "stream_uncached_to_cache": 4.8851851762424445
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.168687156973643,
+      "stream_uncached_to_cache": 3.5092593840184825
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.3496823017062898,
+      "stream_uncached_to_cache": 2.4933103562367975
+    },
+    {
+      "device": 2,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8089416278992214,
+      "stream_uncached_to_cache": 1.8638590273993274
+    },
+    {
+      "device": 2,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.854600174303062,
+      "stream_uncached_to_cache": 1.9161129010449687
+    },
+    {
+      "device": 2,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.37771818459554,
+      "stream_uncached_to_cache": 10.616564558047074
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.8842853485332363,
+      "stream_uncached_to_cache": 3.1714991368618524
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9539842505497567,
+      "stream_uncached_to_cache": 3.1962683046369254
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.92575142266751,
+      "stream_uncached_to_cache": 3.1524059533584117
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.885021742965969,
+      "stream_uncached_to_cache": 3.113666714274698
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.775953978512329,
+      "stream_uncached_to_cache": 2.969681434398983
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.669610885871969,
+      "stream_uncached_to_cache": 2.8457609983422647
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.0466507177033493,
+      "stream_uncached_to_cache": 2.121564460699407
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6269347042072093,
+      "stream_uncached_to_cache": 1.662649721887751
+    },
+    {
+      "device": 3,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3703911102920154,
+      "stream_uncached_to_cache": 1.3861012058666813
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.96411823543614,
+      "stream_uncached_to_cache": 3.219601665329721
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.9283133696492496,
+      "stream_uncached_to_cache": 3.1937174439358413
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.9691021180654453,
+      "stream_uncached_to_cache": 3.1954855831736393
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.990853221332665,
+      "stream_uncached_to_cache": 3.277448084064067
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.776338016702736,
+      "stream_uncached_to_cache": 2.9550608876110704
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.660336433681945,
+      "stream_uncached_to_cache": 2.7934142549877894
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.0936927500976066,
+      "stream_uncached_to_cache": 2.166777804916025
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.7347642435185737,
+      "stream_uncached_to_cache": 1.7726839204569158
+    },
+    {
+      "device": 3,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3940241814495518,
+      "stream_uncached_to_cache": 1.4089876394660845
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.162913801764639,
+      "stream_uncached_to_cache": 4.482868566813639
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.907242240456654,
+      "stream_uncached_to_cache": 4.142745745301434
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.8733725472193337,
+      "stream_uncached_to_cache": 4.148203533853262
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.6901036247483963,
+      "stream_uncached_to_cache": 3.9353633733340447
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.298304446633866,
+      "stream_uncached_to_cache": 3.624412184223439
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.760978344589815,
+      "stream_uncached_to_cache": 2.935922258182727
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.0605089046426257,
+      "stream_uncached_to_cache": 2.1428234868347493
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.657614879777741,
+      "stream_uncached_to_cache": 1.6963111928259096
+    },
+    {
+      "device": 3,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3408095038487846,
+      "stream_uncached_to_cache": 1.355234865755561
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.223296281467076,
+      "stream_uncached_to_cache": 5.841249788269644
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.2197384733549415,
+      "stream_uncached_to_cache": 5.807972655810449
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.107590706458754,
+      "stream_uncached_to_cache": 5.693509801050693
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.120421380857305,
+      "stream_uncached_to_cache": 5.640811757692525
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 5.017365938611131,
+      "stream_uncached_to_cache": 5.514036631792406
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.505057598387049,
+      "stream_uncached_to_cache": 4.866543284404515
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.174352828452123,
+      "stream_uncached_to_cache": 3.4973789535644864
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.380416301021948,
+      "stream_uncached_to_cache": 2.5254450267950603
+    },
+    {
+      "device": 3,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.806362918959662,
+      "stream_uncached_to_cache": 1.8608408344011966
+    },
+    {
+      "device": 3,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.834962264412545,
+      "stream_uncached_to_cache": 1.8974239494697185
+    },
+    {
+      "device": 3,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.41914997557401,
+      "stream_uncached_to_cache": 10.912752845194095
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.9590813174714823,
+      "stream_uncached_to_cache": 3.2953333792078046
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9484792851039514,
+      "stream_uncached_to_cache": 3.2896231341094837
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.915811430955361,
+      "stream_uncached_to_cache": 3.221896476805835
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.9127087715741187,
+      "stream_uncached_to_cache": 3.2115258693829922
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7599128695028834,
+      "stream_uncached_to_cache": 3.0229080072169796
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.681532590399907,
+      "stream_uncached_to_cache": 2.8776250984044895
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.059024927307117,
+      "stream_uncached_to_cache": 2.163608789105664
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.630025556660494,
+      "stream_uncached_to_cache": 1.6730333864747775
+    },
+    {
+      "device": 4,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.360411138662619,
+      "stream_uncached_to_cache": 1.3799008196020022
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.9626626549712807,
+      "stream_uncached_to_cache": 3.275818719177761
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.926893517711281,
+      "stream_uncached_to_cache": 3.2499966530596565
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.9946230910027256,
+      "stream_uncached_to_cache": 3.322934501790219
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.9966778939178327,
+      "stream_uncached_to_cache": 3.3169854781951513
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.667635114404762,
+      "stream_uncached_to_cache": 2.8883771334210118
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.8061759123393046,
+      "stream_uncached_to_cache": 3.0089854671836234
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.1155974855226876,
+      "stream_uncached_to_cache": 2.2045318442176463
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6805690217995601,
+      "stream_uncached_to_cache": 1.7286717085256535
+    },
+    {
+      "device": 4,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3788145582928437,
+      "stream_uncached_to_cache": 1.4004791529690022
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.113819368879216,
+      "stream_uncached_to_cache": 4.4470626561226005
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.9364417244120142,
+      "stream_uncached_to_cache": 4.217623790715397
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.9033788037775445,
+      "stream_uncached_to_cache": 4.132047444942808
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.6849871491388653,
+      "stream_uncached_to_cache": 3.988333518105117
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.275029760928004,
+      "stream_uncached_to_cache": 3.6579254410078255
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.867790244239803,
+      "stream_uncached_to_cache": 3.120659493653664
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.1134495512960743,
+      "stream_uncached_to_cache": 2.216086135133287
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6412761747579951,
+      "stream_uncached_to_cache": 1.6898387889343602
+    },
+    {
+      "device": 4,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3646278852859868,
+      "stream_uncached_to_cache": 1.3831881704581734
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.291868822288153,
+      "stream_uncached_to_cache": 5.832511964971262
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.28796052920475,
+      "stream_uncached_to_cache": 5.941759220929668
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.179457423215967,
+      "stream_uncached_to_cache": 5.760714617141591
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.214925354918826,
+      "stream_uncached_to_cache": 5.763938131017968
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 5.06511066352338,
+      "stream_uncached_to_cache": 5.573170722893221
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.568704913661726,
+      "stream_uncached_to_cache": 4.9369143002678975
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.1713952194515813,
+      "stream_uncached_to_cache": 3.564722128651198
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.376933447636633,
+      "stream_uncached_to_cache": 2.5400939480436895
+    },
+    {
+      "device": 4,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.86605420369425,
+      "stream_uncached_to_cache": 1.9440206169585788
+    },
+    {
+      "device": 4,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.861934421166418,
+      "stream_uncached_to_cache": 1.9475424211239163
+    },
+    {
+      "device": 4,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.153836793769933,
+      "stream_uncached_to_cache": 10.716399479015356
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.9159414176545573,
+      "stream_uncached_to_cache": 3.2396874750367153
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9497467106877613,
+      "stream_uncached_to_cache": 3.27113084448104
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.9019327012549354,
+      "stream_uncached_to_cache": 3.219559869241398
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.9045602560866413,
+      "stream_uncached_to_cache": 3.216820491088144
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7478305397717926,
+      "stream_uncached_to_cache": 3.0146935491249205
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.723865809679501,
+      "stream_uncached_to_cache": 2.927282979214513
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.075580678140816,
+      "stream_uncached_to_cache": 2.178885552866301
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6526349879918862,
+      "stream_uncached_to_cache": 1.7011637282790257
+    },
+    {
+      "device": 5,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3980177990295797,
+      "stream_uncached_to_cache": 1.417319491685796
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.937559744630596,
+      "stream_uncached_to_cache": 3.3034878297807975
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.9633087413131314,
+      "stream_uncached_to_cache": 3.2714549233594683
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.9780245491522983,
+      "stream_uncached_to_cache": 3.3062342778353035
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 3.0324950745704924,
+      "stream_uncached_to_cache": 3.3520709803740756
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.949017365395612,
+      "stream_uncached_to_cache": 3.23466735596274
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.6503562528841718,
+      "stream_uncached_to_cache": 2.8496370159689794
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.21308921020025,
+      "stream_uncached_to_cache": 2.339431964064434
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.678461490636531,
+      "stream_uncached_to_cache": 1.728470426847892
+    },
+    {
+      "device": 5,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3963834746873476,
+      "stream_uncached_to_cache": 1.419021155417257
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.143110912998769,
+      "stream_uncached_to_cache": 4.442323656775867
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.994653670676068,
+      "stream_uncached_to_cache": 4.261072228010927
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.9135590170162566,
+      "stream_uncached_to_cache": 4.158713747730248
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.801174337244716,
+      "stream_uncached_to_cache": 4.0474510777016395
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.2889765031602067,
+      "stream_uncached_to_cache": 3.6892223488246234
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.9070713458588466,
+      "stream_uncached_to_cache": 3.1421070071678097
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.1194114154672263,
+      "stream_uncached_to_cache": 2.2208490714922715
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6908252609689187,
+      "stream_uncached_to_cache": 1.7447134632920707
+    },
+    {
+      "device": 5,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.347305202642337,
+      "stream_uncached_to_cache": 1.3730946454812962
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.307330316742082,
+      "stream_uncached_to_cache": 5.953201730883573
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.344099246699027,
+      "stream_uncached_to_cache": 5.952198269451945
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.16787944284342,
+      "stream_uncached_to_cache": 5.778301524678235
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.202731225846251,
+      "stream_uncached_to_cache": 5.771226109188123
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 4.984087591653044,
+      "stream_uncached_to_cache": 5.510451150490768
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.569015771514679,
+      "stream_uncached_to_cache": 4.964088338091711
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.194667965254941,
+      "stream_uncached_to_cache": 3.5923879056254986
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.371288059341532,
+      "stream_uncached_to_cache": 2.5423701867773767
+    },
+    {
+      "device": 5,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8197501719436282,
+      "stream_uncached_to_cache": 1.9008399446031659
+    },
+    {
+      "device": 5,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.84888579308442,
+      "stream_uncached_to_cache": 1.9469662152708078
+    },
+    {
+      "device": 5,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.336346912990253,
+      "stream_uncached_to_cache": 10.763473278257502
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.942664947750149,
+      "stream_uncached_to_cache": 3.2725369515800526
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9503609292131903,
+      "stream_uncached_to_cache": 3.260038022131716
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.898529078407173,
+      "stream_uncached_to_cache": 3.198055326165887
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.922350863917266,
+      "stream_uncached_to_cache": 3.2231402638762305
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.788809430638712,
+      "stream_uncached_to_cache": 3.02309498294995
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.7048292901255735,
+      "stream_uncached_to_cache": 2.8990897051324844
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.0623048562915764,
+      "stream_uncached_to_cache": 2.1577457747129642
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6469190645468053,
+      "stream_uncached_to_cache": 1.695433865993459
+    },
+    {
+      "device": 6,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3537378983660056,
+      "stream_uncached_to_cache": 1.3732079918876252
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.9596189329528784,
+      "stream_uncached_to_cache": 3.258980971899054
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.960925232192335,
+      "stream_uncached_to_cache": 3.2827410237733163
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.8804683339516877,
+      "stream_uncached_to_cache": 3.245029575045666
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.895854948124501,
+      "stream_uncached_to_cache": 3.27811332944332
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.758627425303913,
+      "stream_uncached_to_cache": 3.0133139984100468
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.8443621661411354,
+      "stream_uncached_to_cache": 3.0637181022019706
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.110860325797029,
+      "stream_uncached_to_cache": 2.225585660786612
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.659864483069764,
+      "stream_uncached_to_cache": 1.7089862384920624
+    },
+    {
+      "device": 6,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3936292590005315,
+      "stream_uncached_to_cache": 1.4154849928386113
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.1670567635259435,
+      "stream_uncached_to_cache": 4.448046521846908
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.9616955355471917,
+      "stream_uncached_to_cache": 4.227060496859864
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.8883181247317298,
+      "stream_uncached_to_cache": 4.145616504751924
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.766472274789562,
+      "stream_uncached_to_cache": 4.0234485193126766
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.2941733853217716,
+      "stream_uncached_to_cache": 3.683050705852507
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.9090899419338228,
+      "stream_uncached_to_cache": 3.163839186822334
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.1269001103659266,
+      "stream_uncached_to_cache": 2.2333961753005043
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.689442802221022,
+      "stream_uncached_to_cache": 1.7427153349663727
+    },
+    {
+      "device": 6,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3592069650781213,
+      "stream_uncached_to_cache": 1.3794869454052796
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.305780139839053,
+      "stream_uncached_to_cache": 5.868123820637516
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.300942619768615,
+      "stream_uncached_to_cache": 5.907579697512749
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.155607147499554,
+      "stream_uncached_to_cache": 5.7216977614542515
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.139349873491015,
+      "stream_uncached_to_cache": 5.682297818390574
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 5.014119469378029,
+      "stream_uncached_to_cache": 5.502181373547993
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.651968366066478,
+      "stream_uncached_to_cache": 5.017473393048787
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.2313480918310864,
+      "stream_uncached_to_cache": 3.63457885430679
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.3797757184660657,
+      "stream_uncached_to_cache": 2.5307167979693737
+    },
+    {
+      "device": 6,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8295763994336998,
+      "stream_uncached_to_cache": 1.9130423116236288
+    },
+    {
+      "device": 6,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.8726363727491433,
+      "stream_uncached_to_cache": 1.9636540092673465
+    },
+    {
+      "device": 6,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.32009582182884,
+      "stream_uncached_to_cache": 10.746250731505254
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 32,
+      "host_uncached_to_cache": 2.9573091918604804,
+      "stream_uncached_to_cache": 3.2732854126415605
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 33,
+      "host_uncached_to_cache": 2.9672258558224622,
+      "stream_uncached_to_cache": 3.2843895552145237
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 64,
+      "host_uncached_to_cache": 2.9206925495546843,
+      "stream_uncached_to_cache": 3.242362274637319
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 65,
+      "host_uncached_to_cache": 2.930743804147674,
+      "stream_uncached_to_cache": 3.212361959781847
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 128,
+      "host_uncached_to_cache": 2.7175616967454137,
+      "stream_uncached_to_cache": 3.012515545354826
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 256,
+      "host_uncached_to_cache": 2.6761928007087197,
+      "stream_uncached_to_cache": 2.8761879664932373
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 511,
+      "host_uncached_to_cache": 2.0490773067893024,
+      "stream_uncached_to_cache": 2.145136852752734
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 1024,
+      "host_uncached_to_cache": 1.6461788664748012,
+      "stream_uncached_to_cache": 1.6929686195763902
+    },
+    {
+      "device": 7,
+      "name": "qa",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3674836285812761,
+      "stream_uncached_to_cache": 1.3872864813184438
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 32,
+      "host_uncached_to_cache": 2.9678032378513755,
+      "stream_uncached_to_cache": 3.299217737413478
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 33,
+      "host_uncached_to_cache": 2.980297717392183,
+      "stream_uncached_to_cache": 3.2774129024342384
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 64,
+      "host_uncached_to_cache": 2.925774406931381,
+      "stream_uncached_to_cache": 3.237084455020451
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 65,
+      "host_uncached_to_cache": 2.944364844639911,
+      "stream_uncached_to_cache": 3.236629170721689
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 128,
+      "host_uncached_to_cache": 2.68475449652094,
+      "stream_uncached_to_cache": 2.913347304716863
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 256,
+      "host_uncached_to_cache": 2.6444441571609163,
+      "stream_uncached_to_cache": 2.8332162387225566
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 511,
+      "host_uncached_to_cache": 2.0924696362230146,
+      "stream_uncached_to_cache": 2.200312446944035
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 1024,
+      "host_uncached_to_cache": 1.661352306884486,
+      "stream_uncached_to_cache": 1.7119815326832986
+    },
+    {
+      "device": 7,
+      "name": "output",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3972796341058054,
+      "stream_uncached_to_cache": 1.4202921808323015
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 32,
+      "host_uncached_to_cache": 4.166583969803831,
+      "stream_uncached_to_cache": 4.485325697477076
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 33,
+      "host_uncached_to_cache": 3.955430587258767,
+      "stream_uncached_to_cache": 4.226278070033139
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 64,
+      "host_uncached_to_cache": 3.87129323437316,
+      "stream_uncached_to_cache": 4.115241366951608
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 65,
+      "host_uncached_to_cache": 3.8511214951545574,
+      "stream_uncached_to_cache": 4.079465117483653
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 128,
+      "host_uncached_to_cache": 3.333025345742109,
+      "stream_uncached_to_cache": 3.7342621955223794
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 256,
+      "host_uncached_to_cache": 2.9439091340937376,
+      "stream_uncached_to_cache": 3.193489087126984
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 511,
+      "host_uncached_to_cache": 2.1291366795986386,
+      "stream_uncached_to_cache": 2.2306304630930054
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 1024,
+      "host_uncached_to_cache": 1.7037842659898783,
+      "stream_uncached_to_cache": 1.7580684466680423
+    },
+    {
+      "device": 7,
+      "name": "up",
+      "M": 2048,
+      "host_uncached_to_cache": 1.3555450368283728,
+      "stream_uncached_to_cache": 1.3777530353650465
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 32,
+      "host_uncached_to_cache": 5.238866321204845,
+      "stream_uncached_to_cache": 5.848595385962115
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 33,
+      "host_uncached_to_cache": 5.327338333008543,
+      "stream_uncached_to_cache": 5.886439148022969
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 64,
+      "host_uncached_to_cache": 5.1763949269930745,
+      "stream_uncached_to_cache": 5.759664191073759
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 65,
+      "host_uncached_to_cache": 5.15443224989447,
+      "stream_uncached_to_cache": 5.6888888211123305
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 128,
+      "host_uncached_to_cache": 5.048650171105071,
+      "stream_uncached_to_cache": 5.520556326170145
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 256,
+      "host_uncached_to_cache": 4.6161478333755674,
+      "stream_uncached_to_cache": 4.986143846425854
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 511,
+      "host_uncached_to_cache": 3.1876851984044894,
+      "stream_uncached_to_cache": 3.6016084160246242
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 1024,
+      "host_uncached_to_cache": 2.3558977913780286,
+      "stream_uncached_to_cache": 2.538776194806352
+    },
+    {
+      "device": 7,
+      "name": "down",
+      "M": 2048,
+      "host_uncached_to_cache": 1.8277101427853641,
+      "stream_uncached_to_cache": 1.907518696659886
+    },
+    {
+      "device": 7,
+      "name": "kv",
+      "M": 4096,
+      "host_uncached_to_cache": 1.8729968088159525,
+      "stream_uncached_to_cache": 1.9613372018741826
+    },
+    {
+      "device": 7,
+      "name": "offset",
+      "M": 127,
+      "host_uncached_to_cache": 8.453586164168676,
+      "stream_uncached_to_cache": 10.788690251394732
+    }
+  ],
+  "host_ratio_median": 2.910899356753971,
+  "stream_ratio_median": 3.1900997655552663,
+  "source_sha256": {
+    "audit_glm_capcache_r3814.py": "27ef1349409416c6c3ef669eccadd7ddb1325d5ba1e3dc3c0d2ce88eb6254a84",
+    "glm_capcache_r3812_inside.sh": "d3aacdc0d78cadb8403ea3846f531178ba75d7a2c07a75f7cc9f24893193eeda"
+  },
+  "scope": "Cache storage/handle reuse only; full matrix equivalence and read-only guards reported by GPU producer, independent persisted samples and terminal/lifecycle audited. Timing contains launch/allocate/synchronization gaps, no kernel/hardware/model peak claim. CPU FP64 sample oracle uses 1.2% tolerance for BF16 result, not a replacement for full token model acceptance."
+}

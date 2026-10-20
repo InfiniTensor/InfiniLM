@@ -1,0 +1,1134 @@
+{
+  "PP": 4,
+  "all_serving_cards": 32,
+  "utc": "2026-10-20T23:19:30.051616+00:00",
+  "completed": true,
+  "scope": "Latest5f91 GLM host-only idletrim PP2vsPP4,rows16cap640; allservingcards,realEOS,QA,completeID,CPUargmax,owner/actualdependencySHA/transport/Slurm; G1M1/G8M8/G16M8/G16M16 sameprocessfastpathABBA. Compare nodecounts descriptively, differentnodes/capacity fromhistoricalbaseline; notHTTP orhardwaremax.",
+  "producer_state": [
+    "910381.321",
+    "glm-shared-rope-r3789-TP8PP4",
+    "COMPLETED",
+    "0:0",
+    "COMPUTE_NODE_dacf6683"
+  ],
+  "ABBA_summary": [
+    {
+      "batch": 1,
+      "micro": 1,
+      "baseline_total_decode_tok_s_median": 4.161331035737938,
+      "candidate_total_decode_tok_s_median": 5.314910787896107,
+      "candidate_decode_tok_s_per_card": 0.16609096212175334,
+      "throughput_speed_ratio": 1.2772141274633304,
+      "including_prefill_baseline_median": 2.8814385177755155,
+      "including_prefill_candidate_median": 3.4048704579691957,
+      "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+    },
+    {
+      "batch": 8,
+      "micro": 8,
+      "baseline_total_decode_tok_s_median": 14.535940084416556,
+      "candidate_total_decode_tok_s_median": 19.513794724705555,
+      "candidate_decode_tok_s_per_card": 0.6098060851470486,
+      "throughput_speed_ratio": 1.3424515106267927,
+      "including_prefill_baseline_median": 5.853403627541802,
+      "including_prefill_candidate_median": 6.519193171228643,
+      "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+    },
+    {
+      "batch": 16,
+      "micro": 8,
+      "baseline_total_decode_tok_s_median": 23.16747180369584,
+      "candidate_total_decode_tok_s_median": 30.8712861931688,
+      "candidate_decode_tok_s_per_card": 0.964727693536525,
+      "throughput_speed_ratio": 1.3325271939359389,
+      "including_prefill_baseline_median": 9.302760351710635,
+      "including_prefill_candidate_median": 10.332983530624062,
+      "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+    },
+    {
+      "batch": 16,
+      "micro": 16,
+      "baseline_total_decode_tok_s_median": 18.2679716255859,
+      "candidate_total_decode_tok_s_median": 25.195062761135283,
+      "candidate_decode_tok_s_per_card": 0.7873457112854776,
+      "throughput_speed_ratio": 1.3791932283191957,
+      "including_prefill_baseline_median": 8.40994511456757,
+      "including_prefill_candidate_median": 9.623001788751948,
+      "scope": "Native+harness actualsame-process ABBA, all32cards andrealEOS; no HTTP or hardwarepeak claim."
+    }
+  ],
+  "normal_workers_closed": 32,
+  "CPU_fullvocab_raw_files": 240,
+  "all32_IDs_EOS_schedule_verified": true,
+  "all_tail_sameM_token_repeats_verified": true,
+  "external_frozen3330_complete_IDs_exact_for_all_multibatch": true,
+  "B1_natural_OFF_ON_full_IDs_exact": true,
+  "B1_knownQA_complete_IDs_exact_to_frozen999": true,
+  "source_pins": {
+    "InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "InfiniCore": "2b4f2f20584a69b074f62a455e3de7368e3446c2",
+    "InfiniRT": "cd1d48258f0a6b8d9f66111d5d6cb1664205e78d",
+    "InfiniOps": "1ca4777610d77e9063fffdb975ab35da8466104d",
+    "InfiniCCL": "51cc9db31d58aac21643d72f0f77cf5c9ecfaee5"
+  },
+  "logits_bitwise_equality_required": false,
+  "transport": "shca",
+  "actual_transport_logs": {
+    "0": {
+      "sha256": "472e8e641fa8e9a05244cc1aa064659e701d5d3f4095acb0a34ce159a486f220",
+      "actual_backend": "IBext_v8",
+      "GPU_Direct_RDMA_disabled_logged": true
+    },
+    "1": {
+      "sha256": "35b263e92d3751ee2746e78ad21f9fb3bd3d3d026a0a57ecf9e6a757f418290b",
+      "actual_backend": "IBext_v8",
+      "GPU_Direct_RDMA_disabled_logged": true
+    },
+    "2": {
+      "sha256": "8013a4e92422068868ba6bc0b57b28cfb3c23ce6fc1c33ecfb01b97769c0a8ed",
+      "actual_backend": "IBext_v8",
+      "GPU_Direct_RDMA_disabled_logged": true
+    },
+    "3": {
+      "sha256": "64ab98c3feb5cc4ec6f14bed181f83d2c4aac32e2895b6b83c868076ece77eb1",
+      "actual_backend": "IBext_v8",
+      "GPU_Direct_RDMA_disabled_logged": true
+    }
+  },
+  "performance": [
+    {
+      "phase": "g1m1_A1",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 44.63077280996367,
+      "aggregate_useful_decode_tokens_s": 4.1521775511171555,
+      "decode_tokens_s_per_card": 0.1297555484724111,
+      "including_prefill_useful_tokens_s": 2.86797632980768,
+      "including_prefill_tokens_s_per_card": 0.08962426030649,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        14.044401244726032
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 36.4558083380213
+    },
+    {
+      "phase": "g1m1_B1",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 37.58446074509993,
+      "aggregate_useful_decode_tokens_s": 5.306159299556039,
+      "decode_tokens_s_per_card": 0.1658174781111262,
+      "including_prefill_useful_tokens_s": 3.405662804851816,
+      "including_prefill_tokens_s_per_card": 0.10642696265161924,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        13.65000033332035
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        2540
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 37.50915659321867
+    },
+    {
+      "phase": "g1m1_B2",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 37.60195736493915,
+      "aggregate_useful_decode_tokens_s": 5.323662276236176,
+      "decode_tokens_s_per_card": 0.1663644461323805,
+      "including_prefill_useful_tokens_s": 3.404078111086575,
+      "including_prefill_tokens_s_per_card": 0.10637744097145548,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        13.746186214964837
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        2540
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 37.24669460992819
+    },
+    {
+      "phase": "g1m1_A2",
+      "batch": 1,
+      "micro": 1,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 44.21567888185382,
+      "aggregate_useful_decode_tokens_s": 4.170484520358721,
+      "decode_tokens_s_per_card": 0.13032764126121002,
+      "including_prefill_useful_tokens_s": 2.894900705743351,
+      "including_prefill_tokens_s_per_card": 0.09046564705447972,
+      "useful_output_tokens": 128,
+      "useful_tokens_per_request": [
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        13.763570867013186
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 37.199648619319994
+    },
+    {
+      "phase": "g8m8_A1",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 174.73297197045758,
+      "aggregate_useful_decode_tokens_s": 14.543495113957004,
+      "decode_tokens_s_per_card": 0.45448422231115637,
+      "including_prefill_useful_tokens_s": 5.860370761467558,
+      "including_prefill_tokens_s_per_card": 0.1831365862958612,
+      "useful_output_tokens": 1024,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268,
+        104.8735414352268
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 39.05656225531221
+    },
+    {
+      "phase": "g8m8_B1",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 157.07868811767548,
+      "aggregate_useful_decode_tokens_s": 19.498468875518874,
+      "decode_tokens_s_per_card": 0.6093271523599648,
+      "including_prefill_useful_tokens_s": 6.519025669687733,
+      "including_prefill_tokens_s_per_card": 0.20371955217774165,
+      "useful_output_tokens": 1024,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096,
+        104.97201175196096
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        20320
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 39.019924755547834
+    },
+    {
+      "phase": "g8m8_B2",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 157.07061649113894,
+      "aggregate_useful_decode_tokens_s": 19.52912057389224,
+      "decode_tokens_s_per_card": 0.6102850179341325,
+      "including_prefill_useful_tokens_s": 6.519360672769553,
+      "including_prefill_tokens_s_per_card": 0.20373002102404852,
+      "useful_output_tokens": 1024,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935,
+        105.04572536516935
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        20320
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 38.99254334968052
+    },
+    {
+      "phase": "g8m8_A2",
+      "batch": 8,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 175.14942668378353,
+      "aggregate_useful_decode_tokens_s": 14.528385054876109,
+      "decode_tokens_s_per_card": 0.4540120329648784,
+      "including_prefill_useful_tokens_s": 5.846436493616046,
+      "including_prefill_tokens_s_per_card": 0.18270114042550142,
+      "useful_output_tokens": 1024,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343,
+        105.21733847167343
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        150,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 38.92894516717626
+    },
+    {
+      "phase": "g16m8_A1",
+      "batch": 16,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 220.06823398405686,
+      "aggregate_useful_decode_tokens_s": 23.210542037256545,
+      "decode_tokens_s_per_card": 0.725329438664267,
+      "including_prefill_useful_tokens_s": 9.30620454812379,
+      "including_prefill_tokens_s_per_card": 0.2908188921288684,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613,
+        132.5217803120613
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.816253756247
+    },
+    {
+      "phase": "g16m8_B1",
+      "batch": 16,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 198.31001973710954,
+      "aggregate_useful_decode_tokens_s": 30.81560986536289,
+      "decode_tokens_s_per_card": 0.9629878082925903,
+      "including_prefill_useful_tokens_s": 10.32726436473023,
+      "including_prefill_tokens_s_per_card": 0.3227270113978197,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726,
+        132.36938650300726
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        1270,
+        1270,
+        40640
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.88742137755461
+    },
+    {
+      "phase": "g16m8_B2",
+      "batch": 16,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 198.09061737405136,
+      "aggregate_useful_decode_tokens_s": 30.926962520974712,
+      "decode_tokens_s_per_card": 0.9664675787804597,
+      "including_prefill_useful_tokens_s": 10.338702696517897,
+      "including_prefill_tokens_s_per_card": 0.3230844592661843,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172,
+        132.387404254172
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        1270,
+        1270,
+        40640
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.87899858110437
+    },
+    {
+      "phase": "g16m8_A2",
+      "batch": 16,
+      "micro": 8,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 220.23124773893505,
+      "aggregate_useful_decode_tokens_s": 23.124401570135138,
+      "decode_tokens_s_per_card": 0.7226375490667231,
+      "including_prefill_useful_tokens_s": 9.299316155297479,
+      "including_prefill_tokens_s_per_card": 0.2906036298530462,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763,
+        132.35867916885763
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.89242784410829
+    },
+    {
+      "phase": "g16m16_A1",
+      "batch": 16,
+      "micro": 16,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 243.309024407994,
+      "aggregate_useful_decode_tokens_s": 18.303634486301043,
+      "decode_tokens_s_per_card": 0.5719885776969076,
+      "including_prefill_useful_tokens_s": 8.417279239777809,
+      "including_prefill_tokens_s_per_card": 0.26303997624305653,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039,
+        132.29279215401039
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.92325270800223
+    },
+    {
+      "phase": "g16m16_B1",
+      "batch": 16,
+      "micro": 16,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 212.58038750104606,
+      "aggregate_useful_decode_tokens_s": 25.207056586050165,
+      "decode_tokens_s_per_card": 0.7877205183140676,
+      "including_prefill_useful_tokens_s": 9.634002572273618,
+      "including_prefill_tokens_s_per_card": 0.30106258038355055,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346,
+        131.9680124479346
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        40640
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 62.075648848860205
+    },
+    {
+      "phase": "g16m16_B2",
+      "batch": 16,
+      "micro": 16,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 213.06697730114684,
+      "aggregate_useful_decode_tokens_s": 25.183068936220398,
+      "decode_tokens_s_per_card": 0.7869709042568874,
+      "including_prefill_useful_tokens_s": 9.612001005230278,
+      "including_prefill_tokens_s_per_card": 0.3003750314134462,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167,
+        132.37781796092167
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 1,
+      "fastpath_counter_delta": [
+        635,
+        635,
+        40640
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.88347962056832
+    },
+    {
+      "phase": "g16m16_A2",
+      "batch": 16,
+      "micro": 16,
+      "pipeline_round_feedback": true,
+      "feedback_calls": 128,
+      "elapsed_seconds": 243.73376354016364,
+      "aggregate_useful_decode_tokens_s": 18.232308764870755,
+      "decode_tokens_s_per_card": 0.5697596489022111,
+      "including_prefill_useful_tokens_s": 8.402610989357331,
+      "including_prefill_tokens_s_per_card": 0.2625815934174166,
+      "useful_output_tokens": 2048,
+      "useful_tokens_per_request": [
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128,
+        128
+      ],
+      "TTFT_seconds_per_request": [
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825,
+        132.28322936128825
+      ],
+      "batch_cache_policy": 1,
+      "batch_cache_delta": [
+        0,
+        0,
+        0,
+        300,
+        0
+      ],
+      "fastpath_bundle_policy": 0,
+      "fastpath_counter_delta": [
+        0,
+        0,
+        0
+      ],
+      "input_tokens_per_second_to_all_prefill_complete": 61.927729157762236
+    }
+  ],
+  "reports": [
+    {
+      "stage": 0,
+      "rank": 0,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank0.json",
+      "report_sha256": "9e4d74c52da3378d72b3ccb82be18e5e292e9535a3f920188d4055db4cb99aa8"
+    },
+    {
+      "stage": 0,
+      "rank": 1,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank1.json",
+      "report_sha256": "d4b4396d1539dd9e57f53623903f80c0058b0b97354c6bf59c6b96aedfd43ead"
+    },
+    {
+      "stage": 0,
+      "rank": 2,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank2.json",
+      "report_sha256": "2faacc3a97e1a1423162faf3ff9c7af625764fec873d946a652a8daf11f67131"
+    },
+    {
+      "stage": 0,
+      "rank": 3,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank3.json",
+      "report_sha256": "c192523c1e7527e7a7cc57cac7e1b63ef179395829f5a3b1a79429fc764cbbe5"
+    },
+    {
+      "stage": 0,
+      "rank": 4,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank4.json",
+      "report_sha256": "2a93913680eab852a6ef736e69c599f9b4ce81b783d0393268ee23038e3bde7e"
+    },
+    {
+      "stage": 0,
+      "rank": 5,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank5.json",
+      "report_sha256": "7e1ec8311784a375684ceb5f2b71a7a094e7a99a488bc8ef8779f6164974e929"
+    },
+    {
+      "stage": 0,
+      "rank": 6,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank6.json",
+      "report_sha256": "9c4fb69a6ca228733ac9c81c0a7e2adfdc53169e2149071dbb2a4c0c972efa79"
+    },
+    {
+      "stage": 0,
+      "rank": 7,
+      "file": "glm-fastpath-r3784-910381.321-stage0-rank7.json",
+      "report_sha256": "f57d991e2cbd07a91536add754e06bef2567671d2ac713e08e1082d20afd2d04"
+    },
+    {
+      "stage": 1,
+      "rank": 0,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank0.json",
+      "report_sha256": "fb9db71b5c2d638956fee2bbacd4d49a319af96c3f9f7064ed836351678be950"
+    },
+    {
+      "stage": 1,
+      "rank": 1,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank1.json",
+      "report_sha256": "14ab0cb9083de831e3700920037aa088e15464fc655a10fc0b7d6ba1ae74386a"
+    },
+    {
+      "stage": 1,
+      "rank": 2,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank2.json",
+      "report_sha256": "5de9d085846503acbcf2cc4a8e03293ecbee59641cf3ec0a9d39ea71a2f66f71"
+    },
+    {
+      "stage": 1,
+      "rank": 3,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank3.json",
+      "report_sha256": "60d1fe695c2eb390f84ab9b462fbbbda9299025de5ef7c9c60476c548ce81bbf"
+    },
+    {
+      "stage": 1,
+      "rank": 4,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank4.json",
+      "report_sha256": "e2b3e737e3c90a51b79a6adb086ce192ffa45ec637939bf719840af0b059cc76"
+    },
+    {
+      "stage": 1,
+      "rank": 5,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank5.json",
+      "report_sha256": "b6e120d74237a4fc51fafefa62451f6b18ac8da68b0da183daca5b7d80d5d09c"
+    },
+    {
+      "stage": 1,
+      "rank": 6,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank6.json",
+      "report_sha256": "4092e28f54f596c959d430f1c9ff5e360eb6e56d892fa82fda2b6bfc5304db03"
+    },
+    {
+      "stage": 1,
+      "rank": 7,
+      "file": "glm-fastpath-r3784-910381.321-stage1-rank7.json",
+      "report_sha256": "806e8150e205ffec51a26b692934e4eebeb736e5782edd30076f6c576470ca21"
+    },
+    {
+      "stage": 2,
+      "rank": 0,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank0.json",
+      "report_sha256": "0353aedd6f2446bf94caa464388d1b198455dd9dcdc6e86af64a75783456ada5"
+    },
+    {
+      "stage": 2,
+      "rank": 1,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank1.json",
+      "report_sha256": "557dd19b4996ab567a465324d1959ef8aa157b4aa5713f2614b43d48d6bf0375"
+    },
+    {
+      "stage": 2,
+      "rank": 2,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank2.json",
+      "report_sha256": "fed6ef150b4657147de9ffacc6e30fbcac9847f5e1d5366181e647a99612432d"
+    },
+    {
+      "stage": 2,
+      "rank": 3,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank3.json",
+      "report_sha256": "edc5071492383d4c9a6a64523cc8fec29d08af7f0411077354c88cec06c5066a"
+    },
+    {
+      "stage": 2,
+      "rank": 4,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank4.json",
+      "report_sha256": "dcbc76c19f205ff3f3916db895eb542a41bd9e439aa9c07c0b8febff1b815dc2"
+    },
+    {
+      "stage": 2,
+      "rank": 5,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank5.json",
+      "report_sha256": "f5511bd7716e9732df91b6d18c7b3f68944bd2d5d49cc1f0fdd39b7ce5d97294"
+    },
+    {
+      "stage": 2,
+      "rank": 6,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank6.json",
+      "report_sha256": "636bc182a5fc1e67d375b951765d16ba71a2dc4e248a05fbefced82d9d15dcd4"
+    },
+    {
+      "stage": 2,
+      "rank": 7,
+      "file": "glm-fastpath-r3784-910381.321-stage2-rank7.json",
+      "report_sha256": "36206d36d718a44710aa46b01094005f92186ea4864a695f1a6f20ebb293d60d"
+    },
+    {
+      "stage": 3,
+      "rank": 0,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank0.json",
+      "report_sha256": "0cca382503d4cf63936b5fa017e346e599d79ce5248da236ca8c58cd475716a4"
+    },
+    {
+      "stage": 3,
+      "rank": 1,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank1.json",
+      "report_sha256": "e13852bb06d4574a0672676720f8c050ca4f72f804fa7380d555485adada985c"
+    },
+    {
+      "stage": 3,
+      "rank": 2,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank2.json",
+      "report_sha256": "64037b0da7ba24229a7a6d8c31dff30b23f03a8eb1edad191621ab0368d608b3"
+    },
+    {
+      "stage": 3,
+      "rank": 3,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank3.json",
+      "report_sha256": "f9562a18f32ad148f303d4ecbaefb16a528e24e7e617df650f3e5e5c6be997c4"
+    },
+    {
+      "stage": 3,
+      "rank": 4,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank4.json",
+      "report_sha256": "bc7d271a12ecf831502d8f5d69d0b73d804dd103a891ad686a1017bc66519241"
+    },
+    {
+      "stage": 3,
+      "rank": 5,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank5.json",
+      "report_sha256": "4ecb35675275a85f10f39a84f4809e2b3234ac2cb108fdf2e4d83b2227ae56cc"
+    },
+    {
+      "stage": 3,
+      "rank": 6,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank6.json",
+      "report_sha256": "96ab7dfcee86cd3ec418f45119cc41d5b12f7a4d5c031102892841b77969c871"
+    },
+    {
+      "stage": 3,
+      "rank": 7,
+      "file": "glm-fastpath-r3784-910381.321-stage3-rank7.json",
+      "report_sha256": "2a2de5275c0262c93a44a9d6910739d2339b5f8d42c3ca345e21ad66bfe2161b"
+    }
+  ]
+}

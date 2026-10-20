@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T22:24:21.619999+00:00",
+  "recorded_utc": "2026-10-20T23:43:10.529633+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -241,5 +241,18 @@
   "GLM_shared_original_RoPE": "GLM-shared-RoPE-memory-r3801.json",
   "Kimi_actual_Runtime_alias": "Kimi-alias-Runtime-r3791.json",
   "latest_Kimi_speculative_gain_adopted": false,
-  "Deep_latest_B16": "3798 producer /3799 auditor inprogress"
+  "Deep_latest_B16": "3798 producer /3799 auditor inprogress",
+  "latest_Deep_B16": "qualified-latest-Deep-B16-r3799.json",
+  "Kimi_speculative_completed_modes": [
+    "Kimi-spec-M1-complete-negative-r3760.json",
+    "Kimi-spec-M2-complete-negative-r3760.json"
+  ],
+  "Kimi_speculative_qualified_comparisons": 0,
+  "GLM_capacity_prefill_component": "GLM-capacity-prefill-component-r3814.json",
+  "GLM_capacity_prefill_model_performance_qualified": false,
+  "latest_private_checkpoint": "single-user-throughput-progress-r3828.json",
+  "latest_GLM128_qualified": "qualified-GLM128-r3797.json",
+  "latest_Kimi_failed_root": "Kimi-failed-root-postmortem-r3836.json",
+  "latest_Kimi_first_KDA_pair": "Kimi-first-KDA-pair-r3838.json",
+  "latest_Kimi_targeted_selective_pending": true
 }
