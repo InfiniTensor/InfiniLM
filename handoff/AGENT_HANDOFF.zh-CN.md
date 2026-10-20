@@ -40,3 +40,14 @@
 ## 交接更新规则
 
 每轮将源代码 SHA、实际终态、完整检查范围、性能口径和剩余问题写入新的 evidence 文件，随后更新 `recheck-status.json`。不要覆盖旧失败记录，也不要把仍在运行的记录标成成功。此交接不表示三模型优化目标已全部完成。
+
+## 10 月 20 日晚追加状态（覆盖前文进行中条目）
+
+1. 旧版 Kimi/GLM/Deep 固定 512 三组本轮复测已审计，性能见更新表；Kimi/GLM 实际 EOS 复测仍需独立审计。
+2. 当前 `3e0` GLM 长输出 G128/M8 已通过，40.74–40.89 decode、30.84–30.91 含 prefill tok/s，32 卡。fastpath 长输出 M8、M32 与短输出 G128/M32 组合矩阵在测，不得先采用日志速度。
+3. Kimi `r3419` 完整多 batch 失败，`r3486` 已捕获 B2 sort 缺空格 token220；保留原 literal gate 失败。B4/B8 独立完整验收 `r3501` 与 G32/M8 流水线 `r3483` 在测。先做完整 CPU raw/QA/关闭审计，再引用速度。
+4. Deep B4 mode2 已通过 `r3494`，7.23–7.38 decode、6.71–6.85 含 prefill tok/s，8 卡。B2 raw 失败；B8 `r3498` 是入口输入约束失败，先修协议再重测。B16 要按 prefill micro8 分块，不能直接提交 8192 输入元素。
+5. 新上游 `c3deba4`、Core `14a8bd5`、Ops `bcfe96d` 的 9 套源覆盖已完成，PadConstant→Pad 冲突显式解决并保留私有 guards。三 SDK 的 CPU-only build/load 最终 abort；读完整首错后隔离修复。Common/Model/helpers 须全部重建，禁止新旧混用。
+6. 运行时归档 `r3432` 不含后续 Cast64/F64 修复库。`drivers/` 新增 Cast64 构建、Deep mode2 与新测试源码；从 `current` 源覆盖生成隔离候选后重建，不能把旧归档改名冒充修复版。
+
+新服务器启动顺序与验收门槛仍按 MIGRATION。实际作业与节点映射留在本地私有附录；接手前读取最新 sacct，不能按本快照重提仍活跃作业。

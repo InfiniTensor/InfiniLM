@@ -36,7 +36,7 @@ G128/M32 plan cache ON 的 decode 中位数为 **42.3794 tok/s**，含 prefill �
 
 fastpath 的 G64/M8 decode 中位数为 **48.2018 tok/s**，含 prefill 中位数为 **17.5020 tok/s**；同进程 OFF/ON/ON/OFF 从 35.3797 到 48.2018，提高 **36.24%**。两种策略的完整 token/EOS、相同 micro batch 的 raw 重复、340 个 CPU 全词表 raw 文件和 32 个 worker 正常关闭通过独立审计。固定开启 plan cache，优化 bounded metadata、只读 prefix 和 decode leases，GPU 数学路径不变。与 G128/M32 是不同配置；正在组合两种优化，收益不能相乘推断。
 
-当前 Kimi 和 DeepSeek 尚无通过完整多 batch 数值检查的新总吞吐。其已通过单请求检查的 decode 范围分别为 6.7605–6.8213 tok/s（32 卡）和 2.3661–2.4362 tok/s（8 卡）。GLM 单请求为 4.24595–4.32029 tok/s（32 卡）。这些均为 512 输入、最多 512 输出；不能从旧版固定 batch 总吞吐推导新版单请求速度。
+当前 Kimi 尚无通过完整多 batch 数值检查的新总吞吐；DeepSeek 已新增严格检查通过的 B4 结果，见后文。其已通过单请求检查的 decode 范围分别为 6.7605–6.8213 tok/s（32 卡）和 2.3661–2.4362 tok/s（8 卡）。GLM 单请求为 4.24595–4.32029 tok/s（32 卡）。这些均为 512 输入、最多 512 输出；不能从旧版固定 batch 总吞吐推导新版单请求速度。
 
 ## 本次重新测量
 
@@ -66,3 +66,28 @@ fastpath 的 G64/M8 decode 中位数为 **48.2018 tok/s**，含 prefill 中位�
 每条结果保存代码提交及覆盖层 SHA、权重与 tokenizer 标识、实际设备、TP/PP、副本数、G/M、输入与输出长度、EOS、精度和开关。至少报告两轮生成的完整 token ID、原始检查点、正常关闭、首 token 时间、decode 总吞吐、含 prefill 总吞吐及所有服务卡数。正式的新旧对比应使用相同 prompt、输出上限、EOS、同一组节点和 ABBA 顺序。
 
 硬件记录中的 BF16 大 GEMM 中位数约 304.405 TF/s、F32 大 GEMM 约 53.882 TF/s、D2D copy 单向 payload 约 674.123 GB/s 都是实测微基准。不能将其直接写成 BW1000 官方物理峰值或整模型可达吞吐上限。
+
+## 10 月 20 日晚：补充复测与有效性能
+
+旧版三模型均已结束并通过各自原版独立审计；保留历史数值限制，不将其等同于新版严格 gate。
+
+| 旧版固定 512 配置 | 本轮 decode tok/s | 本轮含 prefill tok/s | 审计 |
+| --- | ---: | ---: | --- |
+| Kimi，32 卡，G64/M16 | **116.6805–117.0638** | **93.6540–93.8675** | `kimi-token-only-r965-audit-910375.387.json` |
+| GLM，32 卡，G64/M16 | **62.8892–62.9079** | **39.9473–39.9730** | `glm-fp8-cached-model-r929-910380.228-audit.json` |
+| Deep，8 卡，B16 | **25.5249–25.8244** | **20.1239–20.3491** | `deep-allselected-r817-910384.251-summary.json` |
+
+Kimi 同进程 full-CPU-logits 对照为 109.9676–110.0707 decode，token-only 中位收益约 6.23%，属于输出复制/计量路径优化。旧版 Kimi/GLM 的实际 EOS 长文复测另行审计，不能直接沿用固定 512 值作为在线服务吞吐。
+
+**当前锁定 `3e0d89fe` 的新增有效结果：**
+
+| 模型与配置 | decode tok/s | 含 prefill tok/s | decode tok/s/全部卡 | 范围 |
+| --- | ---: | ---: | ---: | --- |
+| GLM，32 卡，G128/M8，最多 512 输出 | **40.7437–40.8900** | **30.8360–30.9098** | 中位数 **1.2755** | `glm-g128-r3340-audit.json` |
+| Deep，8 卡，B4，最多 512 输出 | **7.2263–7.3813** | **6.7120–6.8528** | **0.9033–0.9227** | `deep-attention-r3494-B4-audit.json` |
+
+输入约 512，两条冻结长文 prompt 重复填充，所有输出都达到 512 上限；native 加验证 harness，排除加载、tokenizer、reset、HTTP。GLM 同进程 G64→G128 decode 中位数 35.2727→40.8169，增加 15.72%；TTFT 约 299/520 秒，不能据此承诺低延迟在线服务。Deep B4 TTFT 21.79–22.27 秒，12 项冻结 B1 前后 QA、12 项 B4 QA、完整重复行 raw、重复生成、CPU 检查和 8 个 owner 正常关闭通过；Model `r3443` mode2 attention F64、SDK Cast64 `r3315`、Common `r2845`。**B2 仍失败，B4 的通过不覆盖其他 batch 或动态请求。**
+
+GLM 专家稳定排序在长输出 G64/M8 的 decode 没有改善，含 prefill 约提升 1.65%；短输出 M8 含 prefill 约提升 4.1%，decode 增益低于 0.2%。prefill cache `r3187` 完整审计显示端到端基本持平。保留这些有限收益，不将组件加速写成整模型加速。
+
+以上均不是 `c3deba4` 的性能，也不是混合长度、动态补批或 HTTP 服务的实测上限。

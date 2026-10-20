@@ -7,7 +7,7 @@
 | 版本 | 用途 | 上层源代码基线 | 代码位置 |
 | --- | --- | --- | --- |
 | legacy-20261018 | 截图中固定 512 输入、固定 512 输出的历史吞吐复现 | `6b9cfa6b00cc7ca7431bc18e6c97936c4276e83e`，另含各模型私有修改 | `legacy/`、`dependencies/legacy/` |
-| current-20261020 | 最新重构代码、实际 EOS 结束的吞吐和数值问题修复 | `3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d`，另含各模型私有修改 | `current/`、`dependencies/current/`、`drivers/` |
+| current-20261020 | 已锁定重构代码、实际 EOS 结束的吞吐和数值问题修复 | `3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d`，另含各模型私有修改 | `current/`、`dependencies/current/`、`drivers/` |
 
 源代码采用“固定上游提交 + 每个模型的修改覆盖层 + 原始适配器源码”的方式保存。仓库根目录仍是上游 InfiniLM；直接在根目录运行普通示例不会自动获得交接包里的全部优化。
 
@@ -28,3 +28,9 @@ GitHub 中保存可审查的 C++、GPU 内核、Python、构建入口、测试�
 ## 验证状态
 
 旧集群上的已完成测试不等于新服务器已经验收。迁移后必须重新完成设备发现、源码构建、动态库加载检查、单请求 QA、对应 batch 的完整数值检查和重复性能测量。当前代码中的实验性 F64、专家排序、prefill 缓存等路径按各自状态启用，不能默认替换稳定基线。
+
+## 追加交接（10 月 20 日晚）
+
+旧版三模型固定 512 已按原有审计重新测出相近速度。新结果和限制见 [性能](PERFORMANCE.zh-CN.md) 与 `evidence/recheck-status.json`。当前性能基线仍为 `3e0d89fe`；新上游 `c3deba4` 的迁移单独记录于 [最新上游迁移](UPSTREAM_UPDATE.zh-CN.md)，尚无合格性能。
+
+**先恢复已验证版本再继续修复。** `runtime-r3432` 只恢复原来稳定构件，不含后续 Cast64、Kimi F64 Common 或 Deep F64 Model；新增源码须在隔离目录重新构建和验收。

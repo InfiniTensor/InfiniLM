@@ -1,0 +1,137 @@
+{
+  "utc": "2026-10-20T12:54:06.063380+00:00",
+  "completed": true,
+  "scope": "Independent full43 Deep B4 Mode2 attentionF64 acceptance; frozenB1 before/after, B4 twelve QA and four long512/max512 actualEOS phases, allstep samegeometry hashes/duplicate-history gates, CPUcheckpoint argmax/rawSHA, actual all8 dispatch/affinity/normalclose and terminal. B2 failed separately; no B2/B3/dynamicarrival/HTTP or maximum performance claim.",
+  "producer": [
+    "910384.257",
+    "deep-attention-r3475-B4",
+    "COMPLETED",
+    "0:0",
+    "00:30:25",
+    "a14r2n17"
+  ],
+  "batch": 4,
+  "service_cards": 8,
+  "full_B1_QA": 12,
+  "full_B4_QA": 12,
+  "natural_phases": 4,
+  "full_native_forwards": 2156,
+  "CPU_fullvocab_raw_files": 116,
+  "all8_normal_workers_closed": true,
+  "affinity_verified": true,
+  "no_B1_F64_promotion": true,
+  "actual_attention_F64_with_native_FFN_indexer_verified": true,
+  "report_sha256": "5c26dd21577254643c658222b79b7c06d027be1bc4a237dd0fb081b07d86553d",
+  "source_sha256": {
+    "modern_deep_attention_f64_r3474.py": "3c6e173b8b1d211c4ea37ab82fd2c4952c92e24afcb55fbb8d45a7a29d4d974b",
+    "deep_attention_f64_serving_r3474.py": "9dbd37d8fdc427cc552788058c89fb9c3b28a59a12a7114b52e33ed92be17b0f",
+    "deep_attention_f64_r3474_inside.sh": "9916b18aeeea8eca6fd0696e4ab94375e868f2a7c42fad450ff183e630d8693b"
+  },
+  "performance": [
+    {
+      "phase": "natural-l0-r1",
+      "batch": 4,
+      "input_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0,
+      "decode_tok_s": 7.381268736846704,
+      "including_prefill_tok_s": 6.852791738008701,
+      "decode_tok_s_per_all8cards": 0.922658592105838,
+      "TTFT_seconds": [
+        21.939139130990952,
+        21.939139130990952,
+        21.939139130990952,
+        21.939139130990952
+      ]
+    },
+    {
+      "phase": "natural-l0-r2",
+      "batch": 4,
+      "input_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0,
+      "decode_tok_s": 7.2262854626151345,
+      "including_prefill_tok_s": 6.711953139491583,
+      "decode_tok_s_per_all8cards": 0.9032856828268918,
+      "TTFT_seconds": [
+        22.271030285861343,
+        22.271030285861343,
+        22.271030285861343,
+        22.271030285861343
+      ]
+    },
+    {
+      "phase": "natural-l1-r1",
+      "batch": 4,
+      "input_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0,
+      "decode_tok_s": 7.289000689833067,
+      "including_prefill_tok_s": 6.776614232139225,
+      "decode_tok_s_per_all8cards": 0.9111250862291334,
+      "TTFT_seconds": [
+        21.79328802227974,
+        21.79328802227974,
+        21.79328802227974,
+        21.79328802227974
+      ]
+    },
+    {
+      "phase": "natural-l1-r2",
+      "batch": 4,
+      "input_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "output_lengths": [
+        512,
+        512,
+        512,
+        512
+      ],
+      "EOS_terminated_requests": 0,
+      "decode_tok_s": 7.269909092228683,
+      "including_prefill_tok_s": 6.7531783583351475,
+      "decode_tok_s_per_all8cards": 0.9087386365285853,
+      "TTFT_seconds": [
+        22.105660795234144,
+        22.105660795234144,
+        22.105660795234144,
+        22.105660795234144
+      ]
+    }
+  ],
+  "limits": "B4 only; separate B2 failure retained. Two frozen long prompts and fixed ceiling512, no mixed-length dynamicarrival/HTTP qualification; no hardwaremaximum claim."
+}

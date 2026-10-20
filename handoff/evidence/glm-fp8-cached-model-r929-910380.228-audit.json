@@ -1,0 +1,197 @@
+{
+  "utc": "2026-10-20T12:19:01.088449+00:00",
+  "state": "910380.228|legacy-glm-fixed512-r3414|COMPLETED|0:0|01:36:53\n",
+  "completed": true,
+  "phases": [
+    {
+      "phase": "reference_g4_m4_r1",
+      "global_batch": 4,
+      "micro_batch": 4,
+      "output_tokens": 16,
+      "steady_total_tps": 7.952623921518841,
+      "including_prefill_total_tps": 0.9028135489678604,
+      "first_TTFT_seconds": 63.28784831194207,
+      "last_TTFT_seconds": 63.28784997202456,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "reference_g4_m4_r2",
+      "global_batch": 4,
+      "micro_batch": 4,
+      "output_tokens": 16,
+      "steady_total_tps": 7.873533912646898,
+      "including_prefill_total_tps": 0.9075373857943706,
+      "first_TTFT_seconds": 62.884972475934774,
+      "last_TTFT_seconds": 62.884974895976484,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "reference_g8_m8_r1",
+      "global_batch": 8,
+      "micro_batch": 8,
+      "output_tokens": 512,
+      "steady_total_tps": 12.743097933030496,
+      "including_prefill_total_tps": 9.19656993607916,
+      "first_TTFT_seconds": 124.5044169286266,
+      "last_TTFT_seconds": 124.50442064879462,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "reference_g8_m8_r2",
+      "global_batch": 8,
+      "micro_batch": 8,
+      "output_tokens": 512,
+      "steady_total_tps": 12.901001036986106,
+      "including_prefill_total_tps": 9.300926358075568,
+      "first_TTFT_seconds": 123.4487771699205,
+      "last_TTFT_seconds": 123.44878013012931,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "long_pipeline_g32_m8_r1",
+      "global_batch": 32,
+      "micro_batch": 8,
+      "output_tokens": 512,
+      "steady_total_tps": 49.06506417696755,
+      "including_prefill_total_tps": 31.324726004037657,
+      "first_TTFT_seconds": 105.87387154484168,
+      "last_TTFT_seconds": 189.58517595892772,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "long_pipeline_g32_m8_r2",
+      "global_batch": 32,
+      "micro_batch": 8,
+      "output_tokens": 512,
+      "steady_total_tps": 49.187494676686576,
+      "including_prefill_total_tps": 31.383093911970434,
+      "first_TTFT_seconds": 105.92545082094148,
+      "last_TTFT_seconds": 189.49975776206702,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "reference_g16_m16_r1",
+      "global_batch": 16,
+      "micro_batch": 16,
+      "output_tokens": 512,
+      "steady_total_tps": 16.489672552913714,
+      "including_prefill_total_tps": 11.017030595465096,
+      "first_TTFT_seconds": 123.79226607782766,
+      "last_TTFT_seconds": 247.61033265013248,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "reference_g16_m16_r2",
+      "global_batch": 16,
+      "micro_batch": 16,
+      "output_tokens": 512,
+      "steady_total_tps": 16.45943615185081,
+      "including_prefill_total_tps": 10.994461408422644,
+      "first_TTFT_seconds": 124.32915071910247,
+      "last_TTFT_seconds": 248.39579475019127,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "long_pipeline_g64_m16_r1",
+      "global_batch": 64,
+      "micro_batch": 16,
+      "output_tokens": 512,
+      "steady_total_tps": 62.88920143854674,
+      "including_prefill_total_tps": 39.97295571999696,
+      "first_TTFT_seconds": 106.11600882420316,
+      "last_TTFT_seconds": 299.46731727104634,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    },
+    {
+      "phase": "long_pipeline_g64_m16_r2",
+      "global_batch": 64,
+      "micro_batch": 16,
+      "output_tokens": 512,
+      "steady_total_tps": 62.90790051154819,
+      "including_prefill_total_tps": 39.94726699688302,
+      "first_TTFT_seconds": 106.65473340917379,
+      "last_TTFT_seconds": 300.2772816102952,
+      "full_IDs_rawfirst4_CPUargmax_all32_verified": true,
+      "old98_IDs_exact_diagnostic": false,
+      "old98_raw_exact_diagnostic": false
+    }
+  ],
+  "repeat_pairs": [
+    {
+      "label": "reference_g4_m4",
+      "steady_total_tps": [
+        7.952623921518841,
+        7.873533912646898
+      ],
+      "including_prefill_total_tps": [
+        0.9028135489678604,
+        0.9075373857943706
+      ]
+    },
+    {
+      "label": "reference_g8_m8",
+      "steady_total_tps": [
+        12.743097933030496,
+        12.901001036986106
+      ],
+      "including_prefill_total_tps": [
+        9.19656993607916,
+        9.300926358075568
+      ]
+    },
+    {
+      "label": "long_pipeline_g32_m8",
+      "steady_total_tps": [
+        49.06506417696755,
+        49.187494676686576
+      ],
+      "including_prefill_total_tps": [
+        31.324726004037657,
+        31.383093911970434
+      ]
+    },
+    {
+      "label": "reference_g16_m16",
+      "steady_total_tps": [
+        16.489672552913714,
+        16.45943615185081
+      ],
+      "including_prefill_total_tps": [
+        11.017030595465096,
+        10.994461408422644
+      ]
+    },
+    {
+      "label": "long_pipeline_g64_m16",
+      "steady_total_tps": [
+        62.88920143854674,
+        62.90790051154819
+      ],
+      "including_prefill_total_tps": [
+        39.97295571999696,
+        39.94726699688302
+      ]
+    }
+  ],
+  "scope": "812independent811 full78TP8PP4/809decodecache807variant, cachecountersandownerrelease: immutable776helper/SDK587/source/DSO, ownM4prefix16 M8/M16full512refs/repeats/G32G64pipeline, all32IDs/8tailraw/CPUargmax/actualhelperBLASpolicy/knownQA/crossepoch/shutdown/Slurm. Old98diagnostic; no oldprecision, modelmax or aggregate claim.",
+  "reports_available": 32,
+  "before_after_QA_and_shutdown_verified": true
+}

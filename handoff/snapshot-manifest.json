@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-20T11:49:42.916570+00:00",
+  "utc": "2026-10-20T13:32:53.378138+00:00",
   "scope": "SHA256 of shipped handoff files. Original export manifests preserve capture hashes; operational-path redactions may differ. No weights, private keys, raw-runtime archives or container images committed.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 4735,
-      "sha256": "4471d393790b3a0358cdc69583b339cc63a09f32cbce9a30d07de0a9283313a8"
+      "bytes": 6356,
+      "sha256": "63a81668a47886878cf72759b0ba94c16ac26a30902a2a603ef50629b1b578de"
     },
     "config.example.env": {
       "bytes": 826,
@@ -4599,8 +4599,8 @@
       "sha256": "27dc470d4d8056aff8f2b71a5b64b7924ebc489cbf8e72064e55cfed385641f1"
     },
     "DELIVERY.zh-CN.md": {
-      "bytes": 1556,
-      "sha256": "88e54cd7de7647acc55165991f0fd68836c711fe90de66fb652a5fa169591fdb"
+      "bytes": 1842,
+      "sha256": "5c1ca41872365de000fcdb44368db217b196d7f0aa24eab01e9edc3c4fa8328e"
     },
     "dependencies/current/CCL/.github/ISSUE_TEMPLATE/bug_report.yml": {
       "bytes": 2518,
@@ -25878,6 +25878,10 @@
       "bytes": 7772,
       "sha256": "f87b62d86974fff1e59bc913ee8607976e2b96524928ec9f95ba606ab9c140eb"
     },
+    "drivers/audit_deep_attention_f64_r3494.py": {
+      "bytes": 7896,
+      "sha256": "85226a8e4874d868c8052885cea60e92f0d937c10ec3f2500c179b1e539ff317"
+    },
     "drivers/audit_deep_f64_component_r3449.py": {
       "bytes": 5951,
       "sha256": "fb90fa5364e951746ab30cc172728fa9fbd4fa968c221119c980d5205873711e"
@@ -25898,6 +25902,14 @@
       "bytes": 11618,
       "sha256": "c4ed5d360c60ee13fa51b3672bd90c1659a40cb562db499da9883afa0b0cff83"
     },
+    "drivers/audit_glm_fastpath_long_m32_r3503.py": {
+      "bytes": 11641,
+      "sha256": "8ee841354f5ea1d15dda760772137414a6704d2d883056e443d5564e8f2bec26"
+    },
+    "drivers/audit_glm_fastpath_long_r3488.py": {
+      "bytes": 11615,
+      "sha256": "e50a2e7ba068d2db179a880b3fe8f383e5aef9af98d4acdbc594497c83122561"
+    },
     "drivers/audit_glm_fastpath_r3330.py": {
       "bytes": 11564,
       "sha256": "512a6e7eab93794f22d3ead1fefa99ebbd8dc15043358d83d84b28169d5edc52"
@@ -25914,6 +25926,10 @@
       "bytes": 14619,
       "sha256": "155b01df742d9cac414852926bba301f146e2e57b5d27a08542c7878bcbfe29c"
     },
+    "drivers/audit_kimi_batch_acceptance_r3502.py": {
+      "bytes": 12577,
+      "sha256": "68db0a6fad7d1b02a71f2032682c706a4708e5fb0aaacf6b24cbc84ab331476e"
+    },
     "drivers/audit_kimi_f64_component_r3388.py": {
       "bytes": 5951,
       "sha256": "dd22187b6ede187ef4201bfb605cfed30575557c6aa6846ed47659c181a5334b"
@@ -25926,6 +25942,10 @@
       "bytes": 13751,
       "sha256": "8459ffd71461fd57691a7a3aefe73f2843b71c279b4920b419c284a5d8cc83e9"
     },
+    "drivers/audit_kimi_wide_full_r3463.py": {
+      "bytes": 12414,
+      "sha256": "09705004653d6ad444d86d61f1cd615d71dc2955337caab0a00d097bf20ce765"
+    },
     "drivers/audit_kimi_wide_replay_r3411.py": {
       "bytes": 6768,
       "sha256": "18033b32f701b406630046ca6c7589e7fd0a739c6730654763b85e8862cbc88d"
@@ -25933,6 +25953,10 @@
     "drivers/audit_legacy_deep_eos_r3453.py": {
       "bytes": 7929,
       "sha256": "243daf36d9b17219a503b70ee160555548a78b74c41c644bc5966c7e93537e8b"
+    },
+    "drivers/build_cast64_sdk_r3316_inside.sh": {
+      "bytes": 3158,
+      "sha256": "3e51d913787002c64c0d13c2ec97d2f56e64e4b0a1d22e740249bedefe005604"
     },
     "drivers/build_deep_serving_cases_r1196.py": {
       "bytes": 3803,
@@ -25985,6 +26009,26 @@
     "drivers/common_latest_r2845_inside.sh": {
       "bytes": 5655,
       "sha256": "a17f93f4d923be1f6e11c4bbf13719c3dc9c2ab448797137df8d0b3b10023a2d"
+    },
+    "drivers/configure_cast64_sdk_r3316.py": {
+      "bytes": 2186,
+      "sha256": "d7c54a103d4b109dd51bda88d00f1985186331d900b38c466b465526d1afb02c"
+    },
+    "drivers/deep_attention_f64_r3474_inside.sh": {
+      "bytes": 860,
+      "sha256": "9916b18aeeea8eca6fd0696e4ab94375e868f2a7c42fad450ff183e630d8693b"
+    },
+    "drivers/deep_attention_f64_r3496_inside.sh": {
+      "bytes": 860,
+      "sha256": "d1cc1e5168db629ccb66d00f1e26c328f659302d63d537b96da17c32c3687fb7"
+    },
+    "drivers/deep_attention_f64_serving_r3474.py": {
+      "bytes": 5599,
+      "sha256": "9dbd37d8fdc427cc552788058c89fb9c3b28a59a12a7114b52e33ed92be17b0f"
+    },
+    "drivers/deep_attention_f64_serving_r3496.py": {
+      "bytes": 5594,
+      "sha256": "075c3e066190cef7ea24657cad52699fcb273cba656b3e3ea6801b576acb1d55"
     },
     "drivers/deep_cache_batch_r784.hpp": {
       "bytes": 74,
@@ -26154,6 +26198,14 @@
       "bytes": 13650,
       "sha256": "01f8d19d0adbbb6b9d03d1a40188e6c578d526fdaf74d44a439f180e508c2ecb"
     },
+    "drivers/glm_fastpath_probe_r3487.py": {
+      "bytes": 13658,
+      "sha256": "862d3461536696ea9bc2917ec5b37bcc6ed3a2854cbe60593ba21cec50a7e3c6"
+    },
+    "drivers/glm_fastpath_probe_r3503.py": {
+      "bytes": 13675,
+      "sha256": "0ae34cd613b0018824afab8478ecb2b2a55929710b5816ccd99d0b1ba010a60b"
+    },
     "drivers/glm_fastpath_r3323_inside.sh": {
       "bytes": 1118,
       "sha256": "e1a1cc63e35446b9915c876a23a21731cfa526826d56435ee0cbc1edb23bed2e"
@@ -26161,6 +26213,14 @@
     "drivers/glm_fastpath_r3439_inside.sh": {
       "bytes": 1118,
       "sha256": "9fd9670849de4ba0efe1975a96f8b1dcfa64b6487cadc1ef7d5b0f7e6268380f"
+    },
+    "drivers/glm_fastpath_r3487_inside.sh": {
+      "bytes": 1118,
+      "sha256": "18669960d15eaeba76ece488185d6d8a0cb3002ccae92231eeeb064428d77b5c"
+    },
+    "drivers/glm_fastpath_r3503_inside.sh": {
+      "bytes": 1118,
+      "sha256": "6afc3887c2b784544f12247c2e5f67a36876c7ca9859add2a1c24f96f81cf87e"
     },
     "drivers/glm_fp8_batched_r776.cu": {
       "bytes": 5862,
@@ -26222,6 +26282,14 @@
       "bytes": 5748,
       "sha256": "95e72f39d136216331064e21782c509283ebd0f84d6ea70fa2259d896a8fb4eb"
     },
+    "drivers/kimi_batch_acceptance_r3501.py": {
+      "bytes": 12718,
+      "sha256": "7d0fca12db3518556b606d8ca69bbf08872f245d31f1d6530e9c269394ad2c64"
+    },
+    "drivers/kimi_batch_acceptance_r3501_inside.sh": {
+      "bytes": 2181,
+      "sha256": "22ada192aec5a3838452132f05e925d4f96c037b3bbfedfa04ffad6c80108ca7"
+    },
     "drivers/kimi_collective_f64_r3385.cpp": {
       "bytes": 4569,
       "sha256": "174944afe33aec128425a1b6b32f878467b7390443db79eb7a2c3085924c81c3"
@@ -26237,6 +26305,14 @@
     "drivers/kimi_grouped_fused_fp32_runtime_r21.cpp": {
       "bytes": 12693,
       "sha256": "596b5fe50e1c3abecc9b28ee08694f3cccf75c7b51255002d23ce05ca9f04a2c"
+    },
+    "drivers/kimi_pipeline_cohort_r3483.py": {
+      "bytes": 9412,
+      "sha256": "59609d9d8ce75dafdc1b2546ac88448a4c729c79b19f4de34e3803a61c49822f"
+    },
+    "drivers/kimi_pipeline_r3483_inside.sh": {
+      "bytes": 2173,
+      "sha256": "ff40a9262093d83398c008f9e79b1c6d8ad988b8e4912d3eb4a981e69a1d7f72"
     },
     "drivers/kimi_pipeline_split_prefill_r646.py": {
       "bytes": 633,
@@ -26269,6 +26345,10 @@
     "drivers/kimi_wide_multibatch_r3418_inside.sh": {
       "bytes": 2180,
       "sha256": "ed780dba66cbb2245d6f2905f79fcc147789392a074b4aa4800f9b861e121b97"
+    },
+    "drivers/kimi_wide_multibatch_r3486.py": {
+      "bytes": 12449,
+      "sha256": "079f3851105af3fb9e19e012448e7a96d5fcb29d3ea22f64d7f42cb4219e7b28"
     },
     "drivers/kimi_wide_precision_r3393.hpp": {
       "bytes": 1185,
@@ -26318,6 +26398,14 @@
       "bytes": 26467,
       "sha256": "d9bd7255a46d4a07aea63f4966b3ed7ec81a35d1d393de2246056d071bdbef68"
     },
+    "drivers/modern_deep_attention_f64_r3474.py": {
+      "bytes": 13946,
+      "sha256": "3c6e173b8b1d211c4ea37ab82fd2c4952c92e24afcb55fbb8d45a7a29d4d974b"
+    },
+    "drivers/modern_deep_attention_f64_r3496.py": {
+      "bytes": 13946,
+      "sha256": "69998a2ef5b48a2e4cecdb4d032f36aeb526fd5cb7c8f0dde1df822b1fb6c219"
+    },
     "drivers/modern_deep_wide_r3457.py": {
       "bytes": 13933,
       "sha256": "4a622bc4878c79160bf5cea6eed433d488f34d49666a659a30a50b70a92c1fb4"
@@ -26354,13 +26442,29 @@
       "bytes": 15832,
       "sha256": "556da47e7050312aac8067a644c8d1929d5642404f60b53d2a93181334d6aaa7"
     },
+    "drivers/modern_glm_fastpath_r3487.py": {
+      "bytes": 15834,
+      "sha256": "25f0a1ac3ea865cbc841e301df35a4b7996c5465c5e2619faf5f14b05647c280"
+    },
+    "drivers/modern_glm_fastpath_r3503.py": {
+      "bytes": 15834,
+      "sha256": "9e368ba729be259e579c79fe7693ef1f0aa88c23feffc71e61da37b51451ca6f"
+    },
     "drivers/modern_glm_smallmicro_r3236.py": {
       "bytes": 15747,
       "sha256": "ea0238c0b9c4bfca6206ee4b5ebc834e8d0d137bf84c03ae66f94e0a6cdc4f39"
     },
+    "drivers/modern_kimi_batch_acceptance_r3501.py": {
+      "bytes": 18104,
+      "sha256": "58c66ef783e182c2a02eb20aec12dfd99292b5497330ea9d455c5d0174589ddb"
+    },
     "drivers/modern_kimi_grouped_fused_fp32_kernels_r21.cu": {
       "bytes": 2385,
       "sha256": "d4ffaaaf85b58c01194d2e04cd995b2458184fc211d2cbfcba3b3c5ce7fe9ed8"
+    },
+    "drivers/modern_kimi_pipeline_r3483.py": {
+      "bytes": 18098,
+      "sha256": "13269c84d2b4fd2af860e1785641c229349c93894d25432a4912507b40bf6ff1"
     },
     "drivers/modern_kimi_token_only_r964.py": {
       "bytes": 35908,
@@ -26406,6 +26510,10 @@
       "bytes": 1665,
       "sha256": "fd7f7e09dd2857bb6626e92b5af5be57c05c9c3b21a42bffafd4d4538e0f4b30"
     },
+    "drivers/stage_cast64_sdks_r3315.py": {
+      "bytes": 2753,
+      "sha256": "b8c268e65428915b88e126b9ba700e79c4ebfa96ab091802afa182c5e2f0349a"
+    },
     "drivers/stage_control_r2386.py": {
       "bytes": 2230,
       "sha256": "269cc1a5097e0264052d1c929a18ac0bbfe20ade0b44947455dd21bf9e6b804d"
@@ -26434,6 +26542,10 @@
       "bytes": 28022,
       "sha256": "ef6334c5045c58510eb0ebb1f8aca58ec214f5341fd6911d5ba9d529f27e4f08"
     },
+    "evidence/deep-attention-r3494-B4-audit.json": {
+      "bytes": 3782,
+      "sha256": "1c325cee8504ca41f0e0c43223455841afcc9f68f62eb7927157705811f06050"
+    },
     "evidence/deep-f64-r3449-audit.json": {
       "bytes": 21511,
       "sha256": "7d1b57139727ea94f49ebe6d7dac21176f8021f4fa25de5a3cb187c4d47e22ed"
@@ -26450,9 +26562,25 @@
       "bytes": 34826,
       "sha256": "1aa64d4802010b5511cc26767794885a0535325880a61fff2c1aa823b1ce523f"
     },
+    "evidence/glm-expert-order-r3356-audit.json": {
+      "bytes": 31244,
+      "sha256": "965c5d748f0d2b769985074685808a3fb4300f49f200ce4cfab41fc3ade39b2b"
+    },
+    "evidence/glm-expert-order-r3364-audit.json": {
+      "bytes": 31359,
+      "sha256": "fa736c5734a666886f6f53c444781a4de6f7614c426c94193f69dcfedc252988"
+    },
+    "evidence/glm-expert-order-r3368-audit.json": {
+      "bytes": 46648,
+      "sha256": "b8fd8ecbdb7632d1b79e9865a86560d8bb42b5d7102599bd02db54b762d57e07"
+    },
     "evidence/glm-fastpath-r3330-audit.json": {
       "bytes": 30865,
       "sha256": "8f5305d354cdc0feeb6bd56b3a277ad23c4cd6ee7902001530b7dbf1b3abb71c"
+    },
+    "evidence/glm-fp8-cached-model-r929-910380.228-audit.json": {
+      "bytes": 6521,
+      "sha256": "7085bd13de57920df81f7d50c81c9ac25a87106a2d296977cf0ea486f6b10c3e"
     },
     "evidence/glm-g128-r3239-audit-r3372-local.json": {
       "bytes": 50566,
@@ -26462,6 +26590,14 @@
       "bytes": 34466,
       "sha256": "eca71764d11101149715d1900d19d5edcd5b067620f33fa72e3a03b5aa494d65"
     },
+    "evidence/glm-g128-r3340-audit.json": {
+      "bytes": 48446,
+      "sha256": "b6b3c1a45ae95c19192c43a59182740b273d012c1b397f65233102cd9d12a99a"
+    },
+    "evidence/glm-prefill-model-r3187-audit.json": {
+      "bytes": 45711,
+      "sha256": "dd843811c83f0c1375e9d8353f0d3eab6951f8965c810ae59ff955596624bb65"
+    },
     "evidence/glm-route-order-r3343-audit-r3372-local.json": {
       "bytes": 4533,
       "sha256": "1b44a97961703e7bc2559d23b1eb865be6bc4bc6d9c187014812a80aadf3a807"
@@ -26469,6 +26605,10 @@
     "evidence/glm-timeline-r3300-audit-r3372-local.json": {
       "bytes": 105481,
       "sha256": "b15f2189610b86c2a70a6478e3aa56d4b7e814e84c6a6725d5a6eb198ecd177d"
+    },
+    "evidence/kimi-token-only-r965-audit-910375.387.json": {
+      "bytes": 40597,
+      "sha256": "f9b527a8b04d1b78da50a26496232a770df806d831a104ee7c0ff3016042ead7"
     },
     "evidence/kimi-wide-realprojection-r3411.json": {
       "bytes": 6686,
@@ -26487,12 +26627,16 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 4178,
-      "sha256": "5309a154c175760b13b5312d1b29e7effc16847badbcf0a0fe8e3971301bdd1d"
+      "bytes": 6095,
+      "sha256": "436643a8b4ca0a45bad43a371f6e16844d475f984655ec861e744566b2039fd5"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
       "sha256": "64ea930553a86adc81fbe3eff04a829951b4581a2a3f1c101c8d71d28a0ba82f"
+    },
+    "evidence/update-r3506-index.json": {
+      "bytes": 1964,
+      "sha256": "e52fd1b105a9935073bfd3a27a43a9f433b42026558b94f9f41ac79cc13123d5"
     },
     "extras/environment.json": {
       "bytes": 369,
@@ -32903,20 +33047,20 @@
       "sha256": "cdd7135c6ca3ceae6bb3f08df8bb6d54aa7069a1831c5ea0afc859cf78be2253"
     },
     "NUMERICS.zh-CN.md": {
-      "bytes": 5318,
-      "sha256": "07ccc38f9b8ad694a00f90677eb2dd887204d18df20278e3671f11c2d5e00feb"
+      "bytes": 6618,
+      "sha256": "4e12a18279a3155d00cd3bca2be8945b6e4515a2fd74f779ac56123393cbba95"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 7875,
-      "sha256": "b1da851abc8b23b1ea637e5dece5fce9ddc443781f3101d68394f54bf5377ff5"
+      "bytes": 10353,
+      "sha256": "930f075a570c4120264e598a93c0ece3348ffe4cb7caf8eb030954d9fa158701"
     },
     "pins.json": {
-      "bytes": 3728,
-      "sha256": "c123dc51d1ce1d9456745ba36022b667ff542c9c5c006fa0320f0de4d70f6b26"
+      "bytes": 4097,
+      "sha256": "4b11af7f4fcc5480a0939cd4140e460e3a8bb09643c24b88682dcb83022e38df"
     },
     "README.zh-CN.md": {
-      "bytes": 2770,
-      "sha256": "a18cea3a66653a925927e308e43ae3a689a6bea3433b4627bc8c6a301c4238c9"
+      "bytes": 3336,
+      "sha256": "49acfeca8dd80ad51e2d6f38ac385a6563c5c2515331a75c5d6f010a1baed3df"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -32957,6 +33101,34 @@
     "scripts/verify_package.py": {
       "bytes": 595,
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
+    },
+    "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
+      "bytes": 1856,
+      "sha256": "825e3b0de37a3eae27da3f4e648f776f973c9bc68d50beca322cd61b638f06af"
+    },
+    "upstream-update-c3deba4/configure_sdk_r3491.py": {
+      "bytes": 4324,
+      "sha256": "520b4e8d47edc397d4f8025ac96c7ff1516a5ccc4cdbe1de19366b4378b14575"
+    },
+    "upstream-update-c3deba4/download_upstream_r3477.py": {
+      "bytes": 4539,
+      "sha256": "2e297989fce42a1cef4db88143b39d8d417948637d4d58a0dc59c1fa08aff7e9"
+    },
+    "upstream-update-c3deba4/rebase_stack_r3485.py": {
+      "bytes": 7907,
+      "sha256": "d1bca6631b11d013defc2aa72d9194001ce02dc963a578d3f1aa6eedfb5ecbd7"
+    },
+    "upstream-update-c3deba4/recursive-source-manifest.json": {
+      "bytes": 6068,
+      "sha256": "93d53249f1f4217a75a3fa38d604dead10f54550917dbd16b549e1dd34e12d89"
+    },
+    "upstream-update-c3deba4/resolve_pad_migration_r3492.py": {
+      "bytes": 3428,
+      "sha256": "b15ad3e8a2a4f96b063b3cba8638bf23bd370636ab778eee1650ed9675bcb9cf"
+    },
+    "UPSTREAM_UPDATE.zh-CN.md": {
+      "bytes": 1336,
+      "sha256": "5452f10f8ca71477b313d62845b01bae96c04d661f40bdfb6277da0d51b52010"
     }
   }
 }

@@ -1,0 +1,142 @@
+{
+  "utc": "2026-10-20T12:17:52.926753+00:00",
+  "completed": true,
+  "root": {
+    "repo": "InfiniTensor/InfiniLM",
+    "commit": "c3deba450a631d79e3a183048726b4a1f4acabdd"
+  },
+  "repositories": [
+    {
+      "repo": "InfiniTensor/InfiniLM",
+      "commit": "c3deba450a631d79e3a183048726b4a1f4acabdd",
+      "archive": "InfiniTensor-InfiniLM-c3deba450a63.tar.gz",
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-c3deba4-r3477",
+      "archive_SHA256": "5f5c62bbcac2fd940bcabdd6f37f221e803929b10def795f87f242760f87dae1",
+      "tree_manifest": "InfiniTensor-InfiniLM-c3deba450a63-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 446,
+      "gitlinks": [
+        {
+          "path": "third_party/spdlog",
+          "repo": "gabime/spdlog",
+          "commit": "88a0e07ad5bb3e2651cd5613530b3f06a15fc400"
+        },
+        {
+          "path": "third_party/json",
+          "repo": "nlohmann/json",
+          "commit": "5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2"
+        },
+        {
+          "path": "third_party/InfiniCore",
+          "repo": "InfiniTensor/InfiniCore",
+          "commit": "14a8bd52b586c26fcfdf7ecc04efde38640467fb"
+        }
+      ]
+    },
+    {
+      "repo": "gabime/spdlog",
+      "commit": "88a0e07ad5bb3e2651cd5613530b3f06a15fc400",
+      "archive": "gabime-spdlog-88a0e07ad5bb.tar.gz",
+      "archive_SHA256": "6b4bf15cc6d7fb46679a971544a115298600acac5de0d03b32561d7dbac96755",
+      "tree_manifest": "gabime-spdlog-88a0e07ad5bb-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 176,
+      "gitlinks": [],
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-b7b370-r2281",
+      "reuse_previously_verified_archive": true
+    },
+    {
+      "repo": "nlohmann/json",
+      "commit": "5ed07097faa6c50199c4a3b66e5ed37d4fbfccc2",
+      "archive": "nlohmann-json-5ed07097faa6.tar.gz",
+      "archive_SHA256": "82dc05910f17f068fec45fc78f25eb8de7fc699f291dc6a98170b71e84aca66e",
+      "tree_manifest": "nlohmann-json-5ed07097faa6-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 1177,
+      "gitlinks": [],
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-b7b370-r2281",
+      "reuse_previously_verified_archive": true
+    },
+    {
+      "repo": "InfiniTensor/InfiniCore",
+      "commit": "14a8bd52b586c26fcfdf7ecc04efde38640467fb",
+      "archive": "InfiniTensor-InfiniCore-14a8bd52b586.tar.gz",
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-c3deba4-r3477",
+      "archive_SHA256": "d831d2118a7229dfea47f514068dc4bc7f0bc705e34aba649be3a3734cea0371",
+      "tree_manifest": "InfiniTensor-InfiniCore-14a8bd52b586-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 4,
+      "gitlinks": [
+        {
+          "path": "submodules/InfiniRT",
+          "repo": "InfiniTensor/InfiniRT",
+          "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19"
+        },
+        {
+          "path": "submodules/InfiniOps",
+          "repo": "InfiniTensor/InfiniOps",
+          "commit": "bcfe96daf338b9f9992049f7965b27b6afe88b68"
+        },
+        {
+          "path": "submodules/InfiniCCL",
+          "repo": "InfiniTensor/InfiniCCL",
+          "commit": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+        }
+      ]
+    },
+    {
+      "repo": "InfiniTensor/InfiniRT",
+      "commit": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+      "archive": "InfiniTensor-InfiniRT-b4138168dfbb.tar.gz",
+      "archive_SHA256": "aa9c3f6c7df3c4cf5c2da23e686ed9bde2079a3ace822598493a8053993d473d",
+      "tree_manifest": "InfiniTensor-InfiniRT-b4138168dfbb-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 105,
+      "gitlinks": [],
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-b7b370-r2281",
+      "reuse_previously_verified_archive": true
+    },
+    {
+      "repo": "InfiniTensor/InfiniOps",
+      "commit": "bcfe96daf338b9f9992049f7965b27b6afe88b68",
+      "archive": "InfiniTensor-InfiniOps-bcfe96daf338.tar.gz",
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-c3deba4-r3477",
+      "archive_SHA256": "e55e7ec67af544419a8e20e3b08bd76257820e1de9820633ad58f3dd065e384d",
+      "tree_manifest": "InfiniTensor-InfiniOps-bcfe96daf338-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 1573,
+      "gitlinks": [
+        {
+          "path": ".ci",
+          "repo": "InfiniTensor/ci",
+          "commit": "b45d360c8cc529747ee31c5451d7eac96ac9f309"
+        }
+      ]
+    },
+    {
+      "repo": "InfiniTensor/ci",
+      "commit": "b45d360c8cc529747ee31c5451d7eac96ac9f309",
+      "archive": "InfiniTensor-ci-b45d360c8cc5.tar.gz",
+      "archive_SHA256": "9da7f472a3802e001a5ab017fa0f5cb10107d6d373313de9efe4abfd2d5bc09a",
+      "tree_manifest": "InfiniTensor-ci-b45d360c8cc5-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 301,
+      "gitlinks": [],
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-b7b370-r2281",
+      "reuse_previously_verified_archive": true
+    },
+    {
+      "repo": "InfiniTensor/InfiniCCL",
+      "commit": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3",
+      "archive": "InfiniTensor-InfiniCCL-6f329f83e6e2.tar.gz",
+      "archive_SHA256": "3cf066eb04c33c9d058e7d2cfea6ba16a9290f209bf9629a523bfe64d0c433e4",
+      "tree_manifest": "InfiniTensor-InfiniCCL-6f329f83e6e2-tree.json",
+      "all_git_blob_SHA1_exact": true,
+      "blob_count": 184,
+      "gitlinks": [],
+      "archive_root": "C:\\Users\\WangHaojie\\Documents\\ChatGPT\\海光集群\\upstream-b7b370-r2281",
+      "reuse_previously_verified_archive": true
+    }
+  ],
+  "scope": "Pinned current user-specified refactor branch; exact recursive gitlinks and Git blob SHA1 checks. GitSSH ls-remote3477 verifiedc3deba4 on2026-10-20; pinnednewCore14a8. Existing3e0 source/build snapshots and all running model experiments preserved. No new-version performance inheritance."
+}
