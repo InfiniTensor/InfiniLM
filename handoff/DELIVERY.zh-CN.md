@@ -6,6 +6,6 @@
 - 已完成文件 SHA256 校验、发布内容扫描和迁移入口语法检查。新服务器尚未进行构建或 GPU 验收。
 - 历史 Kimi 116.18、GLM 63.15、DeepSeek 25.32 tok/s 保留原计量范围；DeepSeek 固定 512 已按原版审计复现 25.52–25.82 tok/s，保留其重复行 logits 差异限制；其余本次重跑结果仍以 `evidence/recheck-status.json` 为准，不能把旧数字称为本轮已复现。
 - 当前已验收的 GLM 有效 decode 总吞吐中位数为 48.2018 tok/s，32 卡，G64/M8、512 输入、最多 128 输出；含 prefill 为 17.5020 tok/s。G128/M32 plan cache 的另一组结果为 42.3794/18.1312 tok/s。它与旧版固定 512 输出不是同一测试。
-- Kimi F64 真实投影通过独立 CPU 审计；整模型修复仍待验证。DeepSeek 的旧版真实 EOS 测试正在运行。后续修复和结果将继续更新临时分支。
+- Kimi F64 真实投影通过独立 CPU 审计；整模型修复仍待验证。DeepSeek 旧版长文按 EOS/上限结束的测试已审计，B16 为 25.68–25.84/20.20–20.34 tok/s（decode/含 prefill），全部达到 512 上限，保留历史数值限制。后续修复和结果将继续更新临时分支。
 
 先读 [交接总览](README.zh-CN.md)，再按 [迁移步骤](MIGRATION.zh-CN.md) 和 [Agent 接手文档](AGENT_HANDOFF.zh-CN.md) 执行。参考数据和运行时归档独立交付，不在 GitHub，原集群访问配置在本地私有附录。

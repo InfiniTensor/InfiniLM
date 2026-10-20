@@ -1,5 +1,5 @@
 {
-  "recorded_utc": "2026-10-20T11:34:22.603073+00:00",
+  "recorded_utc": "2026-10-20T11:44:43.547386+00:00",
   "historical_fixed512": {
     "Kimi": {
       "decode_tok_s": 116.17752809433506,
@@ -54,7 +54,21 @@
     "entry3417": "rejected for stale old Common path check; experimental steps stopped, parent holds retained; same binaries, corrected entry3418/newrun3419"
   },
   "legacy_actual_EOS": {
-    "Deep": "running_r3421_step910407.98_not_qualified",
+    "Deep": {
+      "state": "completed_historical_gate_with_limitations",
+      "producer": "910407.98",
+      "CPU_audit": "910377.421",
+      "audit": "legacy-deep-eos-r3453-audit.json",
+      "B16_decode_tok_s": [
+        25.837495500592347,
+        25.682852157231373
+      ],
+      "B16_including_prefill_tok_s": [
+        20.336328323987736,
+        20.196030996617157
+      ],
+      "limitations": "Two frozen long prompts repeated; every output reaches512 cap, no earlyEOS mixedlength scenario. Historical duplicate-row raw differences retained; not current strict B2 repair or HTTP/SLO qualification."
+    },
     "Kimi": "running_r3426_step910373.772_not_qualified",
     "GLM": "submitted_r3450_using_r3429_not_qualified"
   },
@@ -70,10 +84,12 @@
     "scope": "Independent CPU audit of terminal GLM32card G32/G64 M8 fastpathbundle ABBA;ctx64,512input/max128output andtwofrozenprompts repeated, separatefrom512output results; all32 reports/fullIDs/EOS/CPUfullvocabraw/checksums/sameMrepeat/normalclose. Native+harness timing, no HTTP or hardware-peak claim."
   },
   "current_Deep_wide": {
-    "state": "build_and_synthetic_component_submitted_r3448",
+    "state": "build_passed3447_component_CPU_passed3449_wholemodel_short_long_submitted3458",
     "source": "r3443",
     "modes": "0native;1native+sync control;2attention F64;3addsFFN;4addsindexer",
-    "scope": "No fullmodel or TPS qualification."
+    "scope": "No fullmodel or TPS qualification.",
+    "component_cases": 192,
+    "wholemodel_qualified": false
   },
   "GLM_capacity_fastpath_combo": "r3439, G64/G128 M32 max128, queued r3441 after existing experiment; no gain claimed"
 }

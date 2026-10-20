@@ -1,0 +1,20 @@
+{
+  "utc": "2026-10-20T11:41:45.370980+00:00",
+  "completed": true,
+  "pins": {
+    "InfiniLM": "3e0d89fe881ca9fb2411c6e35ffc913c7ea6654d",
+    "InfiniCore": "030da0b68ea2a7b7aee62f0718d295b4a6b61099",
+    "InfiniOps": "c86b4f229e5a61331e281964df8b42f100fdd178",
+    "InfiniRT": "b4138168dfbbaa5e222febe66ab85919378ebc19",
+    "InfiniCCL": "6f329f83e6e248d9849b3ae1134dbaf05b409bc3"
+  },
+  "library_sha256": "24ec5adbaad300db42354b07fb7fdd58a9282785cc2ff7a0c02d3a14834755f8",
+  "stage_sha256": "5d925b6ed35bcfa054d762daedcdea2ae3f4839ab51699505f988ee726d2afac",
+  "mapped_libraries": {
+    "/refactor/install/hygon-deep-cast64-r3315/lib/libinfiniops.so": "dfbc2effffcc14779aa0060db2addc895057425115db857f8ab76e53cf9da197",
+    "/refactor/candidates/rebased-3e0d89fe-r2842/Common/Deep/InfiniLM/python/infinilm/_lib/libinfinilm_runtime.so": "a4921909ea8f22b63a10637ffc16b67b4b40fbf5f166a24006395de8144740db",
+    "/refactor/install/hygon-deep-cast64-r3315/lib/libinfinirt.so": "92b8eb6c419e17002bdcc47360b97b9bca87f19dcc62effabeea08d5f23df342",
+    "/refactor/install/hygon-deep-cast64-r3315/lib/libinfiniccl.so": "ec6d8b23641be3eb163c4d746a4f7e39d9b8176d5e7d87634399560ad9c0eca3"
+  },
+  "scope": "Host-only isolated build/import/maps/invaliduntouched guards and defaultOFF; modes1native-sync control,2attentionF64,3addsFFN,4addsindexer. No component/fullmodel/performance qualification."
+}

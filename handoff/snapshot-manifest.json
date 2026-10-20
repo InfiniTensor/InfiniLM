@@ -1,5 +1,5 @@
 {
-  "utc": "2026-10-20T11:39:05.610990+00:00",
+  "utc": "2026-10-20T11:49:42.916570+00:00",
   "scope": "SHA256 of shipped handoff files. Original export manifests preserve capture hashes; operational-path redactions may differ. No weights, private keys, raw-runtime archives or container images committed.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
@@ -4599,8 +4599,8 @@
       "sha256": "27dc470d4d8056aff8f2b71a5b64b7924ebc489cbf8e72064e55cfed385641f1"
     },
     "DELIVERY.zh-CN.md": {
-      "bytes": 1423,
-      "sha256": "685a79f78dc74484914a172c524989d68d609963c84188668a5461c1b94ed1d8"
+      "bytes": 1556,
+      "sha256": "88e54cd7de7647acc55165991f0fd68836c711fe90de66fb652a5fa169591fdb"
     },
     "dependencies/current/CCL/.github/ISSUE_TEMPLATE/bug_report.yml": {
       "bytes": 2518,
@@ -25930,9 +25930,17 @@
       "bytes": 6768,
       "sha256": "18033b32f701b406630046ca6c7589e7fd0a739c6730654763b85e8862cbc88d"
     },
+    "drivers/audit_legacy_deep_eos_r3453.py": {
+      "bytes": 7929,
+      "sha256": "243daf36d9b17219a503b70ee160555548a78b74c41c644bc5966c7e93537e8b"
+    },
     "drivers/build_deep_serving_cases_r1196.py": {
       "bytes": 3803,
       "sha256": "22b21ddbdb62a37f74b64b215fc13b531a24148065527c2e01210049582fbcd6"
+    },
+    "drivers/build_deep_serving_cases_r2130.py": {
+      "bytes": 3803,
+      "sha256": "7213a45e51b03633eeb9decf953c8e143887c713a6a96f4e0a617fbbb94fc7bb"
     },
     "drivers/build_glm_batch_model_r3073_inside.sh": {
       "bytes": 4526,
@@ -26001,6 +26009,14 @@
     "drivers/deep_wide_build_r3447_inside.sh": {
       "bytes": 3109,
       "sha256": "af4cb5eaca88596aaff1b8773d9fc0a472847ee1d56e81a81a4b2d9234d96d0b"
+    },
+    "drivers/deep_wide_protocol_r3457.py": {
+      "bytes": 5128,
+      "sha256": "3073d77b3eed66a91c774548a7a03b04447cfa30f21cdb9a752e500c2351890e"
+    },
+    "drivers/deep_wide_r3457_inside.sh": {
+      "bytes": 851,
+      "sha256": "1875794a69893578e89707d9e2fed1e8a7f4ad01a92ff78202bd487b00e5420d"
     },
     "drivers/deepseek_mhc_post_register_r168.cu": {
       "bytes": 5210,
@@ -26262,6 +26278,10 @@
       "bytes": 5217,
       "sha256": "5a6ad94033242835db58ae31d33110ee70dd9d80288c84c7fdc4495fbe7db8fd"
     },
+    "drivers/legacy-deep-eos-r3453-source-lock.json": {
+      "bytes": 304,
+      "sha256": "7deed01f52e0575ba1bd43596e9987dc3d6a15d44dccc8684b5928bf9abafed2"
+    },
     "drivers/legacy_deep_eos_r3421.py": {
       "bytes": 25583,
       "sha256": "5b6902e62de643355f39952915e5cb3adaec826e72db4bbb987f3008353cd8b8"
@@ -26297,6 +26317,10 @@
     "drivers/modern_deep_allselected_r816.py": {
       "bytes": 26467,
       "sha256": "d9bd7255a46d4a07aea63f4966b3ed7ec81a35d1d393de2246056d071bdbef68"
+    },
+    "drivers/modern_deep_wide_r3457.py": {
+      "bytes": 13933,
+      "sha256": "4a622bc4878c79160bf5cea6eed433d488f34d49666a659a30a50b70a92c1fb4"
     },
     "drivers/modern_glm_cache_view_r928.py": {
       "bytes": 23397,
@@ -26410,6 +26434,14 @@
       "bytes": 28022,
       "sha256": "ef6334c5045c58510eb0ebb1f8aca58ec214f5341fd6911d5ba9d529f27e4f08"
     },
+    "evidence/deep-f64-r3449-audit.json": {
+      "bytes": 21511,
+      "sha256": "7d1b57139727ea94f49ebe6d7dac21176f8021f4fa25de5a3cb187c4d47e22ed"
+    },
+    "evidence/deep-wide-r3447-build.json": {
+      "bytes": 1388,
+      "sha256": "fe725b677599be1ea47279f0d8d352f1224c674d090ce57db8830e692a242be3"
+    },
     "evidence/environment.json": {
       "bytes": 369,
       "sha256": "c2aa8761d6b934129d27be08ba5b99c755dfc33537f8e799e43705f8d827d2c7"
@@ -26442,6 +26474,10 @@
       "bytes": 6686,
       "sha256": "926824842fc680ac4fc8b15b66c9ca3257ae5b982eba3dacfb573d17441ea21a"
     },
+    "evidence/legacy-deep-eos-r3453-audit.json": {
+      "bytes": 27025,
+      "sha256": "b5ab80207ac505bb0da371c6fdf741f9e217dda0df8b601722f09c8c526148f4"
+    },
     "evidence/publication-redactions.json": {
       "bytes": 641,
       "sha256": "fa44b1a1d384d0de78ab5deaee464d59bbd1fae4cb9e658bf1e5955f424595a7"
@@ -26451,8 +26487,8 @@
       "sha256": "42dfe6f1b4633a31be5eb1cd11b412a29924088f02bb48742cc05a6184b3b952"
     },
     "evidence/recheck-status.json": {
-      "bytes": 3521,
-      "sha256": "0ff7261684858a32cfc98d530c1e7d665e976550ce94c14acace06b03ffdb232"
+      "bytes": 4178,
+      "sha256": "5309a154c175760b13b5312d1b29e7effc16847badbcf0a0fe8e3971301bdd1d"
     },
     "evidence/runtime-bundles.json": {
       "bytes": 2118,
@@ -32867,12 +32903,12 @@
       "sha256": "cdd7135c6ca3ceae6bb3f08df8bb6d54aa7069a1831c5ea0afc859cf78be2253"
     },
     "NUMERICS.zh-CN.md": {
-      "bytes": 5121,
-      "sha256": "96e965967edb429725ec0fcc5b45ddfecb3f06d7365adc7cd3af6324be6e8fb8"
+      "bytes": 5318,
+      "sha256": "07ccc38f9b8ad694a00f90677eb2dd887204d18df20278e3671f11c2d5e00feb"
     },
     "PERFORMANCE.zh-CN.md": {
-      "bytes": 6493,
-      "sha256": "17fdf33416fd74d7e9f4267dac84d7d2ab1f4056b1b0223a2179428f1cfac049"
+      "bytes": 7875,
+      "sha256": "b1da851abc8b23b1ea637e5dece5fce9ddc443781f3101d68394f54bf5377ff5"
     },
     "pins.json": {
       "bytes": 3728,

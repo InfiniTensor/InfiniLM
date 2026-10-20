@@ -1,0 +1,686 @@
+{
+  "utc": "2026-10-20T11:43:17.773593+00:00",
+  "completed": true,
+  "scope": "IndependentCPU actualfullinputpartials/outputs on8ranks; FP64sum ofboundedrangeFP32 inputs thenRNEFP32/BF16, comparesnativeF32vsactualSDKCastF64+CCL. Syntheticcases demonstrateconditionalnumericalbehavior only, notremainingDeep modelrootcause/fix/TPS orvendorfault.",
+  "producer": [
+    "910384.256",
+    "deep-f64-r3445-component",
+    "COMPLETED",
+    "0:0",
+    "00:02:30"
+  ],
+  "cases": 192,
+  "normal_communicators_closed": 8,
+  "raw_files": 1728,
+  "summary": [
+    {
+      "M": 4,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 13393,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 13393,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 13393,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 4,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 13393,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 26868,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 26868,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 26868,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 8,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 26868,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "BF16_boundary",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 53240,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "random",
+      "shift_bytes": 0,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 53240,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": false,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 53240,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    },
+    {
+      "M": 16,
+      "fixture": "random",
+      "shift_bytes": 64,
+      "inplace": true,
+      "modes": {
+        "0": {
+          "all_exact_and_repeat": false,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 0,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 53240,
+          "max_BF16_changed_words": 0
+        },
+        "1": {
+          "all_exact_and_repeat": true,
+          "F32_distinct_output_hashes_across_rank_epoch": 1,
+          "BF16_distinct_output_hashes_across_rank_epoch": 1,
+          "row_equal_records": 16,
+          "BF16_row_equal_records": 16,
+          "max_F32_changed_words": 0,
+          "max_BF16_changed_words": 0
+        }
+      }
+    }
+  ],
+  "reports": [
+    {
+      "rank": 0,
+      "report_sha256": "73c0a95fdc2fc3cc48ad513a0b721f8fb17070756fda4930ea96b1a0c759b82c",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 1,
+      "report_sha256": "c9019d02de3a0e1a5af030eaa86a389d8c80a79b57df06a43ce0f7ad60863702",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 2,
+      "report_sha256": "199ff214e65934121275db7a24de154fac2111c6ea2a56f5ddd18231c49c917a",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 3,
+      "report_sha256": "83cc9c31b85acbbff5c2180a70ef4f1074838b71c520b0c68aec9ac54c2d88fb",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 4,
+      "report_sha256": "d63314a647e1a3bc76095c16a4797571c5e852e5293a9f39d2c8bdc073bc3c9a",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 5,
+      "report_sha256": "06eba2362c4743a24868011013cbcfba804b5a7ccfb0c15f32250e1dfa03a4db",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 6,
+      "report_sha256": "e43a58f7b6742241d7195bf1e48bac34773d98c58ab300fc1e70949023e29755",
+      "normal_communicator_closed": true
+    },
+    {
+      "rank": 7,
+      "report_sha256": "8fa37a0c5561ac524d0503f87df80276d02a4b10f79eccc9abd3128dbb2c9fac",
+      "normal_communicator_closed": true
+    }
+  ],
+  "F64_all_cases_CPU_FP64sum_RNE_F32_BF16_and_rows_repeat_exact": true,
+  "F32_cases_with_row_mismatch": 12,
+  "F32_cases_with_BF16_visible_row_mismatch": 0
+}

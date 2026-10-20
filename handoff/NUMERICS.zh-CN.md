@@ -30,7 +30,7 @@ Common `r3395` 已构建、默认关闭和非法输入检查通过。真实权�
 
 长 tracing 的 24 组最终 raw 均未与对应未追踪运行一致，说明观察方式扰动了失败窗口。应先用未追踪原始运行确定差异，再以最小张量保存缩小边界。Deep 专用 Cast64 SDK 已通过算子检查，但没有已验收的 Deep F64 整模型修复。
 
-新增 `r3443` 隔离候选将 mode0 原始执行、mode1 原始数学加相同同步、mode2 attention F64、mode3 再加 FFN F64、mode4 再加 indexer F64 分开测试。实际 B1 不升精度，scratch 在释放前排空。先对 Deep 专用 SDK/Common 做 F64 组件和独立 CPU oracle，再测原始 B2；该候选目前没有整模型修复或性能结论。
+新增 `r3443` 隔离候选将 mode0 原始执行、mode1 原始数学加相同同步、mode2 attention F64、mode3 再加 FFN F64、mode4 再加 indexer F64 分开测试。实际 B1 不升精度，scratch 在释放前排空。先对 Deep 专用 SDK/Common 做 F64 组件和独立 CPU oracle，再测原始 B2；Deep 专用 F64 组件 `r3445/r3449` 已通过 192 项、1,728 个 raw 文件和 8 个正常通信关闭，独立 CPU oracle 通过；整模型短输入和长输入 `r3457/r3458` 已并行提交。该候选目前没有整模型修复或性能结论。
 
 ## GLM-5.3
 
