@@ -42,12 +42,13 @@ inline infinilm::runtime::Tensor pad_constant_alloc(infinilm::runtime::Runtime &
                                                     const infinilm::runtime::Tensor &input,
                                                     const std::vector<int> &padding,
                                                     double value) {
-    const auto layout = tensor_checks::pad::analyze(input, padding, "constant");
+    const auto layout = tensor_checks::pad::analyze(input, padding);
     auto output = infinilm::runtime::Tensor::empty(runtime, layout.output_shape, input->dtype());
     if (output->numel()) {
-        submit<infini::ops::PadConstant>(
-            runtime, infini::ops::PadConstant::DefaultConfig(runtime.device().type()),
-            input, std::vector<int64_t>(padding.begin(), padding.end()), value, output);
+        submit<infini::ops::Pad>(
+            runtime, infini::ops::Pad::DefaultConfig(runtime.device().type()),
+            input, std::vector<int64_t>(padding.begin(), padding.end()),
+            std::string{"constant"}, std::optional<double>{value}, output);
     }
     return output;
 }

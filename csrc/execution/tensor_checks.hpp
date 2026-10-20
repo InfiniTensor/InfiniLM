@@ -12,15 +12,10 @@ struct PadLayout {
     Shape output_shape;
 };
 
-inline PadLayout analyze(const Tensor &x, const std::vector<int> &padding,
-                         const std::string &mode) {
+// Infer the output owned by pad_constant_alloc; provider mode selection stays in Ops.
+inline PadLayout analyze(const Tensor &x, const std::vector<int> &padding) {
     if (!x) {
         throw std::invalid_argument("Pad input is null");
-    }
-    // The frozen LM consumers all use constant mode. The old generic API also
-    // named reflect/replicate/circular; none is implemented by PadConstant.
-    if (mode != "constant") {
-        throw std::invalid_argument("Pad mode requires an unimplemented nonconstant provider");
     }
     if (padding.empty() || padding.size() % 2 != 0 || padding.size() / 2 > x->ndim()) {
         throw std::invalid_argument("Pad requires pairs for at most the input rank");

@@ -49,11 +49,11 @@ PYBIND11_MODULE(_infinilm, m) {
             || (input->dtype() != infinilm::runtime::DataType::kFloat32
                 && input->dtype() != infinilm::runtime::DataType::kFloat16
                 && input->dtype() != infinilm::runtime::DataType::kBFloat16)) {
-            throw std::invalid_argument("checkpoint MulScalar requires matching CPU shapes and FP32/FP16/BF16 dtype");
+            throw std::invalid_argument("checkpoint scalar Mul requires matching CPU shapes and FP32/FP16/BF16 dtype");
         }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
-        infini::ops::MulScalar::Call(input_view, alpha, output_view); }, py::arg("input"), py::arg("alpha"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
+        infini::ops::Mul::Call(input_view, alpha, output_view); }, py::arg("input"), py::arg("alpha"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
 
     m.def("_normalize_checkpoint_tensor_", [](infinilm::runtime::Tensor input, double eps, infinilm::runtime::Tensor output) {
         if (!input || !output

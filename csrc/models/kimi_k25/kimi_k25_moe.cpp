@@ -167,14 +167,14 @@ infinilm::runtime::Tensor KimiK25MoE::forward(infinilm::runtime::Runtime &runtim
     {
         runtime.assertOwnerThread();
         if (!routed || runtime.device() != routed->device()) {
-            throw std::invalid_argument("MulScalar runtime and input devices differ");
+            throw std::invalid_argument("scalar Mul runtime and input devices differ");
         }
         auto scaled_routed = infinilm::runtime::Tensor::empty(runtime, routed->shape(), routed->dtype());
-        infinilm::execution::submit<infini::ops::MulScalar>(
+        infinilm::execution::submit<infini::ops::Mul>(
             runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
-            infini::ops::MulScalar::DefaultConfig(runtime.device().type()),
+            infini::ops::Mul::DefaultConfig(runtime.device().type()),
             routed, static_cast<double>(routed_scaling_factor_), scaled_routed);
-        INFINILM_TRACE_OP(MulScalar, scaled_routed);
+        INFINILM_TRACE_OP(Mul, scaled_routed);
         routed = std::move(scaled_routed);
     }
     const auto ops_other = shared_experts_->forward(runtime, hidden_states);

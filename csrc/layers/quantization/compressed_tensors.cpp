@@ -62,11 +62,11 @@ infinilm::runtime::Tensor CompressedTensors::forward(
         input_contiguous = input->contiguous(runtime);
         if (std::fabs(alpha - 1.0f) > 1e-7f) {
             effective_weight_scale = infinilm::runtime::Tensor::empty(runtime, weight_scale->shape(), weight_scale->dtype());
-            infinilm::execution::submit<infini::ops::MulScalar>(
+            infinilm::execution::submit<infini::ops::Mul>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
-                infini::ops::MulScalar::DefaultConfig(runtime.device().type()),
+                infini::ops::Mul::DefaultConfig(runtime.device().type()),
                 weight_scale, static_cast<double>(alpha), effective_weight_scale);
-            INFINILM_TRACE_OP(MulScalar, effective_weight_scale);
+            INFINILM_TRACE_OP(Mul, effective_weight_scale);
         }
         if (input_contiguous->ndim() == 0 || weight->ndim() != 2 || input_contiguous->size(input_contiguous->ndim() - 1) != weight->size(1) || weight->size(1) == 0) {
             throw std::invalid_argument("W8A8 input and weight geometry differ");
