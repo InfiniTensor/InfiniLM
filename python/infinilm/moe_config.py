@@ -42,8 +42,19 @@ def is_moe_model(model_path: str) -> bool:
         return False
     with open(config_path, "r") as f:
         config = json.load(f)
-    model_type = str(config.get("model_type", "")).lower()
-    return "moe" in model_type or "num_experts" in config
+
+    def has_experts(value):
+        if not isinstance(value, dict):
+            return False
+        for key in ("num_experts", "n_routed_experts", "num_local_experts"):
+            count = value.get(key)
+            if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+                return True
+        return any(
+            has_experts(child) for child in value.values() if isinstance(child, dict)
+        )
+
+    return has_experts(config)
 
 
 def configure_moe_ep_backend(
@@ -57,7 +68,8 @@ def configure_moe_ep_backend(
         raise ValueError("--tp must be greater than 0")
     if dp < 1:
         raise ValueError("--dp must be greater than 0")
-    if not is_moe_model(model_path):
+    backend = normalize_moe_ep_backend(backend)
+    if backend == "auto" and ep is None and not is_moe_model(model_path):
         return "disabled", 1
 
     if ep is None:
@@ -65,7 +77,6 @@ def configure_moe_ep_backend(
     if ep < 1:
         raise ValueError("--ep must be greater than 0")
 
-    backend = normalize_moe_ep_backend(backend)
     if backend == "auto":
         if dp == 1:
             backend = "disabled" if ep == 1 else "local_allreduce"

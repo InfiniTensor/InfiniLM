@@ -5,7 +5,6 @@ import time
 from infinilm.base_config import BaseConfig
 from infinilm.llm.llm import LLM
 from infinilm.moe_config import configure_moe_ep_backend
-from infinilm.processors.videonsa_processor import decode_video_frames
 
 DEFAULT_VIDEO_NUM_FRAMES = 8
 
@@ -38,10 +37,12 @@ def test(
     video_num_frames=None,
     skip_load=False,
     weight_load_mode="async",
-    use_legacy_moe=False,
     enable_prefix_caching=True,
     pre_transpose=False,
 ):
+    if video_path is not None:
+        from infinilm.processors.videonsa_processor import decode_video_frames
+
     model_path = os.path.expanduser(model_path)
     # ---------------------------------------------------------------------------- #
     #                        Create Model
@@ -74,7 +75,6 @@ def test(
         use_mla=use_mla,
         skip_load=skip_load,
         weight_load_mode=weight_load_mode,
-        use_legacy_moe=use_legacy_moe,
         enable_prefix_caching=enable_prefix_caching,
         pre_transpose=pre_transpose,
     )
@@ -147,12 +147,9 @@ if __name__ == "__main__":
 
     enable_graph = cfg.enable_graph
 
-    if cfg.use_legacy_moe:
-        moe_ep_backend, ep = "disabled", 1
-    else:
-        moe_ep_backend, ep = configure_moe_ep_backend(
-            cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
-        )
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+    )
 
     test(
         prompts,
@@ -182,7 +179,6 @@ if __name__ == "__main__":
         video_num_frames=cfg.video_num_frames,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,
-        use_legacy_moe=cfg.use_legacy_moe,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
     )

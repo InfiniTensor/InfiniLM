@@ -2,11 +2,11 @@
 
 #include "../../layers/linear/linear.hpp"
 
-#include <infinicore/nn/layer_norm.hpp>
-#include <infinicore/nn/module.hpp>
-#include <infinicore/nn/rope.hpp>
-#include <infinicore/tensor.hpp>
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 #include <nlohmann/json.hpp>
+#include <runtime/tensor.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -14,127 +14,142 @@
 
 namespace infinilm::models::kimi_k25 {
 
-class KimiK25VisionPatchProjection : public infinicore::nn::Module {
+class KimiK25VisionPatchProjection : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionPatchProjection(size_t hidden_size,
-                                 size_t patch_size,
-                                 const infinicore::DataType &dtype,
-                                 const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values) const;
+    KimiK25VisionPatchProjection(
+        infinilm::runtime::Runtime &runtime,
+        size_t hidden_size,
+        size_t patch_size,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &pixel_values) const;
 
 protected:
     size_t patch_size_{0};
-    INFINICORE_NN_PARAMETER(weight);
-    INFINICORE_NN_PARAMETER(bias);
+    infinilm::weights::Weight weight_;
+    infinilm::weights::Weight bias_;
 };
 
-class KimiK25VisionPosEmbed : public infinicore::nn::Module {
+class KimiK25VisionPosEmbed : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionPosEmbed(size_t height,
-                          size_t width,
-                          size_t hidden_size,
-                          const infinicore::DataType &dtype,
-                          const infinicore::Device &device);
-    infinicore::Tensor forward(size_t grid_h, size_t grid_w) const;
+    KimiK25VisionPosEmbed(
+        infinilm::runtime::Runtime &runtime,
+        size_t height,
+        size_t width,
+        size_t hidden_size,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, size_t grid_h, size_t grid_w) const;
 
 protected:
     size_t height_{0};
     size_t width_{0};
     size_t hidden_size_{0};
-    INFINICORE_NN_PARAMETER(weight);
+    infinilm::weights::Weight weight_;
 };
 
-class KimiK25VisionPatchEmbed : public infinicore::nn::Module {
+class KimiK25VisionPatchEmbed : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionPatchEmbed(const nlohmann::json &config,
-                            const infinicore::DataType &dtype,
-                            const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &grid_thw) const;
+    KimiK25VisionPatchEmbed(
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
-    INFINICORE_NN_MODULE(KimiK25VisionPatchProjection, proj);
-    INFINICORE_NN_MODULE(KimiK25VisionPosEmbed, pos_emb);
+    std::shared_ptr<KimiK25VisionPatchProjection> proj_;
+    std::shared_ptr<KimiK25VisionPosEmbed> pos_emb_;
 };
 
-class KimiK25VisionMLP : public infinicore::nn::Module {
+class KimiK25VisionMLP : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionMLP(size_t hidden_size,
-                     size_t intermediate_size,
-                     const infinicore::DataType &dtype,
-                     const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    KimiK25VisionMLP(
+        infinilm::runtime::Runtime &runtime,
+        size_t hidden_size,
+        size_t intermediate_size,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc0);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, fc1);
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc0_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> fc1_;
 };
 
-class KimiK25VisionBlock : public infinicore::nn::Module {
+class KimiK25VisionBlock : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionBlock(const nlohmann::json &config,
-                       std::shared_ptr<infinicore::nn::RoPE> rotary_emb,
-                       const infinicore::DataType &dtype,
-                       const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &row_positions,
-                               const infinicore::Tensor &col_positions) const;
+    KimiK25VisionBlock(
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        std::shared_ptr<infinilm::layers::RoPE> rotary_emb,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &row_positions,
+                                      const infinilm::runtime::Tensor &col_positions) const;
 
 protected:
     size_t hidden_size_{0};
     size_t num_heads_{0};
     size_t head_dim_{0};
     float scale_{1.0f};
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    std::shared_ptr<infinilm::layers::RoPE> rotary_emb_;
 
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm0);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, norm1);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wqkv);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, wo);
-    INFINICORE_NN_MODULE(KimiK25VisionMLP, mlp);
+    std::shared_ptr<infinilm::layers::LayerNorm> norm0_;
+    std::shared_ptr<infinilm::layers::LayerNorm> norm1_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> wqkv_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> wo_;
+    std::shared_ptr<KimiK25VisionMLP> mlp_;
 };
 
-class KimiK25VisionEncoder : public infinicore::nn::Module {
+class KimiK25VisionEncoder : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionEncoder(const nlohmann::json &config,
-                         const infinicore::DataType &dtype,
-                         const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states,
-                               const infinicore::Tensor &grid_thw) const;
+    KimiK25VisionEncoder(
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
-    INFINICORE_NN_MODULE_VEC(KimiK25VisionBlock, blocks);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, final_layernorm);
+    std::vector<std::shared_ptr<KimiK25VisionBlock>> blocks_;
+    std::shared_ptr<infinilm::layers::LayerNorm> final_layernorm_;
 };
 
-class KimiK25VisionTower : public infinicore::nn::Module {
+class KimiK25VisionTower : public infinilm::weights::ModelWeights {
 public:
-    KimiK25VisionTower(const nlohmann::json &config,
-                       const infinicore::DataType &dtype,
-                       const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &pixel_values,
-                               const infinicore::Tensor &grid_thw) const;
+    KimiK25VisionTower(
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &pixel_values,
+                                      const infinilm::runtime::Tensor &grid_thw) const;
 
 protected:
     size_t merge_height_{2};
     size_t merge_width_{2};
     size_t hidden_size_{0};
-    INFINICORE_NN_MODULE(KimiK25VisionPatchEmbed, patch_embed);
-    INFINICORE_NN_MODULE(KimiK25VisionEncoder, encoder);
+    std::shared_ptr<KimiK25VisionPatchEmbed> patch_embed_;
+    std::shared_ptr<KimiK25VisionEncoder> encoder_;
 };
 
-class KimiK25Projector : public infinicore::nn::Module {
+class KimiK25Projector : public infinilm::weights::ModelWeights {
 public:
-    KimiK25Projector(const nlohmann::json &config,
-                     const infinicore::DataType &dtype,
-                     const infinicore::Device &device);
-    infinicore::Tensor forward(const infinicore::Tensor &vision_features) const;
+    KimiK25Projector(
+        infinilm::runtime::Runtime &runtime,
+        const nlohmann::json &config,
+        const infinilm::runtime::DataType &dtype);
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &vision_features) const;
 
 protected:
     size_t merged_hidden_size_{0};
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, pre_norm);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_0);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_2);
+    std::shared_ptr<infinilm::layers::LayerNorm> pre_norm_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_0_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> linear_2_;
 };
 
 } // namespace infinilm::models::kimi_k25

@@ -1,13 +1,13 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include "deepseek_v2_attention.hpp"
 #include "deepseek_v2_mla_attention.hpp"
 #include "deepseek_v2_moe.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/device.hpp"
+#include "runtime/tensor.hpp"
 
 #include <memory>
 #include <tuple>
@@ -17,22 +17,27 @@ namespace infinilm::models::deepseek_v2 {
 
 using DeepseekV2SelfAttention = std::variant<std::shared_ptr<DeepseekV2Attention>, std::shared_ptr<DeepseekV2MLAAttention>>;
 
-class DeepseekV2DecoderLayer : public infinicore::nn::Module {
+class DeepseekV2DecoderLayer : public infinilm::weights::ModelWeights {
 public:
-    DeepseekV2DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    DeepseekV2DecoderLayer(infinilm::runtime::Runtime &runtime,
+                           std::shared_ptr<infinilm::config::ModelConfig> model_config,
                            size_t layer_idx,
-                           const infinicore::Device &device);
+                           const engine::distributed::RankInfo &rank_info,
+                           backends::AttentionBackend attention_backend,
+                           const layers::moe::EPConfig &ep_config,
+                           bool use_mla);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
-                                                               infinicore::Tensor &hidden_states,
-                                                               infinicore::Tensor &residual) const;
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(const infinilm::runtime::Tensor &positions,
+                                                                             infinilm::runtime::Tensor &hidden_states,
+                                                                             infinilm::runtime::Tensor &residual,
+                                                                             infinilm::global_state::ForwardContext &forward_context) const;
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(DeepseekV2SelfAttention, self_attn);
-    INFINICORE_NN_MODULE(DeepseekV2MLP, dense_mlp);
-    INFINICORE_NN_MODULE(DeepseekV2MoE, moe_mlp);
+    std::shared_ptr<infinilm::layers::RMSNorm> input_layernorm_;
+    std::shared_ptr<infinilm::layers::RMSNorm> post_attention_layernorm_;
+    std::shared_ptr<DeepseekV2SelfAttention> self_attn_;
+    std::shared_ptr<DeepseekV2MLP> dense_mlp_;
+    std::shared_ptr<DeepseekV2MoE> moe_mlp_;
     bool use_moe_{false};
 };
 

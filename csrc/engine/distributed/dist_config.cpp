@@ -1,11 +1,20 @@
 #include "dist_config.hpp"
+#include <stdexcept>
 
 namespace infinilm::engine::distributed {
+namespace {
+size_t checked_tp_size(int size) {
+    if (size < 1) {
+        throw std::invalid_argument("tensor parallel size must be at least 1");
+    }
+    return static_cast<size_t>(size);
+}
+} // namespace
 DistConfig::DistConfig()
     : tp_device_ids{0} {}
 
 DistConfig::DistConfig(int tp_size)
-    : tp_device_ids(tp_size, 0) {
+    : tp_device_ids(checked_tp_size(tp_size), 0) {
     for (int i = 0; i < tp_size; ++i) {
         tp_device_ids[i] = i;
     }

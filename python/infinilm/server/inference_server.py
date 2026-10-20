@@ -15,6 +15,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
@@ -104,7 +105,6 @@ class InferenceServer:
         master_port: int = 29500,
         moe_ep_backend: str = "disabled",
         moe_ep_size: int = 1,
-        use_legacy_moe: bool = False,
         cache_type: str = "paged",
         max_tokens: int = 4096,
         max_batch_size: int = 16,
@@ -135,7 +135,6 @@ class InferenceServer:
             tensor_parallel_size: Number of devices for tensor parallelism.
             moe_ep_backend: MoE expert-parallel backend.
             moe_ep_size: MoE expert-parallel size.
-            use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
             cache_type: Cache type ('paged' or 'static').
             max_tokens: Default maximum tokens to generate.
             max_batch_size: Maximum batch size for inference (only for paged cache).
@@ -167,7 +166,6 @@ class InferenceServer:
         self.master_port = master_port
         self.moe_ep_backend = moe_ep_backend
         self.moe_ep_size = moe_ep_size
-        self.use_legacy_moe = use_legacy_moe
         self.cache_type = cache_type
         self.max_tokens = max_tokens
         self.max_batch_size = max_batch_size
@@ -214,7 +212,6 @@ class InferenceServer:
                 master_port=self.master_port,
                 moe_ep_backend=self.moe_ep_backend,
                 moe_ep_size=self.moe_ep_size,
-                use_legacy_moe=self.use_legacy_moe,
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
@@ -429,16 +426,7 @@ class InferenceServer:
                     yield f"data: {error_chunk}\n\n"
                     break
 
-                # Skip EOS token text for OpenAI API compatibility
-                # Check if this token is an EOS token by comparing token_id with eos_token_ids
-                eos_token_ids = self.engine.engine.eos_token_ids
-                is_eos_token = (
-                    not sampling_params.ignore_eos
-                    and eos_token_ids
-                    and token_output.token_id in eos_token_ids
-                )
-
-                if not is_eos_token and token_output.token_text:
+                if token_output.token_text:
                     # Send token
                     chunk = json.dumps(
                         chunk_json(
@@ -472,6 +460,8 @@ class InferenceServer:
         except Exception as e:
             logger.error(f"Stream error for {request_id}: {e}", exc_info=True)
             _abort_reason = FinishReason.ERROR
+            if req and not req.is_finished():
+                self.engine.add_aborted_req(req, _abort_reason)
             error_chunk = json.dumps(
                 chunk_json(
                     request_id,
@@ -525,12 +515,7 @@ class InferenceServer:
                     logger.warning(f"Request {request_id} timed out")
                     break
 
-                # Skip EOS token text for OpenAI API compatibility
-                # Check if this token is an EOS token by comparing token_id with eos_token_ids
-                eos_token_ids = self.engine.engine.eos_token_ids
-                is_eos_token = eos_token_ids and token_output.token_id in eos_token_ids
-
-                if not is_eos_token and token_output.token_text:
+                if token_output.token_text:
                     output_text += token_output.token_text
 
                 if token_output.finished:
@@ -621,12 +606,9 @@ def main():
     if cfg.kv_transfer_config:
         kv_transfer_config = parse_kv_transfer_config(cfg.kv_transfer_config)
 
-    if cfg.use_legacy_moe:
-        moe_ep_backend, ep = "disabled", 1
-    else:
-        moe_ep_backend, ep = configure_moe_ep_backend(
-            cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
-        )
+    moe_ep_backend, ep = configure_moe_ep_backend(
+        cfg.tp, cfg.dp, cfg.ep, cfg.moe_ep_backend, cfg.model
+    )
     logger.info(
         "MoE EP backend: %s  TP=%s  DP=%s  EP=%s",
         moe_ep_backend,
@@ -646,7 +628,6 @@ def main():
         master_port=cfg.master_port,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
-        use_legacy_moe=cfg.use_legacy_moe,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,

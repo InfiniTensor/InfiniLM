@@ -1,10 +1,13 @@
 #include "ernie4_5_for_causal_lm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
 
-#include "../../global_state/global_state.hpp"
+#include "../../global_state/forward_context.hpp"
 #include "../models_registry.hpp"
 
 #include <stdexcept>
 #include <string>
+
+#include <exception>
 
 namespace infinilm::models::ernie4_5_vl {
 namespace {
@@ -77,43 +80,62 @@ void normalize_ernie_config(nlohmann::json &config_json) {
 
 } // namespace
 
-Ernie45ForConditionalGeneration::Ernie45ForConditionalGeneration(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                                                 const infinicore::Device &device) {
-    model_config_ = model_config;
-    const size_t hidden_size = model_config->get<size_t>("hidden_size");
-    const size_t vocab_size = model_config->get<size_t>("vocab_size");
-    const auto &dtype = model_config->get_dtype();
-    auto &config_json = model_config->get_config_json();
-    if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
-        INFINICORE_NN_MODULE_INIT(vision_model, config_json["vision_config"], dtype, device);
+Ernie45ForConditionalGeneration::Ernie45ForConditionalGeneration(infinilm::runtime::Runtime &runtime,
+                                                                 std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                                                 const engine::distributed::RankInfo &rank_info,
+                                                                 backends::AttentionBackend attention_backend,
+                                                                 const layers::moe::EPConfig &ep_config) {
+    models::validate_runtime_construction(model_config, runtime, rank_info);
+    try {
+        model_config_ = model_config;
+        const size_t hidden_size = model_config->get<size_t>("hidden_size");
+        const size_t vocab_size = model_config->get<size_t>("vocab_size");
+        const auto &dtype = model_config->get_dtype();
+        auto &config_json = model_config->get_config_json();
+        if (config_json.contains("vision_config") && config_json["vision_config"].is_object()) {
+            vision_model_ = std::make_shared<std::remove_reference_t<decltype(*vision_model_)>>(runtime, config_json["vision_config"], dtype);
+            this->bind_child("vision_model", vision_model_);
+        }
+
+        model_ = std::make_shared<std::remove_reference_t<decltype(*model_)>>(runtime, model_config, rank_info, attention_backend, ep_config);
+        this->bind_child("model", model_);
+        lm_head_ = std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype);
+        this->bind_child("lm_head", lm_head_);
+    } catch (...) {
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
+        throw;
     }
-
-    INFINICORE_NN_MODULE_INIT(model, model_config, device);
-    INFINICORE_NN_MODULE_INIT(lm_head, hidden_size, vocab_size, false, dtype, device);
 }
 
-infinilm::InfinilmModel::Output Ernie45ForConditionalGeneration::forward(const infinilm::InfinilmModel::Input &input) const {
-    auto hidden_states = (input.pixel_values.has_value() && !input.pixel_values.value().empty())
-                           ? model_->forward(input, vision_model_.get())
-                           : model_->forward(input);
-    auto logits = lm_head_->forward(hidden_states);
-    return {logits};
+infinilm::InfinilmModel::Output Ernie45ForConditionalGeneration::forward(
+    const infinilm::InfinilmModel::Input &input,
+    global_state::ForwardContext &forward_context) const {
+    auto hidden_states = model_->forward(input, forward_context, vision_model_.get());
+    auto logits = lm_head_->forward(forward_context.require_runtime(), hidden_states);
+    return {logits, hidden_states};
 }
 
-void Ernie45ForConditionalGeneration::reset_cache(const cache::CacheConfig *cache_config) {
+void Ernie45ForConditionalGeneration::reset_cache(
+    const cache::CacheConfig *cache_config,
+    global_state::ForwardContext &forward_context,
+    backends::AttentionBackend attention_backend,
+    const engine::distributed::RankInfo &rank) {
+    cache::validate_backend_cache_config(cache_config, attention_backend);
     if (cache_config == nullptr) {
         cache_config_.reset();
         return;
     }
+    auto &runtime = forward_context.require_runtime();
+    cache::validate_cache_runtime(runtime, rank);
     cache_config_ = cache_config->unique_copy();
 
-    auto &forward_context = infinilm::global_state::get_forward_context();
     forward_context.kv_cache_vec.clear();
     forward_context.conv_state_vec.clear();
     forward_context.ssm_state_vec.clear();
 
-    const backends::AttentionBackend attention_backend = infinilm::global_state::get_infinilm_config().attention_backend;
-    forward_context.kv_cache_vec = std::move(default_allocate_kv_cache_tensors(cache_config, model_config_, attention_backend));
+    forward_context.kv_cache_vec = std::move(default_allocate_kv_cache_tensors(runtime, rank, cache_config, model_config_, attention_backend));
 }
 
 std::shared_ptr<infinilm::config::ModelConfig> create_ernie4_5_moe_vl_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
@@ -121,15 +143,18 @@ std::shared_ptr<infinilm::config::ModelConfig> create_ernie4_5_moe_vl_model_conf
     if ("ernie4_5_moe_vl" != model_type) {
         throw std::runtime_error("infinilm::models::ernie4_5_vl::create_ernie4_5_moe_vl_model_config: model_type is not ernie4_5_moe_vl");
     }
+    if (model_config->get<int64_t>("hidden_size") <= 0 || model_config->get<int64_t>("num_attention_heads") <= 0) {
+        throw std::invalid_argument("Ernie45 construction requires positive hidden_size and num_attention_heads");
+    }
     normalize_ernie_config(model_config->get_config_json());
-    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+    model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
     return model_config;
 }
 
 } // namespace infinilm::models::ernie4_5_vl
 
 namespace {
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     ernie4_5_moe_vl,
     infinilm::models::ernie4_5_vl::Ernie45ForConditionalGeneration,
     infinilm::models::ernie4_5_vl::create_ernie4_5_moe_vl_model_config);

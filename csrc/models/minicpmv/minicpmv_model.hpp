@@ -6,32 +6,45 @@
 #include "resampler.hpp"
 #include "siglip_vision.hpp"
 
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/tensor.hpp"
 
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <vector>
 
 namespace infinilm::models::minicpmv {
 
 class MiniCPMVModel : public InfinilmModel {
 public:
-    MiniCPMVModel(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                  const infinicore::Device &device);
+    MiniCPMVModel(infinilm::runtime::Runtime &runtime,
+                  std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                  const engine::distributed::RankInfo &rank,
+                  backends::AttentionBackend attention_backend,
+                  const layers::moe::EPConfig &ep);
 
-    Output forward(const Input &input) const override;
+    // Explicit visual path shares this Runtime with patch, encoder and resampler.
+    // Data-dependent visual metadata is rejected before recording submissions.
+    Output forward(const Input &input, global_state::ForwardContext &forward_context) const override;
 
-    void reset_cache(const cache::CacheConfig *cache_config) override;
+    void reset_cache(const cache::CacheConfig *cache_config,
+                     global_state::ForwardContext &forward_context,
+                     backends::AttentionBackend attention_backend,
+                     const engine::distributed::RankInfo &rank) override;
 
 private:
-    void replace_embeddings(infinicore::Tensor inputs_embeds,
-                            const infinicore::Tensor &vision_hidden,
-                            const infinicore::Tensor &image_bound) const;
+    void replace_embeddings(infinilm::runtime::Tensor inputs_embeds,
+                            const infinilm::runtime::Tensor &vision_hidden,
+                            const std::vector<int64_t> &image_bounds,
+                            infinilm::runtime::Runtime &runtime) const;
 
     std::shared_ptr<infinilm::config::ModelConfig> config_;
+    std::optional<backends::AttentionBackend> attention_backend_;
 
-    INFINICORE_NN_MODULE(infinilm::models::qwen2::Qwen2ForCausalLM, llm);
-    INFINICORE_NN_MODULE(SiglipVisionModel, vpm);
-    INFINICORE_NN_MODULE(Resampler, resampler);
+    std::shared_ptr<infinilm::models::qwen2::Qwen2ForCausalLM> llm_;
+    std::shared_ptr<SiglipVisionModel> vpm_;
+    std::shared_ptr<Resampler> resampler_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> create_minicpmv_model_config(

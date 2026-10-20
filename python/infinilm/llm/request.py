@@ -4,6 +4,8 @@ Request and Output - Data structures for inference requests and outputs.
 
 import asyncio
 import logging
+import random
+import threading
 import time
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
@@ -177,7 +179,10 @@ class InferenceRequest:
         self.priority: int = 0
 
         # Sampling & stopping criteria
-        self.sampling_params: SamplingParams = sampling_params or SamplingParams()
+        self.sampling_params: SamplingParams = (
+            sampling_params.clone() if sampling_params is not None else SamplingParams()
+        )
+        self._sampling_rng = random.Random(self.sampling_params.seed)
         self.eos_token_ids: List[int] = (
             eos_token_ids if eos_token_ids is not None else []
         )
@@ -192,6 +197,14 @@ class InferenceRequest:
         # KV cache state
         self.block_table: List[int] = []  # Logical block to physical page ID
         self.slot_mapping: List[int] = []
+        # Private static-cache row lease token; only the scheduler may update it.
+        self._static_cache_lease_generation: Optional[int] = None
+        # Paged scheduler ownership is single-use, including after completion.
+        self._paged_submitted: bool = False
+        self._paged_completion_state: Optional[str] = None
+        # NSA paged-owner tokens; issued only by Scheduler.
+        self._nsa_incarnation: int = 0
+        self._nsa_prefix_revision: int = 0
         self.num_local_cached_tokens: int = (
             0  # Number of cached tokens visible to the current model step
         )
@@ -223,8 +236,21 @@ class InferenceRequest:
         # Async output & streaming
         self._output_queue: Optional[janus.Queue] = None
         self._aborted: bool = False
+        self._abort_enqueued: bool = False
+        self._terminal_lock = threading.RLock()
         self._text_output_offset: int = 0
         self._token_decode_offset: int = 0
+
+    def next_sampling_random_value(self) -> float:
+        params = self.sampling_params
+        if params.top_p == 0.0 or params.top_k == 1 or params.temperature == 0.0:
+            return 0.0
+        # Keep the interval open after pybind converts to native float: the
+        # largest half-step would otherwise round to 1. Zero means greedy.
+        # Preserve all other draws and the request-owned RNG's advancement.
+        return min(
+            (self._sampling_rng.getrandbits(24) + 0.5) / (1 << 24), 1.0 - 2.0**-24
+        )
 
     @property
     def output_queue(self) -> janus.Queue:
@@ -328,7 +354,8 @@ class InferenceRequest:
 
     def abort(self):
         """Signal that the request has been aborted and should stop generation."""
-        self._aborted = True
+        with self._terminal_lock:
+            self._aborted = True
 
     def is_aborted(self) -> bool:
         """Check if the request has been aborted."""

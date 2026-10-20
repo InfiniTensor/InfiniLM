@@ -38,12 +38,4 @@ public:
     std::shared_ptr<infinilm::config::ModelConfig> model_config;
 };
 
-/**
- * @brief save the current Infinilm config in a global variable,
- *        so that all modules can access it, e.g. custom ops can access the Infinilm config to determine how to dispatch.
- */
-void initialize_infinilm_config(const std::shared_ptr<InfinilmConfig> &config);
-
-const InfinilmConfig &get_infinilm_config();
-
 } // namespace infinilm::global_state

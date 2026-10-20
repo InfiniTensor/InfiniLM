@@ -2,11 +2,11 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/attention/attention.hpp"
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 #include "../deepseek_v2/deepseek_v2_moe.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/nn/rmsnorm.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/device.hpp"
+#include "runtime/tensor.hpp"
 
 #include <memory>
 #include <tuple>
@@ -19,24 +19,26 @@ using DeepseekMLP = std::variant<std::shared_ptr<deepseek_v2::DeepseekV2MLP>,
 
 using DeepseekAttention = infinilm::layers::attention::Attention;
 
-class DeepseekDecoderLayer : public infinicore::nn::Module {
+class DeepseekDecoderLayer : public infinilm::weights::ModelWeights {
 public:
-    DeepseekDecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    DeepseekDecoderLayer(infinilm::runtime::Runtime &runtime,
+                         std::shared_ptr<infinilm::config::ModelConfig> model_config,
                          size_t layer_idx,
-                         const infinicore::Device &device);
+                         const engine::distributed::RankInfo &rank_info,
+                         backends::AttentionBackend attention_backend,
+                         const layers::moe::EPConfig &ep_config);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
-                                                               infinicore::Tensor &hidden_states,
-                                                               infinicore::Tensor &residual);
-
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               infinicore::Tensor &hidden_states);
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(
+        const infinilm::runtime::Tensor &positions,
+        infinilm::runtime::Tensor &hidden_states,
+        infinilm::runtime::Tensor &residual,
+        infinilm::global_state::ForwardContext &forward_context);
 
 private:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(DeepseekAttention, self_attn);
-    INFINICORE_NN_MODULE(DeepseekMLP, mlp);
+    std::shared_ptr<infinilm::layers::RMSNorm> input_layernorm_;
+    std::shared_ptr<infinilm::layers::RMSNorm> post_attention_layernorm_;
+    std::shared_ptr<DeepseekAttention> self_attn_;
+    std::shared_ptr<DeepseekMLP> mlp_;
 };
 
 } // namespace infinilm::models::deepseek

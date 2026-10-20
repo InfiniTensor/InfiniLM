@@ -1,4 +1,6 @@
 #pragma once
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../weights/weights.hpp"
 
 #include "../qwen3_next/qwen3_next_gated_deltanet.hpp"
 #include "qwen3_5_attention.hpp"
@@ -7,27 +9,28 @@
 
 namespace infinilm::models::qwen3_5 {
 
-class Qwen35DecoderLayer : public infinicore::nn::Module {
+class Qwen35DecoderLayer : public infinilm::weights::ModelWeights {
 public:
-    Qwen35DecoderLayer(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    Qwen35DecoderLayer(infinilm::runtime::Runtime &runtime,
+                       std::shared_ptr<infinilm::config::ModelConfig> model_config,
                        size_t layer_idx,
-                       const infinicore::Device &device);
+                       const engine::distributed::RankInfo &rank_info,
+                       backends::AttentionBackend attention_backend,
+                       const layers::moe::EPConfig &ep_config);
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward(const infinicore::Tensor &positions,
-                                                               infinicore::Tensor &hidden_states,
-                                                               infinicore::Tensor &residual);
-
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               infinicore::Tensor &hidden_states);
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward(const infinilm::runtime::Tensor &positions,
+                                                                             infinilm::runtime::Tensor &hidden_states,
+                                                                             infinilm::runtime::Tensor &residual,
+                                                                             infinilm::global_state::ForwardContext &forward_context);
 
     size_t layer_idx() const { return layer_idx_; }
 
 protected:
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, post_attention_layernorm);
-    INFINICORE_NN_MODULE(Qwen35Attention, self_attn);
-    INFINICORE_NN_MODULE(qwen3_next::Qwen3NextGatedDeltaNet, linear_attn);
-    INFINICORE_NN_MODULE(infinilm::layers::MLP, mlp);
+    std::shared_ptr<infinilm::layers::RMSNorm> input_layernorm_;
+    std::shared_ptr<infinilm::layers::RMSNorm> post_attention_layernorm_;
+    std::shared_ptr<Qwen35Attention> self_attn_;
+    std::shared_ptr<qwen3_next::Qwen3NextGatedDeltaNet> linear_attn_;
+    std::shared_ptr<infinilm::layers::MLP> mlp_;
 
 private:
     size_t layer_idx_;

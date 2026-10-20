@@ -1,5 +1,5 @@
 #include "../../cache/cache.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -17,9 +17,9 @@ inline void bind_cache(py::module &m) {
                infinilm::cache::CacheConfig,
                std::shared_ptr<infinilm::cache::StaticKVCacheConfig>>(m, "StaticKVCacheConfig")
         .def(
-            py::init<infinicore::Size, infinicore::Size>(),
+            py::init<infinilm::runtime::Size, infinilm::runtime::Size>(),
             py::arg("max_batch_size") = 1,
-            py::arg("max_cache_len") = std::numeric_limits<infinicore::Size>::max())
+            py::arg("max_cache_len") = std::numeric_limits<infinilm::runtime::Size>::max())
         .def(
             "max_batch_size",
             &infinilm::cache::StaticKVCacheConfig::max_batch_size)

@@ -1,58 +1,56 @@
 #pragma once
 #include "../../engine/distributed/communication_group.hpp"
+#include "../../weights/weights.hpp"
 #include "../quantization/quantization.hpp"
 #include "linear.hpp"
 #include <functional>
 
 namespace infinilm::layers::linear {
-using RegisterParamFn = std::function<void(const std::string &, infinicore::nn::Parameter)>;
+using RegisterParamFn = std::function<void(const std::string &, infinilm::weights::Weight)>;
 
 class QKVParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
-    explicit QKVParallelLinear(size_t hidden_size,
+    // Runtime-first supply.
+    explicit QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size,
                                size_t q_dim, size_t k_dim, size_t v_dim,
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
                                bool q_bias, bool k_bias, bool v_bias,
-                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
-                               const infinicore::Device &device = infinicore::Device(),
-                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                               const infinilm::runtime::DataType &dtype,
+                               engine::distributed::RankInfo rank_info);
 
-    explicit QKVParallelLinear(size_t hidden_size,
+    explicit QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size,
                                size_t head_dim,
                                size_t num_q_head, size_t num_kv_head,
-                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                               bool bias = false,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
-                               const infinicore::Device &device = infinicore::Device(),
-                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                               bool bias,
+                               const infinilm::runtime::DataType &dtype,
+                               engine::distributed::RankInfo rank_info);
 
-    QKVParallelLinear(size_t hidden_size,
+    QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size,
                       size_t q_dim, size_t k_dim, size_t v_dim,
                       size_t num_q_head, size_t num_k_head, size_t num_v_head,
                       bool q_bias, bool k_bias, bool v_bias,
                       const std::string &q_name, const std::string &k_name, const std::string &v_name,
                       RegisterParamFn register_fn,
-                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
-                      const infinicore::Device &device = infinicore::Device(),
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                      const infinilm::runtime::DataType &dtype,
+                      engine::distributed::RankInfo rank_info);
 
-    QKVParallelLinear(size_t hidden_size,
+    QKVParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size,
                       size_t head_dim,
                       size_t num_q_head, size_t num_kv_head,
                       const std::string &q_name, const std::string &k_name, const std::string &v_name,
                       RegisterParamFn register_fn,
-                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                      bool bias = false,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32,
-                      const infinicore::Device &device = infinicore::Device(),
-                      engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                      bool bias,
+                      const infinilm::runtime::DataType &dtype,
+                      engine::distributed::RankInfo rank_info);
 
-    void process_weights_after_loading() override;
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
-    forward_split(infinicore::Tensor &input);
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+    forward_split(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input);
 
     bool has_q_bias() const;
     bool has_k_bias() const;
@@ -95,30 +93,30 @@ private:
 
 class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size,
-                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                         bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
-                         const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+    // Runtime-first supply.
+    GateUpParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size, size_t intermediate_size,
+                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                         bool bias,
+                         const infinilm::runtime::DataType &dtype,
+                         engine::distributed::RankInfo rank_info);
 
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
-                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+    GateUpParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
+                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                         const infinilm::runtime::DataType &dtype,
+                         engine::distributed::RankInfo rank_info);
 
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size,
+    GateUpParallelLinear(infinilm::runtime::Runtime &runtime, size_t hidden_size, size_t intermediate_size,
                          const std::string &gate_name, const std::string &up_name,
                          RegisterParamFn register_fn,
-                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = nullptr,
-                         bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32,
-                         const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
+                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                         bool bias,
+                         const infinilm::runtime::DataType &dtype,
+                         engine::distributed::RankInfo rank_info);
 
-    void process_weights_after_loading() override;
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> forward_split(infinicore::Tensor &input);
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> forward_split(
+        infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input);
 
     bool has_gate_bias() const;
     bool has_up_bias() const;

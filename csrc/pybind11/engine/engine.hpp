@@ -1,6 +1,6 @@
 #include "../../debug_utils/hooks.hpp"
 #include "../../engine/infer_engine.hpp"
-#include "infinicore/tensor.hpp"
+#include "runtime/tensor.hpp"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
@@ -51,7 +51,7 @@ inline void bind_hook_registry(py::module &m) {
         .def(
             "register_hook", [](HookRegistry &self, const std::string &name, py::object callback) {
                 // Convert Python callable to C++ function
-                self.register_hook(name, [callback](const std::string &hook_name, const infinicore::Tensor &tensor, int layer_idx) {
+                self.register_hook(name, [callback](const std::string &hook_name, const infinilm::runtime::Tensor &tensor, int layer_idx) {
                     try {
                         // Call Python callback with hook name, tensor, and layer index
                         callback(hook_name, tensor, layer_idx);
@@ -67,23 +67,26 @@ inline void bind_hook_registry(py::module &m) {
 }
 
 inline void bind_infer_engine(py::module &m) {
-    py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(m, "InferEngine");
+    py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(
+        m, "InferEngine", py::release_gil_before_calling_cpp_dtor());
 
     infer_engine
         .def(py::init([](
                           const std::string &config_str,
                           const distributed::DistConfig &dist,
-                          infinicore::Device::Type dev,
+                          infinilm::runtime::Device::Type dev,
                           std::shared_ptr<const infinilm::cache::CacheConfig> cache_cfg,
                           bool enable_graph_compiling,
                           const std::string &attention_backend,
-                          std::optional<infinicore::DataType> kv_cache_dtype,
+                          std::optional<infinilm::runtime::DataType> kv_cache_dtype,
                           bool use_mla,
                           const std::string &weight_load_mode,
                           bool pre_transpose) {
+                 const auto frozen_dist = dist;
+                 py::gil_scoped_release release;
                  return std::make_shared<InferEngine>(
                      config_str,
-                     dist,
+                     frozen_dist,
                      dev,
                      cache_cfg ? cache_cfg.get() : nullptr,
                      enable_graph_compiling,
@@ -105,61 +108,95 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("pre_transpose") = false)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
+             py::call_guard<py::gil_scoped_release>(),
              "Load a parameter tensor into all workers (each worker picks its shard)")
         .def("load_params", &InferEngine::load_params,
              py::arg("params"), py::arg("strict") = true,
+             py::call_guard<py::gil_scoped_release>(),
              "Load a batch of parameter tensors into all workers, syncing once per worker")
         .def("state_dict_keyname", &InferEngine::state_dict_keys)
         .def("state_dict", [](InferEngine &self) {
+            const auto tensors = [&self] {
+                py::gil_scoped_release release;
+                return self.state_dict();
+            }();
             py::list state_dict_tp_all;
-            for (const auto &state_dict_tp : self.state_dict()) {
+            for (const auto &state_dict_tp : tensors) {
                 py::dict result;
                 for (const auto &[name, param] : state_dict_tp) {
-                    result[py::cast(name)] = infinicore::Tensor(param);
+                    result[py::cast(name)] = infinilm::runtime::Tensor(param);
                 }
                 state_dict_tp_all.append(result);
             }
             return state_dict_tp_all;
         })
-        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, "Process the weights after loading on all workers (e.g., for quantization)")
-        .def(
-            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, py::call_guard<py::gil_scoped_release>(), "Process the weights after loading on all workers (e.g., for quantization)")
+        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
                 // deadlock or stall any other Python thread (e.g., request handling, scheduling).
+                const auto frozen_input = input; // copy native values/properties while GIL still held
                 py::gil_scoped_release release;
-                return self.forward(input);
-            },
-            "Run inference on all ranks with arbitrary arguments")
-        .def(
-            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none())
-        .def("get_kv_cache", &InferEngine::get_kv_cache, "Get per-rank kv cache list")
+                return self.forward(frozen_input); }, "Run inference on all ranks with arbitrary arguments")
+        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
+        .def("get_kv_cache", &InferEngine::get_kv_cache, py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
+        .def("get_nsa_pool_epoch", [](InferEngine &self) {
+            py::gil_scoped_release release;
+            return self.get_nsa_pool_epoch(); }, "Readonly native VideoNSA raw-pool lifetime stamp")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
-            auto cfg = self.get_cache_config();
-            return cfg ? std::shared_ptr<cache::CacheConfig>(cfg->unique_copy()) : nullptr; })
+            py::gil_scoped_release release;
+            return self.get_cache_config(); })
         .def("__repr__", [](const InferEngine &self) { return "<InferEngine: " + std::string(self.get_dist_config()) + ">"; });
+
+    using NsaRowValue = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t, std::uint64_t,
+                                   std::vector<nsa::Page>, std::vector<std::int64_t>>;
+    py::class_<nsa::Snapshot>(infer_engine, "NsaOwnerSnapshot")
+        .def(py::init([](std::uint64_t epoch, std::uint64_t page_size, std::uint64_t page_count,
+                         const std::vector<NsaRowValue> &rows,
+                         const std::vector<std::int32_t> &past, const std::vector<std::int32_t> &total,
+                         const std::vector<std::int32_t> &offsets, const std::vector<std::int32_t> &cu,
+                         const std::vector<std::vector<std::int32_t>> &tables,
+                         const std::vector<std::int64_t> &slots) {
+            nsa::Snapshot s{epoch, page_size, page_count, {}, {past, total, offsets, cu, {}, 0, slots}};
+            for (const auto &r : rows) {
+                s.rows.push_back({std::get<0>(r), std::get<1>(r), std::get<2>(r),
+                                  std::get<3>(r), std::get<4>(r), std::get<5>(r)});
+            }
+            if (tables.empty() || tables.size() != rows.size()) {
+                throw py::value_error("NSA table rows missing");
+            }
+            s.upload.table_width = tables.front().size();
+            for (const auto &t : tables) {
+                if (t.size() != s.upload.table_width) {
+                    throw py::value_error("NSA table is not rectangular");
+                }
+                s.upload.tables.insert(s.upload.tables.end(), t.begin(), t.end());
+            }
+            nsa::validate(s, s.upload);
+            return s; // no py::object, Tensor or borrowed CPU pointer survives
+        }));
 
     py::class_<InferEngine::Input>(infer_engine, "Input")
         .def(
             py::init([](
-                         std::optional<infinicore::Tensor> input_ids,
-                         std::optional<infinicore::Tensor> position_ids,
-                         std::optional<infinicore::Tensor> past_sequence_lengths,
-                         std::optional<infinicore::Tensor> total_sequence_lengths,
-                         std::optional<infinicore::Tensor> input_offsets,
-                         std::optional<infinicore::Tensor> cu_seqlens,
-                         std::optional<infinicore::Tensor> block_tables,
-                         std::optional<infinicore::Tensor> slot_mapping,
-                         std::optional<infinicore::Tensor> mamba_init_state_indices,
-                         std::optional<infinicore::Tensor> mamba_final_state_indices,
-                         std::optional<std::vector<infinicore::Tensor>> pixel_values,
-                         std::optional<std::vector<infinicore::Tensor>> image_bound,
-                         std::optional<std::vector<infinicore::Tensor>> tgt_sizes,
-                         std::optional<std::vector<infinicore::Tensor>> image_grid_thw,
+                         std::optional<infinilm::runtime::Tensor> input_ids,
+                         std::optional<infinilm::runtime::Tensor> position_ids,
+                         std::optional<infinilm::runtime::Tensor> past_sequence_lengths,
+                         std::optional<infinilm::runtime::Tensor> total_sequence_lengths,
+                         std::optional<infinilm::runtime::Tensor> input_offsets,
+                         std::optional<infinilm::runtime::Tensor> cu_seqlens,
+                         std::optional<infinilm::runtime::Tensor> block_tables,
+                         std::optional<infinilm::runtime::Tensor> slot_mapping,
+                         std::optional<infinilm::runtime::Tensor> mamba_init_state_indices,
+                         std::optional<infinilm::runtime::Tensor> mamba_final_state_indices,
+                         std::optional<std::vector<infinilm::runtime::Tensor>> pixel_values,
+                         std::optional<std::vector<infinilm::runtime::Tensor>> image_bound,
+                         std::optional<std::vector<infinilm::runtime::Tensor>> tgt_sizes,
+                         std::optional<std::vector<infinilm::runtime::Tensor>> image_grid_thw,
                          std::optional<std::vector<size_t>> image_req_ids,
                          std::optional<std::vector<size_t>> visual_token_ranges,
-                         std::optional<infinicore::Tensor> target_hidden_states,
+                         std::optional<infinilm::runtime::Tensor> target_hidden_states,
                          bool sample_all_positions,
                          py::kwargs kwargs) {
                 InferEngine::Input input{
@@ -193,6 +230,9 @@ inline void bind_infer_engine(py::module &m) {
                     "temperature",
                     "top_p",
                     "top_k",
+                    "random_values",
+                    "sampling_rows",
+                    "nsa_owner_snapshot",
                 };
 
                 for (auto &item : kwargs) {
@@ -209,6 +249,19 @@ inline void bind_infer_engine(py::module &m) {
                         input.top_p = py::cast<float>(item.second);
                     } else if (key == "top_k") {
                         input.top_k = py::cast<int>(item.second);
+                    } else if (key == "random_values") {
+                        if (!item.second.is_none()) {
+                            input.random_values = py::cast<std::vector<float>>(item.second);
+                        }
+
+                    } else if (key == "nsa_owner_snapshot") {
+                        if (!item.second.is_none()) {
+                            input.nsa_owner_snapshot = py::cast<nsa::Snapshot>(item.second);
+                        }
+                    } else if (key == "sampling_rows") {
+                        if (!item.second.is_none()) {
+                            input.sampling_rows = py::cast<std::vector<std::tuple<float, float, int>>>(item.second);
+                        }
                     }
                 }
 
@@ -252,12 +305,29 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
-        .def_readwrite("top_p", &InferEngine::Input::top_p);
+        .def_readwrite("top_p", &InferEngine::Input::top_p)
+        .def_readwrite("random_values", &InferEngine::Input::random_values)
+        .def_readwrite("sampling_rows", &InferEngine::Input::sampling_rows);
 
     py::class_<InferEngine::Output>(infer_engine, "Output")
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
         .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
-        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor");
+        .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor")
+        .def_property_readonly("execution_report", [](const InferEngine::Output &output) {
+            py::dict result;
+            const auto *graph = output.graph_execution ? &*output.graph_execution : nullptr;
+            const size_t device_segments = graph ? graph->device_graph_segments : 0;
+            const size_t host_segments = graph ? graph->host_segments : 0;
+            result["mode"] = graph == nullptr     ? "eager"
+                           : device_segments == 0 ? "host_replay"
+                           : host_segments == 0   ? "device_graph"
+                                                  : "mixed_graph";
+            result["device_graph_segments"] = device_segments;
+            result["host_segments"] = host_segments;
+            result["operator_count"] = graph ? graph->operator_count : 0;
+            result["fallback_reason"] = graph ? graph->fallback_reason : output.eager_reason;
+            return result;
+        });
 }
 
 } // namespace infinilm::engine

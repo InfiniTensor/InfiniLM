@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 # SPDX-FileCopyrightText: Copyright 2026 InfiniLM Contributors
+# Adapted from https://github.com/vllm-project/vllm (KV-transfer interfaces/utilities).
+# Modified for InfiniLM engine and connector integration; see licenses/THIRD_PARTY.txt.
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from typing import Optional
-import os
 
 KV_ROLE_CHOICES = frozenset({"kv_producer", "kv_consumer"})
 
@@ -45,7 +47,9 @@ class KVTransferConfig:
         self.kv_connector_extra_config.setdefault("mooncake_protocol", "rdma")
 
         allowed_extra_config_keys = frozenset({"mooncake_protocol", "num_workers"})
-        unknown_keys = set(self.kv_connector_extra_config.keys()) - allowed_extra_config_keys
+        unknown_keys = (
+            set(self.kv_connector_extra_config.keys()) - allowed_extra_config_keys
+        )
         if unknown_keys:
             raise ValueError(
                 f"Unsupported kv_connector_extra_config keys: {sorted(unknown_keys)}. "

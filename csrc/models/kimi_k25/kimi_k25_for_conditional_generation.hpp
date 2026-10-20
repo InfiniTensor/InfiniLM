@@ -6,7 +6,7 @@
 #include "kimi_k25_decoder_layer.hpp"
 #include "kimi_k25_vision.hpp"
 
-#include <infinicore/nn/module.hpp>
+#include "../../weights/weights.hpp"
 
 #include <memory>
 
@@ -17,19 +17,24 @@ using KimiK25LanguageModel = infinilm::layers::causal_lm_templates::TextCausalLM
 
 class KimiK25ForConditionalGeneration : public infinilm::InfinilmModel {
 public:
-    KimiK25ForConditionalGeneration(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                    const infinicore::Device &device);
+    KimiK25ForConditionalGeneration(
+        infinilm::runtime::Runtime &runtime,
+        std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend,
+        const layers::moe::EPConfig &ep_config);
 
-    Output forward(const Input &input) const override;
-    void reset_cache(const cache::CacheConfig *cache_config) override;
+    Output forward(const Input &input,
+                   global_state::ForwardContext &forward_context) const override;
 
 protected:
-    void replace_image_embeddings(infinicore::Tensor &inputs_embeds,
-                                  const Input &input) const;
+    void replace_image_embeddings(infinilm::runtime::Tensor &inputs_embeds,
+                                  const Input &input,
+                                  global_state::ForwardContext &forward_context) const;
 
-    INFINICORE_NN_MODULE(KimiK25VisionTower, vision_tower);
-    INFINICORE_NN_MODULE(KimiK25Projector, mm_projector);
-    INFINICORE_NN_MODULE(KimiK25LanguageModel, language_model);
+    std::shared_ptr<KimiK25VisionTower> vision_tower_;
+    std::shared_ptr<KimiK25Projector> mm_projector_;
+    std::shared_ptr<KimiK25LanguageModel> language_model_;
 };
 
 std::shared_ptr<infinilm::config::ModelConfig>

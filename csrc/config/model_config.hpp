@@ -1,14 +1,17 @@
 #pragma once
 
+#include "../layers/rotary_embedding/rope.hpp"
 #include "../utils.hpp"
-#include "infinicore/nn/rope.hpp"
-#include "infinicore/ops.hpp"
 #include "quant_config.hpp"
 #include <fstream>
+#include <functional>
 #include <initializer_list>
 #include <iostream>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 namespace infinilm::config {
@@ -22,6 +25,9 @@ public:
     ModelConfig(const std::string &path);
 
     nlohmann::json &get_config_json() {
+        return config_json;
+    }
+    const nlohmann::json &get_config_json() const {
         return config_json;
     }
 
@@ -81,28 +87,32 @@ public:
     size_t get_rotary_dim() const;
 
     QuantConfig get_quant_config() const {
-        return quant_config;
+        QuantConfig config(config_json.value("quantization_config", nlohmann::json{}));
+        if (kv_cache_dtype_) {
+            config.set_kv_quant_scheme(*kv_cache_dtype_);
+        }
+        return config;
     }
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const {
-        return quant_config.get_quantization_method();
+        return get_quant_config().get_quantization_method();
     }
 
-    infinicore::DataType get_dtype() const;
+    infinilm::runtime::DataType get_dtype() const;
     infinilm::quantization::QuantScheme get_quant_scheme() const;
 
-    void set_kv_quant_scheme(infinicore::DataType kv_cache_dtype) {
-        this->quant_config.set_kv_quant_scheme(kv_cache_dtype);
+    void set_kv_quant_scheme(infinilm::runtime::DataType kv_cache_dtype) {
+        if (kv_cache_dtype != infinilm::runtime::DataType::kInt8) {
+            throw std::invalid_argument("KV quantization requires int8 storage");
+        }
+        kv_cache_dtype_ = kv_cache_dtype;
     }
     infinilm::quantization::KVQuantAlgo get_kv_quant_scheme() const {
-        return quant_config.get_kv_quant_scheme();
+        return kv_cache_dtype_ ? infinilm::quantization::KVQuantAlgo::INT8
+                               : infinilm::quantization::KVQuantAlgo::NONE;
     }
-    infinicore::DataType get_kv_cache_dtype() const {
-        if (this->quant_config.get_kv_cache_dtype().has_value()) {
-            return this->quant_config.get_kv_cache_dtype().value();
-        } else {
-            return this->get_dtype();
-        }
+    infinilm::runtime::DataType get_kv_cache_dtype() const {
+        return kv_cache_dtype_ ? *kv_cache_dtype_ : get_dtype();
     }
 
     // Get reference to JSON value (non-const)
@@ -124,18 +134,29 @@ public:
     // Stream output operator
     friend std::ostream &operator<<(std::ostream &os, const ModelConfig &config);
 
-    infinicore::nn::RoPE::Algo get_rope_algo() const {
+    infinilm::layers::RoPE::Algo get_rope_algo() const {
         return rope_algo_;
     }
 
-    void set_rope_algo(infinicore::nn::RoPE::Algo algo) {
+    void set_rope_algo(infinilm::layers::RoPE::Algo algo) {
         rope_algo_ = algo;
     }
 
-private:
-    nlohmann::json config_json;
-    QuantConfig quant_config;
+    // RoPE tables belong to this model configuration's execution instance,
+    // not to a process- or thread-global cache shared by unrelated models.
+    std::shared_ptr<infinilm::layers::RoPE> get_or_create_rope(
+        const std::string &key,
+        const std::function<std::shared_ptr<infinilm::layers::RoPE>()> &create) const;
 
-    infinicore::nn::RoPE::Algo rope_algo_ = infinicore::nn::RoPE::Algo::GPT_NEOX;
+private:
+    struct RopeCache {
+        std::mutex mutex;
+        std::unordered_map<std::string, std::shared_ptr<infinilm::layers::RoPE>> entries;
+    };
+    nlohmann::json config_json;
+    std::optional<infinilm::runtime::DataType> kv_cache_dtype_;
+
+    infinilm::layers::RoPE::Algo rope_algo_ = infinilm::layers::RoPE::Algo::GPT_NEOX;
+    std::shared_ptr<RopeCache> rope_cache_ = std::make_shared<RopeCache>();
 };
 } // namespace infinilm::config

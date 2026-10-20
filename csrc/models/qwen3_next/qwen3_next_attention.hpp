@@ -1,17 +1,35 @@
 #pragma once
+#include "../../layers/normalization/rmsnorm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
+#include "../../weights/weights.hpp"
 
 #include "../../layers/common_modules.hpp"
 
 namespace infinilm::models::qwen3_next {
 
-class Qwen3NextAttention : public infinicore::nn::Module {
-public:
-    Qwen3NextAttention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       size_t layer_idx,
-                       const infinicore::Device &device);
+class Qwen3NextAttention : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (qkv_proj_) {
+            result.push_back(qkv_proj_);
+        }
+        return result;
+    }
+
+    Qwen3NextAttention(infinilm::runtime::Runtime &runtime,
+                       std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                       size_t layer_idx,
+                       const engine::distributed::RankInfo &rank_info,
+                       backends::AttentionBackend attention_backend,
+                       const layers::moe::EPConfig &ep_config);
+
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      infinilm::global_state::ForwardContext &forward_context) const;
 
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
@@ -20,16 +38,18 @@ public:
     size_t hidden_size() const { return hidden_size_; }
 
 protected:
-    infinicore::Tensor forward_static_(const infinicore::Tensor &position_ids,
-                                       const infinicore::Tensor &hidden_states) const;
-    infinicore::Tensor forward_paged_(const infinicore::Tensor &position_ids,
-                                      const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &position_ids,
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              infinilm::global_state::ForwardContext &forward_context) const;
+    infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &position_ids,
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             infinilm::global_state::ForwardContext &forward_context) const;
 
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
-    INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
-    std::shared_ptr<infinicore::nn::RoPE> rotary_emb_;
+    std::shared_ptr<infinilm::layers::RMSNorm> q_norm_;
+    std::shared_ptr<infinilm::layers::RMSNorm> k_norm_;
+    std::shared_ptr<infinilm::layers::RoPE> rotary_emb_;
 
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
     ::infinilm::backends::AttentionBackend attention_backend_;
@@ -40,8 +60,8 @@ protected:
     size_t head_dim_;
 
     // For off-line kv cache quantization
-    INFINICORE_NN_PARAMETER(kv_cache_k_scale);
-    INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+    infinilm::weights::Weight kv_cache_k_scale_;
+    infinilm::weights::Weight kv_cache_v_scale_;
 };
 
 } // namespace infinilm::models::qwen3_next

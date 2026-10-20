@@ -1,5 +1,5 @@
 #include "../../config/model_config.hpp"
-#include "infinicore/nn/rope_scaling_configs.hpp"
+#include "rope_scaling_configs.hpp"
 #include "rotary_embedding_factory.hpp"
 #include <vector>
 
@@ -9,7 +9,7 @@ namespace {
  * @brief Default creator for types that apply no scaling.
  * Returns nullptr, which the InfiniCore RoPE layer interprets as a 1.0x pass-through.
  */
-std::shared_ptr<infinicore::nn::RopeScalingConfig>
+std::shared_ptr<infinilm::layers::RopeScalingConfig>
 create_default_scaling_config(const std::shared_ptr<config::ModelConfig> &) {
     return nullptr;
 }
@@ -20,7 +20,7 @@ create_default_scaling_config(const std::shared_ptr<config::ModelConfig> &) {
  * @brief Creator function for LongRoPE scaling configuration.
  * Extracts 'short_factor', 'long_factor', etc., from the model config.
  */
-std::shared_ptr<infinicore::nn::RopeScalingConfig>
+std::shared_ptr<infinilm::layers::RopeScalingConfig>
 create_longrope_config(const std::shared_ptr<config::ModelConfig> &cfg) {
     const auto &rope_scaling = cfg->get_config_json()["rope_scaling"];
 
@@ -39,7 +39,7 @@ create_longrope_config(const std::shared_ptr<config::ModelConfig> &cfg) {
         factor = rope_scaling["factor"].get<float>();
     }
 
-    return std::make_shared<infinicore::nn::LongRopeScalingConfig>(
+    return std::make_shared<infinilm::layers::LongRopeScalingConfig>(
         std::move(short_factor),
         std::move(long_factor),
         original_max_position_embeddings,
@@ -51,7 +51,7 @@ create_longrope_config(const std::shared_ptr<config::ModelConfig> &cfg) {
  * Extracts 'factor', 'low_freq_factor', 'high_freq_factor', and
  * 'original_max_position_embeddings' from the model config.
  */
-std::shared_ptr<infinicore::nn::RopeScalingConfig>
+std::shared_ptr<infinilm::layers::RopeScalingConfig>
 create_llama3_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
     const auto &rope_scaling = cfg->get_config_json()["rope_scaling"];
 
@@ -66,7 +66,7 @@ create_llama3_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
     float high_freq_factor = rope_scaling["high_freq_factor"].get<float>();
     size_t original_max_position_embeddings = rope_scaling["original_max_position_embeddings"].get<size_t>();
 
-    return std::make_shared<infinicore::nn::Llama3RopeScalingConfig>(
+    return std::make_shared<infinilm::layers::Llama3RopeScalingConfig>(
         factor,
         low_freq_factor,
         high_freq_factor,
@@ -76,7 +76,7 @@ create_llama3_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
 /**
  * @brief Creator function for YaRN RoPE scaling configuration.
  */
-std::shared_ptr<infinicore::nn::RopeScalingConfig>
+std::shared_ptr<infinilm::layers::RopeScalingConfig>
 create_yarn_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
     const auto &rope_scaling = cfg->get_config_json()["rope_scaling"];
 
@@ -94,7 +94,7 @@ create_yarn_scaling_config(const std::shared_ptr<config::ModelConfig> &cfg) {
     const size_t rotary_dim = cfg->get_rotary_dim();
     const float rope_theta = static_cast<float>(cfg->get<double>("rope_theta"));
 
-    return std::make_shared<infinicore::nn::YarnRopeScalingConfig>(
+    return std::make_shared<infinilm::layers::YarnRopeScalingConfig>(
         factor, original_max_position_embeddings, rotary_dim, rope_theta,
         beta_fast, beta_slow, mscale, mscale_all_dim);
 }

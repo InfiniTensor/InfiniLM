@@ -1,5 +1,7 @@
-import os
 import logging
+import os
+import sys
+from types import ModuleType
 from typing import Iterator
 
 logger = logging.getLogger(__name__)
@@ -27,24 +29,23 @@ def is_oom_exception(e: BaseException) -> bool:
     Conservative OOM detector for MetaX allocator failures and CUDA/PyTorch OOMs.
     Checks exception type (when available) and message substrings across chained exceptions.
     """
-    # PyTorch OOM exception type (only if torch is present in this environment)
-    try:
-        import torch  # type: ignore
-
-        oom_type = getattr(torch, "OutOfMemoryError", None)
-        if oom_type is not None:
-            for ex in _iter_exception_chain(e):
-                if isinstance(ex, oom_type):
-                    return True
-    except Exception:
-        pass
+    # Inspect an already-loaded Torch module without importing it on the
+    # production error path. An absent or malformed type is not an OOM signal.
+    torch_module = sys.modules.get("torch")
+    oom_type = (
+        vars(torch_module).get("OutOfMemoryError")
+        if isinstance(torch_module, ModuleType)
+        else None
+    )
+    if isinstance(oom_type, type) and issubclass(oom_type, BaseException):
+        if any(isinstance(ex, oom_type) for ex in _iter_exception_chain(e)):
+            return True
 
     # Common patterns observed for allocator failures.
     # Keep this allowlist small to avoid hard-exiting on unrelated errors.
     patterns = (
         # MetaX / infinirt allocator
         "hcmalloc",
-        "infinirtmalloc",
         "out of memory",
         # CUDA / driver / runtime alloc failures
         "cuda out of memory",

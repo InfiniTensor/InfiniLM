@@ -1,14 +1,14 @@
-from transformers import AutoTokenizer
 from typing_extensions import override
 
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
-from .processor import InfinilmProcessor, register_processor
+from .processor import InfinilmProcessor
 
 
-@register_processor("default")
 class BasicLLMProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
+        from transformers import AutoTokenizer
+
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_dir_path, trust_remote_code=True
         )
@@ -24,16 +24,18 @@ class BasicLLMProcessor(InfinilmProcessor):
         # to diverge significantly from HuggingFace. We must explicitly disable it.
         if return_tensors is None:
             return self.tokenizer(prompt, add_special_tokens=False)
-        elif return_tensors == "infini":
-            result = {}
-            for key, tensor in self.tokenizer(
-                prompt, return_tensors="pt", add_special_tokens=False
-            ).items():
-                result[key] = tensor.from_torch(tensor)
-            return result
+        if return_tensors == "infini":
+            from .. import _core as infinicore
 
-        # "pt" or "np" or "tf".
-        return self.tokenizer(prompt, return_tensors="pt", add_special_tokens=False)
+            arrays = self.tokenizer(
+                prompt, return_tensors="np", add_special_tokens=False
+            )
+            return {key: infinicore.from_numpy(array) for key, array in arrays.items()}
+
+        # Delegate native tokenizer formats (and their unsupported-mode errors).
+        return self.tokenizer(
+            prompt, return_tensors=return_tensors, add_special_tokens=False
+        )
 
     @override
     def apply_chat_template(
@@ -107,9 +109,83 @@ class BasicLLMProcessor(InfinilmProcessor):
             - past_kv_lengths: [num_local_cached_tokens]
             - total_kv_lengths: [total_tokens]
         """
-        import infinicore
+        from .. import _core as infinicore
 
         """Build model input from static scheduler output."""
+        if scheduler_output.num_requests > 1:
+            if scheduler_output.is_prefill:
+                raise ValueError("static multi-row forward only supports decode")
+            rows = scheduler_output.physical_rows
+            count = scheduler_output.num_requests
+            if (
+                len(scheduler_output.scheduled_requests) != count
+                or len(rows) != count
+                or len(set(rows)) != count
+                or any(
+                    row < 0 or row >= scheduler_output.cache_capacity for row in rows
+                )
+                or scheduler_output.cache_row_length <= 0
+            ):
+                raise ValueError("static decode requires two distinct physical rows")
+            input_ids = []
+            position_ids = []
+            past_lengths = []
+            total_lengths = []
+            slots = []
+            for req, row in zip(scheduler_output.scheduled_requests, rows):
+                total = req.get_total_length()
+                past = total - 1
+                if (
+                    past < 0
+                    or total > scheduler_output.cache_row_length
+                    or total > 2**31 - 1
+                    or (not req.generated_token_ids and not req.prompt_token_ids)
+                ):
+                    raise ValueError(
+                        "static decode length or token exceeds its cache row"
+                    )
+                last_token = (
+                    req.generated_token_ids[-1]
+                    if req.generated_token_ids
+                    else req.prompt_token_ids[-1]
+                )
+                input_ids.append([last_token])
+                position_ids.append([past])
+                past_lengths.append(past)
+                total_lengths.append(total)
+                slots.append(row * scheduler_output.cache_row_length + past)
+            if sum(total_lengths) > 2**31 - 1:
+                raise ValueError(
+                    "static decode cumulative sequence length overflows int32"
+                )
+            return {
+                "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
+                "position_ids": infinicore.from_list(
+                    position_ids, dtype=infinicore.int64
+                ),
+                "past_kv_lengths": infinicore.from_list(
+                    past_lengths, dtype=infinicore.int32
+                ),
+                "total_kv_lengths": infinicore.from_list(
+                    total_lengths, dtype=infinicore.int32
+                ),
+                "input_offsets": infinicore.from_list(
+                    list(range(count + 1)), dtype=infinicore.int32
+                ),
+                "cu_seqlens": infinicore.from_list(
+                    [0] + [sum(total_lengths[:i]) for i in range(1, count + 1)],
+                    dtype=infinicore.int32,
+                ),
+                "block_tables": infinicore.from_list(
+                    [[row] for row in rows], dtype=infinicore.int32
+                ),
+                "slot_mapping": infinicore.from_list(slots, dtype=infinicore.int64),
+                "temperature": temperature,
+                "top_k": top_k,
+                "top_p": top_p,
+            }
+        if scheduler_output.num_requests != 1:
+            raise ValueError("static scheduler output requires one or two requests")
         req = scheduler_output.scheduled_requests[0]
 
         if scheduler_output.is_prefill:
@@ -136,6 +212,22 @@ class BasicLLMProcessor(InfinilmProcessor):
             total_kv_len = req.get_total_length()
             input_offsets = [0, 1]
 
+        row = scheduler_output.physical_row
+        if (
+            row < 0
+            or row >= scheduler_output.cache_capacity
+            or scheduler_output.cache_row_length <= 0
+            or past_kv_len < 0
+            or not input_ids[0]
+            or total_kv_len != past_kv_len + len(input_ids[0])
+            or total_kv_len > scheduler_output.cache_row_length
+        ):
+            raise ValueError("static scheduler supplied an invalid cache row")
+        slot_mapping = [
+            row * scheduler_output.cache_row_length + past_kv_len + token
+            for token in range(len(input_ids[0]))
+        ]
+
         return {
             "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
@@ -151,8 +243,16 @@ class BasicLLMProcessor(InfinilmProcessor):
             "cu_seqlens": infinicore.from_list(
                 [0, total_kv_len], dtype=infinicore.int32
             ),
-            "block_tables": None,
-            "slot_mapping": None,
+            "block_tables": (
+                infinicore.from_list([[row]], dtype=infinicore.int32)
+                if scheduler_output.cache_capacity > 1
+                else None
+            ),
+            "slot_mapping": (
+                infinicore.from_list(slot_mapping, dtype=infinicore.int64)
+                if scheduler_output.cache_capacity > 1
+                else None
+            ),
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,
@@ -181,7 +281,7 @@ class BasicLLMProcessor(InfinilmProcessor):
             - block_tables: Padded block_table for each request
             - slot_mapping: Single slot per request
         """
-        import infinicore
+        from .. import _core as infinicore
 
         if not scheduler_output.scheduled_requests:
             raise RuntimeError(

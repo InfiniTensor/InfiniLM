@@ -1,7 +1,14 @@
 #include "topk_router.hpp"
+#include "../../../execution/submit.hpp"
+#include "../../../weights/weights.hpp"
+#include "../../linear/dense.hpp"
+#include <base/topk_softmax.h>
 
-#include "infinicore/ops.hpp"
+#include "runtime/runtime.hpp"
 
+#include <exception>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -38,8 +45,21 @@ std::string router_backend_name(const std::shared_ptr<infinilm::config::ModelCon
 
 } // namespace
 
-TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                       const infinicore::Device &device) {
+TopKRouter::TopKRouter(infinilm::runtime::Runtime &runtime,
+                       std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+    runtime.assertOwnerThread();
+    if (runtime.isGraphRecording()) {
+        throw std::logic_error("TopKRouter construction requires eager Runtime");
+    }
+    if (!model_config) {
+        throw std::invalid_argument("TopKRouter construction requires configuration");
+    }
+    for (const char *key : {"num_experts", "num_experts_per_tok", "hidden_size"}) {
+        if (model_config->get<int64_t>(key) <= 0) {
+            throw std::invalid_argument("TopKRouter construction requires positive dimensions");
+        }
+    }
+
     num_experts_ = model_config->get<size_t>("num_experts");
     num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
     norm_topk_prob_ = model_config->get_or<bool>("norm_topk_prob", false);
@@ -51,16 +71,9 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
     apply_routed_scaling_factor_on_output_ = model_config->get_or<bool>("apply_routed_scaling_factor_on_output", false);
     router_backend_ = parse_router_backend(router_backend_name(model_config));
     use_correction_bias_ = model_config->get_or<bool>({"e_score_correction_bias", "moe_router_use_correction_bias"}, false) || router_backend_ == TopKRouterBackend::FusedGate;
-    ASSERT((num_experts_ > 0) && (num_experts_per_tok_ > 0) && (num_experts_per_tok_ <= num_experts_));
-
-    INFINICORE_NN_PARAMETER_INIT(
-        weight,
-        ({num_experts_, model_config->get<size_t>("hidden_size")}, model_config->get_dtype(), device));
-
-    if (use_correction_bias_) {
-        INFINICORE_NN_PARAMETER_INIT(e_score_correction_bias, ({num_experts_}, infinicore::DataType::F32, device));
+    if (num_experts_per_tok_ > num_experts_) {
+        throw std::invalid_argument("TopKRouter requires num_experts_per_tok <= num_experts");
     }
-
     if (router_backend_ == TopKRouterBackend::FusedGate) {
         if (!use_correction_bias_) {
             throw std::runtime_error("fused_gate MoE router requires correction bias");
@@ -75,48 +88,86 @@ TopKRouter::TopKRouter(std::shared_ptr<infinilm::config::ModelConfig> model_conf
             throw std::runtime_error("fused_gate MoE router requires num_experts_per_tok > num_fused_shared_experts");
         }
     }
+    const size_t hidden_size = model_config->get<size_t>("hidden_size");
+    const auto dtype = model_config->get_dtype();
+    const size_t bytes = infinilm::runtime::dsize(dtype), limit = std::numeric_limits<size_t>::max();
+    if (!bytes || num_experts_ > limit / hidden_size || num_experts_ * hidden_size > limit / bytes
+        || (use_correction_bias_ && num_experts_ > limit / infinilm::runtime::dsize(infinilm::runtime::DataType::kFloat32))) {
+        throw std::length_error("TopKRouter parameter size overflow");
+    }
+    device_ = runtime.device();
+    try {
+        weight_ = infinilm::weights::Weight(runtime, {num_experts_, hidden_size}, dtype);
+        this->bind_weight("weight", weight_);
+        if (use_correction_bias_) {
+            e_score_correction_bias_ = infinilm::weights::Weight(runtime, {num_experts_}, infinilm::runtime::DataType::kFloat32);
+            this->bind_weight("e_score_correction_bias", e_score_correction_bias_);
+        }
+    } catch (...) {
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
+        throw;
+    }
 }
 
-std::tuple<infinicore::Tensor, infinicore::Tensor> TopKRouter::forward(const infinicore::Tensor &hidden_states) const {
+std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> TopKRouter::forward(
+    infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
     ASSERT(hidden_states->ndim() == 2);
 
     size_t ntoken = hidden_states->shape()[0];
-    auto router_logits = infinicore::op::linear(hidden_states, weight_, std::nullopt, 1.0f);
+    auto router_logits = infinilm::layers::linear::dense_projection(runtime, hidden_states, weight_.tensor(), std::nullopt, 1.0f);
 
-    auto router_scores = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::F32, hidden_states->device());
-    auto router_indices = infinicore::Tensor::empty({ntoken, num_experts_per_tok_}, infinicore::DataType::I32, hidden_states->device());
+    auto router_scores = infinilm::runtime::Tensor::empty(runtime, {ntoken, num_experts_per_tok_}, infinilm::runtime::DataType::kFloat32);
+    auto router_indices = infinilm::runtime::Tensor::empty(runtime, {ntoken, num_experts_per_tok_}, infinilm::runtime::DataType::kInt32);
 
-    const infinicore::Tensor correction_bias = use_correction_bias_ ? static_cast<infinicore::Tensor>(e_score_correction_bias_) : infinicore::Tensor();
+    const infinilm::runtime::Tensor correction_bias = use_correction_bias_ ? static_cast<infinilm::runtime::Tensor>(e_score_correction_bias_) : infinilm::runtime::Tensor();
 
     switch (router_backend_) {
-    case TopKRouterBackend::Softmax:
-        infinicore::op::moe_topk_softmax_(
-            router_scores,
-            router_indices,
-            router_logits,
-            correction_bias,
-            norm_topk_prob_,
-            moe_softcapping_);
+    case TopKRouterBackend::Softmax: {
+        auto topk_scratch = infinilm::runtime::Tensor::empty(runtime, router_scores->shape(), infinilm::runtime::DataType::kInt32);
+        infini::ops::TopkSoftmaxConfig topk_config{moe_softcapping_, 0.0f};
+        topk_config.set_implementation_index(
+            infini::ops::TopkSoftmax::DefaultConfig(runtime.device().type()).implementation_index());
+        const auto topk_bias = correction_bias
+                                 ? std::optional<infinilm::runtime::Tensor>{correction_bias}
+                                 : std::optional<infinilm::runtime::Tensor>{};
+        infinilm::execution::submit<infini::ops::TopkSoftmax>(
+            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay, topk_config,
+            router_logits, topk_bias, std::optional<infinilm::runtime::Tensor>{},
+            norm_topk_prob_, router_scores, router_indices, topk_scratch);
+        INFINILM_TRACE_OP(MoeTopkSoftmax, router_scores);
         break;
-    case TopKRouterBackend::Sigmoid:
-        infinicore::op::moe_topk_sigmoid_(
-            router_scores,
-            router_indices,
-            router_logits,
-            correction_bias,
-            norm_topk_prob_);
+    }
+    case TopKRouterBackend::Sigmoid: {
+        auto token_expert_indices = infinilm::runtime::Tensor::empty(
+            runtime, router_scores->shape(), infinilm::runtime::DataType::kInt32);
+        const auto sigmoid_bias = correction_bias
+                                    ? std::optional<infinilm::runtime::Tensor>{correction_bias}
+                                    : std::optional<infinilm::runtime::Tensor>{};
+        infinilm::execution::submit<infini::ops::TopkSigmoid>(
+            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+            infini::ops::TopkSigmoid::DefaultConfig(runtime.device().type()),
+            router_logits, sigmoid_bias, std::optional<infinilm::runtime::Tensor>{},
+            norm_topk_prob_, 1.0, router_scores, router_indices, token_expert_indices);
+        INFINILM_TRACE_OP(MoeTopkSigmoid, router_scores);
         break;
+    }
     case TopKRouterBackend::FusedGate:
-        infinicore::op::moe_fused_gate_(
+        infinilm::execution::submit<infini::ops::MoeFusedGate>(
+            runtime,
+            infinilm::execution::RecordingPolicy::AllowHostReplay,
+            infini::ops::MoeFusedGate::DefaultConfig(router_scores->device().type()),
             router_scores,
             router_indices,
             router_logits,
-            e_score_correction_bias_,
+            e_score_correction_bias_.tensor(),
             num_expert_group_,
             topk_group_,
             num_fused_shared_experts_,
             routed_scaling_factor_,
             apply_routed_scaling_factor_on_output_);
+        INFINILM_TRACE_OP(MoeFusedGate, router_scores);
         break;
     }
 

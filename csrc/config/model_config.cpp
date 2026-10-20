@@ -1,9 +1,8 @@
 #include "model_config.hpp"
+#include "../layers/rotary_embedding/rope.hpp"
 
 namespace infinilm::config {
-ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {
-    this->quant_config = QuantConfig(config_json["quantization_config"]);
-};
+ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {}
 
 ModelConfig::ModelConfig(const std::string &path) {
     std::ifstream file(path);
@@ -13,19 +12,27 @@ ModelConfig::ModelConfig(const std::string &path) {
     } else {
         throw std::runtime_error("Could not open config file: " + path);
     }
-    this->quant_config = QuantConfig(config_json["quantization_config"]);
+}
+
+std::shared_ptr<infinilm::layers::RoPE> ModelConfig::get_or_create_rope(
+    const std::string &key,
+    const std::function<std::shared_ptr<infinilm::layers::RoPE>()> &create) const {
+    std::lock_guard<std::mutex> lock(rope_cache_->mutex);
+    auto it = rope_cache_->entries.find(key);
+    if (it != rope_cache_->entries.end()) {
+        return it->second;
+    }
+    auto rope = create();
+    rope_cache_->entries.emplace(key, rope);
+    return rope;
 }
 
 infinilm::quantization::QuantScheme
 ModelConfig::get_quant_scheme() const {
-    if (quant_config.get_quant_scheme() != infinilm::quantization::QuantScheme::NONE) {
-        return quant_config.get_quant_scheme();
-    } else {
-        return infinilm::quantization::QuantScheme::NONE;
-    }
+    return get_quant_config().get_quant_scheme();
 }
 
-infinicore::DataType ModelConfig::get_dtype() const {
+infinilm::runtime::DataType ModelConfig::get_dtype() const {
     std::string dtype_str;
     if (config_json.contains("dtype")) {
         dtype_str = this->get<std::string>("dtype");

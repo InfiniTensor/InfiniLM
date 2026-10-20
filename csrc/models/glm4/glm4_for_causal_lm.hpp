@@ -5,7 +5,7 @@
 
 namespace infinilm::models::glm4 {
 
-using Glm4Model = infinilm::layers::causal_lm_templates::TextModel<Glm4DecoderLayer>;
+using Glm4Model = infinilm::layers::causal_lm_templates::TextModel<Glm4DecoderLayer, true>;
 
 using Glm4ForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<Glm4Model>;
 

@@ -1,8 +1,7 @@
 #include "allgather_reduce_scatter_dispatcher.hpp"
 
-#include "infinicore/context/context.hpp"
-#include "infinicore/ops/distributed/allgather.hpp"
-#include "infinicore/ops/distributed/reduce_scatter.hpp"
+#include "../../../engine/distributed/communication_group.hpp"
+#include "runtime/runtime.hpp"
 
 #include <stdexcept>
 #include <utility>
@@ -10,38 +9,51 @@
 namespace infinilm::layers::moe {
 namespace {
 
-bool same_device(const infinicore::Tensor &tensor, const infinicore::Device &device) {
-    return tensor && tensor->device().getType() == device.getType() && tensor->device().getIndex() == device.getIndex();
+bool same_device(const infinilm::runtime::Tensor &tensor, const infinilm::runtime::Device &device) {
+    return tensor && tensor->device().type() == device.type() && tensor->device().index() == device.index();
 }
 
-void ensure_tensor(infinicore::Tensor &tensor,
-                   const infinicore::Shape &shape,
-                   infinicore::DataType dtype,
-                   const infinicore::Device &device) {
+void ensure_tensor(infinilm::runtime::Runtime &runtime,
+                   infinilm::runtime::Tensor &tensor,
+                   const infinilm::runtime::Shape &shape,
+                   infinilm::runtime::DataType dtype,
+                   const infinilm::runtime::Device &device) {
+    runtime.assertOwnerThread();
+    if (runtime.device() != device) {
+        throw std::invalid_argument("MoE AG/RS workspace device differs from Runtime device");
+    }
     if (!same_device(tensor, device) || tensor->dtype() != dtype || tensor->shape() != shape) {
-        if (infinicore::context::isGraphRecording()) {
+        if (runtime.isGraphRecording()) {
             throw std::runtime_error("MoE AG/RS workspace tensor was not initialized before graph capture");
         }
-        tensor = infinicore::Tensor::empty(shape, dtype, device);
+        tensor = infinilm::runtime::Tensor::empty(runtime, shape, dtype);
     }
 }
 
 } // namespace
 
 AllGatherReduceScatterDispatcher::AllGatherReduceScatterDispatcher(EPConfig ep_config,
-                                                                   size_t num_experts)
-    : BaseEPDispatcher(std::move(ep_config), num_experts) {}
+                                                                   size_t num_experts,
+                                                                   const engine::distributed::RankInfo &rank_info)
+    : BaseEPDispatcher(std::move(ep_config), num_experts, rank_info) {}
 
 void AllGatherReduceScatterDispatcher::all_gather_dim0_many_(
-    const std::vector<infinicore::Tensor> &outputs,
-    const std::vector<infinicore::Tensor> &inputs) const {
+    infinilm::runtime::Runtime &runtime,
+    const std::vector<infinilm::runtime::Tensor> &outputs,
+    const std::vector<infinilm::runtime::Tensor> &inputs) const {
+    runtime.assertOwnerThread();
     if (inputs.empty()) {
         return;
     }
+    if (outputs.size() != inputs.size() || !inputs.front() || inputs.front()->ndim() == 0) {
+        throw std::invalid_argument("MoE AG/RS all_gather_many requires matching non-null tensors");
+    }
     const auto local_dim0 = inputs.front()->shape()[0];
-    for (const auto &input : inputs) {
-        if (!input) {
-            throw std::runtime_error("MoE AG/RS all_gather_many does not support null tensors");
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        const auto &input = inputs[i];
+        const auto &output = outputs[i];
+        if (!input || !output || input->device() != runtime.device() || output->device() != runtime.device()) {
+            throw std::invalid_argument("MoE AG/RS all_gather_many tensor device differs from Runtime device");
         }
         if (input->ndim() == 0) {
             throw std::runtime_error("MoE AG/RS all_gather_many expects tensors with dim 0");
@@ -50,7 +62,8 @@ void AllGatherReduceScatterDispatcher::all_gather_dim0_many_(
             throw std::runtime_error("MoE AG/RS all_gather_many expects all tensors to share dim 0");
         }
     }
-    infinicore::op::distributed::allgatherv_many_(
+    infinilm::engine::distributed::allgatherv_many_(
+        runtime,
         outputs,
         inputs,
         equal_split_sizes(local_dim0),
@@ -58,37 +71,54 @@ void AllGatherReduceScatterDispatcher::all_gather_dim0_many_(
 }
 
 void AllGatherReduceScatterDispatcher::reduce_scatter_dim0_(
-    infinicore::Tensor output,
-    const infinicore::Tensor &input) const {
+    infinilm::runtime::Runtime &runtime,
+    infinilm::runtime::Tensor output,
+    const infinilm::runtime::Tensor &input) const {
+    runtime.assertOwnerThread();
     if (!input || !output) {
         return;
+    }
+    if (input->device() != runtime.device() || output->device() != runtime.device()) {
+        throw std::invalid_argument("MoE AG/RS reduce_scatter tensor device differs from Runtime device");
     }
     if (input->ndim() == 0 || input->shape()[0] % config_.ep_size != 0) {
         throw std::runtime_error("MoE AG/RS reduce_scatter expects dim 0 to be divisible by ep_size");
     }
     const size_t local_dim0 = input->shape()[0] / config_.ep_size;
-    infinicore::op::distributed::reduce_scatterv_(
+    infinilm::engine::distributed::reduce_scatterv_(
+        runtime,
         output,
         input,
         equal_split_sizes(local_dim0),
-        INFINICCL_SUM,
+        infinicclSum,
         communicator_);
 }
 
 DispatchOutput AllGatherReduceScatterDispatcher::dispatch(
-    const infinicore::Tensor &hidden_states,
+    infinilm::runtime::Runtime &runtime,
+    const infinilm::runtime::Tensor &hidden_states,
     const TopKOutput &topk_output,
     MoeWorkspace &workspace) const {
+    assertInitializedRuntime(runtime);
+    if (hidden_states && runtime.device() != hidden_states->device()) {
+        throw std::invalid_argument("MoE AG/RS input device differs from Runtime device");
+    }
+    if ((topk_output.topk_weights && runtime.device() != topk_output.topk_weights->device()) || (topk_output.topk_ids && runtime.device() != topk_output.topk_ids->device())) {
+        throw std::invalid_argument("MoE AG/RS routing device differs from Runtime device");
+    }
     if (config_.ep_size == 1) {
         return DispatchOutput{
             DispatchOutputFormat::Standard,
             hidden_states,
-            infinicore::Tensor(),
+            infinilm::runtime::Tensor(),
             topk_output,
-            infinicore::Tensor(),
+            infinilm::runtime::Tensor(),
         };
     }
 
+    if (!hidden_states || !topk_output.topk_weights || !topk_output.topk_ids) {
+        throw std::invalid_argument("MoE AG/RS dispatch requires hidden states and routing tensors");
+    }
     const size_t local_tokens = hidden_states->shape()[0];
     const size_t global_tokens = local_tokens * config_.ep_size;
     const auto device = hidden_states->device();
@@ -100,12 +130,13 @@ DispatchOutput AllGatherReduceScatterDispatcher::dispatch(
     auto topk_ids_shape = topk_output.topk_ids->shape();
     topk_ids_shape[0] = global_tokens;
 
-    ensure_tensor(workspace.ep_gathered_hidden_states, hidden_shape, hidden_states->dtype(), device);
-    ensure_tensor(workspace.ep_gathered_topk_weights, topk_weights_shape, topk_output.topk_weights->dtype(), device);
-    ensure_tensor(workspace.ep_gathered_topk_ids, topk_ids_shape, topk_output.topk_ids->dtype(), device);
+    ensure_tensor(runtime, workspace.ep_gathered_hidden_states, hidden_shape, hidden_states->dtype(), device);
+    ensure_tensor(runtime, workspace.ep_gathered_topk_weights, topk_weights_shape, topk_output.topk_weights->dtype(), device);
+    ensure_tensor(runtime, workspace.ep_gathered_topk_ids, topk_ids_shape, topk_output.topk_ids->dtype(), device);
     workspace.ep_gathered_tokens_capacity = global_tokens;
 
     all_gather_dim0_many_(
+        runtime,
         {
             workspace.ep_gathered_hidden_states,
             workspace.ep_gathered_topk_weights,
@@ -125,15 +156,20 @@ DispatchOutput AllGatherReduceScatterDispatcher::dispatch(
     return DispatchOutput{
         DispatchOutputFormat::Standard,
         workspace.ep_gathered_hidden_states,
-        infinicore::Tensor(),
+        infinilm::runtime::Tensor(),
         dispatched_topk,
-        expert_map(hidden_states->device()),
+        expert_map(runtime),
     };
 }
 
-infinicore::Tensor AllGatherReduceScatterDispatcher::combine(
+infinilm::runtime::Tensor AllGatherReduceScatterDispatcher::combine(
+    infinilm::runtime::Runtime &runtime,
     const CombineInput &combine_input,
     MoeWorkspace &workspace) const {
+    assertInitializedRuntime(runtime);
+    if (combine_input.hidden_states && runtime.device() != combine_input.hidden_states->device()) {
+        throw std::invalid_argument("MoE AG/RS combine device differs from Runtime device");
+    }
     if (config_.ep_size == 1) {
         return combine_input.hidden_states;
     }
@@ -144,13 +180,14 @@ infinicore::Tensor AllGatherReduceScatterDispatcher::combine(
     auto output_shape = combine_input.hidden_states->shape();
     output_shape[0] /= config_.ep_size;
     ensure_tensor(
+        runtime,
         workspace.ep_reduced_hidden_states,
         output_shape,
         combine_input.hidden_states->dtype(),
         combine_input.hidden_states->device());
     workspace.ep_reduced_tokens_capacity = output_shape[0];
 
-    reduce_scatter_dim0_(workspace.ep_reduced_hidden_states, combine_input.hidden_states);
+    reduce_scatter_dim0_(runtime, workspace.ep_reduced_hidden_states, combine_input.hidden_states);
     return workspace.ep_reduced_hidden_states;
 }
 

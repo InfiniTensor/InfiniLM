@@ -23,6 +23,7 @@ class EngineConfig:
         moe_ep_size: MoE expert-parallel size.
         cache_type: Cache type ('paged' or 'static').
         max_batch_size: Maximum batch size for inference (only for paged cache).
+        static_cache_capacity: Physical static KV rows (1 or 2); prefills are separate and decode can batch both rows.
         max_tokens: Default maximum tokens to generate.
         num_blocks: Number of KV cache blocks (only for paged cache).
         block_size: Size of each KV cache block (only for paged cache).
@@ -36,7 +37,6 @@ class EngineConfig:
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
         weight_load_mode: Weight loading mode across tensor-parallel workers.
         skip_load: Whether to skip loading model weights (for testing).
-        use_legacy_moe: Whether to use the legacy Qwen3 MoE implementation.
     """
 
     model_path: str
@@ -66,11 +66,16 @@ class EngineConfig:
     pre_transpose: bool = False
     weight_load_mode: str = "async"
     skip_load: bool = False
-    use_legacy_moe: bool = False
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
+    static_cache_capacity: int = 1
 
     def __post_init__(self) -> None:
+        if (
+            type(self.static_cache_capacity) is not int
+            or self.static_cache_capacity < 1
+        ):
+            raise ValueError("static_cache_capacity must be a positive integer")
         if self.num_draft_tokens < 1:
             raise ValueError("num_draft_tokens must be >= 1")
         if self.pipeline_parallel_size < 1:

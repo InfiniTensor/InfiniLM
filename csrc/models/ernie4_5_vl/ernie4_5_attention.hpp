@@ -1,13 +1,14 @@
 #pragma once
+#include "../../layers/rotary_embedding/rope.hpp"
 
 #include "../../config/model_config.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../layers/common_modules.hpp"
 #include "../../layers/linear/linear.hpp"
 #include "../../layers/rotary_embedding/rotary_embedding.hpp"
-#include "infinicore/device.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/device.hpp"
+#include "runtime/tensor.hpp"
 
 #include <memory>
 #include <vector>
@@ -15,33 +16,37 @@
 namespace infinilm::models::ernie4_5_vl {
 
 struct Ernie45MropeCache {
+    std::shared_ptr<infinilm::runtime::Runtime> runtime_owner;
+    void require_owner(infinilm::runtime::Runtime &runtime) const;
     std::vector<int> section{22, 22, 20};
-    infinicore::Tensor sin_h;
-    infinicore::Tensor cos_h;
-    infinicore::Tensor sin_w;
-    infinicore::Tensor cos_w;
-    infinicore::Tensor sin_t;
-    infinicore::Tensor cos_t;
+    infinilm::runtime::Tensor cos_sin_h;
+    infinilm::runtime::Tensor cos_sin_w;
+    infinilm::runtime::Tensor cos_sin_t;
 };
 
-std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                                                   const infinicore::Device &device);
+std::shared_ptr<const Ernie45MropeCache> build_ernie45_mrope_cache(infinilm::runtime::Runtime &runtime, std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                                                                   const infinilm::runtime::Device &device);
 
-class Ernie45Attention : public infinicore::nn::Module {
+class Ernie45Attention : public infinilm::weights::ModelWeights {
 public:
-    Ernie45Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    Ernie45Attention(infinilm::runtime::Runtime &runtime,
+                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
                      size_t layer_idx,
                      std::shared_ptr<const Ernie45MropeCache> mrope_cache,
-                     const infinicore::Device &device);
+                     const engine::distributed::RankInfo &rank_info,
+                     backends::AttentionBackend attention_backend);
 
-    infinicore::Tensor forward(const infinicore::Tensor &positions,
-                               const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &positions,
+                                      const infinilm::runtime::Tensor &hidden_states,
+                                      global_state::ForwardContext &forward_context) const;
 
 private:
-    infinicore::Tensor forward_static_(const infinicore::Tensor &positions,
-                                       const infinicore::Tensor &hidden_states) const;
-    infinicore::Tensor forward_paged_(const infinicore::Tensor &positions,
-                                      const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward_static_(const infinilm::runtime::Tensor &positions,
+                                              const infinilm::runtime::Tensor &hidden_states,
+                                              global_state::ForwardContext &forward_context) const;
+    infinilm::runtime::Tensor forward_paged_(const infinilm::runtime::Tensor &positions,
+                                             const infinilm::runtime::Tensor &hidden_states,
+                                             global_state::ForwardContext &forward_context) const;
 
     size_t layer_idx_{0};
     size_t hidden_size_{0};
@@ -52,14 +57,14 @@ private:
     std::shared_ptr<const Ernie45MropeCache> mrope_cache_;
     infinilm::backends::AttentionBackend attention_backend_;
 
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, q_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, k_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ColumnParallelLinear, v_proj);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::RowParallelLinear, o_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> q_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> k_proj_;
+    std::shared_ptr<infinilm::layers::linear::ColumnParallelLinear> v_proj_;
+    std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
+    std::shared_ptr<infinilm::layers::RoPE> rotary_emb_;
 
-    infinicore::nn::Parameter kv_cache_k_scale_;
-    infinicore::nn::Parameter kv_cache_v_scale_;
+    infinilm::weights::Weight kv_cache_k_scale_;
+    infinilm::weights::Weight kv_cache_v_scale_;
     std::shared_ptr<infinilm::layers::attention::AttentionLayer> attn_;
 };
 

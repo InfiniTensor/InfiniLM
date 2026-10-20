@@ -1,8 +1,16 @@
 #pragma once
+#include <typeinfo>
 
 #include "../../config/model_config.hpp"
+#include "../../weights/weights.hpp"
 #include "../linear/linear.hpp"
-#include "infinicore/nn/module.hpp"
+
+namespace infinilm::backends {
+enum class AttentionBackend;
+}
+namespace infinilm::layers::moe {
+struct EPConfig;
+}
 
 namespace infinilm::layers::mlp {
 
@@ -17,16 +25,11 @@ namespace infinilm::layers::mlp {
  *
  * Formula: down_proj(SiLU(gate_proj(x)) * up_proj(x))
  */
-class MLP : public infinicore::nn::Module {
+class MLP : public infinilm::weights::ModelWeights {
 public:
-    /**
-     * @brief Construct MLP module
-     *
-     * @param model_config: Model configuration.
-     * @param device Device to create tensors on
-     */
-    MLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-        const infinicore::Device &device);
+    MLP(infinilm::runtime::Runtime &runtime, std::shared_ptr<infinilm::config::ModelConfig> model_config,
+        size_t layer_idx, const engine::distributed::RankInfo &rank_info,
+        backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config);
 
     /**
      * @brief Forward pass: compute MLP output
@@ -34,14 +37,13 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
-    void process_weights_after_loading() override {
-        gate_up_proj_->process_weights_after_loading();
-    }
-
-    void reset_runtime_state() const override {
-        gate_up_proj_->reset_runtime_state();
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        result.push_back(gate_up_proj_);
+        return result;
     }
 
     // Module information

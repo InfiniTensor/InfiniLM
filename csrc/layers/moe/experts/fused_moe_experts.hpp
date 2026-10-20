@@ -3,23 +3,34 @@
 #include "../common/moe_types.hpp"
 
 #include "../../../config/model_config.hpp"
-#include "infinicore/nn/module.hpp"
+#include "../../../weights/weights.hpp"
 
 #include <cstddef>
 #include <memory>
 
+namespace infinilm::engine::distributed {
+struct RankInfo;
+}
+
 namespace infinilm::layers::moe {
 
-class FusedMoeExperts : public infinicore::nn::Module {
+struct EPConfig;
+
+class FusedMoeExperts : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
+
 public:
-    FusedMoeExperts(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                    const infinicore::Device &device);
+    FusedMoeExperts(infinilm::runtime::Runtime &runtime,
+                    std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                    const engine::distributed::RankInfo &rank_info,
+                    const EPConfig &ep_config);
 
     const MoeWeights &moe_weights() const;
 
 protected:
-    INFINICORE_NN_PARAMETER(w13_weight);
-    INFINICORE_NN_PARAMETER(w2_weight);
+    infinilm::weights::Weight w13_weight_;
+    infinilm::weights::Weight w2_weight_;
 
     size_t num_experts_{0};
     size_t hidden_size_{0};

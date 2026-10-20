@@ -1,17 +1,23 @@
 #include "base_ep_dispatcher.hpp"
 
-#include "../../../global_state/parallel_state.hpp"
-#include "infinicore/context/context.hpp"
+#include "runtime/runtime.hpp"
 
 #include <stdexcept>
 #include <utility>
 
 namespace infinilm::layers::moe {
 
-BaseEPDispatcher::BaseEPDispatcher(EPConfig ep_config, size_t num_experts)
+BaseEPDispatcher::BaseEPDispatcher(EPConfig ep_config, size_t num_experts,
+                                   const engine::distributed::RankInfo &rank_info)
     : config_(std::move(ep_config)),
-      num_experts_(num_experts) {
-    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
+      num_experts_(num_experts), device_(rank_info.device) {
+    if (static_cast<int>(device_.type()) < 0
+        || static_cast<int>(device_.type()) >= static_cast<int>(infinilm::runtime::Device::Type::kCount)
+        || device_.index() < 0
+        || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
+        || config_.ep_size == 0 || config_.ep_rank >= config_.ep_size || num_experts == 0) {
+        throw std::invalid_argument("MoE EP requires valid rank topology and experts");
+    }
     if (config_.ep_size != static_cast<size_t>(rank_info.tp_size) || config_.ep_rank != static_cast<size_t>(rank_info.tp_rank)) {
         throw std::runtime_error(
             "MoE EP currently reuses the tensor parallel communication group, "
@@ -25,11 +31,32 @@ BaseEPDispatcher::BaseEPDispatcher(EPConfig ep_config, size_t num_experts)
     }
 }
 
-void BaseEPDispatcher::initialize(const infinicore::Device &device,
+void BaseEPDispatcher::initialize(infinilm::runtime::Runtime &runtime,
                                   MoeWorkspace &workspace) {
     (void)workspace;
+    runtime.assertOwnerThread();
+    if (runtime.device() != device_) {
+        throw std::invalid_argument("MoE EP initialization device differs from rank topology");
+    }
+    if (runtime_owner_ && runtime_owner_.get() != &runtime) {
+        throw std::invalid_argument("MoE EP initialization Runtime differs from resource owner");
+    }
+    runtime_owner_ = runtime.shared_from_this();
     if (config_.ep_size > 1) {
-        (void)expert_map(device);
+        try {
+            (void)expert_map(runtime);
+        } catch (...) {
+            expert_map_ = infinilm::runtime::Tensor();
+            runtime_owner_.reset();
+            throw;
+        }
+    }
+}
+
+void BaseEPDispatcher::assertInitializedRuntime(infinilm::runtime::Runtime &runtime) const {
+    runtime.assertOwnerThread();
+    if (runtime_owner_.get() != &runtime || runtime.device() != device_) {
+        throw std::invalid_argument("MoE EP Runtime differs from initialized resource owner");
     }
 }
 
@@ -37,11 +64,13 @@ std::vector<size_t> BaseEPDispatcher::equal_split_sizes(size_t local_dim0) const
     return std::vector<size_t>(config_.ep_size, local_dim0);
 }
 
-infinicore::Tensor BaseEPDispatcher::expert_map(const infinicore::Device &device) const {
+infinilm::runtime::Tensor BaseEPDispatcher::expert_map(infinilm::runtime::Runtime &runtime) const {
+    assertInitializedRuntime(runtime);
     if (config_.ep_size == 1) {
-        return infinicore::Tensor();
+        return infinilm::runtime::Tensor();
     }
-    if (expert_map_ && expert_map_->device().getType() == device.getType() && expert_map_->device().getIndex() == device.getIndex()) {
+    const auto device = runtime.device();
+    if (expert_map_ && expert_map_->device().type() == device.type() && expert_map_->device().index() == device.index()) {
         return expert_map_;
     }
 
@@ -53,16 +82,16 @@ infinicore::Tensor BaseEPDispatcher::expert_map(const infinicore::Device &device
         map[global_expert] = static_cast<int32_t>(placement.global_to_local(global_expert));
     }
 
-    if (infinicore::context::isGraphRecording()) {
+    if (runtime.isGraphRecording()) {
         throw std::runtime_error("MoE EP expert_map was not initialized before graph capture");
     }
-    auto cpu = infinicore::Tensor::from_blob(
+    auto cpu = infinilm::runtime::Tensor::from_blob(
         map.data(),
         {num_experts_},
-        infinicore::DataType::I32,
-        infinicore::Device(infinicore::Device::Type::CPU, 0));
-    expert_map_ = infinicore::Tensor::empty({num_experts_}, infinicore::DataType::I32, device);
-    expert_map_->copy_from(cpu);
+        infinilm::runtime::DataType::kInt32,
+        infinilm::runtime::Device(infinilm::runtime::Device::Type::kCpu, 0));
+    expert_map_ = infinilm::runtime::Tensor::empty(runtime, {num_experts_}, infinilm::runtime::DataType::kInt32);
+    expert_map_->copy_from(runtime, cpu);
     return expert_map_;
 }
 

@@ -1,5 +1,6 @@
 #include "rotary_embedding_factory.hpp"
 #include "../../config/model_config.hpp"
+#include "rope_scaling_configs.hpp"
 
 namespace infinilm::layers::rotary_embedding {
 
@@ -8,7 +9,7 @@ std::unordered_map<std::string, ScalingCreator> &get_scaling_registry() {
     return registry;
 }
 
-std::shared_ptr<infinicore::nn::RopeScalingConfig>
+std::shared_ptr<infinilm::layers::RopeScalingConfig>
 make_scaling_config(const std::shared_ptr<config::ModelConfig> &model_config) {
     if (!model_config || !model_config->get_config_json().contains("rope_scaling") || model_config->get_config_json()["rope_scaling"].is_null()) {
         return nullptr;

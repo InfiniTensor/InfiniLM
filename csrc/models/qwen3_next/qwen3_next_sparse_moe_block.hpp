@@ -1,4 +1,5 @@
 #pragma once
+#include "../../weights/weights.hpp"
 
 #include "../../config/model_config.hpp"
 #include "../../layers/linear/linear.hpp"
@@ -10,27 +11,44 @@
 
 namespace infinilm::models::qwen3_next {
 
-class Qwen3NextSharedExpert : public infinicore::nn::Module {
-public:
-    Qwen3NextSharedExpert(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                          const infinicore::Device &device);
+class Qwen3NextSharedExpert : public infinilm::weights::ModelWeights {
+protected:
+    infinilm::runtime::Device device_;
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+public:
+    std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
+        auto result = ModelWeights::loading_children();
+        if (gate_up_proj_) {
+            result.push_back(gate_up_proj_);
+        }
+        return result;
+    }
+
+    Qwen3NextSharedExpert(infinilm::runtime::Runtime &runtime,
+                          std::shared_ptr<infinilm::config::ModelConfig> model_config,
+                          const engine::distributed::RankInfo &rank_info,
+                          backends::AttentionBackend attention_backend,
+                          const layers::moe::EPConfig &ep_config);
+
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     std::shared_ptr<infinilm::layers::linear::GateUpParallelLinear> gate_up_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> down_proj_;
 };
 
-class Qwen3NextSparseMoeBlock : public infinicore::nn::Module {
+class Qwen3NextSparseMoeBlock : public infinilm::weights::ModelWeights {
 public:
-    Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                            const infinicore::Device &device);
-    Qwen3NextSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
+    Qwen3NextSparseMoeBlock(infinilm::runtime::Runtime &runtime,
+                            std::shared_ptr<infinilm::config::ModelConfig> model_config,
                             size_t layer_idx,
-                            const infinicore::Device &device);
+                            const engine::distributed::RankInfo &rank_info,
+                            backends::AttentionBackend attention_backend,
+                            const layers::moe::EPConfig &ep_config);
 
-    infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime,
+                                      const infinilm::runtime::Tensor &hidden_states) const;
 
 protected:
     std::shared_ptr<infinilm::layers::moe::TopKRouter> gate_;

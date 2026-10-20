@@ -1,11 +1,14 @@
 #pragma once
 
-#include "../../../global_state/global_state.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../../global_state/forward_context.hpp"
+#include "runtime/tensor.hpp"
 #include <tuple>
 
 namespace infinilm::layers::attention {
 class AttentionLayer;
+}
+namespace infinilm::runtime {
+class Runtime;
 }
 
 namespace infinilm::layers::attention::backends {
@@ -29,18 +32,20 @@ public:
      * @param attn_metadata: Attention metadata.
      * @return Attention output, shape `[1, num_tokens, num_heads * head_dim]`.
      */
-    infinicore::Tensor forward(const AttentionLayer &layer,
-                               const infinicore::Tensor &query,
-                               const infinicore::Tensor &key,
-                               const infinicore::Tensor &value,
-                               infinicore::Tensor &kv_cache,
-                               const infinilm::global_state::AttentionMetadata &attn_metadata) const;
+    infinilm::runtime::Tensor forward(const AttentionLayer &layer,
+                                      const infinilm::runtime::Tensor &query,
+                                      const infinilm::runtime::Tensor &key,
+                                      const infinilm::runtime::Tensor &value,
+                                      infinilm::runtime::Tensor &kv_cache,
+                                      const infinilm::global_state::AttentionMetadata &attn_metadata,
+                                      infinilm::runtime::Runtime &runtime) const;
 
-    std::tuple<infinicore::Tensor, infinicore::Tensor> do_kv_cache_update(const AttentionLayer &layer,
-                                                                          const infinicore::Tensor key,
-                                                                          const infinicore::Tensor value,
-                                                                          infinicore::Tensor &kv_cache,
-                                                                          const infinicore::Tensor slot_mapping) const;
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> do_kv_cache_update(const AttentionLayer &layer,
+                                                                                        const infinilm::runtime::Tensor key,
+                                                                                        const infinilm::runtime::Tensor value,
+                                                                                        infinilm::runtime::Tensor &kv_cache,
+                                                                                        const infinilm::runtime::Tensor slot_mapping,
+                                                                                        infinilm::runtime::Runtime &runtime) const;
 
 private:
     size_t num_heads_;
@@ -49,6 +54,5 @@ private:
     size_t num_kv_heads_;
     size_t layer_idx_;
     size_t head_dim_; // Note: head_dim equals to head_size
-    size_t max_position_embeddings_;
 };
 } // namespace infinilm::layers::attention::backends

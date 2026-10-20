@@ -1,13 +1,16 @@
 #pragma once
 
 #include "../../../backends/attention_backends.hpp"
+#include "../../../global_state/forward_context.hpp"
 #include "../../../global_state/global_state.hpp"
 #include "flash_attn.hpp"
-#include "infinicore/tensor.hpp"
 #include "paged_attn.hpp"
+#include "runtime/tensor.hpp"
 #include "static_attn.hpp"
+#include <cstdint>
 #include <memory>
 #include <variant>
+#include <vector>
 
 namespace infinilm::layers::attention {
 using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl>, std::shared_ptr<backends::PagedAttentionImpl>, std::shared_ptr<backends::FlashAttentionImpl>>;
@@ -29,20 +32,33 @@ public:
                    float scale,
                    size_t num_kv_heads,
                    size_t layer_idx,
-                   infinicore::Tensor k_scale,
-                   infinicore::Tensor v_scale,
-                   ::infinilm::backends::AttentionBackend attention_backend);
+                   infinilm::runtime::Tensor k_scale,
+                   infinilm::runtime::Tensor v_scale,
+                   ::infinilm::backends::AttentionBackend attention_backend,
+                   infinilm::quantization::KVQuantAlgo kv_quant_scheme,
+                   std::vector<int64_t> window_size = {-1, -1});
 
-    infinicore::Tensor forward(infinicore::Tensor &query,
-                               infinicore::Tensor &key,
-                               infinicore::Tensor &value) const;
+    infinilm::runtime::Tensor forward(
+        infinilm::runtime::Tensor &query,
+        infinilm::runtime::Tensor &key,
+        infinilm::runtime::Tensor &value,
+        infinilm::global_state::ForwardContext &forward_context) const;
 
-    inline infinicore::Tensor get_k_scale() const { return k_scale_; }
-    inline infinicore::Tensor get_v_scale() const { return v_scale_; }
+    // LM composition for eager prefill with live device KV lengths.
+    void prefill_paged(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor out,
+                       const infinilm::runtime::Tensor &q, const infinilm::runtime::Tensor &k_cache,
+                       const infinilm::runtime::Tensor &v_cache, const infinilm::runtime::Tensor &block_tables,
+                       const infinilm::runtime::Tensor &kv_lens, const infinilm::runtime::Tensor &cu_q,
+                       float scale) const;
+
+    inline infinilm::runtime::Tensor get_k_scale() const { return k_scale_; }
+    inline infinilm::runtime::Tensor get_v_scale() const { return v_scale_; }
+    const std::vector<int64_t> &window_size() const { return window_size_; }
 
 private:
-    infinicore::Tensor k_scale_;
-    infinicore::Tensor v_scale_;
+    const std::vector<int64_t> window_size_;
+    infinilm::runtime::Tensor k_scale_;
+    infinilm::runtime::Tensor v_scale_;
     size_t layer_idx_;
     AttentionImpl attn_backend_impl_;
     ::infinilm::backends::AttentionBackend attn_backend_;

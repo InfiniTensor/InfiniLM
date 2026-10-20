@@ -1,4 +1,5 @@
 #include "glm4_for_causal_lm.hpp"
+#include "../../layers/rotary_embedding/rope.hpp"
 #include "../models_registry.hpp"
 #include <stdexcept>
 
@@ -19,7 +20,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_glm4_model_config(
     }
 
     // Use GPT-J style RoPE (interleaved dimensions) for GLM4
-    model_config->set_rope_algo(infinicore::nn::RoPE::Algo::GPT_J);
+    model_config->set_rope_algo(infinilm::layers::RoPE::Algo::GPT_J);
 
     return model_config;
 }
@@ -28,7 +29,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_glm4_model_config(
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     glm4,
     infinilm::models::glm4::Glm4ForCausalLM,
     infinilm::models::glm4::create_glm4_model_config);

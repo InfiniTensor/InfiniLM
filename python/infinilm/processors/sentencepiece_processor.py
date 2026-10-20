@@ -2,7 +2,6 @@ import re
 import types
 
 from .basic_llm_processor import BasicLLMProcessor
-from .processor import register_processor
 
 
 class SentencePieceProcessor(BasicLLMProcessor):
@@ -60,28 +59,21 @@ class SentencePieceProcessor(BasicLLMProcessor):
         tokenizer.decode = types.MethodType(patched_decode, tokenizer)
 
 
-@register_processor("fm9g")
 class FM9GProcessor(SentencePieceProcessor):
     pass
 
 
-# Register model-specific aliases
-@register_processor("internlm3")
 class InternLMProcessor(SentencePieceProcessor):
     pass
 
 
-@register_processor("mistral")
 class MistralProcessor(SentencePieceProcessor):
     pass
 
 
-@register_processor("minicpm")
-@register_processor("minicpm4")
 class MiniCPMProcessor(SentencePieceProcessor):
     pass
 
 
-@register_processor("deepseek_v2")
 class DeepSeekV2Processor(BasicLLMProcessor):
     pass

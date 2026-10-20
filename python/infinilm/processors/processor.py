@@ -1,3 +1,6 @@
+import importlib
+
+
 class InfinilmProcessor:
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
@@ -46,6 +49,31 @@ class InfinilmProcessor:
 # Global registry mapping model_type strings to their Processor classes
 _PROCESSOR_REGISTRY = {}
 
+# Built-in processors have no registration side effects: several model types
+# share a module, while an explicit user registration may override just one.
+_BUILTIN_PROCESSORS = {
+    "default": ("basic_llm_processor", "BasicLLMProcessor"),
+    "baichuan": ("baichuan_processor", "BaichuanProcessor"),
+    "chatglm": ("chatglm_processor", "ChatGLMProcessor"),
+    "deepseek": ("deepseek_processor", "DeepSeekProcessor"),
+    "deepseek_v2": ("sentencepiece_processor", "DeepSeekV2Processor"),
+    "ernie4_5_moe_vl": ("ernie4_5_vl_processor", "Ernie45VLProcessor"),
+    "fm9g": ("sentencepiece_processor", "FM9GProcessor"),
+    "gpt2": ("gpt2_processor", "GPT2Processor"),
+    "internlm3": ("sentencepiece_processor", "InternLMProcessor"),
+    "kimi_k3": ("kimi_k3_processor", "KimiK3Processor"),
+    "llama": ("llama_processor", "LlamaProcessor"),
+    "mamba": ("mamba_processor", "MambaProcessor"),
+    "minicpm": ("sentencepiece_processor", "MiniCPMProcessor"),
+    "minicpm4": ("sentencepiece_processor", "MiniCPMProcessor"),
+    "minicpmv": ("minicpmv_processor", "MiniCPMVProcessor"),
+    "mistral": ("sentencepiece_processor", "MistralProcessor"),
+    "qwen3_5": ("qwen3_5_processor", "Qwen35Processor"),
+    "qwen3_5_moe": ("qwen3_5_processor", "Qwen35Processor"),
+    "qwen3_next": ("qwen3_next_processor", "Qwen3NextProcessor"),
+    "videonsa": ("videonsa_processor", "VideoNSAProcessor"),
+}
+
 
 def register_processor(model_type: str):
     """Decorator to register a Processor class for a specific model type."""
@@ -68,4 +96,15 @@ def get_processor_class(model_type: str):
     Falls back to the "default" registered processor if the model type
     is not explicitly recognized.
     """
-    return _PROCESSOR_REGISTRY.get(model_type, _PROCESSOR_REGISTRY["default"])
+    registered = _PROCESSOR_REGISTRY.get(model_type)
+    if registered is not None:
+        return registered
+    if model_type not in _BUILTIN_PROCESSORS:
+        registered_default = _PROCESSOR_REGISTRY.get("default")
+        if registered_default is not None:
+            return registered_default
+    module_name, class_name = _BUILTIN_PROCESSORS.get(
+        model_type, _BUILTIN_PROCESSORS["default"]
+    )
+    module = importlib.import_module(f".{module_name}", __package__)
+    return getattr(module, class_name)

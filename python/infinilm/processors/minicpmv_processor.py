@@ -1,17 +1,15 @@
 from threading import Lock
 
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoImageProcessor, AutoProcessor
 from typing_extensions import override
 
-from .processor import InfinilmProcessor, register_processor
+from .processor import InfinilmProcessor
 
 _AUTO_IMAGE_PROCESSOR_REGISTER_LOCK = Lock()
 
 
 def _load_processor_with_legacy_registration(model_dir_path: str):
     """Load old MiniCPM-V processor code with Transformers 5 compatibility."""
-    from transformers import AutoImageProcessor, AutoProcessor
-
     with _AUTO_IMAGE_PROCESSOR_REGISTER_LOCK:
         original_descriptor = AutoImageProcessor.__dict__["register"]
         original_register = AutoImageProcessor.register
@@ -34,7 +32,6 @@ def _load_processor_with_legacy_registration(model_dir_path: str):
             AutoImageProcessor.register = original_descriptor
 
 
-@register_processor("minicpmv")
 class MiniCPMVProcessor(InfinilmProcessor):
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
@@ -134,7 +131,7 @@ class MiniCPMVProcessor(InfinilmProcessor):
         **kwargs,
     ) -> dict:
         """Build batched infinilm model inputs from the scheduler output."""
-        import infinicore
+        from .. import _core as infinicore
 
         if not scheduler_output.scheduled_requests:
             raise RuntimeError(

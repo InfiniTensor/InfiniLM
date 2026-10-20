@@ -1,54 +1,67 @@
 #include "qwen3_moe_sparse_moe_block.hpp"
+#include "../models_registry.hpp"
 
+#include "../../layers/moe/ep/ep_config.hpp"
+#include "runtime/runtime.hpp"
+#include <exception>
+#include <stdexcept>
 #include <string>
 
 namespace infinilm::models::qwen3_moe {
 
-Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                               const infinicore::Device &device)
-    : Qwen3MoeSparseMoeBlock(model_config, 0, device) {
-}
-
-Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                               size_t layer_idx,
-                                               const infinicore::Device &device)
-    : use_legacy_moe_(
-        model_config->get_or<std::string>("model_type", "") == "qwen3_moe" && model_config->get_or<bool>("use_legacy_moe", false)) {
-    if (use_legacy_moe_) {
-        legacy_gate_ = this->register_module<Qwen3MoeTopKRouter>("gate", model_config, device);
-        legacy_experts_ = this->register_module<Qwen3MoeExperts>("experts", model_config, device);
-    } else {
-        gate_ = this->register_module<infinilm::layers::moe::TopKRouter>("gate", model_config, device);
-        experts_ = this->register_module<infinilm::layers::moe::FusedMoeExperts>("experts", model_config, device);
-        fused_moe_ = this->register_module<infinilm::layers::moe::FusedMoE>("fused_moe", model_config, device, layer_idx);
+Qwen3MoeSparseMoeBlock::Qwen3MoeSparseMoeBlock(infinilm::runtime::Runtime &runtime,
+                                               std::shared_ptr<config::ModelConfig> model_config, size_t layer_idx,
+                                               const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend,
+                                               const layers::moe::EPConfig &ep_config) {
+    (void)attention_backend;
+    models::validate_runtime_construction(model_config, runtime, rank_info);
+    try {
+        gate_ = this->bind_child("gate", std::make_shared<Qwen3MoeTopKRouter>(runtime, model_config, rank_info, ep_config));
+        experts_ = this->bind_child("experts", std::make_shared<Qwen3MoeExperts>(runtime, model_config, rank_info, ep_config));
+        fused_moe_ = this->bind_child("fused_moe", std::make_shared<layers::moe::FusedMoE>(runtime, model_config, rank_info, ep_config, layer_idx));
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            runtime.syncStream();
+        }
+    } catch (...) {
+        if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
+            try {
+                runtime.syncStream();
+            } catch (...) { std::terminate(); }
+        }
+        throw;
     }
 }
 
-infinicore::Tensor Qwen3MoeSparseMoeBlock::forward(const infinicore::Tensor &hidden_states) const {
+infinilm::runtime::Tensor Qwen3MoeSparseMoeBlock::forward(
+    infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &hidden_states) const {
+    gate_->validate_runtime(runtime, hidden_states); // Before any view/allocation/submit.
+    const auto weights = experts_->moe_weights(runtime);
     ASSERT(hidden_states->ndim() == 3);
-
-    auto shape = hidden_states->shape();
-    auto hidden_states_reshaped = hidden_states->view({shape[0] * shape[1], shape[2]});
-
-    if (use_legacy_moe_) {
-        auto [routing_weights, selected_experts] = legacy_gate_->forward(hidden_states_reshaped);
-        auto final_hidden_states = legacy_experts_->forward(hidden_states_reshaped, selected_experts, routing_weights);
-        return final_hidden_states->view({shape[0], shape[1], shape[2]});
+    const auto shape = hidden_states->shape();
+    infinilm::runtime::Tensor flattened, routing_weights, selected_experts, borrowed, independent, result;
+    infinilm::layers::moe::TopKOutput topk;
+    try {
+        flattened = hidden_states->view({shape[0] * shape[1], shape[2]});
+        std::tie(routing_weights, selected_experts) = gate_->forward(runtime, flattened);
+        topk = {routing_weights, selected_experts, infinilm::runtime::Tensor()};
+        borrowed = fused_moe_->forward(runtime, flattened, topk, weights);
+        independent = infinilm::runtime::Tensor::empty(runtime, borrowed->shape(), borrowed->dtype());
+        independent->copy_from(runtime, borrowed);
+        result = independent->view({shape[0], shape[1], shape[2]});
+        runtime.syncStream();
+        return result;
+    } catch (...) {
+        if (runtime.isGraphRecording()) {
+            runtime.cancelGraphRecording();
+            if (runtime.isGraphRecording()) {
+                std::terminate();
+            }
+        }
+        try {
+            runtime.syncStream();
+        } catch (...) { std::terminate(); }
+        throw;
     }
-
-    auto [routing_weights, selected_experts] = gate_->forward(hidden_states_reshaped);
-    infinilm::layers::moe::TopKOutput topk_output{
-        routing_weights,
-        selected_experts,
-        infinicore::Tensor(),
-    };
-
-    auto final_hidden_states = fused_moe_->forward(
-        hidden_states_reshaped,
-        topk_output,
-        experts_->moe_weights());
-
-    return final_hidden_states->view({shape[0], shape[1], shape[2]});
 }
 
 } // namespace infinilm::models::qwen3_moe

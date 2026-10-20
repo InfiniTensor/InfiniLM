@@ -1,18 +1,28 @@
 #include "base_quantization.hpp"
+#include "execution/submit.hpp"
 
-#include "infinicore/ops/distributed/allreduce.hpp"
+#include "../../engine/distributed/communication_group.hpp"
 
 namespace infinilm::quantization {
 
-infinicore::Tensor BaseQuantization::forward_allreduce(
+infinilm::runtime::Tensor BaseQuantization::forward_allreduce(
+    infinilm::runtime::Runtime &runtime,
     const ParamsMap &params,
-    const infinicore::Tensor &input,
+    const infinilm::runtime::Tensor &input,
     bool has_bias,
     infinicclComm_t communicator,
     float alpha) const {
-    auto output = forward(params, input, has_bias, alpha);
-    infinicore::op::distributed::allreduce_(
-        output, output, INFINICCL_SUM, communicator);
+    auto output = forward(runtime, params, input, false, alpha);
+    infinilm::engine::distributed::allreduce_(
+        runtime, output, output, infinicclSum, communicator);
+    if (has_bias) {
+        {
+            const auto ops_other = params.at("bias");
+            infinilm::execution::submit<infini::ops::Add>(
+                runtime, infini::ops::Add::DefaultConfig(runtime.device().type()), output, ops_other, output);
+            INFINILM_TRACE_OP(Add, output);
+        }
+    }
     return output;
 }
 

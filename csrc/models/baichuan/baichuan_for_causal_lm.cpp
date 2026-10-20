@@ -19,7 +19,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_baichuan_model_config(
 
     if (!config_json.contains("head_dim")) {
         config_json["head_dim"] = model_config->get<size_t>("hidden_size")
-            / model_config->get<size_t>("num_attention_heads");
+                                / model_config->get<size_t>("num_attention_heads");
     }
 
     if (!config_json.contains("rope_theta")) {
@@ -37,7 +37,7 @@ std::shared_ptr<infinilm::config::ModelConfig> create_baichuan_model_config(
 
 namespace {
 
-INFINILM_REGISTER_CAUSAL_LM_MODEL(
+INFINILM_REGISTER_EXPLICIT_CAUSAL_LM_MODEL(
     baichuan,
     infinilm::models::baichuan::BaichuanForCausalLM,
     infinilm::models::baichuan::create_baichuan_model_config);

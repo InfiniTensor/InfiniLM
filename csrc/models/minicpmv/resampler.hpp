@@ -2,25 +2,24 @@
 
 #include "../../config/model_config.hpp"
 #include "../../layers/linear/fused_linear.hpp"
-#include "infinicore/nn/layer_norm.hpp"
-#include "infinicore/nn/module.hpp"
-#include "infinicore/tensor.hpp"
+#include "../../layers/normalization/layer_norm.hpp"
+#include "../../weights/weights.hpp"
+#include "runtime/tensor.hpp"
 
 #include <optional>
 #include <vector>
 
 namespace infinilm::models::minicpmv {
 
-class ResamplerAttention : public infinicore::nn::Module {
+class ResamplerAttention : public infinilm::weights::ModelWeights {
 public:
-    ResamplerAttention(size_t embed_dim,
+    ResamplerAttention(infinilm::runtime::Runtime &runtime, size_t embed_dim,
                        size_t num_heads,
-                       const infinicore::DataType &dtype,
-                       const infinicore::Device &device);
+                       const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &query,
-                               const infinicore::Tensor &key,
-                               const infinicore::Tensor &value) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &query,
+                                      const infinilm::runtime::Tensor &key,
+                                      const infinilm::runtime::Tensor &value) const;
 
 private:
     size_t embed_dim_;
@@ -28,24 +27,23 @@ private:
     size_t head_dim_;
     float scale_;
 
-    INFINICORE_NN_PARAMETER(in_proj_weight);
-    INFINICORE_NN_PARAMETER(in_proj_bias);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, out_proj);
+    infinilm::weights::Weight in_proj_weight_;
+    infinilm::weights::Weight in_proj_bias_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> out_proj_;
 };
 
-class Resampler : public infinicore::nn::Module {
+class Resampler : public infinilm::weights::ModelWeights {
 public:
-    Resampler(size_t num_queries,
+    Resampler(infinilm::runtime::Runtime &runtime, size_t num_queries,
               size_t embed_dim,
               size_t num_heads,
               size_t kv_dim,
               size_t image_size,
               size_t patch_size,
-              const infinicore::DataType &dtype,
-              const infinicore::Device &device);
+              const infinilm::runtime::DataType &dtype);
 
-    infinicore::Tensor forward(const infinicore::Tensor &x,
-                               const infinicore::Tensor &tgt_sizes) const;
+    infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &x,
+                                      const infinilm::runtime::Tensor &tgt_sizes) const;
 
 private:
     size_t num_queries_;
@@ -56,14 +54,14 @@ private:
     size_t patch_size_;
     bool use_kv_proj_;
 
-    INFINICORE_NN_PARAMETER(query);
-    INFINICORE_NN_PARAMETER(proj);
-    INFINICORE_NN_BUFFER(embedding_table);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, kv_proj);
-    INFINICORE_NN_MODULE(ResamplerAttention, attn);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_q);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_kv);
-    INFINICORE_NN_MODULE(infinicore::nn::LayerNorm, ln_post);
+    infinilm::weights::Weight query_;
+    infinilm::weights::Weight proj_;
+    infinilm::runtime::Tensor embedding_table_;
+    std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> kv_proj_;
+    std::shared_ptr<ResamplerAttention> attn_;
+    std::shared_ptr<infinilm::layers::LayerNorm> ln_q_;
+    std::shared_ptr<infinilm::layers::LayerNorm> ln_kv_;
+    std::shared_ptr<infinilm::layers::LayerNorm> ln_post_;
 };
 
 } // namespace infinilm::models::minicpmv
