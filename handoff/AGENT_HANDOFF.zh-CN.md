@@ -1,5 +1,7 @@
 # Agent 接手文档
 
+先读 [2026-10-22 最新补充](EXPERIMENT_UPDATE_20261022.zh-CN.md) 和实际 Slurm 状态。投机只按用户 decode 速度判优，排除 prefill；普通三模型总吞吐目标继续。组件通过不代表在线 target token 或性能通过。原子级日志是诊断，完整生成 token/EOS/重复及 owner/正常退出为模型验收要求。
+
 ## 形状组件后续（2026-10-21T01:08:20.875422+00:00）
 
 三维broadcast-batched M1组件3875发生invalid address/VMFault，一名worker SIGSEGV，Slurm FAILED1；无合格结果、没有接入模型。已保留失败源码及终态。相同节点8卡小型显存复制/同步随后全部通过，未做设备重置，不据此判断板卡故障。3883移除三维分支，只测试已有二维GEMM和sequential M1；其组件与独立CPU审计不能继承为模型修复或加速。GLM三节点已完成权重加载，各段约359–480秒，正在QA。

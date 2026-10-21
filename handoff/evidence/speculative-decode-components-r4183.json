@@ -1,0 +1,874 @@
+{
+  "recorded_UTC": "2026-10-21T15:48:43.597238+00:00",
+  "tested_InfiniLM": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+  "speculation_primary_metric": "Per-request useful committed decode tokens / individual decode walltime; excludes prefill, includes draft/verify/commit/replay/unhidden communication. B1 first, then individual users at B2/4/8/16. Aggregate/cards auxiliary for this experiment.",
+  "draft_component": {
+    "pinned_model": "RadixArk/Kimi-K3-DSpark",
+    "revision": "3c5bac301d9cf392706189d82ed947feca6c2f0f",
+    "weight_sha256": "ecd746459b4a603ce0d2c64f73935efead29bd651b14439b99e57ee8b41b77ca",
+    "source_target": "Two frozen first-block fixtures from historical3e0 target, not latest target acceptance evidence.",
+    "natural_block_proposals": 7,
+    "proposals_tested": [
+      4,
+      7,
+      8,
+      16
+    ],
+    "K16_status": "Untrained extrapolation, gold future available only15; cannot claim16 accepted.",
+    "all8_normal_owners": true,
+    "ordinary_draft_records": 2048,
+    "phase_records": 1536,
+    "graph_records": 4096,
+    "raw_logit_files_checked": 400,
+    "CPU_FP64_samples": 256,
+    "all_fused_proposal_IDs_equal_original_Torch": true,
+    "online_target_speedup_qualified": false,
+    "graph_scope": "Static512 prefix; changedanchor/noise inputs checked, graphs reset before ownedtensor cleanup. No advancing-target KV transaction, rollback, varying-length or online integration proof.",
+    "phase_summary": [
+      {
+        "batch": 1,
+        "proposals": 4,
+        "host_ms": 13.249365845695138,
+        "backbone_device_interval_ms": 8.139586925506592,
+        "LMhead_device_interval_ms": 1.7577580213546753,
+        "sequential_Markov_confidence_concat_device_interval_ms": 3.285995602607727
+      },
+      {
+        "batch": 1,
+        "proposals": 7,
+        "host_ms": 16.058207722380757,
+        "backbone_device_interval_ms": 8.272307872772217,
+        "LMhead_device_interval_ms": 1.9720770120620728,
+        "sequential_Markov_confidence_concat_device_interval_ms": 5.737191915512085
+      },
+      {
+        "batch": 1,
+        "proposals": 8,
+        "host_ms": 16.88828389160335,
+        "backbone_device_interval_ms": 8.276470184326172,
+        "LMhead_device_interval_ms": 1.9763960242271423,
+        "sequential_Markov_confidence_concat_device_interval_ms": 6.550071477890015
+      },
+      {
+        "batch": 1,
+        "proposals": 16,
+        "host_ms": 23.475138936191797,
+        "backbone_device_interval_ms": 8.324548721313477,
+        "LMhead_device_interval_ms": 2.0216764211654663,
+        "sequential_Markov_confidence_concat_device_interval_ms": 13.050381660461426
+      },
+      {
+        "batch": 2,
+        "proposals": 4,
+        "host_ms": 14.09851759672165,
+        "backbone_device_interval_ms": 8.374468803405762,
+        "LMhead_device_interval_ms": 1.9756764769554138,
+        "sequential_Markov_confidence_concat_device_interval_ms": 3.6737544536590576
+      },
+      {
+        "batch": 2,
+        "proposals": 7,
+        "host_ms": 16.94740424863994,
+        "backbone_device_interval_ms": 8.414708614349365,
+        "LMhead_device_interval_ms": 2.0187970399856567,
+        "sequential_Markov_confidence_concat_device_interval_ms": 6.411190509796143
+      },
+      {
+        "batch": 2,
+        "proposals": 8,
+        "host_ms": 17.846685834228992,
+        "backbone_device_interval_ms": 8.412309646606445,
+        "LMhead_device_interval_ms": 2.020316958427429,
+        "sequential_Markov_confidence_concat_device_interval_ms": 7.321909189224243
+      },
+      {
+        "batch": 2,
+        "proposals": 16,
+        "host_ms": 25.24214261211455,
+        "backbone_device_interval_ms": 8.483907699584961,
+        "LMhead_device_interval_ms": 2.0393569469451904,
+        "sequential_Markov_confidence_concat_device_interval_ms": 14.613579273223877
+      },
+      {
+        "batch": 4,
+        "proposals": 4,
+        "host_ms": 14.622900867834687,
+        "backbone_device_interval_ms": 8.417509078979492,
+        "LMhead_device_interval_ms": 2.02079701423645,
+        "sequential_Markov_confidence_concat_device_interval_ms": 4.080394506454468
+      },
+      {
+        "batch": 4,
+        "proposals": 7,
+        "host_ms": 17.764800461009145,
+        "backbone_device_interval_ms": 8.504948139190674,
+        "LMhead_device_interval_ms": 2.034477472305298,
+        "sequential_Markov_confidence_concat_device_interval_ms": 7.114630699157715
+      },
+      {
+        "batch": 4,
+        "proposals": 8,
+        "host_ms": 18.747584661468863,
+        "backbone_device_interval_ms": 8.504388809204102,
+        "LMhead_device_interval_ms": 2.041437029838562,
+        "sequential_Markov_confidence_concat_device_interval_ms": 8.121028423309326
+      },
+      {
+        "batch": 4,
+        "proposals": 16,
+        "host_ms": 26.993874227628112,
+        "backbone_device_interval_ms": 8.65102767944336,
+        "LMhead_device_interval_ms": 2.067596912384033,
+        "sequential_Markov_confidence_concat_device_interval_ms": 16.18653678894043
+      },
+      {
+        "batch": 8,
+        "proposals": 4,
+        "host_ms": 12.5517169944942,
+        "backbone_device_interval_ms": 8.586627960205078,
+        "LMhead_device_interval_ms": 2.0379974842071533,
+        "sequential_Markov_confidence_concat_device_interval_ms": 1.8637574911117554
+      },
+      {
+        "batch": 8,
+        "proposals": 7,
+        "host_ms": 14.353575417771935,
+        "backbone_device_interval_ms": 8.996066093444824,
+        "LMhead_device_interval_ms": 2.048156499862671,
+        "sequential_Markov_confidence_concat_device_interval_ms": 3.2359955310821533
+      },
+      {
+        "batch": 8,
+        "proposals": 8,
+        "host_ms": 14.824609737843275,
+        "backbone_device_interval_ms": 8.981025695800781,
+        "LMhead_device_interval_ms": 2.0697569847106934,
+        "sequential_Markov_confidence_concat_device_interval_ms": 3.6876745223999023
+      },
+      {
+        "batch": 8,
+        "proposals": 16,
+        "host_ms": 21.675192518159747,
+        "backbone_device_interval_ms": 11.434703350067139,
+        "LMhead_device_interval_ms": 2.774396061897278,
+        "sequential_Markov_confidence_concat_device_interval_ms": 7.3672685623168945
+      }
+    ],
+    "graph_summary": [
+      {
+        "batch": 1,
+        "proposals": 4,
+        "graph": false,
+        "host_ms": 11.251052957959473,
+        "device_ms": 11.216184377670288
+      },
+      {
+        "batch": 1,
+        "proposals": 4,
+        "graph": true,
+        "host_ms": 7.21039017662406,
+        "device_ms": 7.177990198135376
+      },
+      {
+        "batch": 1,
+        "proposals": 7,
+        "graph": false,
+        "host_ms": 12.47196493204683,
+        "device_ms": 12.43861985206604
+      },
+      {
+        "batch": 1,
+        "proposals": 7,
+        "graph": true,
+        "host_ms": 8.366934140212834,
+        "device_ms": 8.331547737121582
+      },
+      {
+        "batch": 1,
+        "proposals": 8,
+        "graph": false,
+        "host_ms": 12.738939840346575,
+        "device_ms": 12.702540874481201
+      },
+      {
+        "batch": 1,
+        "proposals": 8,
+        "graph": true,
+        "host_ms": 8.515245048329234,
+        "device_ms": 8.482708930969238
+      },
+      {
+        "batch": 1,
+        "proposals": 16,
+        "graph": false,
+        "host_ms": 14.73041984718293,
+        "device_ms": 14.694260835647583
+      },
+      {
+        "batch": 1,
+        "proposals": 16,
+        "graph": true,
+        "host_ms": 10.18623262643814,
+        "device_ms": 10.151664972305298
+      },
+      {
+        "batch": 2,
+        "proposals": 4,
+        "graph": false,
+        "host_ms": 13.172163162380457,
+        "device_ms": 13.13494062423706
+      },
+      {
+        "batch": 2,
+        "proposals": 4,
+        "graph": true,
+        "host_ms": 9.144424460828304,
+        "device_ms": 9.108786821365356
+      },
+      {
+        "batch": 2,
+        "proposals": 7,
+        "graph": false,
+        "host_ms": 14.81928548309952,
+        "device_ms": 14.7807776927948
+      },
+      {
+        "batch": 2,
+        "proposals": 7,
+        "graph": true,
+        "host_ms": 10.672248899936676,
+        "device_ms": 10.63526463508606
+      },
+      {
+        "batch": 2,
+        "proposals": 8,
+        "graph": false,
+        "host_ms": 15.34761965740472,
+        "device_ms": 15.309937715530396
+      },
+      {
+        "batch": 2,
+        "proposals": 8,
+        "graph": true,
+        "host_ms": 11.178720160387456,
+        "device_ms": 11.14170503616333
+      },
+      {
+        "batch": 2,
+        "proposals": 16,
+        "graph": false,
+        "host_ms": 19.600947038270533,
+        "device_ms": 19.558491230010986
+      },
+      {
+        "batch": 2,
+        "proposals": 16,
+        "graph": true,
+        "host_ms": 15.383482328616083,
+        "device_ms": 15.34517765045166
+      },
+      {
+        "batch": 4,
+        "proposals": 4,
+        "graph": false,
+        "host_ms": 14.079117216169834,
+        "device_ms": 14.040100336074829
+      },
+      {
+        "batch": 4,
+        "proposals": 4,
+        "graph": true,
+        "host_ms": 10.366281610913575,
+        "device_ms": 10.329506158828735
+      },
+      {
+        "batch": 4,
+        "proposals": 7,
+        "graph": false,
+        "host_ms": 16.29890757612884,
+        "device_ms": 16.261216640472412
+      },
+      {
+        "batch": 4,
+        "proposals": 7,
+        "graph": true,
+        "host_ms": 12.691287673078477,
+        "device_ms": 12.65686297416687
+      },
+      {
+        "batch": 4,
+        "proposals": 8,
+        "graph": false,
+        "host_ms": 17.06004934385419,
+        "device_ms": 17.012575149536133
+      },
+      {
+        "batch": 4,
+        "proposals": 8,
+        "graph": true,
+        "host_ms": 13.229001895524561,
+        "device_ms": 13.193861484527588
+      },
+      {
+        "batch": 4,
+        "proposals": 16,
+        "graph": false,
+        "host_ms": 22.581497090868652,
+        "device_ms": 22.546446323394775
+      },
+      {
+        "batch": 4,
+        "proposals": 16,
+        "graph": true,
+        "host_ms": 19.356086966581643,
+        "device_ms": 19.321929454803467
+      },
+      {
+        "batch": 8,
+        "proposals": 4,
+        "graph": false,
+        "host_ms": 16.228173044510186,
+        "device_ms": 16.190256118774414
+      },
+      {
+        "batch": 8,
+        "proposals": 4,
+        "graph": true,
+        "host_ms": 13.38820590171963,
+        "device_ms": 13.349859952926636
+      },
+      {
+        "batch": 8,
+        "proposals": 7,
+        "graph": false,
+        "host_ms": 19.953534239903092,
+        "device_ms": 19.912373542785645
+      },
+      {
+        "batch": 8,
+        "proposals": 7,
+        "graph": true,
+        "host_ms": 17.52370793838054,
+        "device_ms": 17.488333702087402
+      },
+      {
+        "batch": 8,
+        "proposals": 8,
+        "graph": false,
+        "host_ms": 21.075580385513604,
+        "device_ms": 21.033770084381104
+      },
+      {
+        "batch": 8,
+        "proposals": 8,
+        "graph": true,
+        "host_ms": 18.649904523044825,
+        "device_ms": 18.61224937438965
+      },
+      {
+        "batch": 8,
+        "proposals": 16,
+        "graph": false,
+        "host_ms": 32.84352086484432,
+        "device_ms": 32.80159378051758
+      },
+      {
+        "batch": 8,
+        "proposals": 16,
+        "graph": true,
+        "host_ms": 30.797317740507424,
+        "device_ms": 30.76299285888672
+      }
+    ],
+    "unchanged_Torch_cache_control": [
+      {
+        "batch": 1,
+        "proposals": 4,
+        "prefix_cache": false,
+        "host_ms_median": 13.595363590866327,
+        "device_ms_median": 13.560620307922363
+      },
+      {
+        "batch": 1,
+        "proposals": 4,
+        "prefix_cache": true,
+        "host_ms_median": 13.36431223899126,
+        "device_ms_median": 13.329100608825684
+      },
+      {
+        "batch": 1,
+        "proposals": 7,
+        "prefix_cache": false,
+        "host_ms_median": 16.708932351320982,
+        "device_ms_median": 16.670056343078613
+      },
+      {
+        "batch": 1,
+        "proposals": 7,
+        "prefix_cache": true,
+        "host_ms_median": 16.430590068921447,
+        "device_ms_median": 16.395817756652832
+      },
+      {
+        "batch": 1,
+        "proposals": 8,
+        "prefix_cache": false,
+        "host_ms_median": 17.58204447105527,
+        "device_ms_median": 17.546937942504883
+      },
+      {
+        "batch": 1,
+        "proposals": 8,
+        "prefix_cache": true,
+        "host_ms_median": 17.35345250926912,
+        "device_ms_median": 17.313655853271484
+      },
+      {
+        "batch": 1,
+        "proposals": 16,
+        "prefix_cache": false,
+        "host_ms_median": 24.43237672559917,
+        "device_ms_median": 24.39380645751953
+      },
+      {
+        "batch": 1,
+        "proposals": 16,
+        "prefix_cache": true,
+        "host_ms_median": 24.321805918589234,
+        "device_ms_median": 24.27908420562744
+      },
+      {
+        "batch": 2,
+        "proposals": 4,
+        "prefix_cache": false,
+        "host_ms_median": 16.257474198937416,
+        "device_ms_median": 16.21469497680664
+      },
+      {
+        "batch": 2,
+        "proposals": 4,
+        "prefix_cache": true,
+        "host_ms_median": 14.554166002199054,
+        "device_ms_median": 14.509498119354248
+      },
+      {
+        "batch": 2,
+        "proposals": 7,
+        "prefix_cache": false,
+        "host_ms_median": 19.25311191007495,
+        "device_ms_median": 19.20885181427002
+      },
+      {
+        "batch": 2,
+        "proposals": 7,
+        "prefix_cache": true,
+        "host_ms_median": 17.750010127201676,
+        "device_ms_median": 17.705814361572266
+      },
+      {
+        "batch": 2,
+        "proposals": 8,
+        "prefix_cache": false,
+        "host_ms_median": 20.14361904002726,
+        "device_ms_median": 20.105971336364746
+      },
+      {
+        "batch": 2,
+        "proposals": 8,
+        "prefix_cache": true,
+        "host_ms_median": 18.675823230296373,
+        "device_ms_median": 18.63701343536377
+      },
+      {
+        "batch": 2,
+        "proposals": 16,
+        "prefix_cache": false,
+        "host_ms_median": 27.81650726683438,
+        "device_ms_median": 27.774840354919434
+      },
+      {
+        "batch": 2,
+        "proposals": 16,
+        "prefix_cache": true,
+        "host_ms_median": 26.08697907999158,
+        "device_ms_median": 26.042202949523926
+      },
+      {
+        "batch": 4,
+        "proposals": 4,
+        "prefix_cache": false,
+        "host_ms_median": 21.09355083666742,
+        "device_ms_median": 21.055088996887207
+      },
+      {
+        "batch": 4,
+        "proposals": 4,
+        "prefix_cache": true,
+        "host_ms_median": 15.505118062719703,
+        "device_ms_median": 15.464457511901855
+      },
+      {
+        "batch": 4,
+        "proposals": 7,
+        "prefix_cache": false,
+        "host_ms_median": 24.47410230524838,
+        "device_ms_median": 24.429404258728027
+      },
+      {
+        "batch": 4,
+        "proposals": 7,
+        "prefix_cache": true,
+        "host_ms_median": 18.611717270687222,
+        "device_ms_median": 18.57285213470459
+      },
+      {
+        "batch": 4,
+        "proposals": 8,
+        "prefix_cache": false,
+        "host_ms_median": 25.409261928871274,
+        "device_ms_median": 25.36636257171631
+      },
+      {
+        "batch": 4,
+        "proposals": 8,
+        "prefix_cache": true,
+        "host_ms_median": 19.67104198411107,
+        "device_ms_median": 19.627012252807617
+      },
+      {
+        "batch": 4,
+        "proposals": 16,
+        "prefix_cache": false,
+        "host_ms_median": 34.39852106384933,
+        "device_ms_median": 34.34971046447754
+      },
+      {
+        "batch": 4,
+        "proposals": 16,
+        "prefix_cache": true,
+        "host_ms_median": 27.85146562382579,
+        "device_ms_median": 27.8037166595459
+      },
+      {
+        "batch": 8,
+        "proposals": 4,
+        "prefix_cache": false,
+        "host_ms_median": 26.069046230986714,
+        "device_ms_median": 26.032283782958984
+      },
+      {
+        "batch": 8,
+        "proposals": 4,
+        "prefix_cache": true,
+        "host_ms_median": 13.442318886518478,
+        "device_ms_median": 13.39686107635498
+      },
+      {
+        "batch": 8,
+        "proposals": 7,
+        "prefix_cache": false,
+        "host_ms_median": 28.16467802040279,
+        "device_ms_median": 28.12339496612549
+      },
+      {
+        "batch": 8,
+        "proposals": 7,
+        "prefix_cache": true,
+        "host_ms_median": 15.084972139447927,
+        "device_ms_median": 15.047738075256348
+      },
+      {
+        "batch": 8,
+        "proposals": 8,
+        "prefix_cache": false,
+        "host_ms_median": 28.54750119149685,
+        "device_ms_median": 28.506037712097168
+      },
+      {
+        "batch": 8,
+        "proposals": 8,
+        "prefix_cache": true,
+        "host_ms_median": 15.521854860708117,
+        "device_ms_median": 15.477415561676025
+      },
+      {
+        "batch": 8,
+        "proposals": 16,
+        "prefix_cache": false,
+        "host_ms_median": 35.195556934922934,
+        "device_ms_median": 35.149070739746094
+      },
+      {
+        "batch": 8,
+        "proposals": 16,
+        "prefix_cache": true,
+        "host_ms_median": 22.35262282192707,
+        "device_ms_median": 22.31476402282715
+      }
+    ]
+  },
+  "Kimi_target": {
+    "serial_MLA_modes7_8_full128_tokens_passed": false,
+    "first_output_token_difference": 41,
+    "normal_owned_workers_closed": 32,
+    "QA_and_paired_AR_before_after_passed": true,
+    "scope": "Fullmodel rootdiagnosis candidate, no speculative speedup adopted. Mode6 firstdifference33; mode7/8 movesfirstdifference41, all raw traces repeat.",
+    "next_recorded_raw_difference": {
+      "layer": 3,
+      "point": "mla_output",
+      "different_BF16_elements": 4,
+      "scope": "Input/gatedattention exact atrecorded rank0/6. LocalGEMM replay provedM2diffbeforecollective, sequentialM1 exact onthese2realshards with4replicas each. Doesnotprove all8TP collective orwholemodel repair."
+    }
+  },
+  "GLM_capacity": {
+    "PP": 2,
+    "TP": 8,
+    "layer_bounds": [
+      0,
+      38,
+      78
+    ],
+    "context_capacity": 640,
+    "loading_gate_GiB": 8,
+    "runtime_reserve_GiB": 6,
+    "constructor_only_no_weights": true,
+    "trials": [
+      {
+        "rows": 8,
+        "qualified_component": true,
+        "loading_gate_all16": true,
+        "stage_memory": [
+          {
+            "stage": 0,
+            "min_free_GiB": 16.23828125,
+            "max_free_GiB": 16.37109375
+          },
+          {
+            "stage": 1,
+            "min_free_GiB": 11.9453125,
+            "max_free_GiB": 12.078125
+          }
+        ],
+        "logical_cache_category_GiB_by_stage": [
+          {
+            "stage": 0,
+            "category_GiB": {
+              "indexer": 0.013427734375,
+              "latent": 0.185546875,
+              "projected_key": 0.7421875,
+              "projected_value": 0.7421875,
+              "rotary": 0.023193359375
+            },
+            "weights_GiB": 42.811361491680145
+          },
+          {
+            "stage": 1,
+            "category_GiB": {
+              "indexer": 0.01220703125,
+              "latent": 0.1953125,
+              "projected_key": 0.78125,
+              "projected_value": 0.78125,
+              "rotary": 0.0244140625
+            },
+            "weights_GiB": 46.91693913936615
+          }
+        ]
+      },
+      {
+        "rows": 16,
+        "qualified_component": true,
+        "loading_gate_all16": true,
+        "stage_memory": [
+          {
+            "stage": 0,
+            "min_free_GiB": 13.5078125,
+            "max_free_GiB": 13.640625
+          },
+          {
+            "stage": 1,
+            "min_free_GiB": 9.07421875,
+            "max_free_GiB": 9.20703125
+          }
+        ],
+        "logical_cache_category_GiB_by_stage": [
+          {
+            "stage": 0,
+            "category_GiB": {
+              "indexer": 0.02685546875,
+              "latent": 0.37109375,
+              "projected_key": 1.484375,
+              "projected_value": 1.484375,
+              "rotary": 0.04638671875
+            },
+            "weights_GiB": 42.811361491680145
+          },
+          {
+            "stage": 1,
+            "category_GiB": {
+              "indexer": 0.0244140625,
+              "latent": 0.390625,
+              "projected_key": 1.5625,
+              "projected_value": 1.5625,
+              "rotary": 0.048828125
+            },
+            "weights_GiB": 46.91693913936615
+          }
+        ]
+      },
+      {
+        "rows": 24,
+        "qualified_component": true,
+        "loading_gate_all16": true,
+        "stage_memory": [
+          {
+            "stage": 0,
+            "min_free_GiB": 13.5078125,
+            "max_free_GiB": 13.640625
+          },
+          {
+            "stage": 1,
+            "min_free_GiB": 9.07421875,
+            "max_free_GiB": 9.20703125
+          }
+        ],
+        "logical_cache_category_GiB_by_stage": [
+          {
+            "stage": 0,
+            "category_GiB": {
+              "indexer": 0.040283203125,
+              "latent": 0.556640625,
+              "projected_key": 2.2265625,
+              "projected_value": 2.2265625,
+              "rotary": 0.069580078125
+            },
+            "weights_GiB": 42.811361491680145
+          },
+          {
+            "stage": 1,
+            "category_GiB": {
+              "indexer": 0.03662109375,
+              "latent": 0.5859375,
+              "projected_key": 2.34375,
+              "projected_value": 2.34375,
+              "rotary": 0.0732421875
+            },
+            "weights_GiB": 46.91693913936615
+          }
+        ]
+      },
+      {
+        "rows": 32,
+        "qualified_component": true,
+        "loading_gate_all16": false,
+        "stage_memory": [
+          {
+            "stage": 0,
+            "min_free_GiB": 8.046875,
+            "max_free_GiB": 8.1796875
+          },
+          {
+            "stage": 1,
+            "min_free_GiB": 3.33203125,
+            "max_free_GiB": 3.46484375
+          }
+        ],
+        "logical_cache_category_GiB_by_stage": [
+          {
+            "stage": 0,
+            "category_GiB": {
+              "indexer": 0.0537109375,
+              "latent": 0.7421875,
+              "projected_key": 2.96875,
+              "projected_value": 2.96875,
+              "rotary": 0.0927734375
+            },
+            "weights_GiB": 42.811361491680145
+          },
+          {
+            "stage": 1,
+            "category_GiB": {
+              "indexer": 0.048828125,
+              "latent": 0.78125,
+              "projected_key": 3.125,
+              "projected_value": 3.125,
+              "rotary": 0.09765625
+            },
+            "weights_GiB": 46.91693913936615
+          }
+        ]
+      }
+    ],
+    "all_actual_IBext_v8": true,
+    "scope": "32/24/16/8 rows actualconstructor+owner+source+network audit. Differentnodes descriptivecomparison. Original24rows wholemodel scan4167 submitted afterall16loadinggatepassed. No newmodelrateadopted."
+  },
+  "Deep_long512": {
+    "cards": 8,
+    "input": 512,
+    "max_output": 512,
+    "decode_cohort": 16,
+    "B16_decode_median": 32.75980143695651,
+    "B32_decode_median": 35.05656932370742,
+    "B64_decode_median": 37.21899089745692,
+    "B16_including_prefill_median": 24.717066685636553,
+    "B32_including_prefill_median": 26.57201195677428,
+    "B64_including_prefill_median": 27.991524444608917,
+    "qualification": "Four full frozen512-ID/EOS/repeat/finite/CPUargmax/normal8owner/Slurm0 repetitions each, independent4085audit. B32/B64 use sequentialcohorts16; originalwide32/64 decode stillfailed. NotHTTP orcausalcodegain. OnlyattentionFP32 SUM, nativeFFN/indexer, noF64AR."
+  },
+  "source_files": {
+    "audit_dspark_fused_r4165.py": {
+      "sha256": "82f9c1e223e7ba570e949e0f200b50bec5c057d7967f5ea8b7cceab752528f73",
+      "bytes": 10201
+    },
+    "audit_dspark_profile_r4156.py": {
+      "sha256": "521c57fea69c10c6e2a4d988dec330125281e781c8aa17d196774d3812973363",
+      "bytes": 8070
+    },
+    "dspark_fused_r4164_inside.sh": {
+      "sha256": "60ffa264985d5d516d931b73ccd282c133b9d25824be4d9edd3bfc9b2c1b4110",
+      "bytes": 546
+    },
+    "dspark_markov_r4163.hip": {
+      "sha256": "1888bf051dd256132128e95ef0cf900d79a0de3b65f85ea586b0ee689114c8a9",
+      "bytes": 2155
+    },
+    "run_dspark_fused_r4164.py": {
+      "sha256": "4ade4349fd72c329ddc0475640c068a4138c3a0e9c5ad0f445ba71398cf37044",
+      "bytes": 22247
+    },
+    "run_dspark_profile_r4154.py": {
+      "sha256": "a730f11a71a05555c6c342558e2243c7b54344640313eea3e11cb12efb08a94a",
+      "bytes": 19974
+    }
+  },
+  "distribution_note": "Sourcecode copies normalizedCRLFtoLF forLinux/Git. Originalsource_files SHA retained; distributed_files tracks actualpublished bytes. No algorithm change.",
+  "distributed_files": {
+    "audit_dspark_fused_r4165.py": {
+      "sha256": "e54772c73ee92623b0e68d42f49bac867e9351af66080ef790ab8f34d178c48f",
+      "bytes": 10119
+    },
+    "audit_dspark_profile_r4156.py": {
+      "sha256": "72eabcd22f99d9471d05fd54b136092cb7262c6a3f3081803c80e0ecb1c9dd81",
+      "bytes": 8008
+    },
+    "dspark_fused_r4164_inside.sh": {
+      "sha256": "60ffa264985d5d516d931b73ccd282c133b9d25824be4d9edd3bfc9b2c1b4110",
+      "bytes": 546
+    },
+    "dspark_markov_r4163.hip": {
+      "sha256": "1888bf051dd256132128e95ef0cf900d79a0de3b65f85ea586b0ee689114c8a9",
+      "bytes": 2155
+    },
+    "README.md": {
+      "sha256": "23c05633dd466f85fff74eb10076a4d0e2793a20b4a65ec319262ce96c52b82d",
+      "bytes": 1492
+    },
+    "run_dspark_fused_r4164.py": {
+      "sha256": "66612cbf0460aac82a34548df0074521e08e27f7363c8da6066ded42440ef99e",
+      "bytes": 22092
+    },
+    "run_dspark_profile_r4154.py": {
+      "sha256": "0195d224b9bebc92089a487c6d4bb2c73486b1028017275604a3fd42e0dc7120",
+      "bytes": 19830
+    }
+  }
+}
