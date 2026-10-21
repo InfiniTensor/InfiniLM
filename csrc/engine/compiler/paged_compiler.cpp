@@ -1,6 +1,8 @@
 #include "paged_compiler.hpp"
+#include "../compiled_prefill_flags.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -209,6 +211,9 @@ void PagedCompiler::compile() {
             // Capture must not start with stale state from previous attempts.
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+            // Decode FULL capture: FA in-graph when INFINI_FA_INGRAPH=decode|both.
+            infinicore::context::InferencePhaseGuard phase_guard(
+                infinicore::context::InferencePhase::Decode);
             GraphRecordingGuard recording;
             auto output = model_->forward(input);
             auto graph = recording.finish();
@@ -332,6 +337,31 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             hidden_states});
 
     return std::make_tuple(graph, shared_output);
+}
+
+void PagedCompiler::record_graph_hit(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_hits_;
+    } else {
+        ++decode_graph_hits_;
+    }
+}
+
+void PagedCompiler::record_graph_miss(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_misses_;
+    } else {
+        ++decode_graph_misses_;
+    }
+}
+
+PagedCompiler::GraphStats PagedCompiler::graph_stats() const {
+    return GraphStats{
+        prefill_graph_hits_,
+        prefill_graph_misses_,
+        decode_graph_hits_,
+        decode_graph_misses_,
+    };
 }
 
 } // namespace infinilm::engine

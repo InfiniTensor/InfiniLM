@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -73,6 +74,12 @@ public:
     void run() const;
 
     const LastRunProfile &last_run_profile() const { return last_run_profile_; }
+
+    /// Number of capture-safe segments that own a device graph exec.
+    size_t device_segment_count() const;
+
+    /// Bytes retained by capture arena (0 when arena accounting unavailable).
+    size_t capture_arena_bytes() const { return 0; }
 
 protected:
     void add_operator(std::shared_ptr<GraphOperator> op);

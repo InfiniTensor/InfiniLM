@@ -5,6 +5,7 @@
 #include "infinicore/ops/moe_fused_dense.hpp"
 
 #include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -89,11 +90,6 @@ CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
                        && !infinicore::context::isGraphRecording()
                        && num_tokens > kQyChunkTokens
                        && hidden->shape().size() == 2;
-    std::cerr << "moe_run device=" << static_cast<int>(hidden ? hidden->device().type() : infinicore::Device::Type::kCpu)
-              << " m=" << num_tokens
-              << " ndim=" << (hidden ? hidden->shape().size() : 0)
-              << " chunk=" << chunk_qy << std::endl;
-
     if (!chunk_qy) {
         auto runner_input = prepare_runner_input(dispatch_output, workspace);
         auto runner_output = run_fused_core(runner_input, weights, workspace);

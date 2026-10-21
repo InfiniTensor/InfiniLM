@@ -254,6 +254,16 @@ void Graph::Segment::run() const {
 Graph::Graph() {
 }
 
+size_t Graph::device_segment_count() const {
+    size_t n = 0;
+    for (const auto &segment : segments_) {
+        if (segment && segment->capture_safe && segment->has_device_exec()) {
+            ++n;
+        }
+    }
+    return n;
+}
+
 void Graph::retain_runtime(std::shared_ptr<::infinicore::Runtime> runtime,
                            std::shared_ptr<void> allocation_lease) {
     runtime_lease_ = std::move(runtime);

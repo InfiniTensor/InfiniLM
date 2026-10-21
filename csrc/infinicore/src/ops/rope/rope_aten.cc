@@ -12,26 +12,11 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include <chrono>
 #include <cstdio>
-#include <cstdlib>
 #include <stdexcept>
 
 namespace infinicore::op::rope_impl::aten {
 namespace {
-
-bool stream_is_capturing(cudaStream_t stream) {
-    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
-    auto st = cudaStreamIsCapturing(stream, &status);
-    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
-}
-
-cudaError_t sync_unless_capturing(cudaStream_t stream) {
-    if (stream_is_capturing(stream)) {
-        return cudaGetLastError();
-    }
-    return cudaStreamSynchronize(stream);
-}
 
 // QY FA+paged long-prefill RoPE: Denglin ATen index_select/gather and strided
 // copy_/mul on gated as_strided Q/K hit LaunchOutOfResources. Pack/unpack with
@@ -39,41 +24,7 @@ cudaError_t sync_unless_capturing(cudaStream_t stream) {
 // gather cos/sin via cache-table slice.
 constexpr int64_t kQyRopeChunkTokens = 128;
 
-bool host_timer_enabled() {
-    static int cached = -1;
-    if (cached < 0) {
-        const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
-        const char *env2 = std::getenv("INFINI_ROPE_HOST_TIMER");
-        cached = ((env != nullptr && env[0] == '1' && env[1] == '\0') || (env2 != nullptr && env2[0] == '1' && env2[1] == '\0'))
-                   ? 1
-                   : 0;
-    }
-    return cached == 1;
-}
 
-struct HostTimer {
-    const char *op;
-    int64_t m;
-    std::chrono::steady_clock::time_point t0;
-    bool active;
-
-    HostTimer(const char *op_name, int64_t m_val)
-        : op(op_name), m(m_val), active(host_timer_enabled()) {
-        if (active) {
-            t0 = std::chrono::steady_clock::now();
-        }
-    }
-
-    ~HostTimer() {
-        if (!active) {
-            return;
-        }
-        auto t1 = std::chrono::steady_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        std::fprintf(stderr, "host_timer op=%s ms=%.3f m=%lld\n", op, ms,
-                     static_cast<long long>(m));
-    }
-};
 
 struct PlannedMeta {
     Tensor x_out;
@@ -156,26 +107,6 @@ at::Tensor gather_cache_rows(const at::Tensor &table, const at::Tensor &pos_chun
     return out;
 }
 
-void log_rope_layout_once(const at::Tensor &x) {
-    static bool logged = false;
-    if (logged || !host_timer_enabled()) {
-        return;
-    }
-    logged = true;
-    std::fprintf(stderr,
-                 "rope_layout dim=%ld sizes=[", static_cast<long>(x.dim()));
-    for (int64_t i = 0; i < x.dim(); ++i) {
-        std::fprintf(stderr, "%ld%s", static_cast<long>(x.size(i)),
-                     (i + 1 < x.dim()) ? "," : "");
-    }
-    std::fprintf(stderr, "] strides=[");
-    for (int64_t i = 0; i < x.dim(); ++i) {
-        std::fprintf(stderr, "%ld%s", static_cast<long>(x.stride(i)),
-                     (i + 1 < x.dim()) ? "," : "");
-    }
-    std::fprintf(stderr, "] contig=%d\n", x.is_contiguous() ? 1 : 0);
-}
-
 // Pack strided [seq, heads, dim] (or [seq, dim]) into contiguous via QY kernel.
 void pack_head_vectors(const at::Tensor &src, at::Tensor &dst, cudaStream_t stream) {
     INFINICORE_ASSERT(src.sizes() == dst.sizes());
@@ -188,7 +119,6 @@ void pack_head_vectors(const at::Tensor &src, at::Tensor &dst, cudaStream_t stre
                         stream);
         return;
     }
-    log_rope_layout_once(src);
     const int elem = static_cast<int>(src.element_size());
     const int64_t dim = src.size(-1);
     INFINICORE_ASSERT(src.stride(-1) == 1);
@@ -277,7 +207,6 @@ void run(void *planned_meta) {
     using namespace ::infinicore::adaptor;
     set_aten_stream_to_infinicore();
 
-    HostTimer timer("rope", static_cast<int64_t>(p->x->size(0)));
 
     auto x = to_aten_tensor(p->x);
     auto pos = to_aten_tensor(p->pos).to(at::kLong).reshape({-1}).contiguous();
@@ -301,7 +230,6 @@ void run(void *planned_meta) {
     at::Tensor cos_use = cos_table;
     at::Tensor pos_use = pos;
     if (!sin_table.is_contiguous() || !cos_table.is_contiguous()) {
-        HostTimer gather_timer("rope_gather", seq_len);
         sin_use = gather_cache_rows(sin_table, pos);
         cos_use = gather_cache_rows(cos_table, pos);
         // Remap positions to [0..seq) against gathered rows.
@@ -355,46 +283,31 @@ void run(void *planned_meta) {
         }
     }
     if (use_strided) {
-        HostTimer rot_timer("rope_rot", seq_len);
         ::infini::ops::qy::rope_strided_launch(
             out.data_ptr(), x.data_ptr(), pos_use.data_ptr<int64_t>(),
             sin_use.data_ptr(), cos_use.data_ptr(),
             static_cast<size_t>(seq_len), static_cast<size_t>(nhead),
             static_cast<size_t>(head_dim), s0, s1, /*stride2=*/1, algo_tag,
             dtype_tag, reinterpret_cast<void *>(stream));
-        if (host_timer_enabled()) {
-            sync_unless_capturing(stream);
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(std::string("QY rope_strided launch: ") +
-                                         cudaGetErrorString(err));
-            }
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(std::string("QY rope_strided launch: ") +
+                                     cudaGetErrorString(err));
         }
     } else {
         // Legacy pack → contiguous rotate → unpack.
         at::Tensor x_contig =
             x.is_contiguous() ? x : at::empty(x.sizes(), x.options());
         if (!x.is_contiguous()) {
-            HostTimer pack_timer("rope_pack", seq_len);
             pack_head_vectors(x, x_contig, stream);
-            if (host_timer_enabled()) {
-                sync_unless_capturing(stream);
-            }
         }
-        HostTimer rot_timer("rope_rot", seq_len);
         auto rotated = rotate_contig_gpu(x_contig, pos_use, sin_use, cos_use,
                                          p->algo, dtype_tag, stream);
-        HostTimer unpack_timer("rope_unpack", seq_len);
         unpack_head_vectors(rotated, out, stream);
-        if (host_timer_enabled()) {
-            sync_unless_capturing(stream);
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(std::string("QY rope_unpack launch: ") +
-                                         cudaGetErrorString(err));
-            }
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(std::string("QY rope_unpack launch: ") +
+                                     cudaGetErrorString(err));
         }
     }
 

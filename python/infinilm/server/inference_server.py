@@ -195,6 +195,12 @@ class InferenceServer:
 
     def start(self):
         """Start the HTTP server."""
+        try:
+            from infinilm.compile.env import apply_cudagraph_policy_env
+
+            apply_cudagraph_policy_env()
+        except Exception as exc:  # noqa: BLE001 — best-effort policy expand
+            logger.debug("apply_cudagraph_policy_env skipped: %s", exc)
         app = self._create_app()
         logger.info(f"Starting API Server at {self.host}:{self.port}...")
         uvicorn.run(app, host=self.host, port=self.port)

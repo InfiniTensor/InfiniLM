@@ -1,5 +1,6 @@
 #include "infinicore/ops/mha_kvcache.hpp"
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 
 #include <cstdio>
 
@@ -186,6 +187,7 @@ MhaKVCache::MhaKVCache(Tensor out,
                        float scale)
     : device_graph_capture_safe_(
           context::isGraphRecording()
+          && context::faInGraphAllowed()
           && supports_device_graph_capture(
               out,
               q,

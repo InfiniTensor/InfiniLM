@@ -10,62 +10,12 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include <chrono>
 #include <cstdint>
-#include <cstdlib>
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 
 namespace infinicore::op::moe_topk_sigmoid_impl::aten {
 namespace {
-
-bool stream_is_capturing(cudaStream_t stream) {
-    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
-    auto st = cudaStreamIsCapturing(stream, &status);
-    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
-}
-
-cudaError_t sync_unless_capturing(cudaStream_t stream) {
-    if (stream_is_capturing(stream)) {
-        return cudaGetLastError();
-    }
-    return cudaStreamSynchronize(stream);
-}
-
-
-bool host_timer_enabled() {
-    static int cached = -1;
-    if (cached < 0) {
-        const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
-        cached = (env != nullptr && env[0] == '1' && env[1] == '\0') ? 1 : 0;
-    }
-    return cached == 1;
-}
-
-struct HostTimer {
-    const char *op;
-    int64_t m;
-    std::chrono::steady_clock::time_point t0;
-    bool active;
-
-    HostTimer(const char *op_name, int64_t m_val)
-        : op(op_name), m(m_val), active(host_timer_enabled()) {
-        if (active) {
-            t0 = std::chrono::steady_clock::now();
-        }
-    }
-
-    ~HostTimer() {
-        if (!active) {
-            return;
-        }
-        auto t1 = std::chrono::steady_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        std::fprintf(stderr, "host_timer op=%s ms=%.3f m=%lld\n", op, ms,
-                     static_cast<long long>(m));
-    }
-};
 
 struct PlannedMeta {
     Tensor topk_weights;
@@ -110,7 +60,6 @@ void run(void *planned_meta) {
     INFINICORE_ASSERT(indices_dev.size(0) == tokens);
     INFINICORE_ASSERT(indices_dev.size(1) == topk);
 
-    HostTimer timer("moe_topk_sigmoid", tokens);
 
     const void *bias_ptr = nullptr;
     int bias_dtype_tag = 0;
@@ -146,13 +95,6 @@ void run(void *planned_meta) {
     if (err != cudaSuccess) {
         throw std::runtime_error(std::string("QY moe_topk_sigmoid launch: ") +
                                  cudaGetErrorString(err));
-    }
-    if (host_timer_enabled()) {
-        err = sync_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(std::string("QY moe_topk_sigmoid sync: ") +
-                                     cudaGetErrorString(err));
-        }
     }
 }
 

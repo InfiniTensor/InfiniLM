@@ -11,63 +11,13 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include <chrono>
 #include <cstdint>
-#include <cstdlib>
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace infinicore::op::moe_align_impl::aten {
 namespace {
-
-bool stream_is_capturing(cudaStream_t stream) {
-    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
-    auto st = cudaStreamIsCapturing(stream, &status);
-    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
-}
-
-cudaError_t sync_unless_capturing(cudaStream_t stream) {
-    if (stream_is_capturing(stream)) {
-        return cudaGetLastError();
-    }
-    return cudaStreamSynchronize(stream);
-}
-
-
-bool host_timer_enabled() {
-    static int cached = -1;
-    if (cached < 0) {
-        const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
-        cached = (env != nullptr && env[0] == '1' && env[1] == '\0') ? 1 : 0;
-    }
-    return cached == 1;
-}
-
-struct HostTimer {
-    const char *op;
-    int64_t m;
-    std::chrono::steady_clock::time_point t0;
-    bool active;
-
-    HostTimer(const char *op_name, int64_t m_val)
-        : op(op_name), m(m_val), active(host_timer_enabled()) {
-        if (active) {
-            t0 = std::chrono::steady_clock::now();
-        }
-    }
-
-    ~HostTimer() {
-        if (!active) {
-            return;
-        }
-        auto t1 = std::chrono::steady_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        std::fprintf(stderr, "host_timer op=%s ms=%.3f m=%lld\n", op, ms,
-                     static_cast<long long>(m));
-    }
-};
 
 at::Tensor ensure_i32_contig(const at::Tensor &t) {
     INFINICORE_ASSERT(t.is_contiguous());
@@ -92,6 +42,34 @@ at::Tensor ensure_i32_contig(const at::Tensor &t) {
     return out;
 }
 
+struct AlignWorkspacePool {
+    c10::DeviceIndex device_index = -1;
+    int64_t num_experts = -1;
+    at::Tensor workspace;
+
+    at::Tensor &ensure(const at::Tensor &like, int64_t num_experts_v, int64_t timer_m) {
+        const int64_t n_ints = static_cast<int64_t>(
+            ::infini::ops::qy::moe_align_workspace_bytes(
+                static_cast<size_t>(num_experts_v)) /
+            sizeof(int32_t));
+        if (workspace.defined() && device_index == like.device().index() &&
+            num_experts == num_experts_v && workspace.numel() == n_ints) {
+            return workspace;
+        }
+        {
+            workspace = at::empty({n_ints}, like.options().dtype(at::kInt));
+        }
+        device_index = like.device().index();
+        num_experts = num_experts_v;
+        return workspace;
+    }
+};
+
+AlignWorkspacePool &align_workspace_pool() {
+    thread_local AlignWorkspacePool pool;
+    return pool;
+}
+
 void run_moe_align_gpu(at::Tensor sorted_token_ids,
                        at::Tensor expert_ids,
                        at::Tensor num_tokens_post_padded,
@@ -114,12 +92,8 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
         map_ptr = map_i32.data_ptr();
     }
 
-    auto workspace = at::empty(
-        {static_cast<int64_t>(
-            ::infini::ops::qy::moe_align_workspace_bytes(
-                static_cast<size_t>(num_experts)) /
-            sizeof(int32_t))},
-        sorted_token_ids.options().dtype(at::kInt));
+    auto &workspace = align_workspace_pool().ensure(
+        sorted_token_ids, num_experts, static_cast<int64_t>(topk_ids.numel()));
 
     auto stream = at::cuda::getCurrentCUDAStream().stream();
     ::infini::ops::qy::moe_align_launch(
@@ -135,13 +109,6 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
     if (err != cudaSuccess) {
         throw std::runtime_error(std::string("QY moe_align launch: ") +
                                  cudaGetErrorString(err));
-    }
-    if (host_timer_enabled()) {
-        err = sync_unless_capturing(stream);
-        if (err != cudaSuccess) {
-            throw std::runtime_error(std::string("QY moe_align sync: ") +
-                                     cudaGetErrorString(err));
-        }
     }
 }
 
@@ -203,7 +170,6 @@ void run(void *planned_meta) {
     using namespace ::infinicore::adaptor;
     set_aten_stream_to_infinicore();
 
-    HostTimer timer("moe_align", static_cast<int64_t>(p->topk_ids->numel()));
 
     at::Tensor expert_map_aten;
     const at::Tensor *expert_map_ptr = nullptr;

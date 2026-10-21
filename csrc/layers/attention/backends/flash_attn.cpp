@@ -5,6 +5,8 @@
 #include "infinicore/ops/mha_kvcache.hpp"
 #include "infinicore/ops/mha_varlen.hpp"
 
+#include <algorithm>
+
 namespace infinilm::layers::attention::backends {
 
 FlashAttentionImpl::FlashAttentionImpl(size_t num_heads,
@@ -51,12 +53,19 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     auto attn_output = infinicore::Tensor::empty(
         {seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
-        const size_t max_query_length = attn_metadata.max_query_length > 0
-                                          ? attn_metadata.max_query_length
-                                          : max_position_embeddings_;
-        const size_t max_sequence_length = attn_metadata.max_sequence_length > 0
-                                             ? attn_metadata.max_sequence_length
-                                             : max_position_embeddings_;
+        // Prefer batch max from metadata; never fall back to max_position_embeddings
+        // (MiniCPM5=131072) which exceeds block_table capacity and breaks FA.
+        int max_seqlen_q = attn_metadata.max_query_length > 0
+                               ? static_cast<int>(attn_metadata.max_query_length)
+                               : static_cast<int>(seq_len);
+        int max_seqlen_k = attn_metadata.max_sequence_length > 0
+                               ? static_cast<int>(attn_metadata.max_sequence_length)
+                               : max_seqlen_q;
+        if (block_tables.value()->ndim() >= 2) {
+            const int table_cap = static_cast<int>(block_tables.value()->size(1) * 256);
+            max_seqlen_k = std::min(max_seqlen_k, table_cap);
+            max_seqlen_q = std::min(max_seqlen_q, table_cap);
+        }
         infinicore::op::mha_varlen_(
             attn_output,
             query,
@@ -65,8 +74,8 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
             input_offsets.value(),
             cu_seqlens.value(),
             block_tables.value(),
-            max_query_length,
-            max_sequence_length,
+            max_seqlen_q,
+            max_seqlen_k,
             std::nullopt,
             scale_);
     } else {

@@ -11,9 +11,6 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <cuda_runtime.h>
 
-#include <chrono>
-#include <cstdlib>
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -21,59 +18,68 @@
 namespace infinicore::op::moe_fused_dense_impl::qy_dl {
 namespace {
 
-bool stream_is_capturing(cudaStream_t stream) {
-    cudaStreamCaptureStatus status = cudaStreamCaptureStatusNone;
-    auto st = cudaStreamIsCapturing(stream, &status);
-    return st == cudaSuccess && status != cudaStreamCaptureStatusNone;
-}
+// Shape-keyed scratch pool: carve once per (device, dtype, topk, h, inter),
+// grow capacity_m as needed; callers narrow to the live m.
+struct FuseScratchPool {
+    c10::DeviceIndex device_index = -1;
+    at::ScalarType dtype = at::ScalarType::Undefined;
+    int64_t capacity_m = 0;
+    int64_t topk = 0;
+    int64_t h = 0;
+    int64_t inter = 0;
+    at::Tensor cache1_storage;
+    at::Tensor activated_storage;
+    at::Tensor cache3_storage;
 
-cudaError_t sync_unless_capturing(cudaStream_t stream) {
-    if (stream_is_capturing(stream)) {
-        return cudaGetLastError();
-    }
-    return cudaStreamSynchronize(stream);
-}
-
-cudaError_t sync_device_unless_capturing(cudaStream_t stream) {
-    if (stream_is_capturing(stream)) {
-        return cudaGetLastError();
-    }
-    return cudaDeviceSynchronize();
-}
-
-
-bool host_timer_enabled() {
-    static int cached = -1;
-    if (cached < 0) {
-        const char *env = std::getenv("INFINI_MOE_HOST_TIMER");
-        cached = (env != nullptr && env[0] == '1' && env[1] == '\0') ? 1 : 0;
-    }
-    return cached == 1;
-}
-
-struct HostTimer {
-    const char *op;
-    int64_t m;
-    std::chrono::steady_clock::time_point t0;
-    bool active;
-
-    HostTimer(const char *op_name, int64_t m_val)
-        : op(op_name), m(m_val), active(host_timer_enabled()) {
-        if (active) {
-            t0 = std::chrono::steady_clock::now();
-        }
+    bool same_shape_key(const at::Tensor &like, int64_t topk_v, int64_t h_v,
+                        int64_t inter_v) const {
+        return device_index == like.device().index() && dtype == like.scalar_type() &&
+               topk == topk_v && h == h_v && inter == inter_v;
     }
 
-    ~HostTimer() {
-        if (!active) {
+    void ensure(const at::Tensor &like, int64_t m_v, int64_t topk_v, int64_t h_v,
+                int64_t inter_v) {
+        const int64_t inter2 = inter_v * 2;
+        if (cache1_storage.defined() && activated_storage.defined() &&
+            cache3_storage.defined() && same_shape_key(like, topk_v, h_v, inter_v) &&
+            capacity_m >= m_v) {
             return;
         }
-        auto t1 = std::chrono::steady_clock::now();
-        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        std::fprintf(stderr, "host_timer op=%s ms=%.3f m=%lld\n", op, ms,
-                     static_cast<long long>(m));
+        const int64_t alloc_m = m_v;
+        {
+            cache1_storage = at::empty({alloc_m, topk_v, inter2}, like.options());
+        }
+        {
+            activated_storage =
+                at::empty({alloc_m * topk_v, inter_v}, like.options());
+        }
+        {
+            cache3_storage = at::empty({alloc_m, topk_v, h_v}, like.options());
+        }
+        device_index = like.device().index();
+        dtype = like.scalar_type();
+        capacity_m = alloc_m;
+        topk = topk_v;
+        h = h_v;
+        inter = inter_v;
+    }
+
+    at::Tensor cache1(int64_t m_v) const {
+        return cache1_storage.narrow(/*dim=*/0, /*start=*/0, /*length=*/m_v);
+    }
+    at::Tensor activated(int64_t m_v) const {
+        return activated_storage.narrow(/*dim=*/0, /*start=*/0,
+                                        /*length=*/m_v * topk);
+    }
+    at::Tensor cache3(int64_t m_v) const {
+        return cache3_storage.narrow(/*dim=*/0, /*start=*/0, /*length=*/m_v);
     }
 };
+
+FuseScratchPool &fuse_scratch_pool() {
+    thread_local FuseScratchPool pool;
+    return pool;
+}
 
 } // namespace
 
@@ -145,11 +151,14 @@ void run(void *planned_meta) {
     auto stream = at::cuda::getCurrentCUDAStream().stream();
 
     // Stage 1: hidden @ w13 -> [M, topk, 2*inter]  (vLLM fused_experts_impl)
-    auto cache1 = at::empty({m, topk, inter2}, hidden.options());
+    auto &pool = fuse_scratch_pool();
+    pool.ensure(hidden, m, topk, h, inter);
+    auto cache1 = pool.cache1(m);
+    auto activated = pool.activated(m);
+    auto cache3 = pool.cache3(m);
     auto a1 = hidden.view({-1, h});
     auto c1 = cache1.view({-1, topk, inter2});
     {
-        HostTimer timer("stage1", m);
         adaptor::denglin_fused_moe::invoke_fused_moe_opt(
             a1, w13, c1,
             std::nullopt, std::nullopt, std::nullopt,
@@ -158,57 +167,42 @@ void run(void *planned_meta) {
             topk, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        // Device sync only when profiling; otherwise rely on stream order to silu.
-        if (host_timer_enabled()) {
-            auto err = sync_device_unless_capturing(stream);
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense stage1 (w13) OOR/sync: ")
-                    + cudaGetErrorString(err));
-            }
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense stage1 (w13) launch: ")
-                    + cudaGetErrorString(err));
-            }
+        // Rely on stream order to silu (no host sync on score path).
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(
+                std::string("QY moe_fused_dense stage1 (w13) launch: ")
+                + cudaGetErrorString(err));
         }
     }
 
     // SiLU/GLU activation via thin QY kernel (avoids D2H/H2D and ATen OOR).
-    auto flat_gate_up = cache1.reshape({m * topk, inter2}).contiguous();
-    auto activated = at::empty({m * topk, inter}, hidden.options());
+    at::Tensor flat_gate_up;
     {
-        HostTimer timer("silu", m);
+        auto reshaped = cache1.reshape({m * topk, inter2});
+        flat_gate_up = reshaped.is_contiguous() ? reshaped : reshaped.contiguous();
+    }
+    {
         ::infini::ops::qy::silu_and_mul_launch(
             activated.data_ptr(), flat_gate_up.data_ptr(),
             static_cast<size_t>(m * topk), static_cast<size_t>(inter),
             static_cast<int>(p->hidden_states->dtype()),
             reinterpret_cast<void *>(stream));
-        if (host_timer_enabled()) {
-            auto err = sync_unless_capturing(stream);
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense silu sync: ") +
-                    cudaGetErrorString(err));
-            }
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense silu launch: ") +
-                    cudaGetErrorString(err));
-            }
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(
+                std::string("QY moe_fused_dense silu launch: ") +
+                cudaGetErrorString(err));
         }
     }
 
     // Stage 2: activated @ w2 -> [M, topk, H], top_k=1, mul routed weights
-    auto cache3 = at::empty({m, topk, h}, hidden.options());
-    auto a2 = activated.contiguous();
+    at::Tensor a2;
+    {
+        a2 = activated.is_contiguous() ? activated : activated.contiguous();
+    }
     auto c2 = cache3.view({-1, /*top_k=*/1, h});
     {
-        HostTimer timer("stage2", m);
         adaptor::denglin_fused_moe::invoke_fused_moe_opt(
             a2, w2, c2,
             std::nullopt, std::nullopt, std::nullopt,
@@ -217,20 +211,11 @@ void run(void *planned_meta) {
             /*top_k=*/1, block_size_m, block_size_n, block_size_k,
             false, false, false, false,
             block_shape, m);
-        if (host_timer_enabled()) {
-            auto err = sync_device_unless_capturing(stream);
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense stage2 (w2) OOR/sync: ")
-                    + cudaGetErrorString(err));
-            }
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense stage2 (w2) launch: ")
-                    + cudaGetErrorString(err));
-            }
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(
+                std::string("QY moe_fused_dense stage2 (w2) launch: ")
+                + cudaGetErrorString(err));
         }
     }
 
@@ -241,26 +226,16 @@ void run(void *planned_meta) {
             "QY moe_fused_dense combine requires contiguous output");
     }
     {
-        HostTimer timer("combine", m);
         ::infini::ops::qy::moe_sum_launch(
             output.data_ptr(), cache3_contig.data_ptr(),
             static_cast<size_t>(m), static_cast<size_t>(topk),
             static_cast<size_t>(h), static_cast<int>(p->hidden_states->dtype()),
             reinterpret_cast<void *>(stream));
-        if (host_timer_enabled()) {
-            auto err = sync_unless_capturing(stream);
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense combine sync: ") +
-                    cudaGetErrorString(err));
-            }
-        } else {
-            auto err = cudaGetLastError();
-            if (err != cudaSuccess) {
-                throw std::runtime_error(
-                    std::string("QY moe_fused_dense combine launch: ") +
-                    cudaGetErrorString(err));
-            }
+        auto err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            throw std::runtime_error(
+                std::string("QY moe_fused_dense combine launch: ") +
+                cudaGetErrorString(err));
         }
     }
 }

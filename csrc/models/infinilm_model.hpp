@@ -6,6 +6,7 @@
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
+#include <algorithm>
 #include <optional>
 #include <vector>
 
@@ -57,7 +58,19 @@ public:
         std::optional<infinicore::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Per-request final-chunk flags. Empty means all rows are final (lm_head + sampling).
+        std::vector<bool> is_final_prefill_chunk;
     };
+
+    static bool any_final_prefill_chunk(const std::vector<bool> &flags) {
+        return flags.empty()
+               || std::any_of(flags.begin(), flags.end(), [](bool v) { return v; });
+    }
+
+    static bool has_nonfinal_prefill_chunk(const std::vector<bool> &flags) {
+        return !flags.empty()
+               && std::any_of(flags.begin(), flags.end(), [](bool v) { return !v; });
+    }
 
     struct Output {
         /// Logits.
@@ -75,6 +88,52 @@ public:
     const std::shared_ptr<infinilm::config::ModelConfig> &get_model_config() const {
         return model_config_;
     }
+
+    /// Native piecewise CUDAGraph prefill. Default: unsupported.
+    virtual bool supports_native_piecewise_prefill() const { return false; }
+    virtual size_t native_piecewise_num_layers() const { return 0; }
+    virtual void native_piecewise_embed(const Input &input,
+                                        infinicore::Tensor &hidden_states) const;
+    virtual void native_piecewise_pre_attn_layer(size_t layer_idx,
+                                                 const Input &input,
+                                                 infinicore::Tensor &hidden_states,
+                                                 infinicore::Tensor &residual) const;
+    virtual void native_piecewise_pre_attn_qkv_layer(size_t layer_idx,
+                                                     const Input &input,
+                                                     infinicore::Tensor &hidden_states,
+                                                     infinicore::Tensor &residual) const;
+    virtual void native_piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                                      const Input &input) const;
+    virtual void native_piecewise_eager_attn_layer(size_t layer_idx,
+                                                   const Input &input) const;
+    virtual void native_piecewise_post_attn_layer(size_t layer_idx,
+                                                  const Input &input,
+                                                  infinicore::Tensor &hidden_states,
+                                                  infinicore::Tensor &residual) const;
+    virtual void native_piecewise_post_attn_cg_layer(size_t layer_idx,
+                                                     const Input &input,
+                                                     infinicore::Tensor &hidden_states,
+                                                     infinicore::Tensor &residual) const;
+    virtual void native_piecewise_post_attn_decode_cg_layer(size_t layer_idx,
+                                                            const Input &input,
+                                                            infinicore::Tensor &hidden_states,
+                                                            infinicore::Tensor &residual) const;
+    virtual void native_piecewise_eager_moe_layer(size_t layer_idx,
+                                                  const Input &input,
+                                                  infinicore::Tensor &hidden_states,
+                                                  infinicore::Tensor &residual) const;
+    virtual void native_piecewise_post_attn_graph_layer(size_t layer_idx,
+                                                        const Input &input,
+                                                        infinicore::Tensor &hidden_states,
+                                                        infinicore::Tensor &residual) const;
+    virtual void native_piecewise_post_attn_allreduce_layer(size_t layer_idx,
+                                                            const Input &input,
+                                                            infinicore::Tensor &hidden_states,
+                                                            infinicore::Tensor &residual) const;
+    virtual void native_piecewise_lm_head(const Input &input,
+                                          infinicore::Tensor &hidden_states,
+                                          infinicore::Tensor &residual,
+                                          infinicore::Tensor &logits_out) const;
 
     void process_weights_after_loading();
     void reset_runtime_state() const;

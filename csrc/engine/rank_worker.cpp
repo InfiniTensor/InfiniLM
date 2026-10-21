@@ -1,5 +1,7 @@
 #include "rank_worker.hpp"
+#include "compiled_prefill_flags.hpp"
 #include "../models/model_factory.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
 #include <spdlog/spdlog.h>
@@ -418,22 +420,70 @@ void RankWorker::thread_loop() {
 
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        bool piecewise_ran = false;
                         // Packed all-position runs do not match the one-token-per-request
                         // output shape captured by the compiled decode graphs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(
-                                local_args.to_model_input(
-                                    infinicore::Device{infinicore::Device::Type::kCpu},
-                                    false,
-                                    true));
-                            if (graph != nullptr && output != nullptr) {
-                                graph->run();
-                                logits = output->logits;
-                                hidden_states = output->hidden_states;
+                            auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
+                            const bool has_bt = local_args.block_tables.has_value()
+                                             && local_args.input_ids.has_value();
+                            const bool uniform_decode = has_bt
+                                && local_args.block_tables.value()->size(0)
+                                       == local_args.input_ids.value()->size(1)
+                                && local_args.input_ids.value()->size(1) > 0;
+                            auto model_input_cpu = local_args.to_model_input(
+                                infinicore::Device{infinicore::Device::Type::kCpu},
+                                false,
+                                true);
+
+                            // F&P native piecewise prefill (FA host-break segments).
+                            if (!uniform_decode && general_compiler != nullptr
+                                && general_compiler->native_piecewise_enabled()) {
+                                infinicore::context::InferencePhaseGuard phase_guard(
+                                    infinicore::context::InferencePhase::Prefill);
+                                if (auto pw_logits =
+                                        general_compiler->run_native_piecewise_prefill(model_input_cpu)) {
+                                    logits = *pw_logits;
+                                    piecewise_ran = true;
+                                    general_compiler->record_graph_hit(/*is_prefill=*/true);
+                                } else if (general_compiler->native_piecewise_last_prefill_executed()) {
+                                    piecewise_ran = true;
+                                } else {
+                                    general_compiler->record_graph_miss(/*is_prefill=*/true);
+                                }
+                            }
+
+                            // FULL decode: FA in-graph under FA_INGRAPH=decode.
+                            if (!logits && !piecewise_ran && uniform_decode) {
+                                auto [graph, output] = compiler_->get_compiled(model_input_cpu);
+                                if (graph != nullptr && output != nullptr) {
+                                    infinicore::context::InferencePhaseGuard phase_guard(
+                                        infinicore::context::InferencePhase::Decode);
+                                    graph->run();
+                                    logits = output->logits;
+                                    hidden_states = output->hidden_states;
+                                    if (general_compiler != nullptr) {
+                                        general_compiler->record_graph_hit(/*is_prefill=*/false);
+                                    }
+                                } else if (general_compiler != nullptr) {
+                                    general_compiler->record_graph_miss(/*is_prefill=*/false);
+                                }
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
+                        if (!logits && !piecewise_ran) {
+                            auto &piecewise_eager =
+                                global_state::get_forward_context().piecewise;
+                            piecewise_eager.valid_seq_len = 0;
+                            piecewise_eager.phase =
+                                global_state::PiecewiseCapturePhase::None;
+                            const bool looks_decode = local_args.block_tables.has_value()
+                                && local_args.input_ids.has_value()
+                                && local_args.block_tables.value()->size(0)
+                                       == local_args.input_ids.value()->size(1);
+                            infinicore::context::InferencePhaseGuard phase_guard(
+                                looks_decode ? infinicore::context::InferencePhase::Decode
+                                             : infinicore::context::InferencePhase::Prefill);
                             auto model_args = local_args.to_model_input(
                                 rank_info_.device,
                                 attention_backend_ == backends::AttentionBackend::STATIC_ATTN);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../layers/common_modules.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 
 namespace infinilm::models::minicpm5_moe {
 
@@ -16,6 +17,33 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
+
+
+    void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
+                                    const infinicore::Tensor &hidden_states,
+                                    global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_pre_attn_qkv_piecewise(const infinicore::Tensor &positions,
+                                        const infinicore::Tensor &hidden_states,
+                                        global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_pre_attn_rope_piecewise(const infinicore::Tensor &positions,
+                                         global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
+                                      global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                          global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
+                                                global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_states,
+                                             global_state::PiecewiseLayerStaging &staging) const;
+
+    void forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                    global_state::PiecewiseLayerStaging &staging) const;
 
     void process_weights_after_loading() override {
         qkv_proj_->process_weights_after_loading();
@@ -52,6 +80,11 @@ protected:
 
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
+
+    mutable infinicore::Tensor gate_score_cache_;
+    mutable infinicore::Tensor gate_score_write_view_;
+    mutable infinicore::Tensor gate_sigmoid_buf_;
 };
+
 
 } // namespace infinilm::models::minicpm5_moe
