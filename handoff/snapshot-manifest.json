@@ -1,10 +1,10 @@
 {
-  "utc": "2026-10-21T00:58:41.529143+00:00",
-  "scope": "Dual-version original source preserved; latest experiment drivers/evidence and actual PP3 source added. Complete tokens incl EOS remain numerical gate; component raw is diagnostic only. No weights/binaries/access credentials.",
+  "utc": "2026-10-21T01:08:20.875422+00:00",
+  "scope": "Prior source blobs retained; failed3D component and postfault8GPU health added. Experimental local projection data is not model qualification.",
   "files": {
     "AGENT_HANDOFF.zh-CN.md": {
-      "bytes": 21132,
-      "sha256": "cfafd1ae8c39815e10b83612269aa07f1033b548253a0a878ba27a3d45c297e2"
+      "bytes": 21960,
+      "sha256": "a5696e992857baf0bad5dd59da1cf998b290a087b787bc56c5a03021695cce84"
     },
     "config.example.env": {
       "bytes": 826,
@@ -26018,6 +26018,10 @@
       "bytes": 3353,
       "sha256": "be49cc3da0cfcf0c2ddd4bd63915212699a9acb77ffc892a1ebf7577c898280f"
     },
+    "drivers/audit_KDA1_serial_r3884.py": {
+      "bytes": 2825,
+      "sha256": "50f98892a2d911c54f86326f92cd8f693917f1114dc3d3b40e66cebf78654f75"
+    },
     "drivers/audit_kda_alias_r3741.py": {
       "bytes": 2453,
       "sha256": "85a208a5db3150b1376a6af6f8229296f92fa5220909cc5336e6a29df1404310"
@@ -26738,6 +26742,10 @@
       "bytes": 1099,
       "sha256": "77d92142d88782a9d9b9a82dd60df124d774ee7493384738715894898989590d"
     },
+    "drivers/inspect_shape_failure_r3882.py": {
+      "bytes": 515,
+      "sha256": "535077fc61e1d371f8beb8bae4a4b22442256d0a42372a0c63db43c08e104ae3"
+    },
     "drivers/kda_alias_r3733_inside.sh": {
       "bytes": 724,
       "sha256": "c416f47c331c51a81ec03c0833013366630a7e4340edda1cac319e4168a8a800"
@@ -26842,6 +26850,10 @@
       "bytes": 633,
       "sha256": "09673993bb28ac30353f055d2ffb16c1b305c84a138184650efb29cb043d78c3"
     },
+    "drivers/kimi_post_shape_health_r3882_inside.sh": {
+      "bytes": 1059,
+      "sha256": "34c38e87d0f4ef62870bd3fb04ce94e09831e28126540af17db77b04cdd954e6"
+    },
     "drivers/kimi_projection_replay_r3409.cpp": {
       "bytes": 4787,
       "sha256": "aa505c7051e040818082d407daa75879f6d7e3c423efc539517b2db0f0dcc867"
@@ -26861,6 +26873,14 @@
     "drivers/kimi_projection_replay_r3875_inside.sh": {
       "bytes": 3049,
       "sha256": "e96c9dd20d5d8fed42cc4f041d30a1a98b4b4729b03ff56a635edd845454d679"
+    },
+    "drivers/kimi_projection_replay_r3883.cpp": {
+      "bytes": 4981,
+      "sha256": "29e775cef03bf84a90d0320638c1bf0060a4fc1353d55358771e54aa3c9e1e30"
+    },
+    "drivers/kimi_projection_replay_r3883_inside.sh": {
+      "bytes": 3049,
+      "sha256": "61b59907a0c15a94aa815956eb5a7d82d45e0792ba7bab0bf45fa28a96e1a031"
     },
     "drivers/kimi_reduce_precision_r3226.hpp": {
       "bytes": 993,
@@ -27098,6 +27118,10 @@
       "bytes": 1293,
       "sha256": "94d287fc2d8de43c27e02c5e0e7bfc00398afaed5af191f19c25c6035163a900"
     },
+    "drivers/launch_KDA1_projection_replay_r3883.py": {
+      "bytes": 1765,
+      "sha256": "aeda01778386e6398d2067a5c6a0dcf3d1c7e95694dbffbb49b31fc14f141035"
+    },
     "drivers/launch_kimi_alias_build_r3775.py": {
       "bytes": 1436,
       "sha256": "e6344d9c79f6ef8c5961b45831bb4241f2a0bbaae890796c9fb603a09cfd6aee"
@@ -27157,6 +27181,10 @@
     "drivers/launch_parallel_collectives_r3685.py": {
       "bytes": 1532,
       "sha256": "c8693ea292e128c66de50f2a156b8398a72c06953c2db915fb425f828bcdcf53"
+    },
+    "drivers/launch_post_shape_health_r3882.py": {
+      "bytes": 1047,
+      "sha256": "346ada19d95190e0284d01fccee4ef688a2138753f70e87f4d28295968972b20"
     },
     "drivers/launch_root_postmortem_r3836.py": {
       "bytes": 789,
@@ -27438,6 +27466,10 @@
       "bytes": 2482,
       "sha256": "b1e250b6bdd3e32ce40d07537cdbb9284a41bef6f16dc4fb0c8f5410c88c3e31"
     },
+    "drivers/prepare_KDA1_serial_replay_r3883.py": {
+      "bytes": 1640,
+      "sha256": "c8e36f4921c9c880b19b426015e094fe618f5f864deb2440381cdd31e0015e15"
+    },
     "drivers/prepare_KDA1_shape_replay_r3875.py": {
       "bytes": 3877,
       "sha256": "af2f36125628e381b8a86830c3fb7a42c060536ab847d9db8dcfc63c7c84b355"
@@ -27510,6 +27542,10 @@
       "bytes": 6060,
       "sha256": "c7e3b2b08693c6ad2afa1236a949d9b75584151d3d5736ad7b6557a3d8aab5ce"
     },
+    "drivers/probe_kimi_projection_replay_r3883.py": {
+      "bytes": 6058,
+      "sha256": "ee36d6608c4d7751f6f94c52334462fdfff059c63480983297f6e551009ea96e"
+    },
     "drivers/probe_live_network_r3569.py": {
       "bytes": 2586,
       "sha256": "c243f58a35b490ed326d2f7bf344a25a681331eec7025c788ea80b7fafb3d90c"
@@ -27573,6 +27609,10 @@
     "drivers/queue_glm_shared_rope_r3789.py": {
       "bytes": 1727,
       "sha256": "d3c9b0fcda2c34862bcbb722dd6e58503d5806c7bf70a9b9fc684381c52db4a5"
+    },
+    "drivers/queue_KDA1_serial_audit_r3884.py": {
+      "bytes": 1221,
+      "sha256": "6b8d5f33a6eb5281d36560d714c81706e721d7eb69a623c02a3fad8eb6a25682"
     },
     "drivers/queue_kimi_alias_test_r3776.py": {
       "bytes": 1924,
@@ -27806,6 +27846,10 @@
       "bytes": 478,
       "sha256": "6c176b5e94c8fc9a9d20ae80e574e944f8f53ea982ca1ab2e81382d1f523869c"
     },
+    "drivers/start_KDA1_serial_audit_r3884.py": {
+      "bytes": 456,
+      "sha256": "6f5565588f3baeea13349e84b02fdcacd418c7894917359f85b49e496315d96d"
+    },
     "drivers/start_kimi_guard_audit_r3760.py": {
       "bytes": 495,
       "sha256": "ebe06a755bb52525ec9e01c3c683a24d83411104c4d485703ab9a94ba2b8e783"
@@ -28034,6 +28078,10 @@
       "bytes": 223461,
       "sha256": "6690572d94dcceb179106ad91cc5d8ae5124b5e46da9130b8064eb25fc139752"
     },
+    "evidence/Kimi-shape-failure-health-r3886.json": {
+      "bytes": 13959,
+      "sha256": "b65d6881dc170a6b78e831ca123e8121cf0417a76e63afb1d7143dd88bb17bcd"
+    },
     "evidence/kimi-small-diagnostics-r3734.json": {
       "bytes": 6096,
       "sha256": "d96a306dddd7c9d731331a006ca2f20a7f84b4569b4ade2fa1e108d79155e4a5"
@@ -28159,8 +28207,8 @@
       "sha256": "e52fd1b105a9935073bfd3a27a43a9f433b42026558b94f9f41ac79cc13123d5"
     },
     "EXPERIMENT_UPDATE_20261021.zh-CN.md": {
-      "bytes": 3627,
-      "sha256": "e08e00b1d63d577c66f33686158d69c4c78b7b7ac2d79b963fc56ab144b16f7b"
+      "bytes": 4455,
+      "sha256": "00e06851eedacb29dc8eef7260f5604b425b686cd9b9d40f3b66c1a3c4392daf"
     },
     "experimental-latest-06d0c03/cluster-layout/candidates/deep-attention-FP32-06d0c03-r3597/compile.sh": {
       "bytes": 3445,
@@ -102703,8 +102751,8 @@
       "sha256": "8813a35608e7e6956b21bcd7b91e0396756706e221651a8abad1842c09eb2a2b"
     },
     "README.zh-CN.md": {
-      "bytes": 17390,
-      "sha256": "200aba3dcb6f176de25e73dcf146b699b4419837160d0e2391cfe03dbf2eabf1"
+      "bytes": 18218,
+      "sha256": "c1dbc47232c694d9934eedffbd693158382ec3979158015796335d0b30fbef59"
     },
     "reference-data-manifest.json": {
       "bytes": 14543,
@@ -102747,8 +102795,8 @@
       "sha256": "405bdbf3bf76b8803963d6a06aa58293f995665e266d50411ae19bfafaf8de15"
     },
     "SPECULATIVE_EXPERIMENT.zh-CN.md": {
-      "bytes": 20109,
-      "sha256": "1e31acb05c4a7b6c4b5e78d0b11a1e0251311b32ba0f30af14d5e08ccbcbdc45"
+      "bytes": 20937,
+      "sha256": "358f407f611dee26377f4be960c5e2c36c8ba1a5aec73c5569a540eeb1a04875"
     },
     "upstream-update-c3deba4/build_sdk_r3491_inside.sh": {
       "bytes": 1856,

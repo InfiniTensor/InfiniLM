@@ -1,0 +1,2 @@
+import pathlib,json,subprocess
+r=pathlib.Path.home()/'hygon-inference-refactor-20261014';p=r/'logs/kimi-KDA1-replay-r3875-910373.832.log';ls=p.read_text(errors='replace').splitlines();ix=[i for i,v in enumerate(ls)if any(x in v for x in['VMFault','VM fault','SIGSEGV','Memory access fault','GEMM','ERROR','Error','error:'])];print(json.dumps({'first_fault_contexts':['\n'.join(ls[max(0,i-4):i+10])for i in ix[:7]],'node':subprocess.check_output(['scontrol','show','node','COMPUTE_NODE_e121dfd5','-o'],text=True)}))

@@ -1,0 +1,471 @@
+{
+  "utc": "2026-10-21T01:08:20.875422+00:00",
+  "failed_3D_variant": {
+    "step": "910373.832",
+    "terminal": "FAILED1",
+    "fault": "Invalid address access / GPU VMFault / one worker SIGSEGV",
+    "wholemodel_adopted": false,
+    "source": "kimi_projection_replay_r3875.cpp",
+    "failure_retained": true
+  },
+  "post_failure_health": {
+    "utc": "2026-10-21T01:02:32.654620+00:00",
+    "completed": true,
+    "cards": [
+      {
+        "rank": 0,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 1,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 2,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 3,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 4,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 5,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 6,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      },
+      {
+        "rank": 7,
+        "small_copy_sync_passed": true,
+        "free_GiB": 63.50390625
+      }
+    ],
+    "scope": "Post failed3D GEMM component health only; small allocation/copy/sync; not a hardware stress or model qualification. No reset or node state change."
+  },
+  "safe_2D_component": {
+    "step": "910373.834",
+    "source": "kimi_projection_replay_r3883.cpp",
+    "audit": "kimi-KDA1-serial-r3884-audit.json",
+    "state": "COMPLETED",
+    "wholemodel_fix_adopted": false,
+    "independent_audit": {
+      "completed": true,
+      "main_goal_metric": false,
+      "wholemodel_qualified": false,
+      "utc": "2026-10-21T01:06:06.928861+00:00",
+      "producer": [
+        "910373.834",
+        "kimi-KDA1-replay-r3883",
+        "COMPLETED",
+        "0:0"
+      ],
+      "normal_owners_closed": 8,
+      "all_sequential_M1_component_outputs_equal_serial_reference": true,
+      "ordinary_2D_control_reproduces_prior_real_input_replay": true,
+      "local_sequential_to_2D_host_cost_ratio_median": 1.4717123306693822,
+      "rows": [
+        {
+          "rank": 0,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 76.83527655899525
+        },
+        {
+          "rank": 0,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.48558016121387
+        },
+        {
+          "rank": 0,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 76.27555169165134
+        },
+        {
+          "rank": 0,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 75.87089203298092
+        },
+        {
+          "rank": 0,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 2,
+          "host_inclusive_median_us": 78.84996011853218
+        },
+        {
+          "rank": 0,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 113.77595365047455
+        },
+        {
+          "rank": 1,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 76.96030661463737
+        },
+        {
+          "rank": 1,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.57102139294147
+        },
+        {
+          "rank": 1,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 76.52048952877522
+        },
+        {
+          "rank": 1,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.93051190674305
+        },
+        {
+          "rank": 1,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 2,
+          "host_inclusive_median_us": 79.49001155793667
+        },
+        {
+          "rank": 1,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 114.50587771832943
+        },
+        {
+          "rank": 2,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.07998156547546
+        },
+        {
+          "rank": 2,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.29070091247559
+        },
+        {
+          "rank": 2,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.90536619722843
+        },
+        {
+          "rank": 2,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.3759169280529
+        },
+        {
+          "rank": 2,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 2,
+          "host_inclusive_median_us": 76.39057002961636
+        },
+        {
+          "rank": 2,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 115.73522351682186
+        },
+        {
+          "rank": 3,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 88.97040970623493
+        },
+        {
+          "rank": 3,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 84.34103801846504
+        },
+        {
+          "rank": 3,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 83.880964666605
+        },
+        {
+          "rank": 3,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 83.73497985303402
+        },
+        {
+          "rank": 3,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 3,
+          "host_inclusive_median_us": 75.95540955662727
+        },
+        {
+          "rank": 3,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 114.37037028372288
+        },
+        {
+          "rank": 4,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.53563874959946
+        },
+        {
+          "rank": 4,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.37009616196156
+        },
+        {
+          "rank": 4,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 79.31049913167953
+        },
+        {
+          "rank": 4,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.06996984779835
+        },
+        {
+          "rank": 4,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 1,
+          "host_inclusive_median_us": 79.6751119196415
+        },
+        {
+          "rank": 4,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 115.83534069359303
+        },
+        {
+          "rank": 5,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.80502380430698
+        },
+        {
+          "rank": 5,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 79.35101166367531
+        },
+        {
+          "rank": 5,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.47044616937637
+        },
+        {
+          "rank": 5,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 75.60546509921551
+        },
+        {
+          "rank": 5,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 4,
+          "host_inclusive_median_us": 78.65065708756447
+        },
+        {
+          "rank": 5,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 116.34547263383865
+        },
+        {
+          "rank": 6,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.64040492475033
+        },
+        {
+          "rank": 6,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.90607230365276
+        },
+        {
+          "rank": 6,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.56054401397705
+        },
+        {
+          "rank": 6,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.90118286013603
+        },
+        {
+          "rank": 6,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 77.75030098855495
+        },
+        {
+          "rank": 6,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 116.4507120847702
+        },
+        {
+          "rank": 7,
+          "label": "first",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 80.94543591141701
+        },
+        {
+          "rank": 7,
+          "label": "first",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 80.9449702501297
+        },
+        {
+          "rank": 7,
+          "label": "second",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 78.66555824875832
+        },
+        {
+          "rank": 7,
+          "label": "second",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 79.58547212183475
+        },
+        {
+          "rank": 7,
+          "label": "block",
+          "variant": 0,
+          "name": "ordinary_2D",
+          "M1_diagnostic_different_elements": 4,
+          "host_inclusive_median_us": 78.75612936913967
+        },
+        {
+          "rank": 7,
+          "label": "block",
+          "variant": 2,
+          "name": "sequential_M1",
+          "M1_diagnostic_different_elements": 0,
+          "host_inclusive_median_us": 115.31123891472816
+        }
+      ],
+      "scope": "Actual KDA1 projection fixture only. Raw comparisons diagnose counterfactual local projection, not model acceptance. Host-inclusive component ratio is not a model speedup. Complete frozen IDs/EOS/owner/Slurm and throughput after any model integration remain untested.",
+      "model_fix_adopted": false
+    }
+  },
+  "wholemodel_performance_qualified": false,
+  "scope": "Failure and postfault smallcopy health retained; no reset, no hardwarefault attribution, no model fix or speedup adopted."
+}
