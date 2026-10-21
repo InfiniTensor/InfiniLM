@@ -3,10 +3,12 @@
 #include <exception>
 #pragma once
 
+#include "../../config/qwen3_memory.hpp"
 #include "../../global_state/forward_context.hpp"
 
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
+#include "../linear/vocab_parallel_head.hpp"
 #include "runtime/device.hpp"
 #include <cstdint>
 #include <optional>
@@ -76,7 +78,17 @@ public:
 
             model_ = this->bind_child("model", std::make_shared<Model>(runtime, model_config, rank_info, attention_backend, ep_config));
             if (is_last_pp_stage()) {
-                lm_head_ = this->bind_child("lm_head", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, hidden_size, vocab_size, false, dtype, head_output_dtype));
+                const bool shard_vocab = config::supports_qwen3_memory_optimization(
+                                             *model_config, runtime.device().type(), rank_info.tp_size, rank_info.pp_size)
+                                      && attention_backend == backends::AttentionBackend::PAGED_ATTN
+                                      && rank_info.tp_size > 1 && vocab_size % rank_info.tp_size == 0
+                                      && !head_output_dtype
+                                      && config::qwen3_tp_vocab_sharding(*model_config);
+                if (shard_vocab) {
+                    sharded_lm_head_ = this->bind_child("lm_head", std::make_shared<linear::VocabParallelHead>(runtime, hidden_size, vocab_size, dtype, rank_info));
+                } else {
+                    lm_head_ = this->bind_child("lm_head", std::make_shared<infinilm::layers::linear::ReplicatedLinear>(runtime, hidden_size, vocab_size, false, dtype, head_output_dtype));
+                }
                 shift_host = infinilm::runtime::Tensor::from_blob(&shift_value, {1}, infinilm::runtime::DataType::kInt32,
                                                                   infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
                 last_token_shift_ = infinilm::runtime::Tensor::empty(runtime, {1}, infinilm::runtime::DataType::kInt32);
@@ -134,7 +146,7 @@ public:
             }
         }
 
-        auto logits = lm_head_->forward(*forward_context.runtime, lm_head_input);
+        auto logits = project_logits(*forward_context.runtime, lm_head_input);
         return {logits, hidden_states};
     }
 
@@ -144,11 +156,11 @@ public:
 
     infinilm::runtime::Tensor logits_from_hidden(infinilm::runtime::Runtime &runtime,
                                                  const infinilm::runtime::Tensor &hidden_states) const {
-        if (!lm_head_) {
+        if (!lm_head_ && !sharded_lm_head_) {
             throw std::runtime_error("TextCausalLM::logits_from_hidden called on a non-last pipeline stage");
         }
         auto lm_head_input = hidden_states;
-        return lm_head_->forward(runtime, lm_head_input);
+        return project_logits(runtime, lm_head_input);
     }
 
     Model &model() { return *model_; }
@@ -158,6 +170,10 @@ protected:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 
 private:
+    infinilm::runtime::Tensor project_logits(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const {
+        return sharded_lm_head_ ? sharded_lm_head_->forward(runtime, input) : lm_head_->forward(runtime, input);
+    }
+    std::shared_ptr<linear::VocabParallelHead> sharded_lm_head_;
     bool is_last_pp_stage() const { return pp_stage_ + 1 == pp_size_; }
 
     size_t pp_size_{1};

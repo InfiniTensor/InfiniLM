@@ -50,8 +50,11 @@ public:
     size_t graphPinnedMemoryBytes();
 
     std::shared_ptr<Memory> allocateMemory(size_t size);
-    // Initial physical Parameter storage, tracked by the same owner/graph allocator.
     std::shared_ptr<Memory> allocateParameterMemory(size_t size);
+    // Exact-sized backing, tracked by the same owner/graph allocator.
+    std::shared_ptr<Memory> allocateExactMemory(size_t size) {
+        return allocateParameterMemory(size);
+    }
     std::shared_ptr<Memory> allocatePinnedHostMemory(size_t size);
     std::shared_ptr<Memory> reinstantiateBlob(std::shared_ptr<Memory> blob);
     bool retainGraphMemory(const std::shared_ptr<Memory> &memory);

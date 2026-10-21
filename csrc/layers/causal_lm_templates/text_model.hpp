@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../config/qwen3_memory.hpp"
 #include "../../engine/distributed/communication_group.hpp"
 #include "../../global_state/forward_context.hpp"
 #include "../../models/infinilm_model.hpp"
@@ -53,6 +54,14 @@ public:
             tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
             tp_comm_ = rank_info.comm;
             world_comm_ = rank_info.world_comm;
+            const bool plain_qwen3 = config::supports_qwen3_memory_optimization(
+                                         *model_config, runtime.device().type(), rank_info.tp_size, rank_info.pp_size)
+                                  && attention_backend == backends::AttentionBackend::PAGED_ATTN;
+            if (plain_qwen3 && attention_backend == backends::AttentionBackend::PAGED_ATTN && KvOnlyPrepare) {
+                prefill_chunk_tokens_ = config::qwen3_prefill_chunk_size(*model_config);
+            }
+            const bool shard_vocab = plain_qwen3 && tp_size_ > 1 && hidden_size_ % tp_size_ == 0
+                                  && config::qwen3_tp_vocab_sharding(*model_config);
             // Contiguous layer ranges are assigned proportionally so uneven layer
             // counts differ by at most one layer between adjacent PP stages.
             const auto local_layers = parallel::Topology(tp_size_, rank_info.pp_size,
@@ -62,7 +71,8 @@ public:
             local_layer_end_ = local_layers.second;
 
             if (is_first_pp_stage()) {
-                embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<infinilm::layers::Embedding>(runtime, vocab_size, hidden_size_, std::nullopt, dtype));
+                embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<infinilm::layers::Embedding>(runtime, vocab_size, hidden_size_, std::nullopt, dtype,
+                                                                                                               shard_vocab ? tp_rank_ : 0, shard_vocab ? tp_size_ : 1, shard_vocab ? tp_comm_ : nullptr));
             }
 
             layers_.reserve(local_layer_end_ - local_layer_begin_);
@@ -93,6 +103,15 @@ public:
             throw std::invalid_argument("text model forward requires an explicit Runtime");
         }
         auto positions = input.position_ids.value();
+        if (prefill_chunk_tokens_ && pp_size_ == 1 && !forward_context.runtime->isGraphRecording()
+            && !forward_context.nsa_owner && !input.pixel_values && !input.target_hidden_states
+            && input.input_ids && input.input_ids.value()->ndim() == 2
+            && input.input_ids.value()->size(0) == 1
+            && input.input_ids.value()->size(1) > prefill_chunk_tokens_
+            && forward_context.attn_metadata.packed_prefill_host
+            && forward_context.attn_metadata.block_tables && forward_context.attn_metadata.slot_mapping) {
+            return forward_chunked(input, positions, forward_context);
+        }
         auto hidden_states = initial_hidden_states(input, *forward_context.runtime);
         return forward_hidden(positions, std::move(hidden_states), forward_context);
     }
@@ -130,6 +149,60 @@ protected:
     std::shared_ptr<infinilm::layers::RMSNorm> norm_;
 
 private:
+    infinilm::runtime::Tensor forward_chunked(
+        const infinilm::InfinilmModel::Input &input,
+        const infinilm::runtime::Tensor &positions,
+        infinilm::global_state::ForwardContext &context) const {
+        auto &runtime = context.require_runtime();
+        const auto &host = *context.attn_metadata.packed_prefill_host;
+        const size_t tokens = input.input_ids.value()->size(1);
+        struct Chunk {
+            size_t start, count;
+            infinilm::global_state::ForwardContext context;
+        };
+        std::vector<Chunk> chunks;
+        auto i32 = [&](std::initializer_list<int32_t> values) {
+            auto result = infinilm::runtime::Tensor::empty(runtime, {values.size()}, infinilm::runtime::DataType::kInt32);
+            runtime.memcpyH2D(result->data(), values.begin(), values.size() * sizeof(int32_t), false);
+            return result;
+        };
+        // Materialize all small control tensors before the first collective.
+        for (size_t request = 0; request < host.past.size(); ++request) {
+            const size_t query = static_cast<size_t>(host.offsets[request + 1] - host.offsets[request]);
+            for (size_t offset = 0; offset < query; offset += prefill_chunk_tokens_) {
+                const size_t count = std::min(prefill_chunk_tokens_, query - offset);
+                const size_t start = static_cast<size_t>(host.offsets[request]) + offset;
+                const int32_t past = host.past[request] + static_cast<int32_t>(offset);
+                const int32_t total = past + static_cast<int32_t>(count);
+                Chunk chunk{start, count, context};
+                auto &metadata = chunk.context.attn_metadata;
+                metadata.packed_prefill_host.reset();
+                metadata.input_offsets = i32({0, static_cast<int32_t>(count)});
+                metadata.cu_seqlens = i32({0, total});
+                metadata.past_sequence_lengths = i32({past});
+                metadata.total_sequence_lengths = i32({total});
+                metadata.block_tables = context.attn_metadata.block_tables.value()->narrow({{0, request, 1}});
+                metadata.slot_mapping = context.attn_metadata.slot_mapping.value()->narrow({{0, start, count}});
+                metadata.max_query_length = count;
+                metadata.max_sequence_length = total;
+                metadata.logical_kv_upper_bound = total;
+                metadata.first_past_sequence_length = past;
+                metadata.first_total_sequence_length = total;
+                chunks.push_back(std::move(chunk));
+            }
+        }
+        auto output = infinilm::runtime::Tensor::empty(runtime, {1, tokens, hidden_size_}, dtype_);
+        auto initial = initial_hidden_states(input, runtime);
+        for (auto &chunk : chunks) {
+            auto chunk_positions = positions->narrow({{positions->ndim() - 1, chunk.start, chunk.count}});
+            auto hidden = initial->narrow({{1, chunk.start, chunk.count}});
+            auto result = forward_hidden(chunk_positions, std::move(hidden), chunk.context);
+            auto destination = output->narrow({{1, chunk.start, chunk.count}});
+            runtime.memcpyD2D(destination->data(), result->data(), result->nbytes(), true);
+        }
+        return output;
+    }
+
     infinilm::runtime::Tensor forward_hidden(
         const infinilm::runtime::Tensor &positions,
         infinilm::runtime::Tensor hidden_states,
@@ -248,6 +321,7 @@ private:
 
     infinilm::runtime::DataType dtype_{infinilm::runtime::DataType::kFloat32};
     size_t hidden_size_{0};
+    size_t prefill_chunk_tokens_{0};
     size_t pp_size_{1};
     size_t pp_stage_{0};
     size_t tp_size_{1};

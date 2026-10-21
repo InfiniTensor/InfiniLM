@@ -145,6 +145,15 @@ target("test_rank_barrier")
     end
 target_end()
 
+target("test_kv_cache_storage")
+    set_default(false)
+    set_kind("binary")
+    set_languages("cxx17")
+    add_deps("infinilm_runtime")
+    add_includedirs("csrc")
+    add_files("test/native/kv_cache_storage_test.cpp", "csrc/cache/kv_cache.cpp")
+target_end()
+
 for _, name in ipairs({"tensor_empty_view"}) do
     target("test_" .. name)
         set_default(false)
@@ -178,6 +187,7 @@ target("test_post_load_traversal")
     add_files("csrc/config/model_config.cpp", "csrc/config/quant_config.cpp")
     add_files("csrc/layers/quantization/base_quantization.cpp", "csrc/layers/quantization/none_quantization.cpp")
     add_files("csrc/layers/quantization/awq.cpp", "csrc/layers/quantization/gptq.cpp")
+    add_files("csrc/layers/quantization/compressed_tensors.cpp")
     add_files("csrc/layers/quantization/w4_execution.cpp", "csrc/layers/quantization/w4_marlin_adapter.cpp")
     add_files("csrc/engine/distributed/communication_group.cpp",
               "csrc/engine/distributed/tcp_rendezvous.cpp",

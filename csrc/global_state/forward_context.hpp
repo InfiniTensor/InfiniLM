@@ -1,5 +1,7 @@
 #pragma once
+#include <cstdint>
 #include <stdexcept>
+#include <vector>
 
 #include "../engine/nsa_owner_input.hpp"
 #include "../models/infinilm_model.hpp"
@@ -31,6 +33,10 @@ struct StaticPrefillHostDescription {
 };
 
 struct AttentionMetadata {
+    struct PackedPrefillHost {
+        std::vector<int32_t> offsets, past, total;
+    };
+    std::optional<PackedPrefillHost> packed_prefill_host;
     /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
     std::optional<infinilm::runtime::Tensor> past_sequence_lengths;
     /// ToTal Lengths for each request sequence, of shape `[num_requests]`.

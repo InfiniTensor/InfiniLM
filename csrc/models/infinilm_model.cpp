@@ -28,16 +28,24 @@ void InfinilmModel::reset_default_cache(
     backends::AttentionBackend attention_backend,
     const engine::distributed::RankInfo &rank) {
     cache::validate_backend_cache_config(cache_config, attention_backend);
+    if (!forward_context.kv_cache_vec.empty()) {
+        auto &runtime = forward_context.require_runtime();
+        cache::validate_cache_runtime(runtime, rank);
+        // Capacity changes are an idle boundary, not the per-token hot path.
+        // Drain before releasing backing, then reclaim unpinned idle blocks
+        // before allocating a differently sized cache.
+        runtime.syncStream();
+        forward_context.kv_cache_vec.clear();
+        runtime.trimMemory();
+    }
     if (cache_config == nullptr) {
         cache_config_.reset();
-        forward_context.kv_cache_vec.clear();
         return;
     }
     auto &runtime = forward_context.require_runtime();
     cache::validate_cache_runtime(runtime, rank);
     cache_config_ = cache_config->unique_copy();
     auto &kv_cache_vec = forward_context.kv_cache_vec;
-    kv_cache_vec.clear();
     kv_cache_vec = std::move(default_allocate_kv_cache_tensors(runtime, rank, cache_config, model_config_, attention_backend));
 }
 

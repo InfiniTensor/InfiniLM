@@ -30,15 +30,15 @@ std::shared_ptr<infinilm::runtime::Memory> allocate_tensor_storage(
     return pinned ? runtime.allocatePinnedHostMemory(bytes) : runtime.allocateMemory(bytes);
 }
 
-size_t parameter_storage_bytes(const infinilm::runtime::Shape &shape,
-                               const infinilm::runtime::DataType &dtype) {
-    // Validate the physical Parameter layout before metadata or device binding.
+size_t exact_storage_bytes(const infinilm::runtime::Shape &shape,
+                           const infinilm::runtime::DataType &dtype) {
+    // Validate the contiguous layout before metadata or device binding.
     // A zero dimension is legal, but a huge suffix to its right is not.
     size_t elements = 1;
     const auto max_stride = static_cast<size_t>(std::numeric_limits<infinilm::runtime::Stride>::max());
     for (auto it = shape.rbegin(); it != shape.rend(); ++it) {
         if (*it != 0 && elements > max_stride / *it) {
-            throw std::length_error("parameter storage stride overflows");
+            throw std::length_error("exact storage stride overflows");
         }
         elements *= *it;
     }
@@ -47,7 +47,7 @@ size_t parameter_storage_bytes(const infinilm::runtime::Shape &shape,
     }
     const size_t element_bytes = infinilm::runtime::dsize(dtype);
     if (element_bytes == 0 || elements > std::numeric_limits<size_t>::max() / element_bytes) {
-        throw std::length_error("parameter storage byte size overflows");
+        throw std::length_error("exact storage byte size overflows");
     }
     return elements * element_bytes;
 }
@@ -74,17 +74,23 @@ Tensor Tensor::empty(const Shape &shape,
 Tensor Tensor::empty_parameter(Runtime &runtime,
                                const Shape &shape,
                                const DataType &dtype) {
+    return empty_exact(runtime, shape, dtype);
+}
+
+Tensor Tensor::empty_exact(Runtime &runtime,
+                           const Shape &shape,
+                           const DataType &dtype) {
     runtime.assertOwnerThread();
     if (runtime.device().type() == Device::Type::kCpu) {
         return empty(runtime, shape, dtype);
     }
-    const size_t bytes = parameter_storage_bytes(shape, dtype);
+    const size_t bytes = exact_storage_bytes(shape, dtype);
     if (bytes == 0) {
         return empty(runtime, shape, dtype);
     }
     auto t = std::shared_ptr<TensorImpl>(new TensorImpl(shape, dtype));
     t->data_.offset = 0;
-    t->data_.memory = runtime.allocateParameterMemory(bytes);
+    t->data_.memory = runtime.allocateExactMemory(bytes);
     return Tensor{t};
 }
 

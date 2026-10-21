@@ -118,7 +118,7 @@ infinilm::runtime::Tensor create_layer_kv_cache(
     size_t cache_len = (config.max_cache_len() == std::numeric_limits<infinilm::runtime::Size>::max() || config.max_cache_len() == 0 ? max_positional_embedding : config.max_cache_len());
 
     // Allocate KV cache
-    infinilm::runtime::Tensor kv_cache = infinilm::runtime::Tensor::empty(
+    infinilm::runtime::Tensor kv_cache = infinilm::runtime::Tensor::empty_exact(
         runtime,
         {2,
          rank_batch_size,
@@ -201,7 +201,7 @@ infinilm::runtime::Tensor create_layer_kv_cache(
     infinilm::runtime::Shape kv_shape = {
         2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
 
-    infinilm::runtime::Tensor kv_cache = infinilm::runtime::Tensor::empty(runtime, kv_shape, dtype);
+    infinilm::runtime::Tensor kv_cache = infinilm::runtime::Tensor::empty_exact(runtime, kv_shape, dtype);
     try {
         if (kv_cache->nbytes() != 0) {
             if (kv_cache->is_contiguous() && !runtime.isGraphRecording()) {

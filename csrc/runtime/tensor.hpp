@@ -50,10 +50,14 @@ public:
                         const Device &device,
                         bool pin_memory = false);
 
-    // Internal physical storage path for Parameter(shape), not Tensor views.
     static Tensor empty_parameter(Runtime &runtime,
                                   const Shape &shape,
                                   const DataType &dtype);
+
+    // Exact-sized backing for long-lived weights and caches, not Tensor views.
+    static Tensor empty_exact(Runtime &runtime,
+                              const Shape &shape,
+                              const DataType &dtype);
 
     static Tensor strided_empty(Runtime &runtime,
                                 const Shape &shape,

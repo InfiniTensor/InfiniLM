@@ -1,4 +1,5 @@
 #include "embedding.hpp"
+#include "../../engine/distributed/communication_group.hpp"
 #include "../../execution/submit.hpp"
 #include "../../weights/weights.hpp"
 #include "base/embedding.h"
@@ -15,7 +16,8 @@ using infinilm::runtime::Size;
 using infinilm::runtime::Tensor;
 
 Embedding::Embedding(Runtime &runtime, size_t num_embeddings, size_t embedding_dim,
-                     std::optional<int64_t> padding_idx, const DataType &dtype)
+                     std::optional<int64_t> padding_idx, const DataType &dtype,
+                     size_t tp_rank, size_t tp_size, infinicclComm_t communicator)
     : num_embeddings_(num_embeddings), embedding_dim_(embedding_dim),
       padding_idx_(padding_idx), dtype_(dtype) {
     runtime.assertOwnerThread();
@@ -27,8 +29,14 @@ Embedding::Embedding(Runtime &runtime, size_t num_embeddings, size_t embedding_d
         throw std::invalid_argument("Invalid explicit Embedding construction geometry");
     }
     device_ = runtime.device();
+    if (!tp_size || tp_rank >= tp_size || embedding_dim % tp_size || (tp_size > 1 && !communicator)) {
+        throw std::invalid_argument("Embedding TP geometry or communicator is invalid");
+    }
+    tp_rank_ = tp_rank;
+    tp_size_ = tp_size;
+    communicator_ = communicator;
     try {
-        weight_ = infinilm::weights::Weight(runtime, {num_embeddings, embedding_dim}, dtype_);
+        weight_ = infinilm::weights::Weight(runtime, {num_embeddings, embedding_dim}, dtype_, tp_size_ > 1 ? 1 : 0, tp_rank_, tp_size_);
         this->bind_weight("weight", weight_);
         // Same legacy semantics: padding row is not additionally zero-initialized.
     } catch (...) {
@@ -52,7 +60,22 @@ Tensor Embedding::forward(Runtime &runtime, const Tensor &indices) const {
     auto input = indices->contiguous(runtime);
     const auto config = infini::ops::Embedding::DefaultConfig(
         runtime.device().type());
-    infinilm::execution::submit<infini::ops::Embedding>(runtime, config, input, weights, out);
+    auto local_out = out;
+    if (tp_size_ > 1) {
+        infinilm::execution::submit<infini::ops::Fill>(runtime,
+                                                       infini::ops::Fill::DefaultConfig(runtime.device().type()), out, 0.0, out);
+        local_out = out->narrow({{out->ndim() - 1, tp_rank_ * (embedding_dim_ / tp_size_), embedding_dim_ / tp_size_}});
+    }
+    infinilm::execution::submit<infini::ops::Embedding>(runtime, config, input, weights, local_out);
+    if (tp_size_ > 1) {
+        infinilm::engine::distributed::allreduce_(runtime, out, out, infinicclSum, communicator_);
+        // A first-use kernel module can synchronize a device while holding a
+        // CUDA runtime lock needed by the peer to enqueue this collective.
+        // Complete the new eager collective before dispatching decoder kernels.
+        if (!runtime.isGraphRecording()) {
+            runtime.syncStream();
+        }
+    }
     if (device_.type() != Device::Type::kCpu) {
         INFINILM_TRACE_OP(Embedding, out);
     }

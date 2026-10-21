@@ -1,3 +1,4 @@
+#include "../../csrc/config/qwen3_memory.hpp"
 #include "../../csrc/weights/weights.hpp"
 #ifdef NDEBUG
 #undef NDEBUG
@@ -299,8 +300,63 @@ void typed_no_matching_tls() {
 
 } // namespace
 
+void check_qwen3_memory_config() {
+    using namespace infinilm;
+    config::ModelConfig model(nlohmann::json{{"model_type", "qwen3"}, {"torch_dtype", "bfloat16"}});
+    auto supported = [&](Device::Type device, int tp, int pp) {
+        return config::supports_qwen3_memory_optimization(model, device, tp, pp);
+    };
+    assert(supported(Device::Type::kNvidia, 1, 1));
+    assert(supported(Device::Type::kNvidia, 2, 1));
+    assert(!supported(Device::Type::kCpu, 2, 1));
+    assert(!supported(Device::Type::kNvidia, 4, 1));
+    assert(!supported(Device::Type::kNvidia, 2, 2));
+    for (const auto *dtype : {"float16", "float32"}) {
+        model.get_config_json()["torch_dtype"] = dtype;
+        assert(!supported(Device::Type::kNvidia, 2, 1));
+    }
+    model.get_config_json()["torch_dtype"] = "bfloat16";
+    model.get_config_json()["model_type"] = "llama";
+    assert(!supported(Device::Type::kNvidia, 2, 1));
+    model.get_config_json()["model_type"] = "qwen3";
+    auto quantized = config::ModelConfig(model.get_config_json());
+    quantized.set_kv_quant_scheme(runtime::DataType::kInt8);
+    assert(!config::supports_qwen3_memory_optimization(quantized, Device::Type::kNvidia, 2, 1));
+    model.get_config_json()["quantization_config"] = {
+        {"quant_method", "awq"}, {"bits", 4}, {"group_size", 128}, {"version", "GEMM"}, {"zero_point", true}};
+    assert(!supported(Device::Type::kNvidia, 2, 1));
+    model.get_config_json().erase("quantization_config");
+    assert(config::qwen3_prefill_chunk_size(model) == 4096);
+    assert(config::qwen3_tp_vocab_sharding(model));
+    for (const auto size : {0, 1, 128, 4096}) {
+        model.get_config_json()["infinilm_prefill_chunk_size"] = size;
+        assert(config::qwen3_prefill_chunk_size(model) == static_cast<size_t>(size));
+    }
+    for (const auto &bad : std::vector<nlohmann::json>{-1, 1.5, "4096", nullptr, true, uint64_t{1} << 40}) {
+        model.get_config_json()["infinilm_prefill_chunk_size"] = bad;
+        bool rejected = false;
+        try {
+            (void)config::qwen3_prefill_chunk_size(model);
+        } catch (const std::invalid_argument &) { rejected = true; }
+        assert(rejected);
+    }
+    model.get_config_json()["infinilm_tp_vocab_sharding"] = false;
+    assert(!config::qwen3_tp_vocab_sharding(model));
+    model.get_config_json()["infinilm_tp_vocab_sharding"] = "true";
+    bool rejected = false;
+    try {
+        (void)config::qwen3_tp_vocab_sharding(model);
+    } catch (const std::invalid_argument &) { rejected = true; }
+    assert(rejected);
+    std::puts("Qwen3 memory scope and configuration PASS");
+}
+
 int main(int argc, char **argv) {
     try {
+        check_qwen3_memory_config();
+        if (argc == 2 && std::string(argv[1]) == "--memory-config-only") {
+            return 0;
+        }
         check_forward_context_dispatch();
         if (argc == 2 && std::string(argv[1]) == "--forward-boundary-only") {
             return 0;

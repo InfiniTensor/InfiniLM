@@ -105,7 +105,8 @@ public:
             bool snapshot_static_sequence_lengths = false,
             bool preserve_target_hidden_device = false,
             size_t logical_kv_upper_bound = 0,
-            std::shared_ptr<const nsa::Proof> nsa_owner = {}) const;
+            std::shared_ptr<const nsa::Proof> nsa_owner = {},
+            size_t prefill_chunk_size = 0) const;
     };
 
     struct Output {
@@ -197,6 +198,7 @@ private:
 
     // Backends
     backends::AttentionBackend attention_backend_;
+    size_t prefill_chunk_size_{0};
 
     // Graph Compiling
     bool enable_graph_compiling_;

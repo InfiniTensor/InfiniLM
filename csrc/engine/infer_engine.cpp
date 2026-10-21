@@ -371,7 +371,8 @@ InferEngine::Input::to_model_input(
     bool snapshot_static_sequence_lengths,
     bool preserve_target_hidden_device,
     size_t logical_kv_upper_bound,
-    std::shared_ptr<const nsa::Proof> nsa_owner) const {
+    std::shared_ptr<const nsa::Proof> nsa_owner,
+    size_t prefill_chunk_size) const {
 
     forward_context.nsa_owner = std::move(nsa_owner);
     auto &runtime = forward_context.require_runtime();
@@ -462,6 +463,37 @@ InferEngine::Input::to_model_input(
     attn_metadata.first_past_sequence_length = first_past_sequence_length;
     attn_metadata.first_total_sequence_length = first_total_sequence_length;
     attn_metadata.logical_kv_upper_bound = logical_kv_upper_bound;
+    // Snapshot scheduling values before model-internal prefill chunks.
+    if (is_prefill && block_tables && past_sequence_lengths && total_sequence_lengths && input_offsets
+        && !forward_context.nsa_owner && !pixel_values && !target_hidden_states
+        && prefill_chunk_size != 0 && input_ids.value()->numel() > prefill_chunk_size) {
+        auto host_i32 = [](const infinilm::runtime::Tensor &value) {
+            auto host = value;
+            if (host->ndim() != 1 || host->dtype() != infinilm::runtime::DataType::kInt32) {
+                throw std::invalid_argument("packed prefill metadata requires one-dimensional int32 values");
+            }
+            if (host->device().type() != infinilm::runtime::Device::Type::kCpu) {
+                host = host->to(infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
+            }
+            host = host->contiguous();
+            const auto *data = reinterpret_cast<const int32_t *>(host->data());
+            return std::vector<int32_t>(data, data + host->numel());
+        };
+        global_state::AttentionMetadata::PackedPrefillHost host{
+            host_i32(*input_offsets), host_i32(*past_sequence_lengths), host_i32(*total_sequence_lengths)};
+        if (host.offsets.size() != host.past.size() + 1 || host.total.size() != host.past.size()
+            || host.offsets.empty() || host.offsets.front() != 0
+            || static_cast<size_t>(host.offsets.back()) != input_ids.value()->numel()) {
+            throw std::invalid_argument("packed prefill host metadata sizes do not match tokens");
+        }
+        for (size_t i = 0; i < host.past.size(); ++i) {
+            if (host.past[i] < 0 || host.offsets[i + 1] <= host.offsets[i]
+                || static_cast<int64_t>(host.total[i]) != static_cast<int64_t>(host.past[i]) + host.offsets[i + 1] - host.offsets[i]) {
+                throw std::invalid_argument("packed prefill past/total/query lengths disagree");
+            }
+        }
+        attn_metadata.packed_prefill_host = std::move(host);
+    }
 
     forward_context.mamba_metadata = {
         input.input_offsets,

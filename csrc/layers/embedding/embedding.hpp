@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../weights/weights.hpp"
+#include <infiniccl/infiniccl.h>
 #include <optional>
 
 namespace infinilm::layers {
@@ -40,7 +41,8 @@ public:
     Embedding(infinilm::runtime::Runtime &runtime, size_t num_embeddings,
               size_t embedding_dim,
               std::optional<int64_t> padding_idx = std::nullopt,
-              const DataType &dtype = DataType::kFloat32);
+              const DataType &dtype = DataType::kFloat32,
+              size_t tp_rank = 0, size_t tp_size = 1, infinicclComm_t communicator = nullptr);
 
     /**
      * @brief Forward pass: lookup embeddings for given indices
@@ -73,6 +75,8 @@ protected:
     infinilm::weights::Weight weight_;
 
 private:
+    size_t tp_rank_{0}, tp_size_{1};
+    infinicclComm_t communicator_{nullptr};
     infinilm::runtime::Device device_;
     size_t num_embeddings_;              // Vocabulary size
     size_t embedding_dim_;               // Embedding dimension

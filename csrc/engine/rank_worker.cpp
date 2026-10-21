@@ -1,4 +1,5 @@
 #include "rank_worker.hpp"
+#include "../config/qwen3_memory.hpp"
 #include "../engine/distributed/communication_group.hpp"
 #include "../layers/moe/ep/ep_config.hpp"
 #include "../models/model_factory.hpp"
@@ -76,6 +77,11 @@ RankWorker::RankWorker(
       init_done_(false),
       rng_(std::random_device{}()),
       barrier_(barrier) {
+    if (attention_backend_ == backends::AttentionBackend::PAGED_ATTN
+        && config::supports_qwen3_memory_optimization(
+            *model_config_, rank_info_.device.type(), rank_info_.tp_size, rank_info_.pp_size)) {
+        prefill_chunk_size_ = config::qwen3_prefill_chunk_size(*model_config_);
+    }
     if (cache_config != nullptr) {
         pending_cache_config_ = cache_config->unique_copy();
     }
@@ -713,6 +719,24 @@ void RankWorker::thread_loop() {
                         nsa_drain_required_ = true;
                     }
                     model_->process_weights_after_loading(*runtime_, infinilm_config_->pre_transpose);
+                    // Lazy CUDA module loading may synchronize the device. A
+                    // first Argmax launch after the final TP collective can
+                    // then hold the runtime lock needed by a peer rank. Load
+                    // the greedy sampling kernels before any model collective.
+                    if (config::supports_qwen3_memory_optimization(
+                            *model_config_, runtime_->device().type(), rank_info_.tp_size, rank_info_.pp_size)
+                        && attention_backend_ == backends::AttentionBackend::PAGED_ATTN
+                        && config::qwen3_tp_vocab_sharding(*model_config_)
+                        && rank_info_.tp_size > 1
+                        && rank_info_.tp_rank == 0 && rank_info_.pp_stage + 1 == rank_info_.pp_size) {
+                        const auto dtype = model_config_->get_config_json().contains("lm_head_output_dtype")
+                                             ? infinilm::runtime::DataType::kFloat32
+                                             : model_config_->get_dtype();
+                        auto warm_logits = infinilm::runtime::Tensor::empty(*runtime_, {model_config_->get<size_t>("vocab_size")}, dtype);
+                        auto warm_index = infinilm::runtime::Tensor::empty(*runtime_, {1}, infinilm::runtime::DataType::kInt64);
+                        runtime_->setDeviceMemory(warm_logits->data(), 0, warm_logits->nbytes());
+                        sample_request_token(*runtime_, warm_index, warm_logits, 0.0F, 1.0F, 1, 1.0F);
+                    }
                     runtime_->syncStream();
                     runtime_->trimMemory();
                 } catch (...) {
@@ -866,7 +890,8 @@ void RankWorker::thread_loop() {
                                     forward_context_,
                                     attention_backend_ == backends::AttentionBackend::STATIC_ATTN,
                                     false,
-                                    logical_kv_upper_bound, nsa_proof);
+                                    logical_kv_upper_bound, nsa_proof,
+                                    model_->supports_kv_only_prepare() ? prefill_chunk_size_ : 0);
                                 if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN
                                     && model_config_->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE
                                     && model_args.input_ids && model_args.input_ids.value()->ndim() == 2
@@ -1063,7 +1088,8 @@ void RankWorker::thread_loop() {
                         } catch (...) {
                             const auto run_error = std::current_exception(); // active catch, never destructor
                             if (nsa_pool_epoch_) {
-                                nsa::retire_caught_run_failure(run_error, [&](std::exception_ptr error) {
+                                nsa::retire_caught_run_failure(
+                                    run_error, [&](std::exception_ptr error) {
                                         if (barrier_){ barrier_->abort(error);
 } }, [&] {
                                         model_->invalidate_paged_owner();
