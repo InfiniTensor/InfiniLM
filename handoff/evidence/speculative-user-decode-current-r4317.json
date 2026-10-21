@@ -1,0 +1,101 @@
+{
+  "utc": "2026-10-21T20:39:05.926058+00:00",
+  "scope": "Sanitizedhandoff. Per-user decode-only speculation objective; no trained online gain qualified. Components and diagnostics cannot substitute final token IDs/EOS/normal lifecycle.",
+  "source_refs": {
+    "utc": "2026-10-21T19:48:00.759896+00:00",
+    "source": "https://api.github.com/repos/InfiniTensor/InfiniLM/commits/main",
+    "tested_commit": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+    "tested_tree": "5e5aaf37e326bcbf56d35e9e22a8ed73208cd6d4",
+    "main_commit": "eb97954b518cf33fbf3ee2dc22f13ecf2141400b",
+    "main_tree": "5e5aaf37e326bcbf56d35e9e22a8ed73208cd6d4",
+    "same_full_tree": true,
+    "original_refactor_branch_HTTP_status": 404
+  },
+  "ordinary_baseline": {
+    "cards": 32,
+    "TP": 8,
+    "PP": 4,
+    "batch": 1,
+    "input_tokens": 512,
+    "max_output_tokens": 128,
+    "useful_decode_tokens_after_anchor": 127,
+    "ordinary_Engine_forward": true,
+    "paired_state_verifier_for_baseline": false,
+    "prefill_included": false,
+    "before_after_peruser_tok_s": [
+      5.062621724266245,
+      5.040454945021318
+    ],
+    "mean_TPOT_ms": [
+      197.52611482046603,
+      198.39478993612363
+    ],
+    "complete_frozen_IDs_QA16_repeats_finite_CPUargmax_normal32_Slurm0": true
+  },
+  "speculative_target": {
+    "W8_root_first_token_difference": 53,
+    "K7_W8_K8_W9_K15_W16_teacher_trials": "Correctnessdiagnostics only; nottrainedproposal/userTPS. W8root failed, noacceptedonlinegain.",
+    "real_lookup_K1_K3": "Bothrepeats eachfailedfullIDs andslower, notqualifiedspeed.",
+    "W8_first_generic_recorded_difference": "KDA0attentionoutput, sameexactnormalizedinput forserial8vsW8; TP0/6captured, notall8",
+    "component": "8GPUs,actualnormalizedinput/checkpointTP0/6fourreplicaseach,960CPUrawand1800producerFP64dotsamples. M8QKV/g widthdifferences <=9/4 BF16elements; fa/fb/betaexacthere. PaddingM16/32/64 notrestoreQKV/gserialexact. Rawbitsdiagnostic only;Modelgate remainsfullIDs.",
+    "candidate": "IsolateddefaultOFF input-QKV/gM1onlywhenmode11andW<=16, actualdispatchcounters anddetailedKDA0trace; sameGPUkernel/nativeTP, noF64. Firsthostbuildfailed unnamedTensorview toTensor&; freshnamedviewretry prepared. RequiresfullModel beforeadoption.",
+    "trained_online_speed_qualified": false
+  },
+  "drafts": [
+    {
+      "repo": "modal-labs/Kimi-K3-DFlash",
+      "revision": "c192d15a43407bf758b5ae0880d5c72052fef1de",
+      "W": 16,
+      "K": 15,
+      "local_full_weights_SHA_verified": true,
+      "remote_full_weights_SHA_verified": false,
+      "current_target_online_acceptance_measured": false
+    },
+    {
+      "repo": "RedHatAI/Kimi-K3-speculator.dspark",
+      "revision": "38a88101e0d46bb22134b9da340f381b954d40d4",
+      "K": 8,
+      "W": 9,
+      "local_full_weights_SHA_verified": true,
+      "remote_full_weights_SHA_verified": false,
+      "current_target_online_acceptance_measured": false
+    }
+  ],
+  "GLM_capacity_only": {
+    "cards": 16,
+    "TP": 8,
+    "PP": 2,
+    "rows": 32,
+    "context_capacity": 640,
+    "default_channels": 32,
+    "exact_persistent_banks": true,
+    "flags": "boundedRoPE640 andsharedworldcontrol alias, bothdefaultOFF",
+    "fourways_normal_contexts": 64,
+    "minimum_tail_free_GiB": [
+      7.55078125,
+      7.80078125,
+      7.8984375,
+      8.1484375
+    ],
+    "scope": "ActualRoPE8GPU CPU192raw/table-forward/invalid-lifetimeauditpassed. Constructor4wayall64normalowners/IBext/collectives/Slurm0, onlycombinedflags passes8GiBconstructorgate. No checkpointload/fullPPtraffic/frozenModeltokenorB32speedqualification. Recheckpreloadfreeafterlazycommwarmup; keep8GiBloadand6GiBrun."
+  },
+  "Deep_attention_ABBA": {
+    "cards": 8,
+    "B": 16,
+    "M": 16,
+    "input_tokens": 512,
+    "max_output_tokens": 512,
+    "FP32_control_qualified": true,
+    "FP16_attention_candidate_qualified": false,
+    "FP16_reason": "Fullgenerated512IDsfailed althoughknownQApassed; no speedadoption.",
+    "FP32_control_decode_range_tok_s": [
+      34.5546864503003,
+      35.980196857133265
+    ],
+    "FP32_control_including_prefill_range_tok_s": [
+      26.273850781212158,
+      27.452312950277094
+    ],
+    "scope": "Oneimmutableweightload mode5/6/6/5; FP32controlreproductionrange, notnewcodecausalgain or HTTPpeak."
+  }
+}
