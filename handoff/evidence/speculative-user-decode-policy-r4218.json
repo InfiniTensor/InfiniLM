@@ -1,0 +1,218 @@
+{
+  "goal_status": "active",
+  "source": "Explicit human steering 2026-10-21: speculative tests optimize user-level decode throughput, including multi-batch users; do not rank speculation by throughput including prefill or by maximum large-batch aggregate throughput.",
+  "main_non_speculative_objective_unchanged": "Adapt all three latest-refactor models and optimize useful aggregate output throughput per all serving cards toward measured hardware/operator/system ceilings.",
+  "speculative_primary_objective": "Maximize per-request useful decode tokens per second; sweep concurrency to report the user-speed frontier.",
+  "primary_metrics": [
+    "per-request decode tok/s at B1",
+    "per-request decode tok/s distribution at B2/4/8/16",
+    "per-request mean decode TPOT and its cross-request P50/P95",
+    "nonzero inter-commit stall P95 and maximum; disclose burst delivery"
+  ],
+  "timing_contract": {
+    "anchor": "Both AR and speculation finish target prefill and emit the initial target token at t0. Count useful committed output after that token until each request's final useful output; include all draft/target verify/selection/commit/replay and unhidden communication occurring after t0.",
+    "exclude": [
+      "weight loading",
+      "prefill",
+      "tokenizer startup"
+    ],
+    "denominator": "Each request's own observed decode elapsed time. Never substitute aggregate/B for heterogeneous request timing.",
+    "output_count": "Only newly committed target-authorized output; exclude rejected/replayed proposals, repeated prefixes, EOS and any post-EOS output. Count each position once.",
+    "delivery": "Multiple tokens committed together share a delivery timestamp. Do not infer smooth latency from zeros inside a burst; record inter-commit stalls and per-request average TPOT.",
+    "auxiliary_only": [
+      "aggregate useful decode tok/s",
+      "all target+draft cards",
+      "memory",
+      "draft/verify/commit breakdown",
+      "acceptance survival curve",
+      "prefill/TTFT separately, never used to reject decode benefit"
+    ]
+  },
+  "numeric_contract": "Complete greedy output IDs including EOS/repeats equal the frozen ordinary target reference, finite logits, CPU argmax, actual owner/device/stream, normal cleanup and terminal Slurm. Raw equality diagnostic only. Native BF16/FP32 preferred, F64 reference/control only.",
+  "matrix": {
+    "concurrency": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "draft_proposals": [
+      0,
+      1,
+      3,
+      7,
+      8,
+      15,
+      16
+    ],
+    "verify_positions": "K+1 for K proposals under the current-token-plus-draft contract; distinguish K7/W8, K8/W9, K15/W16, K16/W17 explicitly.",
+    "eligibility": "Run only compatible trained checkpoint/native window. 15/16 proposals are extension experiments unless compatible trained weights and input contracts are verified. Changing a block_size field alone is not a validated 16-token drafter.",
+    "input_lengths": [
+      512,
+      2048,
+      8192
+    ],
+    "max_output_lengths": [
+      256,
+      512
+    ],
+    "workloads": [
+      "math",
+      "code",
+      "Chinese dialogue",
+      "RAG/QA",
+      "low-entropy structured output"
+    ],
+    "comparison": "Same target/dependencies/precision/topology and prompts; resident weights, ordinary/spec/spec/ordinary ABBA with repeated configurations. Stage short frozen continuation and state-rollback checks before the full matrix. No speed adoption from failed complete IDs."
+  },
+  "draft_candidates": [
+    {
+      "model": "RadixArk/Kimi-K3-DSpark",
+      "role": "Existing cached/partly integrated candidate, lower initial engineering cost",
+      "trained_proposals": 7,
+      "verify_positions": 8,
+      "target_taps": [
+        7,
+        23,
+        51,
+        67,
+        83
+      ],
+      "source": "https://huggingface.co/RadixArk/Kimi-K3-DSpark"
+    },
+    {
+      "model": "modal-labs/Kimi-K3-DFlash",
+      "revision": "c192d15a43407bf758b5ae0880d5c72052fef1de",
+      "role": "Prioritypublishedblock16 candidate for per-userdecode; sameweights published8/16window comparison",
+      "config_block_size": 16,
+      "ordinary_DFlash_proposals_at_block16": 15,
+      "verify_positions": 16,
+      "sample_from_anchor": false,
+      "source_contract": "OfficialSGLangDFlashWorkerV2 uses draft_hidden[:,1:,:], genericanchor+MASK16slots. This differsfromDSpark sample_from_anchorTrue. SnapshotSHA-reviewed, no exactbuildcommitpin yet.",
+      "target_taps": [
+        19,
+        37,
+        54,
+        66,
+        78,
+        90
+      ],
+      "mask_token_id": 163592,
+      "source": "https://huggingface.co/modal-labs/Kimi-K3-DFlash",
+      "published_acceptance_length_C1": {
+        "GSM8K": {
+          "block8": 5.905,
+          "block16": 7.984
+        },
+        "HumanEval": {
+          "block8": 6.013,
+          "block16": 8.358
+        },
+        "MTBench": {
+          "block8": 4.202,
+          "block16": 4.921
+        },
+        "LongBench_v2": {
+          "block8": 3.455,
+          "block16": 3.688
+        }
+      },
+      "publication_scope": "Modelauthor reports NVIDIA B300/SGLanggreedybenchmark. NotBW1000measurements or guaranteedacceptance; promptaveraging differs from RedHat/Radix. Fulltrainingrecordnotprovided, do notclaim16additionaltrainedproposals.",
+      "weights_bytes": 5196953912,
+      "weights_sha256": "0f0bd39d19c2dd0249de4f8216180f9729963402f902d50f19a156a8d358b733",
+      "target_compatibility_qualified": false
+    },
+    {
+      "model": "RedHatAI/Kimi-K3-speculator.dspark",
+      "role": "Priority 8-proposal candidate",
+      "trained_proposals": 8,
+      "verify_positions": 9,
+      "target_taps": [
+        24,
+        48,
+        72,
+        88,
+        92
+      ],
+      "source": "https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark"
+    },
+    {
+      "model": "Inferact/Kimi-K3-DSpark",
+      "role": "MLA-native DSpark with public B1 decode result, independent architecture/contract",
+      "trained_proposals": 7,
+      "verify_positions": 8,
+      "target_taps": [
+        2,
+        23,
+        47,
+        71,
+        89
+      ],
+      "source": "https://huggingface.co/Inferact/Kimi-K3-DSpark"
+    },
+    {
+      "model": "lightseekorg/kimi-k3-dflash2",
+      "role": "Parallel low-concurrency comparison with strong math/code acceptance",
+      "trained_proposals_in_published_test": 7,
+      "verify_positions": 8,
+      "config_block_size": 8,
+      "target_taps": [
+        19,
+        37,
+        66,
+        78,
+        90
+      ],
+      "source": "https://huggingface.co/lightseekorg/kimi-k3-dflash2"
+    },
+    {
+      "model": "lightseekorg/kimi-k3-eagle3-mla",
+      "role": "Short serial-draft baseline; longer rollout only after compatibility and quality measurement",
+      "published_proposals": 3,
+      "published_verify_positions": 4,
+      "source": "https://huggingface.co/lightseekorg/kimi-k3-eagle3-mla"
+    }
+  ],
+  "long_draft_policy": "Updatedprimarysource search foundModalKimiK3 pinnedblock16checkpoint andactualpublished8/16servingcomparison. TestactualW8/K7 andW16/K15 peruserdecode afterproperfeature/mask/stateintegration. RedHatK8/W9 distinct. ExistingRadixK16/W17 componentremainsuntrainedextrapolation. Fulltraining provenanceandBW1000acceptance notestablished; no assertioneveryproposalaccepted. IftestingtrueK16/W17, markasextensionuntilcompatibletraining/qualityconfirmed.",
+  "remaining_online_gaps": [
+    "Target block-verification token semantics",
+    "exact auxiliary feature tap/residual stream/norm contracts",
+    "cross-PP feature movement and target embedding/head access",
+    "incremental draft KV",
+    "unified KDA/conv/MLA accept/reject commit",
+    "BW1000 short verify kernel/cycle cost",
+    "no complete latest online trained DSpark speed qualification yet"
+  ],
+  "previous_policy": "speculative-inference-objective-r4100.json",
+  "utc": "2026-10-21T17:24:44.381642+00:00",
+  "cycle_budget": {
+    "formula": "Per-userusefuldecode tok/s = totalnewlycommittedusefultokens / ownobserveddecodeelapsed; stationaryapprox E[C]/E[Tcycle]. RelativeARapprox E[C]*T_AR/E[Tcycle].",
+    "cycle_includes": [
+      "draft",
+      "targetblockverification",
+      "selection",
+      "KV/KDA/convstatecommit/rollback",
+      "requiredreplay",
+      "unhiddencommunication/synchronization"
+    ],
+    "positive_gain_condition": "Measuredcompletecycle < E[C]*ordinarysingledecode_step; actualordinaryEngine.forward denominator, sameprecision/topology/prompts.",
+    "illustration_not_measurement": {
+      "effective_committed_tokens_per_cycle": 8,
+      "cycle_time_relative_to_AR_step": 2,
+      "decode_speedup": 4
+    },
+    "15_tok_s_cycle_limits_ms": {
+      "C4": 266.6666666666667,
+      "C6": 400.0,
+      "C8": 533.3333333333334
+    },
+    "SLO_status": "No15tok/soronline5x/10xspeculativequalification yet."
+  },
+  "selection_policy": "Optimize per-requestdecode speed, notmaxacceptedlengthalone. Sweepwindow8/16 andconfidencebasedprefixlengthsunderactualmeasuredcyclecost. Reportposition-prefixsurvival separatelyfrommarginalproposalaccuracy. No arbitrary16fieldedit treatedastraining.",
+  "source_artifacts": {
+    "modal": "Modal-Kimi-K3-DFlash-contract-r4206/manifest.json",
+    "official_SGLang": "Kimi-DFlash-serving-contract-r4211/manifest.json",
+    "Speculators": "speculators-contract-r4198/source-manifest-r4205.json"
+  }
+}
