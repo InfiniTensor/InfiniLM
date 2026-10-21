@@ -1,0 +1,194 @@
+{
+  "completed": true,
+  "main_goal_metric": false,
+  "wholemodel_qualified": false,
+  "utc": "2026-10-21T00:49:51.981122+00:00",
+  "producer": [
+    "910373.831",
+    "kimi-KDA1-replay-r3866",
+    "COMPLETED",
+    "0:0"
+  ],
+  "local_projection_serial_vs_block": [
+    {
+      "rank": 0,
+      "different_local_elements": 2,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 1,
+      "different_local_elements": 2,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 2,
+      "different_local_elements": 2,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 3,
+      "different_local_elements": 3,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 4,
+      "different_local_elements": 1,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 5,
+      "different_local_elements": 4,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 6,
+      "different_local_elements": 0,
+      "shape": [
+        2,
+        7168
+      ]
+    },
+    {
+      "rank": 7,
+      "different_local_elements": 4,
+      "shape": [
+        2,
+        7168
+      ]
+    }
+  ],
+  "reduction_serial_vs_block": {
+    "0": [
+      {
+        "rank": 0,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 1,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 2,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 3,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 4,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 5,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 6,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 7,
+        "different_reduced_elements": 1
+      }
+    ],
+    "1": [
+      {
+        "rank": 0,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 1,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 2,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 3,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 4,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 5,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 6,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 7,
+        "different_reduced_elements": 1
+      }
+    ],
+    "2": [
+      {
+        "rank": 0,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 1,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 2,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 3,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 4,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 5,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 6,
+        "different_reduced_elements": 1
+      },
+      {
+        "rank": 7,
+        "different_reduced_elements": 1
+      }
+    ]
+  },
+  "replay_equal_actual_captured_output_by_policy": {
+    "0": true,
+    "1": false,
+    "2": false
+  },
+  "native_replay_reproduces_real_model_output": true,
+  "local_projection_equal_in_this_fixture": false,
+  "FP32_eliminates_this_fixture_difference": false,
+  "F64_eliminates_this_fixture_difference": false,
+  "causal_scope": "This captured KDA1 projection boundary only. Raw equality diagnoses boundary; whole output token parity must be revalidated after any model change.",
+  "diagnosis": "No collective-only causal conclusion; inspect local projection or capture mismatch",
+  "performance_gain_adopted": false
+}

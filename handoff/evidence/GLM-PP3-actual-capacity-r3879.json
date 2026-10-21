@@ -1,0 +1,22 @@
+{
+  "all24_normal_close_rows": [
+    16,
+    32,
+    64
+  ],
+  "minimum_free_GiB": [
+    25.169921875,
+    21.150390625,
+    13.111328125
+  ],
+  "geometry": [
+    0,
+    26,
+    54,
+    78
+  ],
+  "actual_key_coverage_audit": "glm-PP3-capacity-r3865-audit.json",
+  "serving_step": "910381.325",
+  "serving_state": "RUNNING",
+  "wholemodel_performance_qualified": false
+}

@@ -1,0 +1,8 @@
+import pathlib,json,subprocess,datetime
+r=pathlib.Path.home()/'hygon-inference-refactor-20261014';out=r/'glm-PP2-constructor-r3851-launch.json';assert not out.exists();parent='910376';nodes=['COMPUTE_NODE_ba45ccc4','COMPUTE_NODE_8b8806cd'];aa=[v.split('|')for v in subprocess.check_output(['sacct','-j',parent,'-n','-P','-o','JobID,JobName%120,State,ExitCode,NodeList%180'],text=True).splitlines()]
+for a in aa:
+ if '.'in a[0]and not a[0].endswith(('.batch','.extern'))and a[2]in['RUNNING','PENDING','CONFIGURING','COMPLETING']:
+  hosts=subprocess.check_output(['scontrol','show','hostnames',a[4]],text=True).splitlines();assert not set(hosts)&set(nodes),a
+assert json.loads((r/'results/glm-prefill-capacity-r3822-build.json').read_text())['completed'];label='glm-PP2-constructor-r3851';args=['srun','--jobid='+parent,'--overlap','--exact','--kill-on-bad-exit=1','-N2','-n2','--ntasks-per-node=1','-c64','-w',','.join(nodes),'--gres=dcu:8','--mem=96000M','-t','00:15:00','--job-name='+label,'--output='+str(r/'logs'/(label+'-%J-%t.log')),'env','GLM_PP_SIZE_R3603=2','GLM_CACHE_ROWS_R3627=32','GLM_CACHE_CAP_R3627=640','GLM_NETWORK_TRIAL=shca','GLM_PIPELINE_TAIL_NODE='+nodes[-1],'INFINILM_OWNER_CPU_WIDTH_R2392=4','WAVE_INSIDE_R2323=glm_constructor_r3851_inside.sh','USE_WEIGHT_CACHE_R3604=0','bash',str(r/'incoming/resource_wave_local_r3097_outer.sh'),'probe']
+with(r/'logs'/(label+'-controller.log')).open('w')as f:p=subprocess.Popen(args,stdout=f,stderr=subprocess.STDOUT,start_new_session=True)
+out.write_text(json.dumps({'utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'pid':p.pid,'parent':parent,'label':label,'nodes':nodes,'args':args,'no_checkpoint_loading':True},indent=2));print(json.dumps({'submitted':True,'pid':p.pid}))

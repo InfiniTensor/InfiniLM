@@ -1,5 +1,9 @@
 # Agent 接手文档
 
+## 最新补充（2026-10-21T00:58:41.529143+00:00，覆盖历史进行中状态）
+
+Kimi选择性投机六组全部完整token不同，无可采用加速；真实投影回放已证明M1/M2本地GEMM差异在归约前存在，FP32/F64归约不能解决此处。GLM容量prefill缓存整模型收益接近零，默认关闭；PP3 rows64实际24卡容量通过，一次加载多batch测试与独立审计进行中。详见 [本轮实验与迁移补充](EXPERIMENT_UPDATE_20261021.zh-CN.md)。所有原有主指标资格保持，投机排除主目标。
+
 ## 新增实验进展（2026-10-20T23:43:10.529633+00:00，覆盖后文旧状态）
 
 Kimi 的两种块验证修复模式均完成：32卡TP8PP4、B1/2/4/8/16 × draft上限1/3/7，共30个配置比较，**全部完整token与普通解码不同，而且更慢，合格加速结果为0组**。正常32owner退出、Slurm0；不是运行报错。B16/K1模式2诊断值为普通21.54、投机13.67 tok/s，接受率20.36%；token失败，该速度不作为可用结果或主目标。首个真实接受块已完成追踪与两次未追踪重放，均在第26个生成token分歧；串行完整ID相同。末尾脚本把二维generated_ids直接与一维参考比较，Slurm FAILED1；3836事后独立核对实际前后AR完整ID相同，32worker报告关闭，但只有8项beforeQA，afterQA与末尾affinity未执行，不当正常模型验收。原失败源码/终态保留，3837仅修索引后准备与下轮诊断合并，不为末尾脚本单独重载。首KDA0的8卡投影/活动初态/提交后卷积与SSM状态全同；最早generic raw差异为layer1 attention首token一个BF16元素，次token首次在该层ffn输出430元素；这些是诊断，不是raw gate或已确认根因。实际配置layer1为第二个KDA、layer3为首个MLA。下一轮同次加载抓KDA1详细状态、MLA3 W1/W2，另测n3/K3、n4/K1选择性草稿B1/8/16，前后AR与投机各两次；需实际有草稿并接受、完整ID/EOS/重复/owner/Slurm全部通过才列可用实验结果，仍排除主指标。3841只改host追踪并原样复用旧GPU对象，3847队列等真实成功构建再提交。只比较最终完整token；逐层raw差异用于定位。证据 `evidence/Kimi-spec-M1-complete-negative-r3760.json`、`evidence/Kimi-spec-M2-complete-negative-r3760.json`。

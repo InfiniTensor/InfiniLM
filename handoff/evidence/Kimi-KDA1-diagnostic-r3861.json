@@ -1,0 +1,3820 @@
+{
+  "utc": "2026-10-21T00:31:25.921911+00:00",
+  "completed": true,
+  "wholemodel_qualified": false,
+  "scope": "Read-only CPUdiagnosis ofcompleted tracedcalls anduntracedrootpaths in a stillrunning producer. No finalSlurm/afterQA/servingperformance qualification. Rawdifferences diagnostic only.",
+  "row_projection_local_hook_observed": false,
+  "prior_CPU_analysis_failure": "3858 expected row_output_local hook absent in actual emitted journals; preserve failure and inspect actual Common symbol path. No GPU producer rerun.",
+  "producer_still_running_at_snapshot": false,
+  "source_report_sha256": "50128c8b891b343842b9e701704105689eeae03179ee808b55d96f5d65053d33",
+  "comparisons": [
+    {
+      "rank": 0,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 0,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 0,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 0,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 0,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 0,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 0,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 0,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 0,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 0,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 0,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 0,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 1,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 1,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 1,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 1,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 1,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 1,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 1,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 1,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 1,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 1,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 1,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 1,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 2,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 2,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 2,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 2,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 2,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 2,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 2,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 2,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 2,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 2,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 2,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 2,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 3,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 3,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 3,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 3,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 3,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 3,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 3,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 3,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 3,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 3,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 3,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 3,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 4,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 4,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 4,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 4,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 4,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 4,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 4,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 4,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 4,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 4,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 4,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 4,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 5,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 5,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 5,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 5,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 5,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 5,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 5,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 5,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 5,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 5,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 5,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 5,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 6,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 6,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 6,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 6,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 6,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 6,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 6,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 6,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 6,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 6,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 6,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 6,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 7,
+      "point": "input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 14336
+    },
+    {
+      "rank": 7,
+      "point": "conv_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 7,
+      "point": "ssm_before",
+      "comparison": "active_initial_state",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 7,
+      "point": "qkv_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 7,
+      "point": "conv_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 7,
+      "point": "silu_qkv",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 9216
+    },
+    {
+      "rank": 7,
+      "point": "f_a",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 256
+    },
+    {
+      "rank": 7,
+      "point": "gate_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "beta_projected",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 24
+    },
+    {
+      "rank": 7,
+      "point": "kda_output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "conv_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 13824
+    },
+    {
+      "rank": 7,
+      "point": "ssm_after",
+      "comparison": "committed_state_after_two",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 196608
+    },
+    {
+      "rank": 7,
+      "point": "normalized_f32",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "output_gate_input",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "gate_sigmoid",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "gated",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 0,
+      "elements": 3072
+    },
+    {
+      "rank": 7,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    }
+  ],
+  "nonzero_comparisons": [
+    {
+      "rank": 0,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 1,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 2,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 3,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 4,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 5,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 6,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    },
+    {
+      "rank": 7,
+      "point": "output",
+      "comparison": "serial_concatenated_vs_block",
+      "dtype": "bf16",
+      "different_elements": 1,
+      "elements": 14336
+    }
+  ],
+  "fixture": "kimi-KDA1-projection-fixture-r3861-root3810-3d22f1f0a81f23d25e82.npz",
+  "fixture_sha256": "240602b8527f89a762ae79aa926030a5609e42da8c76a284ec3b3c80fdde7426",
+  "files": [
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "50a62a19f25f07260605d76f90f6e8b8c38137e217689a7b61cca33174ebeaf6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "ec97db0ce55d339223b4a38c9b1999beb21f5d012e32d55fbc52858a23827279"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "8b6aa2755dd60c66808f3e12368940465a3769ec0fa0ee93f469783b2cdef4cd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "aba053bce8f37aa0d672d686737637da8ff8802f01787499bb25bd846e49cb4a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "649785d7ed9783b2bc1e194fe46f68b9296ba3e7befeb12ca8b28fdfd69a01f7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "85b7d54cdfad949bc10f7278f9a00663ca3c3552a90ece83877ab0ec749551d9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "e949e97b63fdb02e298ce2e0759ff3a01d84dbc4a60f470633f400a38dc7183f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "a9e84a6b1a5714f8f065fe7da201a3c7bb56ea5699d765057475f825945a346b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "cb2dfc5796a221f0e1353d100244ae8700a052afb12960379e3084407ee46104"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "14bcb87a2c44e512f361dfec3a5088dfc25584747c9880aa596136a16c4ce671"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "112957d59419846c49283a75c2ecdec7dcf36cb5963ab122d0c676a1c718b6b8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "87fc19c9bbb3874f80460ad4671e172235872eb2a2bcdb0fea2a7905d8b82c0c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "8c13a2b98d02eb1afeb4f03c16bd3665322840e7d6551b6ffb6ba91cfe215bbd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "9d22571925724c9ec7935dd259d310dc632fc9bc3a6f4f2ffb088d6b70106ad7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "173ce9546ecd2ff689d384660aea3b4c8b2b70bfcf1e06c1fc917f452a1a4f0e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-gated-raw.bin",
+      "sha256": "ead61ddf2732f2b65ea9cd4e711f0eff9fd1fd04c1a7f13995a8b14da3816700"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank0-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "745f3d43e8b56195d047e2d5c745dfb2cf7880a6dfd1597d844fa14e3320950d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "e794308bd328207e2eb83966c897bbb1bf930d361df2f20a0e33e0e8a0e4e4cf"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a45a315c767066a06a9187f5ac85eaf1eabaf7024fe2d05909b3ed15aa83cb10"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "e320b3ebd67f668bfed8751327b70001586e68c38fd4f4f46d328797b30d8dae"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "c872b5dbcf24f62bd95c373ef9fa8a8ca6f02d9ec26ed5121926177faf7767a6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "ab26a76f1e54ba28375f5aa0e4915aa40bd4dc40e15409e84e67e722027abd94"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "1b4e16874ac71e037e0248cd23923f7014379dae3bf536ae5af640e0a0160308"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "1bc379ccd7696f1f3d8c422789fa2203c3ac089a8e874e3660950603fa5e8b7c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "a9cab88319231191e4651785463997eb4be2ce34669d038896739b330f05da47"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "e350e12c5c52a20828c47e9d0bee2607a3ac96524184d2a1172651fec323f48c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "38f2f606762869e0993910432603e3a3e4ba9bbdf8aeba711a03bef25a5629b0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "196c7dfed9952bf64ed42293f5156985f0ed924a593a5111fe8247eb102f8fb0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "df2b281de6fc062b74aef728f0f039cb35e4f747d5c4da6e239f725517505ad9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "deed7dda100720468ed6437052bfb599341b167297481d004ed19ae4e60131f6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "905aedd27428ebc9d19e7f5e46342fb6abc5896c4c143937df021c0da9382d10"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-gated-raw.bin",
+      "sha256": "eae96075df01db2a7228aa3e2ce31f231c13ee0c252c659d8a727b39c7e592d5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank1-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "52566fe654532025da58c4ba67748f95f919d0d503c6db53c738d3b2e0bec7df"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "0b373bcb60566f759d7711051a337a1f9921cfc0b80c09b819371f27974dfae4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "b72f7a52bc634bd6f059d9ecd2edd78f3a21d4341586d525bc00f12f2baaef67"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "38b0394ab243cdcf3a2c6ac465db0c8369554cf3b5c27dc130e82444aefa6273"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "366c1e6c318dc909d573770c70d29ba629f3aebe0d7334003f175642be611ec7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "787c52779c03d4922a0f7ebd10ca003f4dbc322e9becaf0b23cdca21fcca80a7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "1e0c2302cec0349adb77526d6ab22c65d31775236ba763038173a9767f2c1eb1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "6e0f6df1135ae613083f5955199eeb4320da6af92f623e848b2317cc7daf1fce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "fa9c933a7af93eed0f823699ea8cc6fbfb6235bcac1e17769a1e0e412c7d5850"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "e115d22366da2a8e0c6a34ee8c63fc96c46fbc877b231bef59af50524a20a549"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "bc8b07bf7998ac90e1be8a4298cd58a0659fd376ed987ab822f17aaba13de73d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "dc504bc06d33f3d2017650f26a07eaa4eeb6efc660f7354982c89885d16ae90e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "e0e3175760de910e2a3a75c036abc47121f277d5031f331f5d3614dc555fdda8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "2bd2e814edc5bc57f0a2b216b141c48740475f6ea5087444b363d68535001216"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "d09f7be3fb72a6c5f329f79570dadd709158913cdee12e00d9cc6546645229b8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-gated-raw.bin",
+      "sha256": "0d1f6eaba51912de1fea77c16ecba9c80b8baf9f3a9512deba588b15d62c5bd2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank2-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "9f04e7f8db360e9d9ab3e8129e9fc1667a806d7bd3ca6a99bd00db4103834d61"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "d43367fec1819f8b673d1b3b158fbb5e0ce5438f8984cdf70fe53b89e21ca7f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "215b541cfcef896c96ac27f7b45eef96fa8cffbe216ced3387842c08c29d2887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "fe6015ae51c47a9ad80ec8c15a218db447b3588bc4c4145c7c47a958ffce44ec"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "1feafd1e9f56ae668a4eb4a1bf7375f52022cf15c0cb27b4f89513279e9e0d6c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "c91c4575049e6b0050a4d542f5bab7f3d87e62118bbf22e6af217b03fefc36e1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "5f32f1437c7e5870f45c0ce91ad40f980687ef6d4349f0d565b7d95a9e2f21f5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "480afa7a2372406ade9e865eb977f74c734b928e45164799be40d0121f7a85cb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "dbd3798a34573cb083a1e5eea5266118359b7945ab1abc47df0a7b0d63e116ef"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "ed3d05a84bee19df288a2928a3921eb94177a8af5195bf3394a380ab98eb5e65"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "bc3affb2216cffdf8a00ce1f7994cce62f8c0e7eb0a040a2b12bacf1aa1e9e4d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "9b054c8428c929f8e78b9c385cb22b50e340b79e804f2b097de4dcf1ec306e47"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "e1ca3c2c730b7fae8f48a314748624a67cd1a8557f8123f8d4dccb405f70b9f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "bc689825349687b2b997034970be77140a67835806570e06b60d057ea8e1408d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "82d94ee087f2b725f78740906cde10f85d72632cbda40c800dba83026c78a8d3"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-gated-raw.bin",
+      "sha256": "cb34fc2ba67bc4fc6860632af610030d7f1eab3812fd1e0fedd980d6e31ec8cc"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank3-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "7d2e629c48862ab07ab11f6a81b7f34f2c2bc30fe66e99827553ad96a7721228"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "cef199eed8856d4baf61311b80b7a802164baf5c04a277800eded5c821050f23"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28e8abd297d3b1fed4674102bbeb761f7d17471507289b47f9ef108fde7e6d62"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "2bd4252feb92e25190cdab5248e06a466a60ff52a5eb184e9ec62c5b282c7887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "12ef0137e5b5b26982d381cf34d641beb3ca341c693b27cba1b120d8c227091c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "8ff91a710a91f0b661b89411cb5d3b2bdba8a42d27b1503f4229f8a7037e320f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "3773efde4f18566d102a45472cd7abbaf5e68a372bf9da6ab4faebb655993a77"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "32870e25ce81dd79aee8cb5f7ffb8903ca107f10f975b86cec29c73a1ba64ca8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "cfbc17ba126bfc0b455779e0352cf63947e92e2b7335236bb8e00293daa323f3"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "123642b767e6b6147363e0b2573456d2362da1b7f239c9bf0cf62499abe4b87c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "b6c402e59b1f075147aa2f700ec53a674d7315d4102aa87150435523e5eb96d5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "457a99c09338ebbd53fa30a92564cb24b57b64a8f300e2762a4f220fe610001b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "5890b80aa3f5156fc1c00117857f272bb5f9702a198fa83add9802275a81ed70"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "2b33ce152d7c38d43e7512dfb0789cd91ff8fc75c6056591eb4927af8c23af23"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "b08404bbab9669a2d8ad36d653b874a96f3bcb76b448a3583997250f118e6cce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-gated-raw.bin",
+      "sha256": "e13cb65293f0149f5d0854676c98a84d8acf9f3abba5b33c18d46a083e1ec36e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank4-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "76deb2fe30ebb04d3b3d3d31aecee0c6a068af4f5f715ded37e19e63eaf76cfa"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "e63bd0edcc3ac2f52c3be53c7a63b3ca7b4757aee7d894edf0b67c35d78502f5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a83e3af8fe554fb9b7afcf740f16df0f015931ebefc6b95dc9376c85ee6ab024"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "9fa7e17bdb10f453117c66374c799538aa1c3116f1c79d1f9e96bc92be070f0d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "88e99402c3c2aead9bd77d17193219a72d5f4d72d8d91db0ae481717cd41f01a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "32cb5f455de35bde716a7cda5acd84f1d237396d968b4ac85a0598bc2c57340e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "92da6e5fa08403f2ede42025927a55ebc1664b5472b652f03331760ddea2cde8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "2006d61ba57fcc4be5cf9658425aef945b00f97026cc27281a2a4e060883561f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "a9c1638ecca97596bdefb7038c084a15def327204ce518a454ab0460cb980041"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "5b1754275558a5739b832e1f6a295e290c6096d5335b71eb91c28f570e36c405"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "6059562bda9a48f0d551a7899d386135224c8afd1f050876928e7ad57f6fd470"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "5472d75565d965b2cab0c611bf8afaeb5ad72a5e6ad124599dac32dcf12fbff9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "c33e23c1fd25111386c6d21a29caca226c4a0cbec115cf2e7b19e720587f9e2f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "3d7fb92c624e803bb3db9b61a5d149f7b1e969ef3eab1e29e2687d166dd8056a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "4ef479079d947d287b27e9e5f1891f4ce21fe4e00bd170a79ec6937a306ca96b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-gated-raw.bin",
+      "sha256": "5779749c8fcfc335932b06c35343eb475ccd3531fafd091f48e8dcba6fb85670"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank5-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "7f00d409ab5daf58c4cf07fc091d32beba0909f9c2f9b4963e1835855806d820"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "bcc2c120be363ba6586d88f7b8fee33f738d663d835181406667de094f5408cb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28be010466ff7ad35aef025e0401617142260e1da5f71d261cc172e7bdfa71a0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "7486ce128b936d4ae8d39c92a5b499df89048106a58c07b767dbed53a256a3ce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "683c85c190b79281b1a1046b2fa8aed9e48a04eb7df0a1b66288fead0f4a515e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "74a2720b2488567bdf81aebc64fc2b3742c42a3db178c8c1774bb8c79dc34d41"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "4de0ae25d763ec97d641486bcc5af124a961d9d6ceaf17dbd0807d0e03a67ad4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "67efeb6b516086510256b3f02b84f684439269623670eb92f72a90fd159fb22a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "757cd6d4850cba26379708850de9b60eeaf2fa93f28dfe362fec569ac97eed42"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "6d7365101441dc013884c80311a6f9571fc4b1994c5985b4701eee10cf91eb97"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "245093d689e6024c75a6f72152863bc706e93576f6707e713ae8a0a520e94d85"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "346667451cd0aeb716d57613318202e16698adb6120d089d7aa2932c65678e0f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "2762a20a8a65f8fbd414915095ceacab77282a768029afde41bc180c14dc14b2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "2c0d3c75b6734f9ebb14277407d079ac7264c27f4c8fdadf013daa0bc4fd1f00"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "9c5d3da3a68b2fc1394b1adcbd5a87c4a0d736ade8af663ee86276a9f3ad05e8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-gated-raw.bin",
+      "sha256": "19b7847393231f4ce0f0ff947e0f91833c28f1c566c94b2b80abf918138eaa12"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank6-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-input-raw.bin",
+      "sha256": "c6c07410d6aef1360b3fb8ad70fe0b19a03f15d6b76a848d211f7b172a4ab5f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "6925c66adc5749a1c6bab835c58dd70e94c62cf5d67658669ca890197a312b45"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "d1a55434652b9148628b74d6fbeb7fb8011568084a0af77b1355fe1bbca510fe"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "677e94c5d499f8bf02309bd824578ebeba3769029da2117f5323db64f90cf0dd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "53f5c6ab4f3e8a78f40fe57a5e921e27be02e9cae93c733ba6a7ba27c0e74ff1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "56c69dba012b12f2c79f0a4d76fc68768aa3adef13e3b160c9bd951ccbb04900"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "c977b87010b4e00ed3bd425700d0e2739214b2f3b57c90ac2cf4d47afcd01f87"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "aafed623f57de1516ebc518ace7031646af226ff820f746bc69c7078122ca0d2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d068a868c1abf18726d5765b2d26369b9a42dc62472e10062245b5c2d86fd31d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "f59cb1d99e5fbbeef8752d76080248c44c895c9b2993540610d8ec33e4970e3d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "897a7848229518b46a23e2de95791064df450b6272d71c91e7e9d5e0e612746e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "74dc29f1d6de5b8b7898867c3d3c6a194b48ded0f5e1a32c0006adc8f714fc1e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "8d1d834025937f07e9163f2ba8d43e10b0def088bfa0dbecc2e5d2c02ff0273a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "2f00eac87c3b1a1ca6a4fd301214788e734251eed6a84e12e774b47871687fa6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "01a92aa80a1d88fe78fd4c0de1c88fb34607b1f9240d05123b65c71813750d04"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "b19900990837e1fca29959685176a1e93da5fa0b0a7a0b728f9dc1f49780e686"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "2818e8e0a60a01907f10dbc765f1cecfabc702f6d851ec2c23379be72ddccc6b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-gated-raw.bin",
+      "sha256": "24ba54442e78b89e96c223514a98ec36ecb9e4a0979c3b78a0039753fd59d759"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-first/stage0-rank7-layer1-kda-call0-output-raw.bin",
+      "sha256": "89f2029c9e3306e0ab5ab3398f2233d45de00456fa969e341e485430dbbbeb8e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "112957d59419846c49283a75c2ecdec7dcf36cb5963ab122d0c676a1c718b6b8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "87fc19c9bbb3874f80460ad4671e172235872eb2a2bcdb0fea2a7905d8b82c0c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "8b6aa2755dd60c66808f3e12368940465a3769ec0fa0ee93f469783b2cdef4cd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "aba053bce8f37aa0d672d686737637da8ff8802f01787499bb25bd846e49cb4a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "0ede0b9a7894a890b5f41324fd4a2f9550b04fb858684520f25ab2acfe2d8ad9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "54ddd0d1ab505a05bf41569d59db6419d4e49fd717a3a772f6160d6856e294c4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "de0fc7458461bc08cad5caf0e8297504c2b4cdb0ddf5f869e03461ea2b3b403c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "0b9a3614c5f358a17880c52ba3efd66adc58f975e19ceeb1dd389ff85febe6d4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "82e7426a735f53b162c8d03760ebe6747ceaa16797f4063241b3e972b54420d2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "12b74ac6906c950a0745bf441c6d57fa251f271da07d324311dc199fb3f52a2f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "87e10abe2cc4aef7e9c48f43ebec3b0d7ff9296497e44d7b897486fbf372a0ed"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "a0fe1826050ed2a3cc2dcb7b5a3044a64708c7b7941dd33ce9a8be6c1753fc24"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "9fdd68d51ebaba7c712c6b669accf9a6c05535dc495363b516bf106255d7a731"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "5ed2a79a0c258891944586fcf99f865ffe8dc4fb71d6a1301d799afd1bc28753"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "965da917a248311e829a7d8849a7797f3d2368fc520206610c2094331dd10eca"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-gated-raw.bin",
+      "sha256": "d0da676470d6a9c45c144b3413b650b4f0a72a26591c84a963afe4fecb79778b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank0-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "38f2f606762869e0993910432603e3a3e4ba9bbdf8aeba711a03bef25a5629b0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "196c7dfed9952bf64ed42293f5156985f0ed924a593a5111fe8247eb102f8fb0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a45a315c767066a06a9187f5ac85eaf1eabaf7024fe2d05909b3ed15aa83cb10"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "e320b3ebd67f668bfed8751327b70001586e68c38fd4f4f46d328797b30d8dae"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "e9ce45cfe4492b0a90326664d0d5f64c2bee18f5718182574873379af08d214f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "ba41b32526a695430a03342d055aad7e449af1d15aa85f4b283a2e66ef9de0d5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "f7188a4cf904b0263625a10dcca14f594575ab6a1196b81a913c63aad309a628"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "afba84529c97543d67a0f8b09684bd93e465d47fd6d0b80615b4ca1701ff9c16"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "1b5420425246fbad163e9caa5efcd64f7a408750026549efb729fc677cf0d323"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "e346c60beb65a7a708f27225fe7885dcfed414151e3876baf534b18e29c8467a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "4c388bed0eb39b15bc59b04ae6fbb245aa3b3bae489ea92bead509113230eb7b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "ed34b860bdcf23e3dadabd994ee2c82051f053da36c88a747793abb3ced77229"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "49da25dffff045862181b26cb564585a887afebce468e7a4fdac4dbe56e57f48"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "648669f51685ec3129d41c8edb2bc8993db4ccbc2d0fbc18464ff7fb4b237529"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "469b653105b4c2ddc7e7d813b2f797673af42a61a3cc1a751c47af2b1fa2704e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-gated-raw.bin",
+      "sha256": "d2eacb8a57941d7b1b316bfceedaec388da8d3d5ed8cc614b25e39352f734547"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank1-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "bc8b07bf7998ac90e1be8a4298cd58a0659fd376ed987ab822f17aaba13de73d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "dc504bc06d33f3d2017650f26a07eaa4eeb6efc660f7354982c89885d16ae90e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "b72f7a52bc634bd6f059d9ecd2edd78f3a21d4341586d525bc00f12f2baaef67"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "38b0394ab243cdcf3a2c6ac465db0c8369554cf3b5c27dc130e82444aefa6273"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "e5ea302c8900f27f065e9314977d1eff405a5d600edd53d1cd504ca455b715d1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "2f10f40324f93a5143312517a5ec2444431bc53f8615f4cbeb4319dd130f0178"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "83da033882e033e0d8a5d020443d4e27f97f07221894ae61819130b70df9a78f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "3114335dcb236e65e70e9415c41d346a634c1a660d69133b49d08724147e025f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "6940bc8255cd43ea4f04cb18b1a3381abeb6b0fdfb2b84328a188205bd2a048f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "4edc02bae12f1c42a550bbdec1cc018df4a21c2b2918b45e4fc6e72171439afb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "8b9f93b7063bec54c05d629128add9b3e51366889a9e714fc7917ae8765af8a9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "1bd02b8c63dccaf56c7924b3040a8434a4a8670d599de48b57da45bffe049a65"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "610a1e2a8d3e3022ec8bb7542d20ce91df4beb8f450742118c4328825c6b1fe7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "86f1846350daf01cd8d1c84a167b49da7949aeff5314e1e49b02658074b34a5d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "58dcffc235e0b2710500520f250206b5fc048bac6a9d264e61111c6af35bd82d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-gated-raw.bin",
+      "sha256": "9db6b91af87f2131ae22f73a6d65f518f010e329b17173a9fdb9fe456c431032"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank2-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "bc3affb2216cffdf8a00ce1f7994cce62f8c0e7eb0a040a2b12bacf1aa1e9e4d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "9b054c8428c929f8e78b9c385cb22b50e340b79e804f2b097de4dcf1ec306e47"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "215b541cfcef896c96ac27f7b45eef96fa8cffbe216ced3387842c08c29d2887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "fe6015ae51c47a9ad80ec8c15a218db447b3588bc4c4145c7c47a958ffce44ec"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "bc562ac1de95afe2d8c8186b69cedd318e6f5809a470d29b21027048a7757550"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "e534476475c6020e1b5a0123ecc5affcd6501029734da1fc615e2e593c891ebc"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "135d5d34479b78206c3cc985bc560559fdf7927401b54f3b6cdfc3a85965350e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "0e6a65f41892b1be1e75723e7ddca0abfc881be0ec566378157449fb30ac27c1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "692f5a844797853827dba60562776787639ccced8073f395944d9d42378cb5f4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "283b3392cdf4735e02b555379554e5c6cd7eca447168ebde222715c1c36b5412"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "85b8ee35b72176be986e347123d254f410ad1d7877be18448785149ee452fa77"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "a3ea13e248e55e7be2043157e736569458cd449d709f8dbfccbec0196acbbc12"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "392ae8ce7fcf4aa56468c2ad7e11f3270c72ae9119bb88dc32aeeb3db60502e7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "c137a0836af198955a7e168463b9acef36eedbd445f9be18a7e9535d7961c42e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "34873e2f3918477cb7f997acb4e0d7580f4dd7cb06761bbba69052db0c9c26d5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-gated-raw.bin",
+      "sha256": "d66d557c3dfe947fd1438a4582baf5052242aa1fcc8e92a6e53fbe4c38aa3175"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank3-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "b6c402e59b1f075147aa2f700ec53a674d7315d4102aa87150435523e5eb96d5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "457a99c09338ebbd53fa30a92564cb24b57b64a8f300e2762a4f220fe610001b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28e8abd297d3b1fed4674102bbeb761f7d17471507289b47f9ef108fde7e6d62"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "2bd4252feb92e25190cdab5248e06a466a60ff52a5eb184e9ec62c5b282c7887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "2473b670ff193162a27efa4c620fd8e4e3632010da89d57dec67786ddb0f6b14"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "5d1047b12ca5e9a61b2b4b62b1f4c5fed4affbc922bf851aa965c27d6c9b11da"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "658ad55c0e0734e847871c7c376604d0e1bc331cd4f25174bbe2681aa83de2f5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "afe8eb52fa49ec7ff0d4fb1498465238d44719f15ef10733f090489b12c3708c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "45188569b8d46301afceaac83e1f1fd2eb68f301e687137af9d5b4f88bb1797e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "9663a89d18924404458a01a619fd309c0bbf5faf0ebb7643ad6b806a4bc8daa8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "8a402bcf65b6ce4cf18d827ddceb7d619e88b60757fdd76600f70b8fd2ec4e72"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "8d4848a18e6f4b7c7db32e44ce6d0166d6e2aa3709c12a1828606a17cc871a99"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "f2b431fb4cf4e77ee3bc7ad788a2946d6e5306ba6baafbee27379d970c17a209"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "80daa408b1284a2c35e8c761d324856f1f56d36d8726faada6bbdb88902dd654"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "6b3c49f84f9805cd064979fd9782fd2b0c3488e8f85f6a19741151d06a8928ef"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-gated-raw.bin",
+      "sha256": "627c86f55df1aacc005c8eab2cbef4d2f39b4729e6747426fb428150c5e04f95"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank4-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "6059562bda9a48f0d551a7899d386135224c8afd1f050876928e7ad57f6fd470"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "5472d75565d965b2cab0c611bf8afaeb5ad72a5e6ad124599dac32dcf12fbff9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a83e3af8fe554fb9b7afcf740f16df0f015931ebefc6b95dc9376c85ee6ab024"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "9fa7e17bdb10f453117c66374c799538aa1c3116f1c79d1f9e96bc92be070f0d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "cb49e645bc119779fe08ae9b35972628e37130c452a225a551ccab08a94dd492"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "3450a0ff5e5b29e8dc68f60c8b739bb820be022f1fceb4c8bf71f7ec1d8e72a6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "779d473b972e70be6fb5d17232bb165c6d6c0206a761ac61c75c858f55eb52b0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "29a22e1334df223f232bc37aeb278d813fda0ef43fc07e766ba2dc5bff8c0152"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "2158ad285fdf41951c8f10ed3188bec300c925e3b5b621eff6e0733c0535b099"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "f1bc526fe14cf68666792563c27b55d902457617fc6f2c98b11413eda318c4df"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "0634ef5867e130f1b8759c897d80604393c044f0ff1d69a6c911494e87a6dd53"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "0bf684dc1d447fc6c0556ab518393df9c0f5b85cbda75bb90365606d87715969"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "03d25239a3a680201de44094654c082dab5d40336398f159e4670ee64a14b3bc"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "d467bc60b78c5976ac5c883425279bd2a0674b1c349740c03cc2664a9593b2fb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "90ec4569937cc606337f29b3e303ed6de8e6587665dcaf7575dcf6a114fa930c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-gated-raw.bin",
+      "sha256": "210da8c203bfa83a0f855ef372842eb845678195ddcc39a08d407e19ab5a18eb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank5-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "245093d689e6024c75a6f72152863bc706e93576f6707e713ae8a0a520e94d85"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "346667451cd0aeb716d57613318202e16698adb6120d089d7aa2932c65678e0f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28be010466ff7ad35aef025e0401617142260e1da5f71d261cc172e7bdfa71a0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "7486ce128b936d4ae8d39c92a5b499df89048106a58c07b767dbed53a256a3ce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "da4be8c193aeea42a1c6ec47b003b607d92ff5cfdeb81e1f8cfa7fad1329c387"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "de1cb62fde1f23649aa07c7740b55b7140051b88792af6009e6282f788c970f1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "c8e72e2a1522d0c4efd64cc5e35068ad5d79357b1edb6550b94c716658811e4c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "454788de7f93cbe8306989cb77104dd8c8b4589a12c95b3562b62d4d5a1fa860"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "5d834b9168e4a4ee7963081a4b6ce1e26a49c130696a817e7f785cb584548409"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "13649eeb2e16e987dd5add2466023c6e7f219904d05a67213aef1ba25ed35b7b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "c27e1ad8864828673f93a207c0b3cbb9e3cdb876360aa51f509ecc8eedc731fa"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "891208678e3942e2d470c6c4cbcd7abbfed0eb38311d5b9a79a576b5ba018fce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "aef58919be9ce5b1986a1b8b66bf660453bffe98d23b24027365807d74611ebb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "d831c2f546adc311c4ee129775e62c6952abce4e012ef53aeb95558507327b8a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "111f508b3c42d0e81cb7d310ea8a7480335dcdcb6ff79793b0ea1a17a072eb62"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-gated-raw.bin",
+      "sha256": "aed85f881eef13dc64c100353c2d46da1a93850a4d84bfe02f224a4451d7facd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank6-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-input-raw.bin",
+      "sha256": "d328c08856b3ed362e42568a0a833b1ed743b670cd6662c52e2314d80d0bd80d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "8d1d834025937f07e9163f2ba8d43e10b0def088bfa0dbecc2e5d2c02ff0273a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "2f00eac87c3b1a1ca6a4fd301214788e734251eed6a84e12e774b47871687fa6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "01acecb507abfe1a354aa8064f4af5d3f1acd019e37db3c11c97523b71c76e9d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "677e94c5d499f8bf02309bd824578ebeba3769029da2117f5323db64f90cf0dd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "53f5c6ab4f3e8a78f40fe57a5e921e27be02e9cae93c733ba6a7ba27c0e74ff1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "038312e2658e0ebf434dafabe1ba8a6273763be911cfee1d5155bbf1bc1dd810"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "4aa585c1872192ecad53784ed82a913ba157e0f0a5ac6451e3e50e5366845174"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "7ca4cbdc844b21a3bb3052278222a643487636ba54c2af026267329b7079593d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "d607f8a5e117047d97ed5cd3806a6c4acceeaf52baa939991e91233b02680771"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "cfee28693c61f08d7aceaf7cf0e12c3462913175b7964dd9d7fcc75c6cae6237"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "44ec83211af6273624bcd3f3728f1fb8cb1295c5df6c1bfa76311d21bd902148"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "1687032f238217fe7ee6d79f7bbd72939f5a4db0a640a787c5418b46379024df"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "a3c837be44e2f306362b8f0256c92167b620bc8d4963924ef6dbb2468cf9d7fa"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "907dc2e375cb2fec276d18246a13587d97818f4319829ac3a7593ba69fb64c95"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "0a4f61cf37309812e65e102e9a13840836de361b3e6f932b72397dd683836fd0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "7f432e91741f39e3cf64bfd93882eaaa1cb1f802dd63888dec04626ab6bd7690"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "76dd2c6dba14006e917ef52a5beca91b6abc88fa0747e949f7e3a99b613cbc2c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-gated-raw.bin",
+      "sha256": "022d7f088d0e11767bee643e79e7ab58037905370cd7414f945ff5138e941a97"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/serial-traced/serial-second/stage0-rank7-layer1-kda-call0-output-raw.bin",
+      "sha256": "05aa4dd0e61c1824a9e3355fd6b0dd93ff4ef4e7bcf4503e7fe5d378da0bc3a5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "50a62a19f25f07260605d76f90f6e8b8c38137e217689a7b61cca33174ebeaf6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "ec97db0ce55d339223b4a38c9b1999beb21f5d012e32d55fbc52858a23827279"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "8b6aa2755dd60c66808f3e12368940465a3769ec0fa0ee93f469783b2cdef4cd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "aba053bce8f37aa0d672d686737637da8ff8802f01787499bb25bd846e49cb4a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "48b536e3ee896a32c0a8ee7b07f37a73a9473abbfff96c9e034375a7fe765a7d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "52134e56ebd6ea76b0d46d072646da6806f6858018eb09d4a54c3cb0c8eb72da"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "7f10c97c15a4cefce25704f4b5ad2e868e2615af32d0eb921a9341a86fcd6812"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "4efd9bcb8ca4293236c968d2469754a4681596ec9da6c1200a442f7a5c77c406"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "52d87f402366b38ec4c6c27647f2e8cc463f924be4139e91c362f67fed24dbbb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "3fb397eb75702a874b729e8d34499b45d4de56f7bdac53cac7be8b9a985e2ae9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "f5954286ccc26a0eda17fc127f6bb06c22ef2726dccd33fafb619d175c0c37f7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "4f35b41e999e495767230890acb692a0c5a0e0b39b8a159e3d274bbd00f82d1f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "c181a6e2949c07a51738efee35dd2e217f08b7fb04e84d508a9e58deef86f0d4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "6c8e97210bfe618ed11c0f623f842058161fc93e506836013b4007594637a767"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "0c65bc5a9942ab086c566f99774985917e30f65d670cd84ed3544016a0dca17c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-gated-raw.bin",
+      "sha256": "157457a61820b0b29dce8b68f5d072ab06fe01e55774dfe481c18bc426108558"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank0-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "745f3d43e8b56195d047e2d5c745dfb2cf7880a6dfd1597d844fa14e3320950d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "e794308bd328207e2eb83966c897bbb1bf930d361df2f20a0e33e0e8a0e4e4cf"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a45a315c767066a06a9187f5ac85eaf1eabaf7024fe2d05909b3ed15aa83cb10"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "e320b3ebd67f668bfed8751327b70001586e68c38fd4f4f46d328797b30d8dae"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "52130e4247eb7759b5da675e4212b4c4dcd5602e5f2504179d793585743a23b2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "8ab3f53f2d7c0369b0937d27a5378433c0eaa3443c158d4e42e22c41b10cf8df"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "c9f240084ff6a0a9584189db7c3c5ad29e4458a5a945af561272f88f965c4d25"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "4323e24b7f900c9afbfa8c3b00064027c85cb749989b66e28fd0aaa6734c7cc8"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "3a20a107eb272e19d8f4f24f5276e0df08a856923fac9ebe504ed6df0218eed9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "bb971d0df8967d27a9cac3b993e54c37f6939c44fa230b340194a27965577776"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "b9925e31777d3e18486a07d9f9c3dc907daea4a3a5e0af43dd257ca0c785d22b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "c123c9dbf109f6fe88c84f154f3d8772c82ea52f1df442a419052a6fab28e4ac"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "e148d5eed8b8e554ed69e72f364ef37812ed9c24b2b33d1a7cae0a355963a264"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "62cd00c0991735fff78e817e4a6cf1abfd9a7356a0085e069ff37cf26b009de9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "8fb0a1f58e867e02d082bf821bbe4430715451561ebf43bded83d98898124cf2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-gated-raw.bin",
+      "sha256": "29a5d0accc84ac9bd5c582c1267c150c846762805ce68e505aff39dd766cbd3b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank1-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "52566fe654532025da58c4ba67748f95f919d0d503c6db53c738d3b2e0bec7df"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "0b373bcb60566f759d7711051a337a1f9921cfc0b80c09b819371f27974dfae4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "b72f7a52bc634bd6f059d9ecd2edd78f3a21d4341586d525bc00f12f2baaef67"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "38b0394ab243cdcf3a2c6ac465db0c8369554cf3b5c27dc130e82444aefa6273"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "1bc9768102464796b3d2dee2b828812cb03532e934e23572a591a306a88fc0cf"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "21427fc347e897b5fc70ad6089cc1dad90a99d676ab57ecb13b211e9493b5982"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "0114b02b2ec84f3e6566784c93645159e0938c9aea75d0c356c4ffbf7f61c36e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "45923e06b2e73c8aa0ca117c0afa43e3352d19d8f45c6036621fd50e17b07f76"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "d7d94ba2c9953f7ee627f8958b5dec7e99d938f8f4437acc27219b183ad607ba"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "d47fc02f7a7514175feea4cb63fb5b7750be23040471658817af53040980a564"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "7ef115fceddf501cfe08019fa58a5e865853ca693b17c0faa9e742e9c40f68de"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "6401266e5eecdb4e31c2b4f2407b0dfb6fbe678677af604077fa20f6e58f0af4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "034b20f0d00a99306f68f1ad196b7b5128f126534589ba874b7fd4953c1c4392"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "b9cae6d5bfb994b53d5b58483db0a66fd1de2d853eda515277098cb1222bd184"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "01f45203cdb280b1e6435056445a9acb08feb3dabde7864481f01507a13bbdbd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-gated-raw.bin",
+      "sha256": "a82ca2d5d9e92563b85ed54ddd05cabb7b365f18aac516c636260eb3c14fb0bd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank2-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "9f04e7f8db360e9d9ab3e8129e9fc1667a806d7bd3ca6a99bd00db4103834d61"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "d43367fec1819f8b673d1b3b158fbb5e0ce5438f8984cdf70fe53b89e21ca7f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "215b541cfcef896c96ac27f7b45eef96fa8cffbe216ced3387842c08c29d2887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "fe6015ae51c47a9ad80ec8c15a218db447b3588bc4c4145c7c47a958ffce44ec"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "a8695be08663c5f356c02dbaf73c2a57d7c39ad833723f226fbbca5b930d7a90"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "c3fd83ced21c1f343a065986a65e08224f343e6f39c85b38e654bee11952e8af"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "4f1fe21f7da1cba5abf1df85bf911fbe16e8e224f57613346da914a2c053b1f0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "7fb43f7a15427b970b3baf485b2c72ec2a9b2c0e77d8f67a2cbb2816c2bda79b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "c322dc9102e9d4d2e162492eb7e5303baac5d02aea895c8780d60801ec1ecda4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "4a252a5a8bb527146ce3758533b6ff69849825847fed8f92b8e3e34d42bc103e"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "15a9134fe0a4dc84942e4517c7a0c46acb46637527460a9f6e39f52fb20e9f59"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "d0f5787549953c1aaf694b092a43229fb0f628ac2cdee60551d2726d7f501c1c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "ae4de912bd1f02281719239ad7ddc55ee42d99c2dde02c4a0150936d4b700dd6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "561f4b19bcc462368dbe299e988fe16d6b6d5bfebb0c924687abd892f04e398b"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "7550276b3c589f14fad59287080def36afc57e0e7b4e068a2efaa3d8593ca969"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-gated-raw.bin",
+      "sha256": "6b74e43ece2949b1a6dab2cf248a22184fc2491d5b5a32ac9d89304494ca06f5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank3-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "7d2e629c48862ab07ab11f6a81b7f34f2c2bc30fe66e99827553ad96a7721228"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "cef199eed8856d4baf61311b80b7a802164baf5c04a277800eded5c821050f23"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28e8abd297d3b1fed4674102bbeb761f7d17471507289b47f9ef108fde7e6d62"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "2bd4252feb92e25190cdab5248e06a466a60ff52a5eb184e9ec62c5b282c7887"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "3cced356450c3e628a9f83cf0078e1faf21f907449746fac4652291c4e75106a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "edee3b553adad2a4b06fef75f3de5329c38125de076c72a1008c54e67e8f700d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "515d0b1a13d3f1b952b272ba187b00649c6811134575cfb8997fc05f56820a70"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "1e452960f56c1a5666da7d7a9e9370a3cc60fc99012cd635dbfae44aa7aaf35d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "681b816c645c5c9bbc0d73002bc20eff6dd39adafa1ff708f1506fc1104c5ba6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "9fd08f82a3258805a33dc1c83c2866a1dec8053631943c3b761dec429c95062a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "596bc9aa142fc11285cee98eab4c2565726278a35173aa3f2899293eb4b23b19"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "a53825899434f21eb134e9aa93ce5fe52450ca6048902a44ec225dd00b91ab2c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "af44c62ed7bbdd35bd44d8e744518c115afbaa2d92ba17c1238cdc5eb06468a2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "f31a698b43204cd777a27cdd7ca2f58b7bbbd2b72b6b5e9c31186cb1531b4722"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "046093b86e9e3fc1b6412763796b1ddc63d2c4df5ff175ee72722f364d5f9b54"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-gated-raw.bin",
+      "sha256": "e22094c79cb7d5bf387c7df1daff461884231ee17ae9948eff0dafa26e2b3020"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank4-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "76deb2fe30ebb04d3b3d3d31aecee0c6a068af4f5f715ded37e19e63eaf76cfa"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "e63bd0edcc3ac2f52c3be53c7a63b3ca7b4757aee7d894edf0b67c35d78502f5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "a83e3af8fe554fb9b7afcf740f16df0f015931ebefc6b95dc9376c85ee6ab024"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "9fa7e17bdb10f453117c66374c799538aa1c3116f1c79d1f9e96bc92be070f0d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "e14caed81be177eb6b75b3e25285c874994a63813ffcef50b2c30c53a487f76d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "64e6991a54e1b04b83fe430ba5efd3d3f52ba2ba7d2c609f90a0383e3ca881a6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "b9f89ed3ca00c1df6402c6fa670497db2ac976e82c9e853d85512570d929ee11"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "763d6cecab7ec106517733ccc8084888ce8f304408ec718913b9783026e4cfb2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "5911d3b3806315c56f1d21968c985a192a8b03c0f2f9a94f957b72bfb04804a3"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "4d41d66505c80694b53e5902c61c2df7c28d7114c4bc52786428d102f87097eb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "28c629c2b6dbdfb2757ef153272d2a4c426957562501e156f7016f6373bd2bae"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "58528674174323851d3c0ea0e9fa98bef3529e6c34038f6a6793774fe6510569"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "a315d9870e189b82d13ed9888dc08614451451d9f869b5af35c7399402654922"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "e56f4d1d471522c582e0fc8fd397bab774770170e89777c29004db8e2c7f4b25"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "f86f50282336cdf8b6c25705658770fc08c1eccfcb7b32d8ac794cf44c39b639"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-gated-raw.bin",
+      "sha256": "607f52797fe9f5a911929c97c3028a13ce684e9c63c2fe8dc121da8ab112ca9c"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank5-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "7f00d409ab5daf58c4cf07fc091d32beba0909f9c2f9b4963e1835855806d820"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "bcc2c120be363ba6586d88f7b8fee33f738d663d835181406667de094f5408cb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "28be010466ff7ad35aef025e0401617142260e1da5f71d261cc172e7bdfa71a0"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "7486ce128b936d4ae8d39c92a5b499df89048106a58c07b767dbed53a256a3ce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "b91737964ced420fb7197a631204395ffa31acf94a0c26b652b57432b9738727"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "74e662c795350762dc737ed85a971e464837a3df17d6d71ce7f0c903b9b8f9ce"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "ea1e1791f5a657f56fe906d40bb5ce0ce530f159517d542e59734b9d36562c87"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "f9849b307075fdcb1184a7505de0085c7da100bc7b584dc56f0ed6890a43d03a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "cc50f84b47ba971f29bcff610f4c7923b15caf22fa012256a4793ae617fde5d1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "f9d2b8e5fbfd62c49d9e7c00760c2e7a7d13fb3bf70d135aab2d943bbe9f341a"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "3ae7c091497926a339e463521760a5c34ee136ff72b06e4053a3107aba729a8d"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "a21e5a659623c3b23962eeb3b1a7d0e5fc9e86d796773f9e965cbf825c95bf21"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "07db9c939f142725b13412741a5a0ff7123b40ba969ffe2779895c863508236f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "62b35784158ac5b6e99c74209d3b74740537bf3171e52442b53f3e281a603dd6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "5c572665e4755f97ec191bbf99476d751854c8fdb21ff0c605b72bfeef5cfccf"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-gated-raw.bin",
+      "sha256": "d7cfb850dc28d10d11cdcef30e1a2d9d41d3743debb760477a9adb829ee7f8f9"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank6-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-input-raw.bin",
+      "sha256": "3f44f07efaf97436e846fe2424768cbe4f8838d4cf594b72a32a138909323fc6"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-conv_before-raw.bin",
+      "sha256": "6925c66adc5749a1c6bab835c58dd70e94c62cf5d67658669ca890197a312b45"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-ssm_before-raw.bin",
+      "sha256": "d1a55434652b9148628b74d6fbeb7fb8011568084a0af77b1355fe1bbca510fe"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-offsets-raw.bin",
+      "sha256": "2fcd151b8295e8b3bf8ec64ede173523417960a8db6cbc569de9a25a458f9135"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-read_rows-raw.bin",
+      "sha256": "67abdd721024f0ff4e0b3f4c2fc13bc5bad42d0b7851d456d88d203d15aaa450"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-write_rows-raw.bin",
+      "sha256": "84fc05949dc1e486652a4ed316afb6434e9437eb30b714594a1d0b4205776602"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-a_log-raw.bin",
+      "sha256": "677e94c5d499f8bf02309bd824578ebeba3769029da2117f5323db64f90cf0dd"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-dt_bias-raw.bin",
+      "sha256": "53f5c6ab4f3e8a78f40fe57a5e921e27be02e9cae93c733ba6a7ba27c0e74ff1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-qkv_projected-raw.bin",
+      "sha256": "758783c892a34093d60fb2a123dca3a57a4fbe8deb654432139848d07f7ae9a1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-conv_output-raw.bin",
+      "sha256": "f828a3642831c6cbbf7538b27bf67327f74239d7b7cdd41b9d5fa0f5e97624c4"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-silu_qkv-raw.bin",
+      "sha256": "a90b78656192d02f112596ba2639ee8864f9fb6ff7ec23bb0818a863726cdcf2"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-f_a-raw.bin",
+      "sha256": "0e1c4b055ebd4db2128ccf219037ff8f03d2b1543da8af122bd5f71451d93144"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-gate_projected-raw.bin",
+      "sha256": "8403f5bcebd71cfa86d86f1eb9b1fcd35388f856372b664ff35203f40866661f"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-beta_projected-raw.bin",
+      "sha256": "871da7759ebd966e164d73060f8a9919da9364d38967c422840fbc4468bffaa1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-kda_output-raw.bin",
+      "sha256": "786b07a4eb75dda63f42b78f0add38058396dffb1ca51b4d9c41fc228d8a76ef"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-conv_after-raw.bin",
+      "sha256": "a961fc106f9bac074c5aed6c14f425edad22dadc33928cc0dc16c09fd5dbee50"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-ssm_after-raw.bin",
+      "sha256": "b6b80ae0dc7270846523ea78c1460e01cf4d3b164b2aa3c092bd51f52c45d9a3"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-normalized_f32-raw.bin",
+      "sha256": "7930a1f9b5a5a52c8cb2e421522bf6134392000927d196960659a1ba1be7f2f1"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-output_gate_input-raw.bin",
+      "sha256": "1c3081b2dc42e81250db34e039252d4d519690287b9cba2fa4bc32932ecc1237"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-gate_sigmoid-raw.bin",
+      "sha256": "b21c54fff8896f09087408cad77bb499074010498c22ba2873184bcaddcd3ca5"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-gated-raw.bin",
+      "sha256": "979e4f3308e60d4f9d7e42e85010346897928ecd1eed68d2a30ae497271c14d7"
+    },
+    {
+      "file": "results/kimi-paired-root-r3837-root3810-3d22f1f0a81f23d25e82/block-traced/block/stage0-rank7-layer1-kda-call0-output-raw.bin",
+      "sha256": "17db3ee2462f918d63855f48bab6fbba7af98f125881a21689c1813beb2d4edb"
+    }
+  ],
+  "root_paths": [
+    {
+      "label": "serial-traced",
+      "first_token_difference": null,
+      "generated_ids": [
+        41677,
+        1938,
+        13118,
+        2590,
+        5787,
+        382,
+        331,
+        343,
+        13336,
+        3934,
+        5366,
+        12478,
+        382,
+        41677,
+        1938,
+        69222,
+        330,
+        47013,
+        1068,
+        3934,
+        11023,
+        10734,
+        3961,
+        378,
+        134937,
+        8047,
+        8094,
+        2262,
+        37374,
+        5366,
+        292,
+        5978,
+        6675,
+        17943,
+        24032,
+        2983,
+        5804,
+        13336,
+        7652,
+        378,
+        3194,
+        2762,
+        1633,
+        12775,
+        47380,
+        75951,
+        48402,
+        6130,
+        292,
+        2590,
+        44978,
+        975,
+        13336,
+        22834,
+        343,
+        22454,
+        220,
+        905,
+        13336,
+        12751,
+        343,
+        20979,
+        220,
+        10349,
+        488,
+        121358,
+        28841,
+        220,
+        47900,
+        2814,
+        7857,
+        5470,
+        378,
+        49703,
+        501,
+        47913,
+        1997,
+        7652,
+        220,
+        36221,
+        488,
+        1905,
+        1967,
+        34154,
+        7087,
+        84687,
+        378,
+        2262,
+        37374,
+        5366,
+        2914,
+        6130,
+        21904,
+        378,
+        855,
+        8047,
+        941,
+        4198,
+        7652,
+        220,
+        17698,
+        5366,
+        21214,
+        968,
+        13365,
+        75951,
+        292,
+        1449,
+        13336,
+        3934,
+        2590,
+        49000,
+        378,
+        8954,
+        138830,
+        22834,
+        13694,
+        26063,
+        671,
+        11791,
+        378,
+        3591,
+        7336,
+        71692,
+        11873,
+        378,
+        2310,
+        2815
+      ]
+    },
+    {
+      "label": "block-traced",
+      "first_token_difference": 26,
+      "generated_ids": [
+        41677,
+        1938,
+        13118,
+        2590,
+        5787,
+        382,
+        331,
+        343,
+        13336,
+        3934,
+        5366,
+        12478,
+        382,
+        41677,
+        1938,
+        69222,
+        330,
+        47013,
+        1068,
+        3934,
+        11023,
+        10734,
+        3961,
+        378,
+        134937,
+        8047,
+        17375,
+        2262,
+        37374,
+        5366,
+        292,
+        5978,
+        6675,
+        17943,
+        24032,
+        2983,
+        5804,
+        13336,
+        7652,
+        378,
+        3194,
+        6130,
+        11893,
+        103546,
+        46987,
+        48402,
+        46299,
+        378,
+        2762,
+        1553,
+        33000,
+        33688,
+        220,
+        269,
+        75951,
+        6130,
+        2674,
+        292,
+        2590,
+        92216,
+        4913,
+        5470,
+        13336,
+        22834,
+        12751,
+        343,
+        671,
+        3961,
+        69057,
+        343,
+        103560,
+        47637,
+        2814,
+        2723,
+        3321,
+        3934,
+        10349,
+        292,
+        1449,
+        13336,
+        10734,
+        3961,
+        12631,
+        7909,
+        378,
+        8954,
+        3926,
+        13694,
+        3126,
+        92788,
+        7652,
+        378,
+        132589,
+        13694,
+        12468,
+        34957,
+        3336,
+        48354,
+        7652,
+        378,
+        2310,
+        2156,
+        4065,
+        2430,
+        11218,
+        11873,
+        220,
+        3934,
+        378,
+        9310,
+        2815,
+        13694,
+        19680,
+        812,
+        13694,
+        9252,
+        2962,
+        378,
+        812,
+        13694,
+        30637,
+        1413,
+        1905,
+        1967,
+        45840,
+        30410,
+        3878,
+        8839
+      ]
+    },
+    {
+      "label": "block-untraced-1",
+      "first_token_difference": 26,
+      "generated_ids": [
+        41677,
+        1938,
+        13118,
+        2590,
+        5787,
+        382,
+        331,
+        343,
+        13336,
+        3934,
+        5366,
+        12478,
+        382,
+        41677,
+        1938,
+        69222,
+        330,
+        47013,
+        1068,
+        3934,
+        11023,
+        10734,
+        3961,
+        378,
+        134937,
+        8047,
+        17375,
+        2262,
+        37374,
+        5366,
+        292,
+        5978,
+        6675,
+        17943,
+        24032,
+        2983,
+        5804,
+        13336,
+        7652,
+        378,
+        3194,
+        6130,
+        11893,
+        103546,
+        46987,
+        48402,
+        46299,
+        378,
+        2762,
+        1553,
+        33000,
+        33688,
+        220,
+        269,
+        75951,
+        6130,
+        2674,
+        292,
+        2590,
+        92216,
+        4913,
+        5470,
+        13336,
+        22834,
+        12751,
+        343,
+        671,
+        3961,
+        69057,
+        343,
+        103560,
+        47637,
+        2814,
+        2723,
+        3321,
+        3934,
+        10349,
+        292,
+        1449,
+        13336,
+        10734,
+        3961,
+        12631,
+        7909,
+        378,
+        8954,
+        3926,
+        13694,
+        3126,
+        92788,
+        7652,
+        378,
+        132589,
+        13694,
+        12468,
+        34957,
+        3336,
+        48354,
+        7652,
+        378,
+        2310,
+        2156,
+        4065,
+        2430,
+        11218,
+        11873,
+        220,
+        3934,
+        378,
+        9310,
+        2815,
+        13694,
+        19680,
+        812,
+        13694,
+        9252,
+        2962,
+        378,
+        812,
+        13694,
+        30637,
+        1413,
+        1905,
+        1967,
+        45840,
+        30410,
+        3878,
+        8839
+      ]
+    },
+    {
+      "label": "block-untraced-2",
+      "first_token_difference": 26,
+      "generated_ids": [
+        41677,
+        1938,
+        13118,
+        2590,
+        5787,
+        382,
+        331,
+        343,
+        13336,
+        3934,
+        5366,
+        12478,
+        382,
+        41677,
+        1938,
+        69222,
+        330,
+        47013,
+        1068,
+        3934,
+        11023,
+        10734,
+        3961,
+        378,
+        134937,
+        8047,
+        17375,
+        2262,
+        37374,
+        5366,
+        292,
+        5978,
+        6675,
+        17943,
+        24032,
+        2983,
+        5804,
+        13336,
+        7652,
+        378,
+        3194,
+        6130,
+        11893,
+        103546,
+        46987,
+        48402,
+        46299,
+        378,
+        2762,
+        1553,
+        33000,
+        33688,
+        220,
+        269,
+        75951,
+        6130,
+        2674,
+        292,
+        2590,
+        92216,
+        4913,
+        5470,
+        13336,
+        22834,
+        12751,
+        343,
+        671,
+        3961,
+        69057,
+        343,
+        103560,
+        47637,
+        2814,
+        2723,
+        3321,
+        3934,
+        10349,
+        292,
+        1449,
+        13336,
+        10734,
+        3961,
+        12631,
+        7909,
+        378,
+        8954,
+        3926,
+        13694,
+        3126,
+        92788,
+        7652,
+        378,
+        132589,
+        13694,
+        12468,
+        34957,
+        3336,
+        48354,
+        7652,
+        378,
+        2310,
+        2156,
+        4065,
+        2430,
+        11218,
+        11873,
+        220,
+        3934,
+        378,
+        9310,
+        2815,
+        13694,
+        19680,
+        812,
+        13694,
+        9252,
+        2962,
+        378,
+        812,
+        13694,
+        30637,
+        1413,
+        1905,
+        1967,
+        45840,
+        30410,
+        3878,
+        8839
+      ]
+    }
+  ]
+}
