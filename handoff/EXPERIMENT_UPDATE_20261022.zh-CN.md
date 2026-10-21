@@ -8,6 +8,18 @@
 
 B1 优先，其次 B2/4/8/16；记录逐请求 TPOT 和非零块提交间隔，避免块内同 timestamp 形成虚假的零延迟。性能分母应为普通 `Engine.forward` AR；使用成对状态快照的诊断验证器不能作为普通 AR 速度基线。
 
+## 长草稿接入进展（北京时间 10 月 22 日凌晨）
+
+已增加显式、互斥的 ordinary epoch：每次切换重置缓存，普通 `Engine.forward` 使用原始同读写行输入，epoch 内拒绝成对状态验证 API，普通 decode 不进入 SpecScope、快照和重放。实际 32 卡运行的前测为 512 输入、128 输出，排除首个 anchor 后计 127 个有效 decode token，约 **5.2623 tok/s/用户**、平均 TPOT 190.03 ms，完整 ID 与冻结参考相同。它只是本次前测观测值；后续实验失败，缺少后测和正常 Slurm0，因此尚未成为完整对照性能资格，更不能称在线投机收益。
+
+在原模式 10 基础上，将所有 MLA KV 展开投影也按原生逐行 M1 执行的模式 11，首次使“一个 W2 块后继续生成至 128 token”三次重复全部匹配冻结输出；模式 10 仍在索引 41 分歧。这没有推广为任意块长度的修复：随后 K7/W8 的完整序列仍失败两次，K8/W9 又被旧接口最多 8 个验证位置的 guard 拒绝，整个作业 FAILED1，原结果保留。已正常关闭的 32 个 owner 不能替代 Slurm0 或后测。当前无可采用的在线投机加速。
+
+W16 候选另行隔离构建，只扩展输入元数据和 KDA 偏移的宽度 admission，保留总 packed token ≤128、请求数、成对状态、owner、设备和流边界，原设备内核及普通 API 不变。安排构建后八卡 W8/W9/W16 对串行 W1 的输出和最终状态检查，再做独立 CPU raw 审计；组件通过也不能替代尚失败的整模型 W8 完整 ID 校验。下一轮模型测试应先抓长块最早分歧，避免只放大窗口后报告无效速度。
+
+Modal DFlash 权重已开始传往集群；远端完整 SHA 校验尚未完成。官方 `z-lab/dflash` 源码锁定 `07ebd93db9f472af339b644bb70221ad8428328a`，仅抽取已审阅的第一代模型定义。CPU 微型模型 B1/B2、W8/W16 的缓存与重算、独立 causal/window mask、缓存释放检查通过；完整 checkpoint 的 69 个 key/shape 与 meta 模型全部吻合。该结果没有加载完整权重执行 GPU forward，也没有测当前目标的接受长度。详见 [本轮范围与证据](evidence/speculative-metric-progress-r4268.json)。
+
+长草稿优先比较 Modal W8/W16 与 RedHat K8/W9，逐请求计时、计新提交 token。以本次尚待完整验收的 190.03 ms 普通单步为例，若平均每轮真正提交 8 token，要达到 15 tok/s，整轮草稿、验证、提交和回滚必须合计低于约 533 ms；5 倍加速要求约 304 ms，10 倍要求约 152 ms。这是成本预算，不是实测加速。公开 DFlash 论文的超过 6 倍来自其报告模型和任务；BW1000 上必须另测真实接受长度、验证成本和状态推进。
+
 ## 8/16 窗口草稿与当前限制（本轮更新）
 
 进一步查到 [Modal Kimi-K3 DFlash](https://huggingface.co/modal-labs/Kimi-K3-DFlash)，锁定 `c192d15a43407bf758b5ae0880d5c72052fef1de`。配置原有 `dflash_config.block_size=16`，不是将旧 Radix 草稿临时改为 16。官方普通 DFlash serving 路径丢弃 anchor 位置的输出，因此 W16 对应 K15 提案；RedHat DSpark 的 `sample_from_anchor=true` 则为 K8/W9，两者不能混用。

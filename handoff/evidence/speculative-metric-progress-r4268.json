@@ -1,0 +1,101 @@
+{
+  "utc": "2026-10-21T19:02:29.253872+00:00",
+  "prefill_excluded": true,
+  "primary_metric": "per-request useful decode tok/s; B1 then B2/4/8/16",
+  "speculative_online_speedup_qualified": false,
+  "ordinary_front_observation": {
+    "label": "ordinary-before",
+    "batch": 1,
+    "input_tokens": 512,
+    "max_output_tokens": 128,
+    "useful_decode_tokens": 127,
+    "decode_seconds": 24.13398280600086,
+    "per_request_decode_tok_s": [
+      5.2622893212811
+    ],
+    "mean_TPOT_seconds": 0.1900313606771721,
+    "nonzero_intercommit_gap_P95_seconds": 0.19287677579559384,
+    "max_intercommit_gap_seconds": 0.21929913014173508,
+    "complete_frozen_IDs_exact": true,
+    "ordinary_epoch_actual_delta": [
+      1,
+      128,
+      127,
+      1
+    ],
+    "epoch_invalid_flag_no_mutation": true,
+    "paired_call_rejected_before_outputs_in_ordinary_epoch": true,
+    "performance_qualified_pending_independent_audit": false,
+    "prefill_excluded": true,
+    "paired_state_verifier_used_for_decode": false,
+    "scope": "NativeordinaryEngine.forward inexplicitresetexclusiveepoch, originalmambain/outbothrows, noSpecScope/snapshot/replay. SameModelweights/precision/topology; CPUfullvocabfinite/argmaxandcontrolbarriersincluded. FullfrozenIDs neededforbaselinequalification; mismatchkeptdiagnosticandrootcollectioncontinues. NoHTTP/productionclaim."
+  },
+  "ordinary_full_ABBA_qualified": false,
+  "target_root_observation": [
+    {
+      "mode": 10,
+      "scope": "prior_allMLAo_serialMLA_control",
+      "traced_and_untraced_repeat_IDs_exact": true,
+      "all_root_complete_IDs_equal_frozen_AR": false,
+      "first_token_difference": 41,
+      "main_goal_metric": false
+    },
+    {
+      "mode": 11,
+      "scope": "allMLAo_plus_allMLA_kvb_M1",
+      "traced_and_untraced_repeat_IDs_exact": true,
+      "all_root_complete_IDs_equal_frozen_AR": true,
+      "first_token_difference": null,
+      "main_goal_metric": false
+    }
+  ],
+  "K7_W8_full_IDs_passed": false,
+  "K8_W9_refused_old_width8_guard": true,
+  "producer_terminal": "FAILED1; after-AR/QA not executed",
+  "long_window_CPU_component": {
+    "utc": "2026-10-21T18:49:15.191385+00:00",
+    "completed": true,
+    "scope": "CPU tiny/schema/cache contract only. No full-weight forward, online target acceptance, native port or performance qualification.",
+    "cases": [
+      {
+        "batch": 1,
+        "width": 8,
+        "additional_proposals": 7,
+        "cache_vs_recompute_IDs_exact": true,
+        "max_hidden_abs_diff": 0.0,
+        "independent_causal_window_mask_exact": true
+      },
+      {
+        "batch": 1,
+        "width": 16,
+        "additional_proposals": 15,
+        "cache_vs_recompute_IDs_exact": true,
+        "max_hidden_abs_diff": 0.0,
+        "independent_causal_window_mask_exact": true
+      },
+      {
+        "batch": 2,
+        "width": 8,
+        "additional_proposals": 7,
+        "cache_vs_recompute_IDs_exact": true,
+        "max_hidden_abs_diff": 0.0,
+        "independent_causal_window_mask_exact": true
+      },
+      {
+        "batch": 2,
+        "width": 16,
+        "additional_proposals": 15,
+        "cache_vs_recompute_IDs_exact": true,
+        "max_hidden_abs_diff": 0.0,
+        "independent_causal_window_mask_exact": true
+      }
+    ],
+    "GPU_forward_executed": false,
+    "full_69_key_shape_schema_exact": true
+  },
+  "draft_source_commit": "07ebd93db9f472af339b644bb70221ad8428328a",
+  "draft_source_module_sha256": "cc1fc3b7c2d8b4c2957dbc55a6911c7904cf37c84ff44dd065c21c65a2e61151",
+  "Modal_full_weights_remote_SHA_verified": false,
+  "wide_target_candidate": "Isolated W16 metadata/KDA host admission build and 8GPU component audit queued; device kernel unchanged; no full model qualification.",
+  "scope": "Sanitized evidence only. No access configuration, weights, raw large artifacts or unqualified model source. W2 root success does not imply W8/W16 model correctness or speed."
+}
