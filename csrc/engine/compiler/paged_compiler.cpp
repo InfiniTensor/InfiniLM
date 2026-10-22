@@ -412,6 +412,14 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 }
                 actual = std::max(actual, static_cast<size_t>(lengths[row]));
             }
+            if (is_cpu_contiguous_tensor(input.block_tables, infinilm::runtime::DataType::kInt32,
+                                         {batch_size, block_per_req})
+                && !valid_graph_page_table(lengths, batch_size,
+                                           reinterpret_cast<const int32_t *>(runtime_block_tables->data()), block_per_req,
+                                           paged_config->num_blocks(), paged_config->block_size(), paged_config->num_blocks())) {
+                // A profile miss must not route an invalid host page table into eager.
+                throw std::invalid_argument("invalid paged graph page table");
+            }
             auto selected = select_graph_capture_profile(*graph_config_.capture_profiles, batch_size, actual,
                                                          paged_config->block_size() * paged_config->num_blocks());
             if (!selected) {
@@ -515,45 +523,70 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         return {nullptr, nullptr};
     }
 
-    if (!is_cpu_contiguous_tensor(input.total_sequence_lengths, infinilm::runtime::DataType::kInt32, {batch_size})
-        || !is_cpu_contiguous_tensor(input.block_tables, infinilm::runtime::DataType::kInt32, {batch_size, block_per_req})) {
+    const bool legacy_upload = !graph_config_.capture_profiles && !graph_config_.metadata_upload;
+    const bool host_table = is_cpu_contiguous_tensor(input.total_sequence_lengths,
+                                                     infinilm::runtime::DataType::kInt32, {batch_size})
+                         && is_cpu_contiguous_tensor(input.block_tables,
+                                                     infinilm::runtime::DataType::kInt32, {batch_size, block_per_req});
+    if (!legacy_upload && !host_table) {
         return {nullptr, nullptr};
     }
     const auto *lengths = reinterpret_cast<const int32_t *>(input.total_sequence_lengths.value()->data());
     const auto *table = reinterpret_cast<const int32_t *>(runtime_block_tables->data());
-    auto packed_table = normalize_graph_page_table(lengths, batch_size, table, block_per_req,
-                                                   compiled_block_per_req, paged_config->block_size(), paged_config->num_blocks());
-    if (!packed_table) {
-        throw std::invalid_argument("invalid paged graph page table");
-    }
-    if (graph_config_.metadata_upload) {
-        std::vector<infinilm::runtime::GraphMetadataUpload::Copy> copies;
-        auto append = [&](auto &dst, const auto &src) {
-            if (src->device().type() != infinilm::runtime::Device::Type::kCpu || !src->is_contiguous()) {
-                return false;
-            }
-            copies.push_back({dst->data(), src->data(), src->nbytes()});
-            return true;
-        };
-        if (!append(*graph_input.input_ids, *input.input_ids)
-            || !append(*graph_input.position_ids, *input.position_ids)
-            || !append(*graph_input.total_sequence_lengths, *input.total_sequence_lengths)
-            || !append(*graph_input.input_offsets, *input.input_offsets)
-            || !append(*graph_input.cu_seqlens, *input.cu_seqlens)
-            || !append(*graph_input.slot_mapping, *input.slot_mapping)) {
-            return {nullptr, nullptr};
+    if (legacy_upload) {
+        if (host_table && !valid_graph_page_table(lengths, batch_size, table, block_per_req, compiled_block_per_req, paged_config->block_size(), paged_config->num_blocks())) {
+            throw std::invalid_argument("invalid paged graph page table");
         }
-        copies.push_back({graph_input.block_tables.value()->data(), packed_table->data(), packed_table->size() * sizeof(int32_t)});
-        metadata_upload_.upload(copies);
-    } else {
         graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
         graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
         graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
         graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
         graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
-        runtime_.memcpyH2D(graph_input.block_tables.value()->data(), packed_table->data(),
-                           packed_table->size() * sizeof(int32_t), false);
+        auto &graph_block_tables = graph_input.block_tables.value();
+        runtime_.setDeviceMemoryAsync(graph_block_tables->data(), 0xFF,
+                                      graph_block_tables->nbytes(), runtime_.stream());
+        if (use_short_decode_graph) {
+            runtime_.memcpyH2D(graph_block_tables->data(), runtime_block_tables->data(),
+                               required_pages * sizeof(int32_t), false);
+        } else {
+            graph_block_tables->narrow({{1, 0, block_per_req}})->copy_from(runtime_, runtime_block_tables);
+        }
         graph_input.slot_mapping.value()->copy_from(runtime_, input.slot_mapping.value());
+    } else {
+        auto packed_table = normalize_graph_page_table(lengths, batch_size, table, block_per_req,
+                                                       compiled_block_per_req, paged_config->block_size(), paged_config->num_blocks());
+        if (!packed_table) {
+            throw std::invalid_argument("invalid paged graph page table");
+        }
+        if (graph_config_.metadata_upload) {
+            std::vector<infinilm::runtime::GraphMetadataUpload::Copy> copies;
+            auto append = [&](auto &dst, const auto &src) {
+                if (src->device().type() != infinilm::runtime::Device::Type::kCpu || !src->is_contiguous()) {
+                    return false;
+                }
+                copies.push_back({dst->data(), src->data(), src->nbytes()});
+                return true;
+            };
+            if (!append(*graph_input.input_ids, *input.input_ids)
+                || !append(*graph_input.position_ids, *input.position_ids)
+                || !append(*graph_input.total_sequence_lengths, *input.total_sequence_lengths)
+                || !append(*graph_input.input_offsets, *input.input_offsets)
+                || !append(*graph_input.cu_seqlens, *input.cu_seqlens)
+                || !append(*graph_input.slot_mapping, *input.slot_mapping)) {
+                return {nullptr, nullptr};
+            }
+            copies.push_back({graph_input.block_tables.value()->data(), packed_table->data(), packed_table->size() * sizeof(int32_t)});
+            metadata_upload_.upload(copies);
+        } else {
+            graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
+            graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
+            graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
+            graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
+            graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
+            runtime_.memcpyH2D(graph_input.block_tables.value()->data(), packed_table->data(),
+                               packed_table->size() * sizeof(int32_t), false);
+            graph_input.slot_mapping.value()->copy_from(runtime_, input.slot_mapping.value());
+        }
     }
     fallback_reason_ = "graph_plan_selected";
 

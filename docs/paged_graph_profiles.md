@@ -36,6 +36,10 @@ runtime stream. Original temporary CPU tensors may expire once their bytes are
 staged. A serial lease waits for previous queued work before overwriting either
 slab; there is no synchronization between upload and graph replay. Compiler
 recompile/destruction explicitly drains before graph destinations can disappear.
+With profiles left as None and upload disabled, replay retains the original
+GPU table fill and narrow synchronous upload. Active CPU pages are validated
+without allocating or uploading a full-width host table. Invalid CPU page tables
+are rejected before an explicit profile miss can fall back to eager.
 Submission exceptions keep the lease live. Failure to establish completion at
 destruction terminates rather than releasing an in-use source. General Tensor
 copy defaults and existing backend mathematics are unchanged.

@@ -40,6 +40,33 @@ inline std::optional<size_t> select_graph_capture_profile(
     return best;
 }
 
+// Legacy synchronous replay validates active pages without constructing a
+// full-pool host table. Its original narrow upload layout remains unchanged.
+inline bool valid_graph_page_table(
+    const int32_t *lengths, size_t batch, const int32_t *table, size_t source_width,
+    size_t target_width, size_t block_size, size_t num_blocks) {
+    if (!lengths || !table || !batch || !source_width || !target_width || !block_size
+        || batch > std::numeric_limits<size_t>::max() / source_width) {
+        return false;
+    }
+    for (size_t row = 0; row < batch; ++row) {
+        if (lengths[row] <= 0) {
+            return false;
+        }
+        const size_t required = 1 + (static_cast<size_t>(lengths[row]) - 1) / block_size;
+        if (required > source_width || required > target_width || required > num_blocks) {
+            return false;
+        }
+        for (size_t col = 0; col < required; ++col) {
+            const int32_t page = table[row * source_width + col];
+            if (page < 0 || static_cast<size_t>(page) >= num_blocks) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 inline std::optional<std::vector<int32_t>> normalize_graph_page_table(
     const int32_t *lengths, size_t batch, const int32_t *table, size_t source_width,
     size_t target_width, size_t block_size, size_t num_blocks) {

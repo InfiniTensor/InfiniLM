@@ -27,15 +27,18 @@ int main() {
         std::vector<int32_t> lengths(b, 2048), table(b * 128, -1);
         for (int row = 0; row < b; ++row) {
             for (int col = 0; col < 8; ++col) {
-                table[row * 128 + col] = col;
+                table[row * 128 + col] = row * 8 + col;
             }
         }
         auto normalized = normalize_graph_page_table(lengths.data(), b, table.data(), 128, 8, 256, 128);
         assert(normalized && normalized->size() == size_t(b * 8));
+        assert(valid_graph_page_table(lengths.data(), b, table.data(), 128, 128, 256, 128));
+        for (int page = 0; page < b * 8; ++page) { assert((*normalized)[page] == page); }
         lengths[0] = 2049;
         assert(!normalize_graph_page_table(lengths.data(), b, table.data(), 128, 8, 256, 128));
         lengths[0] = 2048;
         table[0] = 128;
+        assert(!valid_graph_page_table(lengths.data(), b, table.data(), 128, 128, 256, 128));
         assert(!normalize_graph_page_table(lengths.data(), b, table.data(), 128, 8, 256, 128));
     }
     std::cout << "paged graph profile boundaries, batch transitions and invalid tables passed\n";
