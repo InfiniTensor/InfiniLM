@@ -24,6 +24,12 @@ GLM 固定B32、M2/4/8/16/32的一次驻留扫描继续，当前首轮观察较�
 
 长草稿优先Modal原生W16/K15，比较W8；RedHat原生K8/W9为备选。二者已有本地完整SHA，远端传输仍推进，远端完整SHA/完整GPU draft forward/实际接受率未验收。LightSeek DFlash2为另一种MLA+SWA备选，原生lookahead8，无训练W16证据，暂不增加权重传输。逐用户decode统计包括真实draft/verify/commit/rollback/replay/未隐藏通信，B1优先再B2/4/8/16；实际每轮8个有效token时15tok/s需全轮≤533ms，按本轮普通AR成本，5倍约≤294ms、10倍约≤147ms。预算不等于BW1000实测或承诺。详见[新验收范围与精简证据](evidence/model-and-speculative-progress-r4427.json)。
 
+补充独立验收：真实MoE1的5384个参数共16.10GB，一次CPU读入约32～33秒、八owner原生load/postload各约0.48～0.66秒，16 owner/6336份raw检查通过。Default配置完整复现实际模型TP0/6的serial和packed FFN1输出；路由、专家核心相同，共享专家与routed-up同时按M1控制后八分片所有已捕获中间值恢复串行参考。原共享路径单独控制仍有2个最终FFN元素不同，上投影单独控制也不够。它是单层原因定位，未成为整模型修复或用户吞吐。
+
+原生BF16分块另经8 owner/800份raw审计：chunk4在20种几何保留Default逐行参考；chunk8仅对H3584全部通过，H7168不通过。新的隔离候选据此只对MoE H3584采用chunk8，mode11/W≤16且默认关闭，普通AR、prefill和全局通信环境保持原路径。共享MLP/routed-up M1是正确性控制，后续还需并行化以获得实际decode收益。
+
+GLM完整扫描已正常结束并独立审计：16卡TP8/PP2、B32、512输入/最多128输出，M8与M16 decode中位 **30.06943 / 33.06372 tok/s**，含prefill **10.06827 / 10.37117**，均通过冻结3330完整ID。M2/M4/M32虽有计时且QA通过，长输出冻结ID不符，全部排除，不能列为可用性能。扩大B/M在该服务配置下没有取得提升；此前33.14179与本轮33.06372为轮次复测差异。详见[新增验收证据](evidence/speculative-cause-and-GLM-micro-r4443.json)。
+
 下方按时间保留历史，最新结论以上节为准；目标继续进行中。
 
 ## 最新已验收结果与进行中的修复（北京时间 10 月 22 日 08:05）

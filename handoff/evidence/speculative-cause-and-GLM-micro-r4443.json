@@ -1,0 +1,129 @@
+{
+  "utc": "2026-10-22T02:28:22.674087+00:00",
+  "trained_online_speculative_speedup_qualified": false,
+  "MoE1_cause": {
+    "normal_Runtime_owners": 16,
+    "CPU_raw_files": 6336,
+    "checkpoint_parameters": 5384,
+    "CPU_checkpoint_bytes": 16102205952,
+    "single_CPU_load_seconds": [
+      33.1249962663278,
+      32.1128429248929
+    ],
+    "all8_shared_plus_routedUp_M1_restores_serial": true,
+    "Default_packed_vs_serial_FFN1_differences": 14880,
+    "frozen_actual_Model_serial_and_packed_FFN1_exact_on_captured_TP0_TP6": true,
+    "scope": "ActualMoE1fullweights/fixture; routerandnativeexpertcoreunchanged. Other6inputsunittestreplicas, notactualtraceclaim. ControlsnotModel/onlineTPSqualification."
+  },
+  "native_BF16_chunking": {
+    "normal_Runtime_owners": 8,
+    "CPU_raw_files": 800,
+    "all20_geometry_Defaultrow_reference_modes": [
+      1,
+      2,
+      3
+    ],
+    "H3584_chunk8_preserves_Default_rows": true,
+    "H7168_chunk8_preserves_Default_rows": false,
+    "scope": "NativeDefaultalgorithm/noglobalTree/FP32replacement/GPUF64. H3584realexpertcoreoutputfixture,H7168expandedwidthfixture. Componentonly; noactualModeltokens/onlineTPSgain."
+  },
+  "GLM_micro_sweep": {
+    "cards": 16,
+    "TP": 8,
+    "PP": 2,
+    "batch": 32,
+    "input": 512,
+    "max_output": 128,
+    "normal_workers_closed": 16,
+    "qualified": [
+      {
+        "batch": 32,
+        "micro": 8,
+        "decode_median": 30.06943029173067,
+        "including_prefill_median": 10.068267820236464,
+        "decode_per_all16_cards": 1.8793393932331668,
+        "including_prefill_per_all16_cards": 0.629266738764779,
+        "prefill_input_tok_s_median": 60.30911425478783,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 32,
+        "micro": 16,
+        "decode_median": 33.063718139322916,
+        "including_prefill_median": 10.371170138448306,
+        "decode_per_all16_cards": 2.0664823837076822,
+        "including_prefill_per_all16_cards": 0.6481981336530191,
+        "prefill_input_tok_s_median": 60.22996051793382,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      }
+    ],
+    "diagnostic_all_configurations": [
+      {
+        "batch": 32,
+        "micro": 2,
+        "decode_median": 14.645955670229682,
+        "including_prefill_median": 7.920612458065979,
+        "decode_per_all16_cards": 0.9153722293893551,
+        "including_prefill_per_all16_cards": 0.4950382786291237,
+        "prefill_input_tok_s_median": 68.36669918802832,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": false
+      },
+      {
+        "batch": 32,
+        "micro": 4,
+        "decode_median": 19.617826213103516,
+        "including_prefill_median": 8.98294632679789,
+        "decode_per_all16_cards": 1.2261141383189698,
+        "including_prefill_per_all16_cards": 0.5614341454248681,
+        "prefill_input_tok_s_median": 65.84806211611459,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": false
+      },
+      {
+        "batch": 32,
+        "micro": 8,
+        "decode_median": 30.06943029173067,
+        "including_prefill_median": 10.068267820236464,
+        "decode_per_all16_cards": 1.8793393932331668,
+        "including_prefill_per_all16_cards": 0.629266738764779,
+        "prefill_input_tok_s_median": 60.30911425478783,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 32,
+        "micro": 16,
+        "decode_median": 33.063718139322916,
+        "including_prefill_median": 10.371170138448306,
+        "decode_per_all16_cards": 2.0664823837076822,
+        "including_prefill_per_all16_cards": 0.6481981336530191,
+        "prefill_input_tok_s_median": 60.22996051793382,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 32,
+        "micro": 32,
+        "decode_median": 28.692523042580632,
+        "including_prefill_median": 9.885623296793845,
+        "decode_per_all16_cards": 1.7932826901612895,
+        "including_prefill_per_all16_cards": 0.6178514560496153,
+        "prefill_input_tok_s_median": 60.080837175909394,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": false
+      }
+    ],
+    "scope": "M8/M16onlyfullfrozen3330IDprofilesqualified; M2/M4/M32exclude. Oneimmutableweightload forward/reverse2rep+QA30/nativeIB/normal16/Slurm0. NoHTTP/hardwarepeak/codecausalgain."
+  },
+  "next": "Single-load32GPU scopedauxM1+onlyH3584nativechunk8 verifier atW8/W9/W16, unchangedordinaryAR/prefill/globalCCL; fulltokens/QA/nativeIB/normal32auditbeforeanyadoption. ModalnativeW16primary, RedHatK8backup; remoteweighttransfersstillhealthy, nofullGPUdraftqualification."
+}
