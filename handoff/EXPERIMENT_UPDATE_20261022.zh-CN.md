@@ -8,6 +8,16 @@
 
 B1 优先，其次 B2/4/8/16；记录逐请求 TPOT 和非零块提交间隔，避免块内同 timestamp 形成虚假的零延迟。性能分母应为普通 `Engine.forward` AR；使用成对状态快照的诊断验证器不能作为普通 AR 速度基线。
 
+## 草稿缓存推进的受控投影结果（北京时间 10 月 22 日 12:31）
+
+完整Modal草稿的第二个单卡测试已正常完成：同一次权重驻留、相同合成输入，依次原生／FP32投影输出再舍入／固定M16 BF16／恢复原生。固定M16用于特征融合fc和各层K/V投影，B1/B2、W8/W16、前缀32/512共8组、24次前缀推进全部与重算输出一致，最大hidden差为0；恢复原生后原提案差异模式重现，单纯改FP32未全部解决。这支持本组差异来自投影计算形状，尚未覆盖所有输入或真实目标特征。
+
+固定M16时B1 W16缓存草稿生成约14.52～14.58ms，原生前后约13.79～13.83ms；不到1ms的组件额外成本，**不是模型加速**。这里只用相同输出定位原因，不要求草稿逐位一致；最终仍看目标验证后的完整token和真实接受长度。目标模型32卡验证继续进行中，尚无合格在线投机速度。
+
+已补充[可迁移草稿组件源码](experimental-latest-5f91ad7/modal-full-draft-r4487/modal_projection_control_r4487.py)、[已审阅的DFlash定义](experimental-latest-5f91ad7/modal-full-draft-r4487/modal_reference_r4258.py)、DTK脚本、元数据合约和MIT参考许可证。Python源码仅规范换行并检查AST与实测版本相同。迁移时在容器中将工作根映射为`/refactor`、目标权重映射为`/shared/Kimi-K3`；将三个Python/JSON输入放到`/refactor/incoming`，创建空的`results`，使用同一Torch/Transformers依赖和已审阅参考定义，不执行模型仓库缺失的auto_map代码。草稿目录为`/refactor/models/Kimi-K3-Modal-DFlash-c192d15a-r4255`。
+
+执行前先完整SHA校验权重`0f0bd39d19c2dd0249de4f8216180f9729963402f902d50f19a156a8d358b733`、大小5196953912字节，然后在`results/Modal-draft-r4255-data-verified.json`记录`completed=true`、`revision=c192d15a43407bf758b5ae0880d5c72052fef1de`、`bytes=5196953912`；该收据必须来自实际校验。脚本拒绝覆盖同名结果。先申请1卡/8CPU/64GiB内存，在DTK环境运行配套shell或直接运行Python。采用真目标embedding/head、合成6tap特征，仅验证草稿／缓存组件；不输出在线接受率或用户tok/s。详见[受控结果与范围](evidence/Modal-fixed-projection-cache-r4491.json)。
+
 ## 完整长草稿权重已就绪（北京时间 10 月 22 日 12:22）
 
 Modal W16与RedHat原生8提案的原始传输均已完成，远端完整SHA通过。Modal的69个BF16权重、真实目标embedding/head已在BW1000单卡实际执行，一次加载覆盖B1/2/4/8/16、W8/W16、前缀32/512的20组测试。20组固定前缀缓存与重算的草稿token相同，重复也一致；前缀推进后部分提案不同，尚需区分数值路径与缓存语义。草稿提案差异本身不要求逐位修齐，最终目标仍是验证后输出token正确及真实接受长度。
