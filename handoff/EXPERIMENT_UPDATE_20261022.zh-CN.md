@@ -8,23 +8,23 @@
 
 B1 优先，其次 B2/4/8/16；记录逐请求 TPOT 和非零块提交间隔，避免块内同 timestamp 形成虚假的零延迟。性能分母应为普通 `Engine.forward` AR；使用成对状态快照的诊断验证器不能作为普通 AR 速度基线。
 
-## 最新已验收结果与进行中的修复（北京时间 10 月 22 日）
+## 最新已验收结果与进行中的修复（北京时间 10 月 22 日 08:05）
 
-新的单次驻留 32 卡 TP8/PP4 实验已正常完成并独立审计。512 输入、最多 128 输出的 B1 普通 `Engine.forward`，前/后测分别 **5.0626 / 5.0405 tok/s/用户**，平均 TPOT **197.53 / 198.39 ms**；排除 prefill 产生的首个 anchor，计 127 个有效 decode token。完整冻结 ID、前后 QA 共 16 项、CPU argmax、32 owner 正常关闭、Slurm0 和 IBext 均通过。这覆盖后文历史 5.2623 前测未完成验收的状态；仍是原生 harness 对照，并非 HTTP 或单用户硬件极限。
+最新一次驻留 32 卡 TP8/PP4 已正常完成并独立审计：512 输入、最多 128 输出，B1 普通 `Engine.forward` 前/后测 **5.25369 / 5.26322 tok/s/用户**，平均 TPOT **190.34 / 190.00 ms**。排除 prefill 产生的首个 anchor，计 127 个有效 decode token；完整冻结 ID、前后 QA16、CPU argmax、32 owner 正常关闭、Slurm0 和 IBext 通过。它是当前原生 harness 对照，不是 HTTP 或硬件极限，也不能把相对上一轮约 5.05 的差值归因于代码优化。
 
-W8 根测试追踪和两次未追踪的完整序列仍在索引 53 分歧；真实 prompt-lookup K1/K3 也完整 ID 失败且更慢。因此 **合格在线投机加速仍为零**。W8/W9/W16 的 oracle 仅用于目标验证正确性，不得作为草稿速度、真实接受长度或用户加速结果。
+W8 根测试仍在索引 53 分歧；真实 prompt-lookup K1/K3 也完整 ID 失败且更慢。**尚无合格在线投机加速**。Oracle W8/W9/W16 只用于目标验证正确性，不代表真实草稿接受长度或用户速度。
 
-22,860 份 CPU raw 定位到此次长块最早已记录差异为 KDA0 attention 输出，进入该层的 normalized input 相同。仅保存 TP 分片 0/6；八卡各四副本组件回放中，QKV 的普通 M8 与串行 M1 最多相差 9 个 BF16 元素，输出 gate 最多相差 4 个，fa/fb/beta 在这些组件中相同，padding16/32/64 没有恢复 QKV/g 的串行结果。960 份 CPU raw 及生产者 1,800 个 CPU 点积样本通过；尚未证明组件布局等于模型加载后实际布局，也未证明模型根因。raw 逐位相等只是诊断。
+细查八个 TP 分片的第一层 KDA 输入/输出及活跃卷积、SSM 状态均已对齐，最早已记录剩余差异为唯一的首层 dense FFN。局部候选仅在默认关闭的 mode11、W≤16 下将该 dense MLP 按原生 M1 执行，包括原生 TP 归约；无 F64、无新 GPU 内核。构建及 CPU 合约检查已通过，新的单次 32 卡加载正在进行，待完整输出/QA/普通前后测/正常退出和独立审计。串行控制用于定位，可能更慢，不能当成最终并行验证优化。
 
-独立候选只在 mode11、W≤16 时对 KDA QKV/g 输入投影执行原生 M1，增加实际 dispatch 计数和 KDA0 细追踪；默认关闭，GPU 内核和原生 TP 不变，无 F64。首轮 host 编译因 Tensor 临时 view 不能绑定具名引用而失败，未加载模型；另开候选仅修该调用，并安排成功后一次加载的 32 卡 W8/W9/W16、普通前后测、QA 和独立审计。该串行路径是定位对照，可能更慢，不能称为已完成的并行验证优化。
+长草稿优先 [Modal Kimi-K3 DFlash](https://huggingface.co/modal-labs/Kimi-K3-DFlash) 原生 W16/K15，同时比较 W8；备选 [RedHat DSpark](https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark) 原生 K8/W9。Modal 作者 B1 平均每轮输出：GSM8K 7.984、HumanEval 8.358、MT-Bench 4.921、LongBench-v2 3.688；来自 8×B300/SGLang，不能推成海光速度。窗口16不等于每轮接受16。原 Modal 传输已明确失败，保留原证据，确认原进程退出并验证远端已有 1.75 GB 前缀 SHA 一致后，仅续传剩余部分；RedHat 原传输继续观察。两者远端完整 SHA 和完整 GPU forward 尚待完成。
 
-Modal/RedHat 两套权重仍在原传输中，集群端完整 SHA 和完整 GPU 草稿 forward 尚待完成。后续首先 B1，再 B2/4/8/16，逐用户统计 decode、出 token 间隔、接受长度和全周期成本。若每轮有效输出 8 token，15 tok/s 要求全周期≤533 ms；按已验收约 5.05 tok/s 普通对照，5 倍约要求≤317 ms，10 倍约≤158 ms。均为预算，不能替代海光实测。
+逐用户测 B1、B2/4/8/16；有效提交 token/各自 decode 时间包含真实草稿、验证、选择、状态提交/回滚、重放、未隐藏通信。报告平均每轮输出及 P95 非零出 token 间隔。若每轮有效输出8 token，15 tok/s要求整轮≤533 ms；按本轮约5.258普通基线，5倍要求约304 ms，10倍约152 ms。只是预算，不能当作实测收益。
 
-GLM 两节点 B32 新增系统容量候选：默认 32 通道，RoPE 按服务容量 640 生成并逐请求检查实际 positions，control 复用 world communicator 并保留同步，两个开关默认关闭。八卡 RoPE 表/实际 forward 与完整 1M 表对应范围相同，192 份 CPU raw 和边界/生命周期检查通过。四组构造对照共 64 个 context 正常关闭；尾段最小空闲显存依次 7.5508、7.8008、7.8984、8.1484 GiB，只有组合开关通过原 8 GiB 门槛。没有加载 checkpoint 或整模型 PP/完整 token/B32 性能证明；实际加载前还应在通信预热后重新检查余量，不降低原加载/运行门槛。
+GLM 两节点 TP8/PP2 的32行容量候选现已通过整模型、完整冻结 ID、QA、重复、正常16 owner/Slurm0和独立审计。原加载8 GiB/运行6 GiB余量保留，默认32通信通道，RoPE按640服务容量生成、control复用world communicator，两个开关默认关闭。512输入/max128、B32/M16 decode中位 **33.14179 tok/s**，含prefill **10.38139**，每卡decode **2.07136**；B32/M8为30.13566。此前B24/M8约28.28是不同容量配置，不能把差值称为单项算子因果收益；32卡约70的结果仍单列。
 
-DeepSeek 单次加载 FP32/FP16/FP16/FP32 attention 对照已完成。FP16 虽通过已知 QA，完整长输出 ID 不同，排除其速度；FP32 对照 B16/M16 的已验收 decode 为 **34.55～35.98 tok/s**，含 prefill **26.27～27.45 tok/s**，512 输入/最多 512 输出。它是同一路径的复测范围，不能把不同阶段或与旧轮次的差值称为代码加速。
+DeepSeek FP32新分段计时已通过B8/B16、32输出前缀、OFF/ON/ON/OFF、QA及正常8 owner独立审计；CSA/HCA占主要decode时间，mHC/FFN准备也显著。计时插入同步，属于host完成窗口诊断，不能作为纯GPU时间或新的512输出性能。原FP32 B16/M16完整512输出复测34.55～35.98 decode仍有效；FP16虽过QA但长输出ID不同，继续排除。
 
-测试 commit 的完整 tree 与本轮检查的 main 一致，原 refactor 分支返回 404；继续按锁定 commit 和递归依赖恢复。详见[本轮精简证据](evidence/speculative-user-decode-current-r4317.json)。
+测试commit完整tree与上轮检查的main一致，仍按锁定commit与递归依赖恢复。详见[本轮精简证据](evidence/speculative-user-decode-current-r4355.json)。整个三模型优化目标仍进行中。
 
 ## 历史长草稿接入进展（后续结果以上节为准）
 

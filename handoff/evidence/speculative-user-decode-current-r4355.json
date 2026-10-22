@@ -1,0 +1,142 @@
+{
+  "utc": "2026-10-22T00:05:48.376491+00:00",
+  "metric": "Per-user usefuldecode only; prefill/anchor/EOS/rejected/replayed tokens excluded; include realdraft/verify/selection/commit/rollback/replay/unhiddencomm. Main3modelaggregate/cards goal unchanged.",
+  "ordinary_B1": {
+    "cards": 32,
+    "TP": 8,
+    "PP": 4,
+    "input": 512,
+    "max_output": 128,
+    "useful_decode_tokens": 127,
+    "per_user_tok_s": [
+      5.253690924620622,
+      5.263219077415708
+    ],
+    "full_IDs_QA16_normal32_Slurm0_independent_audit": true,
+    "scope": "Latestqualifiedordinary Engine.forward before/after, no causalcodegain orHTTP claim."
+  },
+  "trained_online_speedup_qualified": false,
+  "W8_full_IDs_first_difference": 53,
+  "KDA0_all8_diagnostic": {
+    "input_output_active_conv_SSM_exact": true,
+    "first_remaining_generic_difference": "layer0 dense FFN output",
+    "scope": "Raw equality diagnostic only; finalfullIDs gate."
+  },
+  "next_candidate": {
+    "build_completed_Slurm0": true,
+    "library_sha256": "e43a33a7d39196266a78dbcb02d7c344a6a291f11eb2e5f9b38e53efd97aac3a",
+    "mode": "DefaultOFF boundedW<=16 mode11 firstdenseMLPperrow inclnativeTP. Localnumericcontrol, notfinalparallelverifyoptimization.",
+    "single32GPU_model_loading": true,
+    "full_IDs_QA_ordinary_before_after_normal32_audit_pending": true
+  },
+  "GLM_16card_TP8_PP2_512_max128": {
+    "complete_frozen_IDs_QA_normal16_audit": true,
+    "rows": [
+      {
+        "batch": 16,
+        "micro": 8,
+        "decode_median": 25.324223520945054,
+        "including_prefill_median": 8.481101070625689,
+        "decode_per_all16_cards": 1.5827639700590659,
+        "including_prefill_per_all16_cards": 0.5300688169141056,
+        "prefill_input_tok_s_median": 50.806778130097214,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 24,
+        "micro": 8,
+        "decode_median": 28.32710791321331,
+        "including_prefill_median": 9.474265219800984,
+        "decode_per_all16_cards": 1.770444244575832,
+        "including_prefill_per_all16_cards": 0.5921415762375615,
+        "prefill_input_tok_s_median": 56.71922340161534,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 32,
+        "micro": 8,
+        "decode_median": 30.135664967454595,
+        "including_prefill_median": 10.068700543362436,
+        "decode_per_all16_cards": 1.8834790604659122,
+        "including_prefill_per_all16_cards": 0.6292937839601522,
+        "prefill_input_tok_s_median": 60.24682062048865,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 16,
+        "micro": 16,
+        "decode_median": 25.13771208270549,
+        "including_prefill_median": 8.458610931077633,
+        "decode_per_all16_cards": 1.5711070051690932,
+        "including_prefill_per_all16_cards": 0.5286631831923521,
+        "prefill_input_tok_s_median": 50.79205514024788,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 24,
+        "micro": 16,
+        "decode_median": 27.27147015596684,
+        "including_prefill_median": 9.370115842507458,
+        "decode_per_all16_cards": 1.7044668847479274,
+        "including_prefill_per_all16_cards": 0.5856322401567161,
+        "prefill_input_tok_s_median": 56.866383504359476,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      },
+      {
+        "batch": 32,
+        "micro": 16,
+        "decode_median": 33.14178866732604,
+        "including_prefill_median": 10.381392752361617,
+        "decode_per_all16_cards": 2.0713617917078775,
+        "including_prefill_per_all16_cards": 0.648837047022601,
+        "prefill_input_tok_s_median": 60.25140738500752,
+        "repetitions": 2,
+        "scope": "512input/max128 realEOS, repeated2promptfamilies; forward/reverse config ordering; no sameprocessOFFcontrol, HTTP or hardwaremaximum.",
+        "complete_frozen_ID_profile_qualified": true
+      }
+    ],
+    "scope": "RoPE640/sharedcontrol permits32cache rows underpreserved8GiBload/6GiBrunguards. No sameprocessOFFcapacitycontrol orHTTPclaim."
+  },
+  "Deep_profile": {
+    "diagnostic_qualified": true,
+    "full512_performance_qualified": false,
+    "scope": "B8/B16 32outputprefix OFF/ON/ON/OFF; added sync hostwall exclusivewindows, notpureGPUorhardwarepeak. CSA/HCAmajoritydecode, mHCpre/FFNprepare significant."
+  },
+  "draft_transfer": {
+    "Modal": "Originalterminalfailed preserved; oldprocessabsence and1.75GBexistingprefixSHAexact, append-onlySFTPresumeinprogress. No remote fullSHA/fullGPUforwardyet.",
+    "RedHat": "OriginalSCPandhandleobserver retained; remotefullSHA/fullGPUforwardpending."
+  },
+  "draft_choices": [
+    {
+      "repo": "modal-labs/Kimi-K3-DFlash",
+      "revision": "c192d15a43407bf758b5ae0880d5c72052fef1de",
+      "W": 16,
+      "K": 15,
+      "source": "https://huggingface.co/modal-labs/Kimi-K3-DFlash",
+      "public_B1_mean_outputs_per_verify": {
+        "GSM8K": 7.984,
+        "HumanEval": 8.358,
+        "MTBench": 4.921,
+        "LongBench_v2": 3.688
+      }
+    },
+    {
+      "repo": "RedHatAI/Kimi-K3-speculator.dspark",
+      "revision": "38a88101e0d46bb22134b9da340f381b954d40d4",
+      "K": 8,
+      "W": 9,
+      "source": "https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark",
+      "scope": "Differentdraftarchitecture/features/sampling. Publicreportedacceptancelength3.1–6.4acrosswriting/math; notsameworkloadrankingorBW1000result."
+    }
+  ]
+}
