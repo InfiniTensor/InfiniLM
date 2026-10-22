@@ -528,7 +528,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     }
     if (graph_config_.metadata_upload) {
         std::vector<infinilm::runtime::GraphMetadataUpload::Copy> copies;
-        auto append = [&](const auto &dst, const auto &src) {
+        auto append = [&](auto &dst, const auto &src) {
             if (src->device().type() != infinilm::runtime::Device::Type::kCpu || !src->is_contiguous()) {
                 return false;
             }
