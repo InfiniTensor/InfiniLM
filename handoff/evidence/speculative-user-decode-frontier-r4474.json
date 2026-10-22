@@ -1,0 +1,1215 @@
+{
+  "utc": "2026-10-22T04:08:02.375658+00:00",
+  "measurement_objective": "Per-request useful newly committed decode tokens / actual request decode elapsed; excludes prefill and anchor, includes draft/verification/selection/commit/rollback/replay/unhidden comm. B1 then B2/4/8/16, nonzero commit gap P95. Float equality is diagnostic only; full greedy tokens/EOS/QA gate adoption.",
+  "ordinary_baseline": [
+    {
+      "label": "ordinary-before",
+      "batch": 1,
+      "input_tokens": 512,
+      "max_output_tokens": 128,
+      "useful_decode_tokens": 127,
+      "decode_seconds": 23.943920179270208,
+      "per_request_decode_tok_s": [
+        5.304060448295015
+      ],
+      "mean_TPOT_seconds": 0.18853480456118274,
+      "nonzero_intercommit_gap_P95_seconds": 0.19054950857535002,
+      "max_intercommit_gap_seconds": 0.31868054298684,
+      "complete_frozen_IDs_exact": true,
+      "ordinary_epoch_actual_delta": [
+        1,
+        128,
+        127,
+        1
+      ],
+      "epoch_invalid_flag_no_mutation": true,
+      "paired_call_rejected_before_outputs_in_ordinary_epoch": true,
+      "performance_qualified_pending_independent_audit": false,
+      "prefill_excluded": true,
+      "paired_state_verifier_used_for_decode": false,
+      "scope": "NativeordinaryEngine.forward inexplicitresetexclusiveepoch, originalmambain/outbothrows, noSpecScope/snapshot/replay. SameModelweights/precision/topology; CPUfullvocabfinite/argmaxandcontrolbarriersincluded. FullfrozenIDs neededforbaselinequalification; mismatchkeptdiagnosticandrootcollectioncontinues. NoHTTP/productionclaim."
+    },
+    {
+      "label": "ordinary-after",
+      "batch": 1,
+      "input_tokens": 512,
+      "max_output_tokens": 128,
+      "useful_decode_tokens": 127,
+      "decode_seconds": 23.76608108682558,
+      "per_request_decode_tok_s": [
+        5.343750176397438
+      ],
+      "mean_TPOT_seconds": 0.1871344967466581,
+      "nonzero_intercommit_gap_P95_seconds": 0.19044211460277438,
+      "max_intercommit_gap_seconds": 0.1961859348230064,
+      "complete_frozen_IDs_exact": true,
+      "ordinary_epoch_actual_delta": [
+        1,
+        128,
+        127,
+        1
+      ],
+      "epoch_invalid_flag_no_mutation": true,
+      "paired_call_rejected_before_outputs_in_ordinary_epoch": true,
+      "performance_qualified_pending_independent_audit": false,
+      "prefill_excluded": true,
+      "paired_state_verifier_used_for_decode": false,
+      "scope": "NativeordinaryEngine.forward inexplicitresetexclusiveepoch, originalmambain/outbothrows, noSpecScope/snapshot/replay. SameModelweights/precision/topology; CPUfullvocabfinite/argmaxandcontrolbarriersincluded. FullfrozenIDs neededforbaselinequalification; mismatchkeptdiagnosticandrootcollectioncontinues. NoHTTP/productionclaim."
+    }
+  ],
+  "ordinary_producer": [
+    "910376.328",
+    "kimi-root-r4436",
+    "COMPLETED",
+    "0:0"
+  ],
+  "ordinary_scope": "32cards TP8PP4,512input/max128output,127 useful decode tokens. Ordinary Engine.forward, full frozen IDs,QA16,nativeIBext,normal32/Slurm0. Latest5.30406/5.34375 are round observations; previous5.43–5.47 preserved, no causal code speedup claim.",
+  "trained_online_speculative_speedup_qualified": false,
+  "root_negative": {
+    "all_W8_root_continuations_exact": false,
+    "first_token_difference_index": 33,
+    "teacher_W8_W9_W16_correct": false,
+    "scope": "4435 sharedMLP/routedUpM1 +H3584nativeBF16chunk8 still fails. Serial full128 exact, block repeat-stable but wrong; ngram/teacher timing excluded from speed claims."
+  },
+  "component_cause": {
+    "scope": "All93 generic boundaries captured on actualTP0/6; layers0–2 exact at recorded boundaries, first remaining layer3 mla_q_a has3BF16 diffs on8rows. Other6rank observations are hardware component copies, not actual target capture. No claim of all-state parity from generic traces."
+  },
+  "dense_component_audit": {
+    "completed": true,
+    "library_sha256": "d46cfbf71b31a51283047f247e46365f4d311038cc124214fb8220080de19da4",
+    "datasets": {
+      "4452": {
+        "producer": [
+          "910384.299",
+          "kimi-batched-m1-r4452",
+          "COMPLETED",
+          "0:0"
+        ],
+        "normal_Runtime_owners": 8,
+        "CPU_raw_files": 1920,
+        "cases": 240,
+        "summary": [
+          {
+            "projection": "routed_up",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.10263326112180948,
+              0.1030854182317853,
+              0.08901290129870176,
+              0.08641276508569717,
+              0.08566747419536114,
+              0.08561508730053902,
+              0.08578028064221144,
+              0.08565036114305258
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              72,
+              0,
+              0,
+              72,
+              0
+            ],
+            "host_ms_median": [
+              0.16639323439449072,
+              0.1043055672198534,
+              0.14786329120397568,
+              0.12392818462103605,
+              0.08609041105955839,
+              0.1454231096431613,
+              0.12319767847657204,
+              0.08563045412302017
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              136,
+              0,
+              0,
+              136,
+              0
+            ],
+            "host_ms_median": [
+              0.2947163302451372,
+              0.12358557432889938,
+              0.29023364186286926,
+              0.2203785115852952,
+              0.10250834748148918,
+              0.28726854361593723,
+              0.219420762732625,
+              0.09925791528075933
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              192,
+              0,
+              272,
+              192,
+              0,
+              272,
+              192
+            ],
+            "host_ms_median": [
+              0.5720056360587478,
+              0.10526587720960379,
+              0.5328746046870947,
+              0.3330266335979104,
+              0.07813761476427317,
+              0.5300927441567183,
+              0.3317140508443117,
+              0.07426273077726364
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              512,
+              0,
+              544,
+              512,
+              0,
+              544,
+              512
+            ],
+            "host_ms_median": [
+              1.0762596502900124,
+              0.11012074537575245,
+              1.014207024127245,
+              0.6163505604490638,
+              0.08674559649080038,
+              1.0113621829077601,
+              0.6128749810159206,
+              0.08026801515370607
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.062312581576406956,
+              0.0635350588709116,
+              0.04915508907288313,
+              0.04723016172647476,
+              0.04711747169494629,
+              0.046970206312835217,
+              0.04706543404608965,
+              0.046950182877480984
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              45,
+              0,
+              0,
+              45,
+              0
+            ],
+            "host_ms_median": [
+              0.10151590686291456,
+              0.060512800700962543,
+              0.07059040945023298,
+              0.05807506386190653,
+              0.042872270569205284,
+              0.06826233584433794,
+              0.05692034028470516,
+              0.04197005182504654
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              86,
+              0,
+              0,
+              86,
+              0
+            ],
+            "host_ms_median": [
+              0.16231078188866377,
+              0.06191781722009182,
+              0.11450296733528376,
+              0.08667027577757835,
+              0.04468264523893595,
+              0.11277513112872839,
+              0.08469028398394585,
+              0.0423104502260685
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              134,
+              0,
+              172,
+              134,
+              0,
+              172,
+              134
+            ],
+            "host_ms_median": [
+              0.2816813066601753,
+              0.0644854735583067,
+              0.1995735801756382,
+              0.11257047299295664,
+              0.0458800932392478,
+              0.1968286233022809,
+              0.11098524555563927,
+              0.04268297925591469
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              268,
+              0,
+              344,
+              268,
+              0,
+              344,
+              268
+            ],
+            "host_ms_median": [
+              0.5192776443436742,
+              0.06805243901908398,
+              0.3940716851502657,
+              0.19480346236377954,
+              0.04791503306478262,
+              0.3877695417031646,
+              0.19198341760784388,
+              0.04222523421049118
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.05462265107780695,
+              0.05694048013538122,
+              0.04161498509347439,
+              0.039002858102321625,
+              0.038683065213263035,
+              0.03867491614073515,
+              0.0386479077860713,
+              0.03860052675008774
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              15,
+              0,
+              0,
+              15,
+              0
+            ],
+            "host_ms_median": [
+              0.09181257337331772,
+              0.05875283386558294,
+              0.0637308694422245,
+              0.0830481294542551,
+              0.039527774788439274,
+              0.059548066928982735,
+              0.08115766104310751,
+              0.03915303386747837
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              30,
+              0,
+              36,
+              30,
+              0,
+              36,
+              30
+            ],
+            "host_ms_median": [
+              0.14931324403733015,
+              0.06105750799179077,
+              0.10592304170131683,
+              0.12636021710932255,
+              0.04482525400817394,
+              0.10081019718199968,
+              0.12447324115782976,
+              0.04049751441925764
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              60,
+              0,
+              102,
+              60,
+              0,
+              102,
+              60
+            ],
+            "host_ms_median": [
+              0.2682360354810953,
+              0.06501749157905579,
+              0.18826290033757687,
+              0.19746064208447933,
+              0.04580023232847452,
+              0.1837131567299366,
+              0.21147832740098238,
+              0.04092557355761528
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              120,
+              0,
+              204,
+              120,
+              0,
+              204,
+              120
+            ],
+            "host_ms_median": [
+              0.4980501253157854,
+              0.06579270120710135,
+              0.3744639689102769,
+              0.39551418740302324,
+              0.04855531733483076,
+              0.3700269153341651,
+              0.3915139241144061,
+              0.04362792242318392
+            ]
+          }
+        ],
+        "modes_exact_to_NativeM1_all_cases": [
+          0,
+          2,
+          5
+        ],
+        "mode_labels": [
+          "NativeM1loop",
+          "Nativepacked",
+          "rawM1default",
+          "rawstrideddefault",
+          "rawpackeddefault",
+          "rawM1tensor",
+          "rawstridedtensor",
+          "rawpackedtensor"
+        ]
+      },
+      "4458": {
+        "producer": [
+          "910384.300",
+          "kimi-grouped-m-r4458",
+          "COMPLETED",
+          "0:0"
+        ],
+        "normal_Runtime_owners": 8,
+        "CPU_raw_files": 1440,
+        "cases": 240,
+        "summary": [
+          {
+            "projection": "routed_up",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.10283582378178835,
+              0.1256732502952218,
+              0.12062524911016226,
+              0.10619789827615023,
+              0.10934809688478708,
+              0.1024625962600112
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.16628322191536427,
+              0.12512551620602608,
+              0.11980789713561535,
+              0.10585819836705923,
+              0.10736286640167236,
+              0.10255281813442707
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.2929834881797433,
+              0.24637847673147917,
+              0.13285293243825436,
+              0.20588573534041643,
+              0.1199779799208045,
+              0.11592090595513582
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              192
+            ],
+            "host_ms_median": [
+              0.569517957046628,
+              0.4883499350398779,
+              0.2658433513715863,
+              0.4067471018061042,
+              0.231683487072587,
+              0.09030255023390055
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              512
+            ],
+            "host_ms_median": [
+              1.0785823687911034,
+              0.9725545533001423,
+              0.5327847320586443,
+              0.8010840974748135,
+              0.4559643566608429,
+              0.1000880729407072
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.06351759657263756,
+              0.08593511302024126,
+              0.08103996515274048,
+              0.0679579097777605,
+              0.06953300908207893,
+              0.0639776699244976
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.09991263505071402,
+              0.08186337072402239,
+              0.07523037493228912,
+              0.06174796726554632,
+              0.06371759809553623,
+              0.05805294495075941
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.1611832994967699,
+              0.15843589790165424,
+              0.07577566429972649,
+              0.11710321996361017,
+              0.06311759352684021,
+              0.05830021109431982
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              134
+            ],
+            "host_ms_median": [
+              0.2876315265893936,
+              0.315716490149498,
+              0.15099532902240753,
+              0.23101584520190954,
+              0.1193854259327054,
+              0.06229046266525984
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              268
+            ],
+            "host_ms_median": [
+              0.5304650403559208,
+              0.6108355009928346,
+              0.2993919188156724,
+              0.448269653134048,
+              0.23121607955545187,
+              0.06182503420859575
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.05523033905774355,
+              0.07528287824243307,
+              0.0716429203748703,
+              0.058865174651145935,
+              0.06081757601350546,
+              0.05631777457892895
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.09189744014292955,
+              0.07678288966417313,
+              0.07145758718252182,
+              0.058872741647064686,
+              0.060565187595784664,
+              0.0565976370126009
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              30,
+              0,
+              30,
+              30
+            ],
+            "host_ms_median": [
+              0.14957564417272806,
+              0.1506303669884801,
+              0.07290311623364687,
+              0.11375267058610916,
+              0.06188289262354374,
+              0.05812512245029211
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              60,
+              0,
+              60,
+              60
+            ],
+            "host_ms_median": [
+              0.26635604444891214,
+              0.2938387915492058,
+              0.14582066796720028,
+              0.21967338398098946,
+              0.11712289415299892,
+              0.0586450332775712
+            ]
+          },
+          {
+            "projection": "shared_gate_up",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              120,
+              0,
+              120,
+              120
+            ],
+            "host_ms_median": [
+              0.4968650173395872,
+              0.5760198691859841,
+              0.28973876032978296,
+              0.4362295148894191,
+              0.22800592705607414,
+              0.05952059291303158
+            ]
+          }
+        ],
+        "modes_exact_to_NativeM1_all_cases": [
+          0,
+          1,
+          3
+        ],
+        "mode_labels": [
+          "NativeM1",
+          "Nativegroup2",
+          "Nativegroup4",
+          "rawgroup2",
+          "rawgroup4",
+          "Nativepacked"
+        ]
+      },
+      "4459": {
+        "producer": [
+          "910384.301",
+          "kimi-grouped-m-r4459",
+          "COMPLETED",
+          "0:0"
+        ],
+        "normal_Runtime_owners": 8,
+        "CPU_raw_files": 1440,
+        "cases": 240,
+        "summary": [
+          {
+            "projection": "MLA3_q_a",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.05547527689486742,
+              0.07515493780374527,
+              0.0717726070433855,
+              0.05988543853163719,
+              0.06183073855936527,
+              0.056440127082169056
+            ]
+          },
+          {
+            "projection": "MLA3_q_a",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.09094795677810907,
+              0.07713004015386105,
+              0.0718127703294158,
+              0.05881558172404766,
+              0.060398015193641186,
+              0.056167482398450375
+            ]
+          },
+          {
+            "projection": "MLA3_q_a",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              24,
+              0,
+              24,
+              24
+            ],
+            "host_ms_median": [
+              0.14960800763219595,
+              0.14910323079675436,
+              0.07323524914681911,
+              0.11368806008249521,
+              0.062122708186507225,
+              0.05783012602478266
+            ]
+          },
+          {
+            "projection": "MLA3_q_a",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              48,
+              0,
+              48,
+              48
+            ],
+            "host_ms_median": [
+              0.26539620012044907,
+              0.29476871713995934,
+              0.1459409249946475,
+              0.22218853700906038,
+              0.11715025175362825,
+              0.05854526534676552
+            ]
+          },
+          {
+            "projection": "MLA3_q_a",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              96,
+              0,
+              96,
+              96
+            ],
+            "host_ms_median": [
+              0.49658946227282286,
+              0.5790925351902843,
+              0.29111909680068493,
+              0.4342268221080303,
+              0.22780592553317547,
+              0.05978753324598074
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.10428519453853369,
+              0.12556021101772785,
+              0.12217066250741482,
+              0.1072203740477562,
+              0.10983273386955261,
+              0.10526285041123629
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.1665106974542141,
+              0.12589048128575087,
+              0.1204551663249731,
+              0.10602024849504232,
+              0.10799791198223829,
+              0.1032107975333929
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.2934538060799241,
+              0.24823355488479137,
+              0.1337076537311077,
+              0.20727852825075388,
+              0.12024329043924809,
+              0.11640554293990135
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              192
+            ],
+            "host_ms_median": [
+              0.5683299386873841,
+              0.4869570257142186,
+              0.26528886519372463,
+              0.40316430386155844,
+              0.23302342742681503,
+              0.09096041321754456
+            ]
+          },
+          {
+            "projection": "routed_up",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              512
+            ],
+            "host_ms_median": [
+              1.0748669737949967,
+              0.9655337780714035,
+              0.531347468495369,
+              0.8000660454854369,
+              0.4550446756184101,
+              0.09763985872268677
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 1,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.06298755761235952,
+              0.08469773456454277,
+              0.08042494300752878,
+              0.06769830361008644,
+              0.07051508873701096,
+              0.06447301711887121
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 2,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.09935512207448483,
+              0.08174031972885132,
+              0.07552327588200569,
+              0.061080558225512505,
+              0.06320257671177387,
+              0.0571949640288949
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 4,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "host_ms_median": [
+              0.16327528282999992,
+              0.15987048391252756,
+              0.0759434187784791,
+              0.11787842959165573,
+              0.06328499875962734,
+              0.058225239627063274
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 8,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              134
+            ],
+            "host_ms_median": [
+              0.28720672708004713,
+              0.3066863864660263,
+              0.14954351354390383,
+              0.22925855591893196,
+              0.12110034003853798,
+              0.06029987707734108
+            ]
+          },
+          {
+            "projection": "shared_down_local",
+            "tokens": 16,
+            "cases": 16,
+            "different_elements_sum": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              268
+            ],
+            "host_ms_median": [
+              0.5239122547209263,
+              0.599574763327837,
+              0.29669865034520626,
+              0.4477667389437556,
+              0.2278933534398675,
+              0.06017007399350405
+            ]
+          }
+        ],
+        "modes_exact_to_NativeM1_all_cases": [
+          0,
+          1,
+          3
+        ],
+        "mode_labels": [
+          "NativeM1",
+          "Nativegroup2",
+          "Nativegroup4",
+          "rawgroup2",
+          "rawgroup4",
+          "Nativepacked"
+        ]
+      }
+    },
+    "scope": "Component only, actual MoE1 and MLA3qA weights/serial fixtures; T16 duplicates8 rows and reversed layouts. Full raw SHA/finite/diff/timing recomputed, producer Slurm0, normal24 owners, actual mapped SDK/Runtime proof for4458/59. Float equality is component diagnostic, full target token/EOS/QA remains adoption gate. Raw paths preallocate output; grouped calls include per-group Python/CAPI synchronization, not pure kernel or model speedup. No TP comm, no GPU F64. Prior4457 SSH observer timeout preserved, no4457 Slurm producer was present at inspection; audit reuses immutable completed4452 outputs only."
+  },
+  "host_build_cache": {
+    "completed": true,
+    "translation_units": 25,
+    "elapsed_seconds": 45.71152074635029,
+    "linked_library_exact_parent_bytes": true,
+    "scope": "CPU build overhead reduction only, no model speedup."
+  },
+  "next_candidate": {
+    "default_OFF": true,
+    "scope": "MLAinput policy1 all4 input projections nativeM1; policy2 q_a group2 andother3 M1, onlyspecmode11/W<=16. Fresh isolated cached build; same-resident policies/12dispatch counters/fullIDs/QA/normal32/nativeIB independent audit pending. No fullmodel adoption."
+  },
+  "drafts": [
+    {
+      "source": "https://huggingface.co/modal-labs/Kimi-K3-DFlash",
+      "revision": "c192d15a43407bf758b5ae0880d5c72052fef1de",
+      "primary": true,
+      "native_block": 16,
+      "proposals_excluding_anchor": 15,
+      "author_effective_outputs_per_round_B1": {
+        "GSM8K": 7.984,
+        "HumanEval": 8.358,
+        "MTBench": 4.921,
+        "LongBenchV2": 3.688
+      },
+      "scope": "Author8B300/SGLang/greedy figures, not BW1000. Locally fullSHA checked; remote transfer/full GPU execution/online acceptance not yet qualified."
+    },
+    {
+      "source": "https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark",
+      "revision": "38a88101e0d46bb22134b9da340f381b954d40d4",
+      "proposals": 8,
+      "author_accept_length": {
+        "math_reasoning": 6.42,
+        "HumanEval": 4.96,
+        "qa": 3.28
+      },
+      "scope": "Different author sampling/hardware config; not matched comparison. Long16 not trained evidence. Transfer ongoing, no current online qualification."
+    }
+  ],
+  "cycle_budget_example": {
+    "effective_tokens": 8,
+    "max_cycle_ms_for_15_user_tok_s": 533.3333333333334,
+    "max_cycle_ms_for_5x_at_5_3_AR": 301.8867924528302,
+    "max_cycle_ms_for_10x_at_5_3_AR": 150.9433962264151,
+    "scope": "Cost arithmetic, not measured speed or promise. Long blocks help only if accepted useful tokens grow faster than full-cycle time."
+  },
+  "full_objective_status": "active; no hardware maximum or best topology conclusion"
+}

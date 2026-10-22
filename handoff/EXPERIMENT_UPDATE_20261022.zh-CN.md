@@ -8,6 +8,24 @@
 
 B1 优先，其次 B2/4/8/16；记录逐请求 TPOT 和非零块提交间隔，避免块内同 timestamp 形成虚假的零延迟。性能分母应为普通 `Engine.forward` AR；使用成对状态快照的诊断验证器不能作为普通 AR 速度基线。
 
+## 用户 decode 指标与长草稿验证更新
+
+投机实验以**每位用户实际得到的 decode tok/s**为准，计入真实草稿、目标验证、提交／回滚和重放，排除 prefill 与 anchor。先 B1，再逐请求检查 B2/4/8/16，并报告非零块提交间隔 P95。浮点值无需逐位一致；组件原始值只用于定位，最终以完整 token、EOS、QA 和重复验证判定可用。
+
+最新普通 AR 完整验收为 **5.30406 / 5.34375 tok/s/用户**，平均 TPOT **188.53 / 187.13 ms**；32 卡 TP8/PP4、512 输入、最多128输出，计127个有效decode token。完整冻结ID、QA16、32 owner正常结束、Slurm0及IBext通过。此前5.43–5.47是另一轮有效观察，两轮差值不能归因为代码收益。
+
+当前**尚无合格在线投机加速**。MoE控制及原生BF16分块归约后的 W8 仍在输出索引33分歧，W8/W9/W16 teacher检查也未通过。新的通用边界追踪在实际TP0/6上显示：已记录的前3层边界相同，首个剩余差异位于第3层 MLA q_a 投影；8行中有3个BF16元素不同。
+
+三个八卡组件实验已由CPU独立审核：24个正常Runtime、4,800份raw。q_a 按2 token分组在已测几何和正反布局上保留逐token参考；4 token或整块不保留。MoE的routed-up可尝试4 token组，共享gate/up可尝试2 token组；这些只是有限fixture上的算子候选，不是整模型收益。原生strided-batched M1同样未普遍保留参考，不能直接替换。
+
+已准备默认关闭的 MLA 修复候选：比较全部4个输入投影按M1执行，与q_a按2 token、其余3个按M1执行；复用一次整模型加载，检查实际12项dispatch计数、完整生成、W8/W9/W16、QA和正常退出。构建与整模型验证以实际Slurm句柄为准，尚未升级为可用版本。另已建立25个C++源文件的编译缓存，约45.7秒生成与原库SHA完全相同的库；这是缩短开发等待，并非模型加速。
+
+优先 [Modal Kimi-K3 DFlash](https://huggingface.co/modal-labs/Kimi-K3-DFlash) 原生W16/K15，并比较W8；作者B1平均每轮有效输出在GSM8K为7.984、HumanEval为8.358、MT-Bench为4.921、LongBench-v2为3.688，来自8×B300/SGLang。备选 [RedHat DSpark](https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark) 原生8提案。二者本地完整SHA已验证，远端传输仍在推进，尚无当前目标的在线接受率。不能把16候选等同于16接受或16倍加速。
+
+以当前约5.3 tok/s普通AR为例，平均每轮真正提交8个有效token时，要达到15 tok/s，整轮需≤533ms；5倍需≤302ms，10倍需≤151ms。它是判断方案是否值得推进的成本预算，不是BW1000实测。下一步优先降低块验证的投影／通信成本和部分接受后的状态重放成本，再比较真实长草稿。详见[本轮精简证据](evidence/speculative-user-decode-frontier-r4474.json)。
+
+下列为之前轮次，以上节为最新结论。
+
 ## 最新结果与投机修复（北京时间 10月22日 10:04）
 
 Kimi B1 普通 `Engine.forward` 的最新完整验收为 **5.46865 / 5.43267 tok/s/用户**，前/后测 TPOT **182.86 / 184.07 ms**；32卡 TP8/PP4、512输入/最多128输出，排除 prefill 首个 anchor，计127个有效decode token。完整冻结ID、QA16、32 owner正常关闭、Slurm0和IBext通过。这是普通AR harness基线；与上轮5.25的差值不能归为代码因果收益。当前仍**没有合格的在线投机加速**。
