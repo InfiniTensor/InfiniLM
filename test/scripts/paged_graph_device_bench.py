@@ -7,8 +7,11 @@ p = argparse.ArgumentParser()
 p.add_argument("--mode", required=True)
 p.add_argument("--scenario", default="perf")
 p.add_argument("--out", required=True)
+p.add_argument("--validation-root", default=os.environ.get("INFINILM_VALIDATION_ROOT"))
 a = p.parse_args()
-R = Path("/home/whj/infinilm-validation-next108-20261015-r1")
+if not a.validation_root:
+    p.error("provide --validation-root or INFINILM_VALIDATION_ROOT")
+R = Path(a.validation_root)
 result = dict(mode=a.mode, scenario=a.scenario, status="RUNNING", runs=[])
 
 

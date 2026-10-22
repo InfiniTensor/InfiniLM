@@ -89,7 +89,9 @@ lease on two visible devices by default (or one with argument `1`). Run it only
 under the shared validation lock after verifying all devices it will use idle.
 
 `test/scripts/paged_graph_device_bench.py` is the task's Qwen3-14B TP2 device
-protocol. It requires the pre-existing validation model root, the intended
+protocol. Pass the existing validation root with `--validation-root` or
+`INFINILM_VALIDATION_ROOT`; the checkpoint is read from
+`models/Qwen__Qwen3-14B` below that directory. It also requires the intended
 isolated site on PYTHONPATH, INFINILM_VALIDATION_SITE, and the two approved UUIDs
 in CUDA_VISIBLE_DEVICES. Modes are reference, baseline (candidate with legacy
 policy), profiles, upload, combined. Scenario `perf` uses B8 at a total KV length
