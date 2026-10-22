@@ -73,6 +73,10 @@ try:
         if a.mode in ["reference", "baseline", "upload"]
         else [(b, k) for b in [1, 8, 16] for k in [2048, 4096, 0]]
     )
+    if a.mode == "limited":
+        profiles = [(b, 2048) for b in [1, 8, 16]]
+    if a.mode == "bounded":
+        profiles = [(b, k) for b in [1, 8, 16] for k in [2048, 4096, 8192]]
     kwargs = dict(
         model_path=str(R / "models/Qwen__Qwen3-14B"),
         device="cuda",
@@ -155,16 +159,41 @@ try:
         if a.scenario == "perf"
         else [(b, l) for b in [1, 8, 16] for l in [2047, 4095, 8191]]
     )
+    if a.scenario == "boundaries":
+        cases = [(b, length) for b in [1, 8, 16] for length in [2047, 4095, 8191]]
     for batch, length in cases:
         prefill(batch, length)
         for step in range(7 if a.scenario == "perf" else 2):
             row = decode(batch, length)
             row.update(batch=batch, length=length, index=step, warmup=step < 2)
             result["runs"].append(row)
+            expected = (
+                "eager"
+                if (
+                    (a.mode == "limited" and length + 1 > 2048)
+                    or (a.mode == "bounded" and length + 1 > 8192)
+                )
+                else "device_graph"
+            )
             assert (
-                row["execution"]["mode"] == "device_graph"
+                row["execution"]["mode"] == expected
                 and row["execution"]["host_segments"] == 0
             ), row
+            if expected == "eager":
+                assert (
+                    row["execution"]["fallback_reason"] == "graph_profile_kv_bound_miss"
+                ), row
+        if a.scenario == "boundaries":
+            # Previous decode wrote the next prefix token; cross into the next page/bound.
+            transition = decode(batch, length + 1)
+            transition.update(batch=batch, length=length + 1, boundary_transition=True)
+            result.setdefault("boundary_transitions", []).append(transition)
+            expected = (
+                "eager"
+                if (a.mode == "limited" or (a.mode == "bounded" and length + 2 > 8192))
+                else "device_graph"
+            )
+            assert transition["execution"]["mode"] == expected, transition
         Path(a.out).with_suffix(".progress.json").write_text(json.dumps(result))
     if a.scenario != "perf":
         # Different batch and KV coverage misses must remain eager with explicit reasons.
@@ -179,19 +208,20 @@ try:
         engine.reset_cache(PagedKVCacheConfig(544, 256, 16))
         prefill(1, 16)
         result["after_reset"] = decode(1, 16)
+        assert result["after_reset"]["execution"]["mode"] == "device_graph"
         if a.mode != "reference":
-            invalid_table = table(0).reshape(1, -1)
+            invalid_table = np.stack([table(0), table(1)])
             invalid_table[0, 0] = -1
             try:
                 engine.forward_raw(
-                    tensor([[42]], np.int64),
-                    position_ids=tensor([16], np.int64),
-                    past_kv_lengths=tensor([16], np.int32),
-                    total_kv_lengths=tensor([17], np.int32),
-                    input_offsets=tensor([0, 1], np.int32),
-                    cu_seqlens=tensor([0, 1], np.int32),
+                    tensor([[42, 42]], np.int64),
+                    position_ids=tensor([16, 16], np.int64),
+                    past_kv_lengths=tensor([16, 16], np.int32),
+                    total_kv_lengths=tensor([17, 17], np.int32),
+                    input_offsets=tensor([0, 1, 2], np.int32),
+                    cu_seqlens=tensor([0, 1, 2], np.int32),
                     block_tables=tensor(invalid_table, np.int32),
-                    slot_mapping=tensor([16], np.int64),
+                    slot_mapping=tensor([16, 33 * 256 + 16], np.int64),
                     sample_all_positions=False,
                 )
                 raise AssertionError("invalid table was not rejected")

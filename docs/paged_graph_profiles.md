@@ -29,7 +29,7 @@ required entries throw before graph storage is mutated. Reset destroys the
 compiler and its plans; subsequent compile validates profiles against the new
 cache geometry. Profiles themselves remain fixed for the engine lifetime.
 
-The upload option is opt-in pending device validation. Each compiler owns one
+The upload option remains opt-in. Each compiler owns one
 pinned host slab and one device slab. A replay copies CPU metadata into the slab,
 enqueues one H2D and ordered D2D copies to graph inputs, then replays on the same
 runtime stream. Original temporary CPU tensors may expire once their bytes are
@@ -67,7 +67,7 @@ normal destruction and exceptions after submission. Policy tests cover B1/B8/B16
 2K/4K/long lengths, boundary and batch changes, empty lists and invalid page IDs.
 These checks do not establish CUDA correctness or speed.
 
-## Device acceptance still required
+## Device validation protocol
 
 Use the existing shared build lock and isolated build/site directories. Compare
 legacy policy/upload off, explicit profiles/upload off, legacy policy/upload on,
@@ -99,3 +99,27 @@ invalid-page rejection. It records CPU argument preparation and synchronous
 native decode including sampling/readback; these timings do not separately
 attribute GPU compute, sampling, or output readback. That finer attribution
 requires a device profiler and must not be inferred from host wall time.
+
+
+Modes `limited` and `bounded` exercise lists without a full-pool fallback.
+Scenario `boundaries` follows each 2K/4K/8K case with the next sequence length,
+checking graph selection or the expected KV-bound miss. The negative test uses
+an invalid B2 host page table, including the explicit batch-miss path.
+
+`paged_graph_profile_wrapper.py` brackets the third decode with the CUDA
+Profiler API. Use Nsight Systems with `--cuda-graph-trace=node` to distinguish
+captured model kernels from sampling and readback. A single trace establishes
+transfer counts and execution structure, not a latency distribution.
+`paged_graph_mixed_wrapper.py` varies tokens and lengths by physical request
+row, preserves separate KV pages, and saves the first B16 full logits after an
+explicit CUDA fence. Compare all rows and tokens with a separately loaded
+reference. Bounded graph widths can change BF16 reduction rounding; report
+full-logit errors and argmax equality separately instead of claiming bitwise
+identity from equal generated tokens.
+
+Dual A100 validation of Qwen3-14B, TP2, BF16 KV, page size 256 and 544 pages has
+completed for the four ablations, boundary/miss cases, reset and invalid page
+rejection. Both ranks execute device graphs with zero host segments. The
+five-pair performance evidence and actual native hashes are retained in the
+task delivery artifacts; this is evidence for that tested configuration only.
+Default `None` with upload disabled retains the reference transfer layout.
