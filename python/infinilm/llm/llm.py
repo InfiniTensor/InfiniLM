@@ -367,20 +367,58 @@ class LLMEngine:
                 req.mark_canceled()
             return pending
 
+        # Flatten accidental nested sample layouts (e.g. (B,1,1) → [[id]]).
+        while isinstance(token_ids, list) and len(token_ids) == 1 and isinstance(
+            token_ids[0], list
+        ):
+            token_ids = token_ids[0]
         if isinstance(token_ids, list):
+            flat: list[int] = []
+            for item in token_ids:
+                while isinstance(item, list):
+                    if not item:
+                        break
+                    item = item[0]
+                if isinstance(item, list):
+                    continue
+                flat.append(int(item))
+            token_ids = flat
             num_computed_output_tokens = max(len(token_ids) - 1, 0)
         else:
             num_computed_output_tokens = 0
-            token_ids = [token_ids]
+            token_ids = [int(token_ids)]
+
+        vocab_size = getattr(self.tokenizer, "vocab_size", None)
+        if not isinstance(vocab_size, int) or vocab_size <= 0:
+            vocab_size = len(self.tokenizer)
 
         num_appended_tokens = 0
         for token_id in token_ids:
             if req.is_finished():
                 break
+            if token_id < 0 or token_id >= vocab_size:
+                logger.error(
+                    "Out-of-range sampled token_id=%s for request %s (vocab=%s); "
+                    "clamping to 0",
+                    token_id,
+                    req.request_id,
+                    vocab_size,
+                )
+                token_id = 0
             req.append_generated_token_id(token_id)
             num_appended_tokens += 1
             pending_tokens = req.generated_token_ids[req._token_decode_offset :]
-            delta = self.tokenizer.decode(pending_tokens)
+            try:
+                delta = self.tokenizer.decode(pending_tokens)
+            except OverflowError:
+                logger.error(
+                    "tokenizer.decode OverflowError for request %s tokens=%s; "
+                    "dropping delta",
+                    req.request_id,
+                    pending_tokens[-8:],
+                )
+                delta = ""
+                req._token_decode_offset = len(req.generated_token_ids)
             holds_back = bool(delta) and delta.endswith("\ufffd")
 
             last_committed_text = req.generated_text
@@ -919,6 +957,14 @@ class AsyncLLMEngine:
                     time.sleep(0.003)
                 elif pending:
                     self._loop.call_soon_threadsafe(self._batch_put, pending)
+            except OverflowError as e:
+                # Bad sample ids must not permanently kill the step loop under CB.
+                logger.error(
+                    "Recoverable step-loop OverflowError (continuing): %s",
+                    e,
+                    exc_info=True,
+                )
+                time.sleep(0.01)
             except Exception as e:
                 logger.error(f"Error in step loop: {e}", exc_info=True)
                 self._healthy = False
