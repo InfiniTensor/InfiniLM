@@ -106,7 +106,7 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
                              infinilm::runtime::Runtime &runtime,
                              infinilm::global_state::ForwardContext &forward_context,
                              PagedGraphConfig graph_config)
-    : GraphCompiler(model, barrier, runtime, forward_context), graph_config_(graph_config) {
+    : GraphCompiler(model, barrier, runtime, forward_context), graph_config_(graph_config), metadata_upload_(runtime) {
     graph_config_.validate();
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
@@ -118,6 +118,14 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
     const size_t max_batch_size = std::min(
         paged_config->max_batch_size(), paged_config->num_blocks());
     if (max_batch_size == 0) {
+        return;
+    }
+    if (graph_config_.capture_profiles) {
+        for (auto [batch, bound] : *graph_config_.capture_profiles) {
+            validate_graph_capture_profile(batch, bound, max_batch_size,
+                                           paged_config->block_size(), paged_config->num_blocks());
+            decode_batch_sizes_.push_back(batch);
+        }
         return;
     }
     auto append_batch_size = [&](size_t batch_size) {
@@ -143,7 +151,19 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
     }
 }
 
+PagedCompiler::~PagedCompiler() {
+    try {
+        metadata_upload_.drain();
+    } catch (...) { std::terminate(); }
+    if (std::getenv("INFINILM_PAGED_GRAPH_STATS")) {
+        std::fprintf(stderr, "paged_graph rank=%d plans=%zu upload_h2d=%zu reuse_syncs=%zu\n",
+                     graph_config_.tp_rank, compiled_map_decode_.size() + compiled_short_decode_b1_.has_value(),
+                     metadata_upload_.uploads, metadata_upload_.reuse_syncs);
+    }
+}
+
 void PagedCompiler::compile() {
+    metadata_upload_.drain();
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
     if (paged_config != nullptr) {
@@ -280,42 +300,58 @@ void PagedCompiler::compile() {
             }
         };
 
-        for (size_t b : decode_batch_sizes_) {
-            candidate_decode.emplace(
-                std::make_pair(b, size_t{0}),
-                capture_decode(b, nblocks, candidate_holder, 0));
-        }
-
-        const auto finite_profile = make_finite_paged_decode_profile(
-            *paged_config, model_config.get(), model_->supports_kv_only_prepare(),
-            runtime_.device().type(), graph_config_);
-        if (supports_finite_paged_decode_bucket(finite_profile)) {
-            for (size_t b : {size_t{1}, size_t{2}}) {
-                if (b > max_batch_size) {
-                    continue;
+        if (graph_config_.capture_profiles) {
+            auto capability = make_finite_paged_decode_profile(
+                *paged_config, model_config.get(), model_->supports_kv_only_prepare(),
+                runtime_.device().type(), graph_config_);
+            capability.short_decode_plan = false;
+            for (auto [batch, bound] : *graph_config_.capture_profiles) {
+                if (bound && !supports_finite_paged_decode_bucket(capability)) {
+                    throw std::invalid_argument("bounded graph profile unsupported by model/backend/cache");
                 }
-                for (size_t bound : {size_t{256}, size_t{512}}) {
-                    candidate_decode.emplace(
-                        std::make_pair(b, bound),
-                        capture_decode(b, bound / kBoundedDecodePageSize,
-                                       candidate_holder, bound));
+                candidate_decode.emplace(std::make_pair(batch, bound),
+                                         capture_decode(batch, bound ? 1 + (bound - 1) / paged_config->block_size() : nblocks,
+                                                        candidate_holder, bound));
+            }
+        } else {
+            for (size_t b : decode_batch_sizes_) {
+                candidate_decode.emplace(
+                    std::make_pair(b, size_t{0}),
+                    capture_decode(b, nblocks, candidate_holder, 0));
+            }
+
+            const auto finite_profile = make_finite_paged_decode_profile(
+                *paged_config, model_config.get(), model_->supports_kv_only_prepare(),
+                runtime_.device().type(), graph_config_);
+            if (supports_finite_paged_decode_bucket(finite_profile)) {
+                for (size_t b : {size_t{1}, size_t{2}}) {
+                    if (b > max_batch_size) {
+                        continue;
+                    }
+                    for (size_t bound : {size_t{256}, size_t{512}}) {
+                        candidate_decode.emplace(
+                            std::make_pair(b, bound),
+                            capture_decode(b, bound / kBoundedDecodePageSize,
+                                           candidate_holder, bound));
+                    }
                 }
             }
-        }
 
-        if (uses_short_decode_graph(
-                *paged_config, model_->get_model_config().get(),
-                runtime_.device().type(), graph_config_)) {
-            candidate_short_holder = infinilm::runtime::Tensor::empty(
-                runtime_,
-                {kShortDecodeBlockTableWidth},
-                infinilm::runtime::DataType::kInt32);
-            candidate_short_decode.emplace(capture_decode(
-                1,
-                kShortDecodeBlockTableWidth,
-                candidate_short_holder,
-                0));
-        }
+            if (uses_short_decode_graph(
+                    *paged_config, model_->get_model_config().get(),
+                    runtime_.device().type(), graph_config_)) {
+                candidate_short_holder = infinilm::runtime::Tensor::empty(
+                    runtime_,
+                    {kShortDecodeBlockTableWidth},
+                    infinilm::runtime::DataType::kInt32);
+                candidate_short_decode.emplace(capture_decode(
+                    1,
+                    kShortDecodeBlockTableWidth,
+                    candidate_short_holder,
+                    0));
+            }
+
+        } // legacy capture policy
 
         // No graph becomes available until every touched slot and metadata
         // reference has been restored. Failure destroys candidates, not a
@@ -329,6 +365,7 @@ void PagedCompiler::compile() {
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    fallback_reason_ = "invalid_graph_metadata";
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
     if (paged_config == nullptr
@@ -361,11 +398,32 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             return {nullptr, nullptr};
         }
 
-        const size_t logical_bound = input.logical_kv_upper_bound;
+        size_t logical_bound = input.logical_kv_upper_bound;
+        if (graph_config_.capture_profiles) {
+            if (!is_cpu_contiguous_tensor(input.total_sequence_lengths,
+                                          infinilm::runtime::DataType::kInt32, {batch_size})) {
+                return {nullptr, nullptr};
+            }
+            const auto *lengths = reinterpret_cast<const int32_t *>(input.total_sequence_lengths.value()->data());
+            size_t actual = 0;
+            for (size_t row = 0; row < batch_size; ++row) {
+                if (lengths[row] <= 0) {
+                    return {nullptr, nullptr};
+                }
+                actual = std::max(actual, static_cast<size_t>(lengths[row]));
+            }
+            auto selected = select_graph_capture_profile(*graph_config_.capture_profiles, batch_size, actual,
+                                                         paged_config->block_size() * paged_config->num_blocks());
+            if (!selected) {
+                const bool batch_exists = std::any_of(graph_config_.capture_profiles->begin(),
+                                                      graph_config_.capture_profiles->end(), [batch_size](const auto &p) { return p.first == batch_size; });
+                fallback_reason_ = batch_exists ? "graph_profile_kv_bound_miss" : "graph_profile_batch_miss";
+                return {nullptr, nullptr};
+            }
+            logical_bound = *selected;
+        }
         if (logical_bound != 0) {
-            if (batch_size > 2
-                || (logical_bound != 256 && logical_bound != 512)
-                || block_per_req != logical_bound / kBoundedDecodePageSize
+            if ((!graph_config_.capture_profiles && (batch_size > 2 || (logical_bound != 256 && logical_bound != 512) || block_per_req != logical_bound / kBoundedDecodePageSize))
                 || !input.total_sequence_lengths.has_value()
                 || !input.total_sequence_lengths.value()
                 || input.total_sequence_lengths.value()->device().type()
@@ -389,11 +447,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         auto general_result = compiled_map_decode_.find(
             std::make_pair(batch_size, logical_bound));
         if (general_result == compiled_map_decode_.end()) {
+            fallback_reason_ = "no_matching_plan";
             return {nullptr, nullptr};
         }
         selected_result = &general_result->second;
 
-        if (logical_bound == 0 && batch_size == 1
+        if (!graph_config_.capture_profiles && logical_bound == 0 && batch_size == 1
             && compiled_short_decode_b1_.has_value()) {
             const auto &total_sequence_lengths = input.total_sequence_lengths;
             const bool valid_short_metadata = total_sequence_lengths.has_value()
@@ -430,7 +489,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
     auto &graph_input = selected_result->input;
     const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
-    if ((!use_short_decode_graph && block_per_req > compiled_block_per_req)
+    if ((!graph_config_.capture_profiles && !use_short_decode_graph && block_per_req > compiled_block_per_req)
         || graph_input.block_tables.value()->dtype()
                != runtime_block_tables->dtype()
         || graph_input.block_tables.value()->size(0) != batch_size
@@ -456,31 +515,47 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         return {nullptr, nullptr};
     }
 
-    graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
-    graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
-    graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
-    graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
-    graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
-
-    auto &graph_block_tables = graph_input.block_tables.value();
-    if (use_short_decode_graph) {
-        runtime_.setDeviceMemoryAsync(graph_block_tables->data(), 0xFF,
-                                      graph_block_tables->nbytes(), runtime_.stream());
-        runtime_.memcpyH2D(
-            graph_block_tables->data(),
-            runtime_block_tables->data(),
-            required_pages * sizeof(int32_t),
-            false);
-    } else {
-        // Initialize only the active graph rows to -1, then overwrite the
-        // runtime logical region. Avoid clearing the full preallocated holder
-        // on every decode token.
-        runtime_.setDeviceMemoryAsync(graph_block_tables->data(), 0xFF,
-                                      graph_block_tables->nbytes(), runtime_.stream());
-        graph_block_tables->narrow({{1, 0, block_per_req}})
-            ->copy_from(runtime_, runtime_block_tables);
+    if (!is_cpu_contiguous_tensor(input.total_sequence_lengths, infinilm::runtime::DataType::kInt32, {batch_size})
+        || !is_cpu_contiguous_tensor(input.block_tables, infinilm::runtime::DataType::kInt32, {batch_size, block_per_req})) {
+        return {nullptr, nullptr};
     }
-    graph_input.slot_mapping.value()->copy_from(runtime_, input.slot_mapping.value());
+    const auto *lengths = reinterpret_cast<const int32_t *>(input.total_sequence_lengths.value()->data());
+    const auto *table = reinterpret_cast<const int32_t *>(runtime_block_tables->data());
+    auto packed_table = normalize_graph_page_table(lengths, batch_size, table, block_per_req,
+                                                   compiled_block_per_req, paged_config->block_size(), paged_config->num_blocks());
+    if (!packed_table) {
+        throw std::invalid_argument("invalid paged graph page table");
+    }
+    if (graph_config_.metadata_upload) {
+        std::vector<infinilm::runtime::GraphMetadataUpload::Copy> copies;
+        auto append = [&](const auto &dst, const auto &src) {
+            if (src->device().type() != infinilm::runtime::Device::Type::kCpu || !src->is_contiguous()) {
+                return false;
+            }
+            copies.push_back({dst->data(), src->data(), src->nbytes()});
+            return true;
+        };
+        if (!append(*graph_input.input_ids, *input.input_ids)
+            || !append(*graph_input.position_ids, *input.position_ids)
+            || !append(*graph_input.total_sequence_lengths, *input.total_sequence_lengths)
+            || !append(*graph_input.input_offsets, *input.input_offsets)
+            || !append(*graph_input.cu_seqlens, *input.cu_seqlens)
+            || !append(*graph_input.slot_mapping, *input.slot_mapping)) {
+            return {nullptr, nullptr};
+        }
+        copies.push_back({graph_input.block_tables.value()->data(), packed_table->data(), packed_table->size() * sizeof(int32_t)});
+        metadata_upload_.upload(copies);
+    } else {
+        graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
+        graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
+        graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
+        graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
+        graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
+        runtime_.memcpyH2D(graph_input.block_tables.value()->data(), packed_table->data(),
+                           packed_table->size() * sizeof(int32_t), false);
+        graph_input.slot_mapping.value()->copy_from(runtime_, input.slot_mapping.value());
+    }
+    fallback_reason_ = "graph_plan_selected";
 
     auto graph = std::get<0>(selected_result->compiled);
     const auto &compiled_output = std::get<1>(selected_result->compiled);

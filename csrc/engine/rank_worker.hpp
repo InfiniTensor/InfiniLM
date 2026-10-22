@@ -124,7 +124,9 @@ public:
                RankBarrier *barrier,
                bool enable_graph_compiling,
                backends::AttentionBackend attention_backend,
-               std::uint64_t nsa_pool_epoch = 0);
+               std::uint64_t nsa_pool_epoch = 0,
+               std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles = std::nullopt,
+               bool graph_metadata_upload = false);
 
     void wait_for_init();
 
@@ -202,6 +204,8 @@ private:
 
     // Graph Compiling
     bool enable_graph_compiling_;
+    const std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles_;
+    const bool graph_metadata_upload_;
     std::unique_ptr<GraphCompiler> compiler_;
     StaticDecodeMetadata static_decode_metadata_;
     // Worker-owned cache configuration; refreshed only after model/cache creation.

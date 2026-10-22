@@ -64,12 +64,16 @@ RankWorker::RankWorker(
     RankBarrier *barrier,
     bool enable_graph_compiling,
     backends::AttentionBackend attention_backend,
-    std::uint64_t nsa_pool_epoch)
+    std::uint64_t nsa_pool_epoch,
+    std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles,
+    bool graph_metadata_upload)
     : infinilm_config_(infinilm_config),
       model_config_(infinilm_config->model_config),
       rank_info_(rank_info),
       attention_backend_(attention_backend),
       enable_graph_compiling_(enable_graph_compiling),
+      graph_capture_profiles_(std::move(graph_capture_profiles)),
+      graph_metadata_upload_(graph_metadata_upload),
       job_cmd_(Command::INIT),
       has_job_(false),
       job_done_(false),
@@ -92,6 +96,9 @@ RankWorker::RankWorker(
 
 void RankWorker::refresh_finite_paged_decode_profile() {
     finite_paged_decode_profile_.reset();
+    if (graph_capture_profiles_.has_value()) {
+        return;
+    }
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
     if (paged_config == nullptr) {
@@ -100,7 +107,7 @@ void RankWorker::refresh_finite_paged_decode_profile() {
     const auto profile = make_finite_paged_decode_profile(
         *paged_config, model_config_.get(), model_->supports_kv_only_prepare(),
         rank_info_.device.type(),
-        PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+        PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size, graph_capture_profiles_, graph_metadata_upload_});
     if (supports_finite_paged_decode_bucket(profile)) {
         finite_paged_decode_profile_ = profile;
     }
@@ -575,7 +582,7 @@ void RankWorker::thread_loop() {
             }
             refresh_finite_paged_decode_profile();
             if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size}.validate();
+                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size, graph_capture_profiles_, graph_metadata_upload_}.validate();
             }
 
             init_done_ = true;
@@ -873,6 +880,9 @@ void RankWorker::thread_loop() {
                                         logical_kv_upper_bound, nsa_proof);
                                     if (compiler_) {
                                         compiled = compiler_->get_compiled(lookup_input);
+                                        if (auto *paged = dynamic_cast<PagedCompiler *>(compiler_.get())) {
+                                            eager_reason = paged->fallback_reason();
+                                        }
                                     }
                                 }
                                 auto [graph, output] = std::move(compiled);
@@ -1132,7 +1142,7 @@ void RankWorker::thread_loop() {
                                         forward_context_, attention_backend_, rank_info_);
                     refresh_finite_paged_decode_profile();
                     if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                        PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size}.validate();
+                        PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size, graph_capture_profiles_, graph_metadata_upload_}.validate();
                     }
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
@@ -1170,7 +1180,7 @@ void RankWorker::thread_loop() {
                         } else if (dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
                             compiler_ = std::make_unique<PagedCompiler>(
                                 model_, barrier_, *runtime_, forward_context_,
-                                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+                                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size, graph_capture_profiles_, graph_metadata_upload_});
                         }
                         if (compiler_) {
                             compiler_->compile();

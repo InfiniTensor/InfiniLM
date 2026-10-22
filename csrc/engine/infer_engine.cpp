@@ -118,7 +118,9 @@ InferEngine::InferEngine(
     std::optional<infinilm::runtime::DataType> kv_cache_dtype,
     bool use_mla,
     const std::string &weight_load_mode,
-    bool pre_transpose)
+    bool pre_transpose,
+    std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles,
+    bool graph_metadata_upload)
     : communication_group_(distributed_config, device_type),
       attention_backend_(attention_backend),
       weight_load_mode_(weight_load_mode),
@@ -162,6 +164,21 @@ InferEngine::InferEngine(
         && dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get()) != nullptr) {
         nsa_pool_epoch_ = issue_nsa_pool_epoch();
     }
+    // Freeze and canonicalize once before creating workers: all TP ranks capture
+    // the same ordered profiles, including direct native/pybind callers.
+    if (graph_capture_profiles) {
+        const auto *paged = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config_.get());
+        if (!paged) {
+            throw std::invalid_argument("graph_capture_profiles requires paged cache");
+        }
+        for (auto [batch, bound] : *graph_capture_profiles) {
+            validate_graph_capture_profile(batch, bound,
+                                           std::min(paged->max_batch_size(), paged->num_blocks()), paged->block_size(), paged->num_blocks());
+        }
+        std::sort(graph_capture_profiles->begin(), graph_capture_profiles->end());
+        graph_capture_profiles->erase(std::unique(graph_capture_profiles->begin(), graph_capture_profiles->end()),
+                                      graph_capture_profiles->end());
+    }
     // Create one RankWorker per rank
     int local_tp_size = communication_group_.tp_size();
     barrier_ = std::make_unique<RankBarrier>((size_t)local_tp_size);
@@ -174,7 +191,7 @@ InferEngine::InferEngine(
                 cache_config_ != nullptr ? cache_config_.get() : nullptr,
                 barrier_.get(),
                 enable_graph_compiling,
-                attention_backend_, nsa_pool_epoch_));
+                attention_backend_, nsa_pool_epoch_, graph_capture_profiles, graph_metadata_upload));
         }
 
         for (auto &worker : workers_) {

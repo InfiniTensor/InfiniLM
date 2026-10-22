@@ -4,11 +4,68 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace infinilm::engine {
+
+// Profile selection is independent of eager's legacy table layout policy.
+inline void validate_graph_capture_profile(size_t batch, size_t bound, size_t max_batch,
+                                           size_t block_size, size_t num_blocks) {
+    if (!batch || batch > max_batch || !block_size || !num_blocks
+        || num_blocks > std::numeric_limits<size_t>::max() / block_size
+        || bound > block_size * num_blocks) {
+        throw std::invalid_argument("invalid graph capture profile");
+    }
+}
+
+inline std::optional<size_t> select_graph_capture_profile(
+    const std::vector<std::pair<size_t, size_t>> &profiles, size_t batch,
+    size_t actual, size_t pool_tokens) {
+    if (!batch || !actual || actual > pool_tokens) {
+        return std::nullopt;
+    }
+    std::optional<size_t> best;
+    for (auto [b, bound] : profiles) {
+        if (b != batch || (bound && bound < actual)) {
+            continue;
+        }
+        if (!best || (bound && (*best == 0 || bound < *best))) {
+            best = bound;
+        }
+    }
+    return best;
+}
+
+inline std::optional<std::vector<int32_t>> normalize_graph_page_table(
+    const int32_t *lengths, size_t batch, const int32_t *table, size_t source_width,
+    size_t target_width, size_t block_size, size_t num_blocks) {
+    if (!lengths || !table || !batch || !block_size || !source_width || !target_width
+        || batch > std::numeric_limits<size_t>::max() / target_width) {
+        return std::nullopt;
+    }
+    std::vector<int32_t> result(batch * target_width, -1);
+    for (size_t row = 0; row < batch; ++row) {
+        if (lengths[row] <= 0) {
+            return std::nullopt;
+        }
+        const size_t required = 1 + (static_cast<size_t>(lengths[row]) - 1) / block_size;
+        if (required > source_width || required > target_width || required > num_blocks) {
+            return std::nullopt;
+        }
+        for (size_t col = 0; col < required; ++col) {
+            const int32_t page = table[row * source_width + col];
+            if (page < 0 || static_cast<size_t>(page) >= num_blocks) {
+                return std::nullopt;
+            }
+            result[row * target_width + col] = page;
+        }
+    }
+    return result;
+}
 
 // One CPU decision for both eager and graph decode. The fixed limited policy
 // adds at most four (batch, bound) plans: B=1/2 and bound=256/512 tokens.

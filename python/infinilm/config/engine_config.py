@@ -69,8 +69,29 @@ class EngineConfig:
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
     static_cache_capacity: int = 1
+    # None: legacy plans; []: no plans; zero KV bound: full physical pool.
+    graph_capture_profiles: Optional[list[tuple[int, int]]] = None
+    graph_metadata_upload: bool = False
 
     def __post_init__(self) -> None:
+        if self.graph_capture_profiles is not None:
+            normalized = []
+            for profile in self.graph_capture_profiles:
+                if (
+                    not isinstance(profile, (tuple, list))
+                    or len(profile) != 2
+                    or any(type(v) is not int for v in profile)
+                    or profile[0] < 1
+                    or profile[0] > self.max_batch_size
+                    or profile[1] < 0
+                ):
+                    raise ValueError(
+                        "graph_capture_profiles requires (positive batch, nonnegative KV bound)"
+                    )
+                normalized.append(tuple(profile))
+            if self.cache_type != "paged":
+                raise ValueError("graph_capture_profiles requires paged cache")
+            self.graph_capture_profiles = sorted(set(normalized))
         if (
             type(self.static_cache_capacity) is not int
             or self.static_cache_capacity < 1

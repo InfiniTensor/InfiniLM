@@ -3,6 +3,7 @@
 #include "../../backends/attention_backends.hpp"
 #include "graph_compiler.hpp"
 #include "paged_decode_bucket.hpp"
+#include "runtime/graph_metadata_upload.hpp"
 
 #include <map>
 #include <optional>
@@ -18,6 +19,9 @@ struct PagedGraphConfig {
     int tp_size;
     int tp_rank;
     int pp_size; // Explicit caller topology; no default or TLS inference.
+
+    std::optional<std::vector<std::pair<size_t, size_t>>> capture_profiles = std::nullopt;
+    bool metadata_upload = false;
 
     void validate() const {
         if (tp_size <= 0 || tp_rank < 0 || tp_rank >= tp_size || pp_size <= 0) {
@@ -49,12 +53,16 @@ public:
                   infinilm::global_state::ForwardContext &forward_context,
                   PagedGraphConfig graph_config);
 
+    ~PagedCompiler() override;
     void compile() override;
 
     Compiled get_compiled(const InfinilmModel::Input &input) override;
+    const char *fallback_reason() const { return fallback_reason_; }
 
 private:
     const PagedGraphConfig graph_config_;
+    infinilm::runtime::GraphMetadataUpload metadata_upload_;
+    const char *fallback_reason_ = "no_matching_plan";
     std::vector<size_t> decode_batch_sizes_;
 
     infinilm::runtime::Tensor block_tables_holder_;

@@ -37,7 +37,9 @@ public:
         std::optional<infinilm::runtime::DataType> kv_cache_dtype = std::nullopt,
         bool use_mla = false,
         const std::string &weight_load_mode = "async",
-        bool pre_transpose = false);
+        bool pre_transpose = false,
+        std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles = std::nullopt,
+        bool graph_metadata_upload = false);
 
     // Load a parameter to all workers (each can extract its shard inside RankWorker)
     void load_param(const std::string &name, const infinilm::runtime::Tensor &param);

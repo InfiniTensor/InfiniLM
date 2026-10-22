@@ -229,6 +229,8 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_backend="disabled",
         moe_ep_size=1,
         pre_transpose=False,
+        graph_capture_profiles=None,
+        graph_metadata_upload=False,
     ):
         self.hf_config = read_hf_config(model_path)
         self.hf_generation_config = read_hf_generation_config(model_path)
@@ -270,6 +272,8 @@ class InferEngine(_infinilm.InferEngine):
             use_mla,
             weight_load_mode,
             pre_transpose,
+            graph_capture_profiles,
+            graph_metadata_upload,
         )
         self.use_cache = False
 

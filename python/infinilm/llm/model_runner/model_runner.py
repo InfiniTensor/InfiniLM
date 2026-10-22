@@ -104,6 +104,8 @@ class ModelRunner:
             ),
             cache_config=cache_config,
             enable_graph_compiling=config.enable_graph,
+            graph_capture_profiles=config.graph_capture_profiles,
+            graph_metadata_upload=config.graph_metadata_upload,
             attention_backend=config.attn_backend,
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,

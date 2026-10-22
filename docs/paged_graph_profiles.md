@@ -1,0 +1,77 @@
+# Paged graph capture profiles and metadata upload
+
+`EngineConfig` and `InferEngine` accept two independent options:
+
+```python
+graph_capture_profiles=[(1, 2048), (8, 4096), (16, 0)]
+graph_metadata_upload=False
+```
+
+`None` preserves legacy capture policy. An explicit empty list captures no
+plans. Explicit lists capture only the unique listed `(batch, KV token bound)`
+pairs. Zero means the full physical KV pool. Batches must fit both the cache's
+maximum batch and its number of physical pages. Positive bounds must fit the
+pool; unsupported bounded model/backend/cache combinations fail before capture.
+Current bounded eligibility is ordinary KV prepare, PP1, paged/flash attention,
+unquantized KV, 256-token pages and at least two physical pages.
+
+The engine canonicalizes profiles once before creating TP workers. Every worker
+receives the same immutable ordered copy. Runtime selection uses the actual
+maximum total sequence length and exact batch size. It prefers the smallest
+covering positive bound, with zero as a final full-pool choice. Missing batch
+and missing bound produce distinct eager fallback reasons in the existing last
+execution report. Prefill and all-position sampling retain their eager paths.
+No dummy rows or automatic capture are introduced.
+
+Page tables are validated and repacked to the selected graph width. Required
+physical page IDs must be in range; unused entries are filled with -1. Invalid
+required entries throw before graph storage is mutated. Reset destroys the
+compiler and its plans; subsequent compile validates profiles against the new
+cache geometry. Profiles themselves remain fixed for the engine lifetime.
+
+The upload option is opt-in pending device validation. Each compiler owns one
+pinned host slab and one device slab. A replay copies CPU metadata into the slab,
+enqueues one H2D and ordered D2D copies to graph inputs, then replays on the same
+runtime stream. Original temporary CPU tensors may expire once their bytes are
+staged. A serial lease waits for previous queued work before overwriting either
+slab; there is no synchronization between upload and graph replay. Compiler
+recompile/destruction explicitly drains before graph destinations can disappear.
+Submission exceptions keep the lease live. Failure to establish completion at
+destruction terminates rather than releasing an in-use source. General Tensor
+copy defaults and existing backend mathematics are unchanged.
+
+For audit logs set `INFINILM_PAGED_GRAPH_STATS=1`. Compiler teardown prints rank,
+actual published plan count, staging H2D count and lease drain count. Drains
+include explicit teardown, not only steady reuse. Existing last-execution
+reports identify `device_graph`, host segments and fallback reasons. These
+counters describe the dedicated resource, not all model transfers.
+
+## Local behavior checks
+
+From the repository root:
+
+```text
+g++ -std=c++17 -Wall -Wextra -Werror -pedantic test/native/paged_graph_profiles_test.cpp -o paged_graph_profiles_test
+g++ -std=c++17 -Wall -Wextra -Werror -pedantic test/native/paged_graph_upload_test.cpp -o paged_graph_upload_test
+python test/scripts/paged_graph_config_test.py
+```
+
+Run both resulting executables. The staging test uses the production lease with
+an asynchronous fake provider that consumes source bytes only on stream drain.
+It checks temporary-source lifetime, serial reuse, growth, explicit drain,
+normal destruction and exceptions after submission. Policy tests cover B1/B8/B16,
+2K/4K/long lengths, boundary and batch changes, empty lists and invalid page IDs.
+These checks do not establish CUDA correctness or speed.
+
+## Device acceptance still required
+
+Use the existing shared build lock and isolated build/site directories. Compare
+legacy policy/upload off, explicit profiles/upload off, legacy policy/upload on,
+and explicit profiles/upload on. Keep checkpoint, TP, tokens, output length and
+KV capacity/dtype fixed. Test B1/B8/B16 at 2K, 4K and long context, cross-bound
+and batch transitions, cache reset and invalid page tables. At each key point
+use five adjacent baseline/candidate fresh-process pairs, two warmups and five
+measurements per process. Record loaded native SHA256, output equality, NVML v2
+peak memory, published plan count, actual graph/host segments, upload/sync counts,
+CPU preparation, GPU model time, sampling/readback and full decode wall time.
+Do not enable upload by default without stable measured benefit.

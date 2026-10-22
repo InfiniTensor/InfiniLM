@@ -81,7 +81,9 @@ inline void bind_infer_engine(py::module &m) {
                           std::optional<infinilm::runtime::DataType> kv_cache_dtype,
                           bool use_mla,
                           const std::string &weight_load_mode,
-                          bool pre_transpose) {
+                          bool pre_transpose,
+                          std::optional<std::vector<std::pair<size_t, size_t>>> graph_capture_profiles,
+                          bool graph_metadata_upload) {
                  const auto frozen_dist = dist;
                  py::gil_scoped_release release;
                  return std::make_shared<InferEngine>(
@@ -94,7 +96,7 @@ inline void bind_infer_engine(py::module &m) {
                      kv_cache_dtype,
                      use_mla,
                      weight_load_mode,
-                     pre_transpose);
+                     pre_transpose, graph_capture_profiles, graph_metadata_upload);
              }),
              py::arg("config_str"),
              py::arg("distributed_config"),
@@ -105,7 +107,9 @@ inline void bind_infer_engine(py::module &m) {
              py::arg("kv_cache_dtype") = py::none(),
              py::arg("use_mla") = false,
              py::arg("weight_load_mode") = "async",
-             py::arg("pre_transpose") = false)
+             py::arg("pre_transpose") = false,
+             py::arg("graph_capture_profiles") = py::none(),
+             py::arg("graph_metadata_upload") = false)
         .def("load_param", &InferEngine::load_param,
              py::arg("name"), py::arg("param"),
              py::call_guard<py::gil_scoped_release>(),
