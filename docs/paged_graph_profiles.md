@@ -75,3 +75,23 @@ measurements per process. Record loaded native SHA256, output equality, NVML v2
 peak memory, published plan count, actual graph/host segments, upload/sync counts,
 CPU preparation, GPU model time, sampling/readback and full decode wall time.
 Do not enable upload by default without stable measured benefit.
+
+The public configuration constructor can also be exercised through the built
+native extension on CPU with `test/scripts/paged_graph_native_config_test.py`.
+Pass a new task-owned `--scratch` directory and a Qwen3 `--model-config` JSON;
+it creates a tiny CPU model configuration and never changes the checkpoint.
+`test/native/paged_graph_upload_device_test.cpp` checks the real CUDA upload
+lease on two visible devices by default (or one with argument `1`). Run it only
+under the shared validation lock after verifying all devices it will use idle.
+
+`test/scripts/paged_graph_device_bench.py` is the task's Qwen3-14B TP2 device
+protocol. It requires the pre-existing validation model root, the intended
+isolated site on PYTHONPATH, INFINILM_VALIDATION_SITE, and the two approved UUIDs
+in CUDA_VISIBLE_DEVICES. Modes are reference, baseline (candidate with legacy
+policy), profiles, upload, combined. Scenario `perf` uses B8 at a total KV length
+of 2048, with two warmups and five fixed-shape decode forwards. Other scenarios
+cover B1/B8/B16 at total lengths 2048/4096/8192, reset, a batch miss, and candidate
+invalid-page rejection. It records CPU argument preparation and synchronous
+native decode including sampling/readback; these timings do not separately
+attribute GPU compute, sampling, or output readback. That finer attribution
+requires a device profiler and must not be inferred from host wall time.

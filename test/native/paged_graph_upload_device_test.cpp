@@ -3,10 +3,15 @@
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 using namespace infinilm::runtime;
-int main() {
-    for (int rank = 0; rank < 2; ++rank) {
+int main(int argc, char **argv) {
+    const int devices = argc > 1 ? std::stoi(argv[1]) : 2;
+    if (devices < 1 || devices > 2) {
+        throw std::invalid_argument("device count must be one or two");
+    }
+    for (int rank = 0; rank < devices; ++rank) {
         auto runtime = Runtime::create(Device{Device::Type::kNvidia, rank});
         runtime->activate();
         auto first = runtime->allocateExactMemory(8192);
