@@ -8,17 +8,23 @@
 
 B1 优先，其次 B2/4/8/16；记录逐请求 TPOT 和非零块提交间隔，避免块内同 timestamp 形成虚假的零延迟。性能分母应为普通 `Engine.forward` AR；使用成对状态快照的诊断验证器不能作为普通 AR 速度基线。
 
-## 后续组件优化与并行实验（北京时间 10 月 22 日 08:35）
+## 最新结果与投机修复（北京时间 10月22日 10:04）
 
-DeepSeek mHC collapse 的 Mul/四路 Sum/Cast 融合完成独立八卡验证：128 个 Runtime 正常关闭，T1/8/16/32/64/128/512/4096、F32/BF16、随机有符号及消去输入通过完整 GPU/CPU 对比、CPU F64 抽样 oracle 和72份 raw审计。只有顺序四项 FP32 相加的 variant0 在所有尺寸/类型吻合原生路径；其他顺序保留差异，未用于模型候选。GPU 不使用 F64。BF16 T16 host完成中位 **0.10577→0.01982 ms（5.34倍）**，T512 **0.38369→0.04943 ms（7.76倍）**。这是 collapse 尾段组件，不能等同整段 mHC 或模型加速；计时包含分配、同步和启动空隙，不能作为纯 kernel/物理峰值。
+Kimi B1 普通 `Engine.forward` 的最新完整验收为 **5.46865 / 5.43267 tok/s/用户**，前/后测 TPOT **182.86 / 184.07 ms**；32卡 TP8/PP4、512输入/最多128输出，排除 prefill 首个 anchor，计127个有效decode token。完整冻结ID、QA16、32 owner正常关闭、Slurm0和IBext通过。这是普通AR harness基线；与上轮5.25的差值不能归为代码因果收益。当前仍**没有合格的在线投机加速**。
 
-[组件源码](experimental-latest-5f91ad7/mhc-collapse-r4367/deep_collapse_r4367.cu)、原生算子对照 C++、CPU检查 Python 和 DTK 构建脚本已放在同目录；沿用已锁定的 Common/Deep Runtime及SDK和已有容器启动器的 `/refactor` 路径。需要将该目录的源码送入原测试 incoming 目录；构建脚本拒绝覆盖已有候选。该目录是独立组件迁移材料，不是生产模型替换包。
+W8 在首层 dense MLP 的M1对照后仍于输出索引41分歧，三次重复一致。八个实际分片的KDA1输入、输出和活跃conv/SSM状态已经相同；已保存TP0/6的最早剩余差异为FFN1输出。新的真实MoE1单层工具只加载该层896个专家、router、投影与共享专家，一份CPU权重供八个owner复用，以分离各子路径，避免反复加载全模型。单层工具尚未验收为模型修复。
 
-默认关闭的模型候选已构建成功，新的八卡单次加载正在进行：B16/M16、512输入/最多512输出，两种布局分别 OFF/ON/ON/OFF，QA24及逐次真实dispatch、完整冻结ID/正常退出/独立审计后才判定模型收益。当前主性能表不因此更新。
+原生BF16归约的消息宽度诊断已独立审计：同一节点 Default/强制/强制/Default 四个新进程、20种几何、128个正常Runtime、10240份CPU raw。Tree+LL和Tree+Simple在这组fixture中保留原Default逐行参考；Ring组合不保留。H7168是由实际专家核心分片输出扩展的宽度fixture，并非实际共享专家输出。**随后32卡全局TreeLL整模型测试的普通AR冻结ID失败，方案排除**；局部结果没有推广为全局配置。下一步保留默认环境，仅对宽块验证检查2/4/8行分块原生BF16归约。无GPU F64。
 
-GLM 同一合格两节点库已启动固定 B32、M2/4/8/16/32 的一次驻留扫描，分别测试 B/M=16 的调度和更大矩阵；每个微批几何都测QA，正反顺序重复，保留8 GiB加载/6 GiB运行余量与完整冻结3330输出。新性能待验收。
+新增[专家核心组件源码](experimental-latest-5f91ad7/kimi-expert-core-r4391/kimi_tiled_batch_r4391.cu)及同目录原生Runtime C++、Python检查、DTK脚本：当前N1 W13/W2算术扩展到T1/2/4/8/16的并行grid。八个实际TP分片、64个选定真实专家、80个输入几何通过400份raw检查，串行/并行activation和output相同，native provider1输出差异为0。T8有效graph host完成1.75868→1.56474 ms，T16为3.47556→3.06984 ms；**只对比原N1核心串行调用，未对比当前N8 provider1性能，也不包含router/shared/TP，不能声称模型收益**。最初4385空graph计时已排除，4391检查了sentinel覆写和输入改变后与新eager输出相同。迁移需现有锁定Common/SDK及4346基线tile.o、模型权重路径，脚本拒绝覆盖已有候选；不是生产替换包。
 
-Kimi 首层 dense MLP 的 M1 对照仍未修复完整输出，W8 当前三次追踪/未追踪重复均在索引41分歧；不能把从53变为41解释为优化收益。原32卡运行继续完成，CPU并行分析已封闭的全层及KDA1追踪，避免再次加载。5.46865仅是本次普通前测观测，缺少后测/终态验收，仍采用上轮已验收5.25369～5.26322。尚无合格在线投机加速。详见[本轮证据](evidence/operator-and-system-progress-r4379.json)。
+DeepSeek mHC Mul/四路Sum/Cast融合已完成整模型验收：8卡、B16/M16、512输入/最多512输出，同一次权重驻留、两种布局各OFF/ON/ON/OFF。decode中位 **32.76699→33.56857 tok/s（+2.45%）**，含prefill **24.62292→25.10258**；完整冻结512-ID/EOS/重复、QA24、8 owner及Slurm0/独立CPU审计通过。保留FP32 attention、顺序四项FP32相加及最终BF16舍入，无F64；这是同进程代码收益，并未超过此前不同轮次35.98的绝对观测值。[融合组件源码](experimental-latest-5f91ad7/mhc-collapse-r4367/deep_collapse_r4367.cu)仍为已验收variant0。
+
+GLM 固定B32、M2/4/8/16/32的一次驻留扫描继续，当前首轮观察较小M2/M4和整批M32均慢于M16；待全矩阵、完整冻结3330输出/QA/重复/正常16 owner和独立审计后才采用。此前两节点B32/M16合格decode33.14179、含prefill10.38139仍有效，32卡70.0～70.7另列。
+
+长草稿优先Modal原生W16/K15，比较W8；RedHat原生K8/W9为备选。二者已有本地完整SHA，远端传输仍推进，远端完整SHA/完整GPU draft forward/实际接受率未验收。LightSeek DFlash2为另一种MLA+SWA备选，原生lookahead8，无训练W16证据，暂不增加权重传输。逐用户decode统计包括真实draft/verify/commit/rollback/replay/未隐藏通信，B1优先再B2/4/8/16；实际每轮8个有效token时15tok/s需全轮≤533ms，按本轮普通AR成本，5倍约≤294ms、10倍约≤147ms。预算不等于BW1000实测或承诺。详见[新验收范围与精简证据](evidence/model-and-speculative-progress-r4427.json)。
+
+下方按时间保留历史，最新结论以上节为准；目标继续进行中。
 
 ## 最新已验收结果与进行中的修复（北京时间 10 月 22 日 08:05）
 

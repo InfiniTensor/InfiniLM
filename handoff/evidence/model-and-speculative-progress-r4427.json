@@ -1,0 +1,143 @@
+{
+  "utc": "2026-10-22T02:04:39.636816+00:00",
+  "InfiniLM_commit": "5f91ad738583db8f5617aeae53b76523f85d1ec6",
+  "primary_speculative_metric": "per-user useful decode tok/s, prefill/first anchor excluded, all real draft/verification/state/replay/communication cost included",
+  "trained_online_speculative_speedup_qualified": false,
+  "ordinary_Kimi_B1": {
+    "cards": 32,
+    "TP": 8,
+    "PP": 4,
+    "input": 512,
+    "max_output": 128,
+    "useful_decode_tokens": 127,
+    "before_after_tok_s": [
+      5.468650872442671,
+      5.432667392618318
+    ],
+    "before_after_TPOT_ms": [
+      182.86045741905846,
+      184.07164063803324
+    ],
+    "qualified": true,
+    "scope": "FrozenfullIDs/QA16/normal32/Slurm0/nativeIB passed. HarnessnotHTTP/hardwaremax; differencevsprior5.25notcodecausality."
+  },
+  "Deep_mHC_collapse_full_model": {
+    "cards": 8,
+    "batch": 16,
+    "micro": 16,
+    "input": 512,
+    "max_output": 512,
+    "performance": [
+      {
+        "collapse_enabled": false,
+        "decode_median": 32.766989317193456,
+        "including_prefill_median": 24.622923545035007,
+        "repetitions": 4
+      },
+      {
+        "collapse_enabled": true,
+        "decode_median": 33.568574993449076,
+        "including_prefill_median": 25.102580636566074,
+        "repetitions": 4
+      }
+    ],
+    "same_resident_ABBA_decode_ratio": 1.0244632080322074,
+    "full_frozen512_IDs_EOS_repeat_exact": true,
+    "QA_cases": 24,
+    "normal_owners": 8,
+    "qualified": true,
+    "scope": "LatestFP32attention kept; sameweightload OFF/ON/ON/OFF2layouts. Notnewabsolutepeakvsold35.98; noGPUF64."
+  },
+  "Kimi_remaining_correctness": {
+    "current_W8_complete_ID_first_difference": 41,
+    "all8_KDA1_input_output_active_conv_SSM_equal": true,
+    "FFN0_equal": true,
+    "first_remaining_recorded_difference": "FFN1output on capturedTP0/6",
+    "global_TreeLL_full_model": "FAILEDordinaryfrozenIDs; do notadopt globalsetting oritsTPS",
+    "scope": "Floatraw equality diagnostic; finalcompleteoutputtokens gate."
+  },
+  "native_reduction_component": {
+    "CPU_raw_files": 10240,
+    "normal_Runtime_owners": 128,
+    "geometries": 20,
+    "same_frozen_Default_row_reference_variants": [
+      "tree_ll",
+      "tree_simple"
+    ],
+    "scope": "Same-node Default/forced/forced/Default withfreshprocesses, BF16/F32controls; H7168expandedfixture notactualsharedexpertoutput. DoesnotqualifyModelIDs/globalTree/onlinegain/RDMA. GPUF64notused."
+  },
+  "batched_expert_core_component": {
+    "cases": 80,
+    "raw_files": 400,
+    "native_provider1_differences": 0,
+    "valid_graph_sentinel_and_input_updates": true,
+    "summary": [
+      {
+        "tokens": 1,
+        "cases": 16,
+        "serial_eager_host_ms": 0.2972667571157217,
+        "batch_eager_host_ms": 0.26511913165450096,
+        "serial_graph_host_ms": 0.23152411449700594,
+        "batch_graph_host_ms": 0.23054878693073988,
+        "batch_vs_serial_eager_ratio": 1.1212572825680307,
+        "batch_vs_serial_valid_graph_ratio": 1.0042304606293984
+      },
+      {
+        "tokens": 2,
+        "cases": 16,
+        "serial_eager_host_ms": 0.5420087836682796,
+        "batch_eager_host_ms": 0.4876130260527134,
+        "serial_graph_host_ms": 0.4611578769981861,
+        "batch_graph_host_ms": 0.44886290561407804,
+        "batch_vs_serial_eager_ratio": 1.1115551773829886,
+        "batch_vs_serial_valid_graph_ratio": 1.0273913732463316
+      },
+      {
+        "tokens": 4,
+        "cases": 16,
+        "serial_eager_host_ms": 0.9737759828567505,
+        "batch_eager_host_ms": 0.8568380726501346,
+        "serial_graph_host_ms": 0.902413041330874,
+        "batch_graph_host_ms": 0.8125222520902753,
+        "batch_vs_serial_eager_ratio": 1.136476090336341,
+        "batch_vs_serial_valid_graph_ratio": 1.1106317876333205
+      },
+      {
+        "tokens": 8,
+        "cases": 16,
+        "serial_eager_host_ms": 1.853013294748962,
+        "batch_eager_host_ms": 1.6070172423496842,
+        "serial_graph_host_ms": 1.758675673045218,
+        "batch_graph_host_ms": 1.5647393884137273,
+        "batch_vs_serial_eager_ratio": 1.1530761748639342,
+        "batch_vs_serial_valid_graph_ratio": 1.1239415880161974
+      },
+      {
+        "tokens": 16,
+        "cases": 16,
+        "serial_eager_host_ms": 3.6290971329435706,
+        "batch_eager_host_ms": 3.1226365827023983,
+        "serial_graph_host_ms": 3.4755587112158537,
+        "batch_graph_host_ms": 3.0698416521772742,
+        "batch_vs_serial_eager_ratio": 1.1621900393554188,
+        "batch_vs_serial_valid_graph_ratio": 1.1321622106309053
+      }
+    ],
+    "qualified": true,
+    "full_MoE_or_Model_qualified": false,
+    "scope": "8realTPshards/selected64experts/seededinputsroutes, beforeTP-reduction. Nativeprovider1numericalcomparisononly; timingcomparedcurrentN1serialtile, notnativeN8provider1. Initial4385emptygraphsINVALID; fresh4391percallstream/sentinel/inputupdate checked. NoModel/onlinegain."
+  },
+  "draft_research": "speculative-user-decode-research-r4418.json",
+  "draft_sources": [
+    "https://huggingface.co/modal-labs/Kimi-K3-DFlash",
+    "https://huggingface.co/RedHatAI/Kimi-K3-speculator.dspark",
+    "https://huggingface.co/lightseekorg/kimi-k3-dflash2"
+  ],
+  "published_component_files": {
+    "handoff/experimental-latest-5f91ad7/kimi-expert-core-r4391/kimi_tiled_batch_r4391.cu": "9cc0f8a265266ece120f331dcbe5ff1a1333330531157f73a0ce9c6e4201934f",
+    "handoff/experimental-latest-5f91ad7/kimi-expert-core-r4391/kimi_expert_native_r4391.cpp": "e1ff3cc8aa1279a69b4e2ec3b646726cc160010ac41f768a4ddda2cf228495a5",
+    "handoff/experimental-latest-5f91ad7/kimi-expert-core-r4391/modern_kimi_expert_batch_r4391.py": "505f6a479d06bac43af484b400803ea8df0059bc9c6c3f0a0bd6fd5f9fdebc69",
+    "handoff/experimental-latest-5f91ad7/kimi-expert-core-r4391/kimi_expert_batch_r4391_inside.sh": "8e2c38d610939fe9e6c6582b0c504d8af06a24cefbd524d4cecb0b1b94fb3177"
+  },
+  "scope": "Sanitizedqualifiedevidenceandstandaloneexpertcomponentonly; no accessconfig/weights/rawtokens/unqualifiedModelsource. Whole3modeloptimizationactive."
+}
