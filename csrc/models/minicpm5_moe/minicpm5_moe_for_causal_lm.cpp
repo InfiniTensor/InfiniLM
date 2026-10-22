@@ -50,7 +50,7 @@ create_minicpm5_moe_model_config(std::shared_ptr<infinilm::config::ModelConfig> 
     config_json["e_score_correction_bias"] = true;
     config_json["apply_routed_scaling_factor_on_output"] = false;
     // n_group/topk_group default to 1 → grouped selection is a no-op; use sigmoid
-    // (same escape hatch as kimi_k25 until fused_gate is graph-safe on Denglin).
+    // (same escape hatch as kimi_k25 until fused_gate is graph-safe on dl).
     config_json["moe_router_backend"] = "sigmoid";
     if (!config_json.contains("use_gated_attention")) {
         config_json["use_gated_attention"] = true;

@@ -102,7 +102,7 @@ infinicore::Tensor StaticAttentionImpl::forward(const AttentionLayer &layer,
     auto K = k_total->view({batch_size * num_kv_heads_, total_seq_len, head_dim_});
     auto V = v_total->view({batch_size * num_kv_heads_, total_seq_len, value_head_dim});
 
-    // Denglin static-attn GEMM/softmax launch fails around ~600+ query tokens
+    // dl static-attn GEMM/softmax launch fails around ~600+ query tokens
     // ("too many resources requested for launch"). Chunk Q along the sequence
     // so each causal matmul stays small; FA/paged remains M2.
     constexpr size_t kQyAttnChunkTokens = 128;

@@ -233,6 +233,11 @@ class ModelRunner:
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
+        # Scheduler/processor may attach Python-only metadata (chunk finality /
+        # scheduling mode). Drop keys InferEngine.forward does not accept yet.
+        for _meta_key in ("is_final_prefill_chunk", "scheduling_mode"):
+            model_input.pop(_meta_key, None)
+
         # Wake every stage before stage 0 enters forward. Each worker receives
         # the same metadata and then blocks in its model on the activation from
         # the preceding stage. Stage 0 waits for all acknowledgements afterward.

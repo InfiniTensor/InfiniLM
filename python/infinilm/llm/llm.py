@@ -96,10 +96,15 @@ class LLMEngine:
             )
             num_mamba_cache_blocks = max(2, config.num_blocks // 4)
 
-            max_num_batched_tokens = int(
-                os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
+            # Prefer INFINI_MAX_NUM_BATCHED_TOKENS; fall back to legacy INFINILM_*.
+            batched_env = os.getenv("INFINI_MAX_NUM_BATCHED_TOKENS") or os.getenv(
+                "INFINILM_MAX_NUM_BATCHED_TOKENS"
             )
-            assert 1024 <= max_num_batched_tokens <= max_position_embeddings
+            max_num_batched_tokens = int(
+                batched_env if batched_env is not None else max_position_embeddings
+            )
+            # Floor 256: QY F&P often sets step budget = capture bucket (e.g. 512).
+            assert 256 <= max_num_batched_tokens <= max_position_embeddings
 
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
@@ -122,6 +127,25 @@ class LLMEngine:
 
         self.cache_type = config.cache_type
 
+        # Chunked prefill step budget (shared with v1 scheduler / F&P capture max).
+        self.chunk_size = 0
+        try:
+            from infinilm.compile.env import (
+                prefill_chunk_size,
+                prefill_chunked_enabled,
+            )
+
+            if prefill_chunked_enabled():
+                self.chunk_size = prefill_chunk_size()
+                logger.info(
+                    "chunked prefill enabled chunk_size=%s (INFINI_PREFILL_CHUNKED=1)",
+                    self.chunk_size,
+                )
+        except ImportError:
+            pass
+        if self.cache_type == "paged" and hasattr(self.scheduler, "chunk_size"):
+            self.scheduler.chunk_size = self.chunk_size
+
         # Get EOS token IDs from model config
         self.eos_token_ids = self.model_runner.eos_token_id or []
         if isinstance(self.eos_token_ids, int):
@@ -135,6 +159,10 @@ class LLMEngine:
 
     def add_request(self, request: InferenceRequest):
         """Add a request to the scheduler."""
+        if self.cache_type == "paged" and self.chunk_size > 0:
+            request.chunk_size = self.chunk_size
+        if hasattr(self.scheduler, "chunk_size"):
+            self.scheduler.chunk_size = self.chunk_size
         self.scheduler.add_request(request)
 
     def close(self):
@@ -158,7 +186,7 @@ class LLMEngine:
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
         pending = self._update_requests(
-            scheduler_output.scheduled_requests,
+            scheduler_output,
             sampled_token_ids,
         )
 
@@ -177,10 +205,130 @@ class LLMEngine:
 
     def _update_requests(
         self,
+        scheduler_output,
+        sampled_token_ids: list[int | list[int]],
+    ) -> List[tuple]:
+        """Apply sampled tokens (or mid-chunk progress) and publish KV boundaries."""
+        rows = getattr(scheduler_output, "rows", None) or []
+        if rows:
+            return self._update_requests_from_rows(scheduler_output, sampled_token_ids)
+        return self._update_requests_legacy(
+            scheduler_output.scheduled_requests, sampled_token_ids
+        )
+
+    def _advance_chunk_progress(self, req: InferenceRequest, num_tokens: int) -> None:
+        req.chunk_prefill_offset += num_tokens
+        req.num_computed_tokens = req.chunk_prefill_offset
+        req.num_local_cached_tokens = req.chunk_prefill_offset
+        self.scheduler.commit_computed_tokens(req, req.num_computed_tokens)
+
+    def _update_requests_from_rows(
+        self,
+        scheduler_output,
+        sampled_token_ids: list[int | list[int]],
+    ) -> List[tuple]:
+        """V1 row-aware update: mid-chunk advances offset without sampling."""
+        rows = scheduler_output.rows
+        pending: List[tuple] = []
+
+        all_mid_chunk = bool(rows) and all(
+            r.is_prefill_row and not r.is_final_prefill_chunk for r in rows
+        )
+        if all_mid_chunk:
+            for row in rows:
+                req = row.request
+                self._advance_chunk_progress(req, row.num_scheduled_tokens)
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+            self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+            return []
+
+        rows_needing_sample = [
+            row
+            for row in rows
+            if not (row.is_prefill_row and not row.is_final_prefill_chunk)
+        ]
+
+        # Model may return one sample per scheduled request (POST) or only for
+        # rows that need a sample (Aug). Support both.
+        if len(sampled_token_ids) == len(rows):
+            sample_by_row = list(zip(rows, sampled_token_ids))
+        elif len(sampled_token_ids) == len(rows_needing_sample):
+            sample_iter = iter(sampled_token_ids)
+            sample_by_row = []
+            for row in rows:
+                if row.is_prefill_row and not row.is_final_prefill_chunk:
+                    sample_by_row.append((row, None))
+                else:
+                    sample_by_row.append((row, next(sample_iter)))
+        else:
+            raise RuntimeError(
+                "model output count does not match scheduled rows: "
+                f"rows={len(rows)}, needing_sample={len(rows_needing_sample)}, "
+                f"outputs={len(sampled_token_ids)}"
+            )
+
+        for row, token_ids in sample_by_row:
+            req = row.request
+            if row.is_prefill_row and not row.is_final_prefill_chunk:
+                self._advance_chunk_progress(req, row.num_scheduled_tokens)
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                continue
+
+            if token_ids is None:
+                raise RuntimeError(
+                    f"Missing sampled token for request_id={req.request_id}"
+                )
+
+            if row.is_prefill_row:
+                # Final prefill chunk: mark compute complete before sampling apply.
+                req.num_computed_tokens = req.prefill_seq_len()
+                req.num_local_cached_tokens = req.prefill_seq_len()
+                req.chunk_prefill_offset = 0
+                req.chunk_size = 0
+                req.is_prefill = False
+                self.scheduler.commit_computed_tokens(req, req.num_computed_tokens)
+
+            pending.extend(self._apply_sampled_token_ids(req, token_ids))
+
+        self.scheduler.complete_requests(scheduler_output.scheduled_requests)
+        return pending
+
+    def _update_requests_legacy(
+        self,
         requests: List[InferenceRequest],
         sampled_token_ids: list[int | list[int]],
     ) -> List[tuple]:
-        """Apply sampled tokens and publish their target-model KV boundary."""
+        """POST / non-row update path (optional legacy mid-chunk via request flags)."""
+        chunk_mid_step = (
+            len(requests) > 0
+            and all(
+                r.is_prefill and r.is_chunking() and not r.chunk_is_last()
+                for r in requests
+            )
+        )
+        if chunk_mid_step:
+            for req in requests:
+                chunk_len = min(
+                    req.chunk_size,
+                    req.prefill_seq_len() - req.chunk_prefill_offset,
+                )
+                self._advance_chunk_progress(req, chunk_len)
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client during chunked-prefill"
+                    )
+                    continue
+                if hasattr(self.scheduler, "requeue_chunking"):
+                    self.scheduler.requeue_chunking(req)
+            return []
+
         if len(requests) != len(sampled_token_ids):
             raise RuntimeError(
                 "model output count does not match the scheduled request count: "
@@ -188,92 +336,107 @@ class LLMEngine:
             )
         pending = []
         for req, token_ids in zip(requests, sampled_token_ids):
-            # The model successfully consumed the request's current logical tokens.
-            # Commit this boundary before observing a concurrent client abort.
-            pre_output_computed_tokens = req.get_total_length()
-            self.scheduler.commit_computed_tokens(req, pre_output_computed_tokens)
+            if req.is_prefill:
+                req.chunk_prefill_offset = 0
+                req.chunk_size = 0
+                req.is_prefill = False
+            pending.extend(self._apply_sampled_token_ids(req, token_ids))
 
-            if req.is_aborted():
-                logger.info(
-                    f"Request {req.request_id} aborted by client, skipping update"
-                )
-                # close() may have set _aborted=True without setting a terminal status
-                # (status still RUNNING).
-                if not req.is_finished():
-                    req.mark_canceled()
-                continue
+        self.scheduler.complete_requests(requests)
+        return pending
 
-            if isinstance(token_ids, list):
-                num_computed_output_tokens = max(len(token_ids) - 1, 0)
+    def _apply_sampled_token_ids(
+        self,
+        req: InferenceRequest,
+        token_ids: int | list[int],
+    ) -> List[tuple]:
+        """Apply sampled tokens and publish their target-model KV boundary."""
+        pending: List[tuple] = []
+        # The model successfully consumed the request's current logical tokens.
+        # Commit this boundary before observing a concurrent client abort.
+        pre_output_computed_tokens = req.get_total_length()
+        self.scheduler.commit_computed_tokens(req, pre_output_computed_tokens)
+
+        if req.is_aborted():
+            logger.info(
+                f"Request {req.request_id} aborted by client, skipping update"
+            )
+            # close() may have set _aborted=True without setting a terminal status
+            # (status still RUNNING).
+            if not req.is_finished():
+                req.mark_canceled()
+            return pending
+
+        if isinstance(token_ids, list):
+            num_computed_output_tokens = max(len(token_ids) - 1, 0)
+        else:
+            num_computed_output_tokens = 0
+            token_ids = [token_ids]
+
+        num_appended_tokens = 0
+        for token_id in token_ids:
+            if req.is_finished():
+                break
+            req.append_generated_token_id(token_id)
+            num_appended_tokens += 1
+            pending_tokens = req.generated_token_ids[req._token_decode_offset :]
+            delta = self.tokenizer.decode(pending_tokens)
+            holds_back = bool(delta) and delta.endswith("\ufffd")
+
+            last_committed_text = req.generated_text
+
+            if not holds_back:
+                req.generated_text = last_committed_text + delta
+                req._token_decode_offset = len(req.generated_token_ids)
+
+            is_finished = self._check_request_finished(req, token_id)
+
+            # vLLM-style replacement character handling is primarily relevant for streaming.
+            # For offline generation (no output queue), keep the fast incremental path.
+            if req._output_queue is None:
+                if is_finished:
+                    req.mark_finished(req.finish_reason)
+
             else:
-                num_computed_output_tokens = 0
-                token_ids = [token_ids]
+                if holds_back and not is_finished:
+                    token_text = ""
+                else:
+                    if is_finished and req.finish_reason in (
+                        FinishReason.EOS_TOKEN,
+                        FinishReason.LENGTH,
+                        FinishReason.STOP_STRING,
+                    ):
+                        token_text = ""
+                    else:
+                        token_text = req.generated_text[req._text_output_offset :]
+                        if token_text:
+                            req._text_output_offset = len(req.generated_text)
 
-            num_appended_tokens = 0
-            for token_id in token_ids:
-                if req.is_finished():
-                    break
-                req.append_generated_token_id(token_id)
-                num_appended_tokens += 1
-                pending_tokens = req.generated_token_ids[req._token_decode_offset :]
-                delta = self.tokenizer.decode(pending_tokens)
-                holds_back = bool(delta) and delta.endswith("\ufffd")
-
-                last_committed_text = req.generated_text
-
-                if not holds_back:
-                    req.generated_text = last_committed_text + delta
-                    req._token_decode_offset = len(req.generated_token_ids)
-
-                is_finished = self._check_request_finished(req, token_id)
-
-                # vLLM-style replacement character handling is primarily relevant for streaming.
-                # For offline generation (no output queue), keep the fast incremental path.
-                if req._output_queue is None:
                     if is_finished:
                         req.mark_finished(req.finish_reason)
 
-                else:
-                    if holds_back and not is_finished:
-                        token_text = ""
-                    else:
-                        if is_finished and req.finish_reason in (
-                            FinishReason.EOS_TOKEN,
-                            FinishReason.LENGTH,
-                            FinishReason.STOP_STRING,
-                        ):
-                            token_text = ""
-                        else:
-                            token_text = req.generated_text[req._text_output_offset :]
-                            if token_text:
-                                req._text_output_offset = len(req.generated_text)
-
-                        if is_finished:
-                            req.mark_finished(req.finish_reason)
-
-                    output = TokenOutput(
-                        request_id=req.request_id,
-                        token_id=token_id,
-                        token_text=token_text,
-                        finished=is_finished,
-                        finish_reason=req.finish_reason if is_finished else None,
-                        generated_text=req.generated_text,
+                output = TokenOutput(
+                    request_id=req.request_id,
+                    token_id=token_id,
+                    token_text=token_text,
+                    finished=is_finished,
+                    finish_reason=req.finish_reason if is_finished else None,
+                    generated_text=req.generated_text,
+                )
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted before putting token"
                     )
-                    if req.is_aborted():
-                        logger.info(
-                            f"Request {req.request_id} aborted before putting token"
-                        )
-                        continue
-                    pending.append((req.output_queue.async_q, output))
+                    continue
+                pending.append((req.output_queue.async_q, output))
 
-            post_output_computed_tokens = pre_output_computed_tokens + min(
-                num_appended_tokens,
-                num_computed_output_tokens,
-            )
-            if post_output_computed_tokens > pre_output_computed_tokens:
-                self.scheduler.commit_computed_tokens(req, post_output_computed_tokens)
+        post_output_computed_tokens = pre_output_computed_tokens + min(
+            num_appended_tokens,
+            num_computed_output_tokens,
+        )
+        if post_output_computed_tokens > pre_output_computed_tokens:
+            self.scheduler.commit_computed_tokens(req, post_output_computed_tokens)
 
-        self.scheduler.complete_requests(requests)
         return pending
 
     def _check_request_finished(self, req: InferenceRequest, token_id: int) -> bool:

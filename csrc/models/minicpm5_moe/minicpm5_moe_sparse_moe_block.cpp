@@ -39,7 +39,7 @@ infinicore::Tensor MiniCPM5MoESparseMoeBlock::forward(
 
     auto [routing_weights, selected_experts] = gate_->forward(flattened);
     // Fold routed_scaling into topk weights (M×topk) instead of mul_scalar on
-    // the full hidden [B,S,H] — Denglin ATen mul_Scalar OORs on long prefill.
+    // the full hidden [B,S,H] — dl ATen mul_Scalar OORs on long prefill.
     if (routed_scaling_factor_ != 1.0f) {
         routing_weights = infinicore::op::mul_scalar(routing_weights, routed_scaling_factor_);
     }
