@@ -44,6 +44,18 @@ opt-out settings for execution-shape comparisons.
 
 ## Regression commands
 
+Use the formatter versions pinned by `.github/workflows/ci_test.yml`:
+`clang-format==21.1.8` and `ruff==0.15.20`. Host checks do not require a native
+extension or CUDA device:
+
+```sh
+python scripts/format.py --ref origin/main --check
+python -m unittest discover -s test/scripts -p test_base_config_device_detection.py -v
+```
+
+The CUDA tests below are opt-in. A skipped default run does not qualify a GPU
+configuration; set the opt-in flag and expose the requested number of devices.
+
 Build the native targets using the pinned InfiniCore prefix:
 
 ```sh
