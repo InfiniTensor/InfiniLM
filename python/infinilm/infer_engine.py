@@ -80,10 +80,15 @@ class _PagedDecodeMetadataBuffers:
 
 
 def _apply_torch_dtype_defaults(config: dict) -> dict:
+    text_config = config.get("text_config")
+    if isinstance(text_config, dict):
+        _apply_torch_dtype_defaults(text_config)
     if config.get("torch_dtype") is None:
-        config["torch_dtype"] = config.get("dtype") or _MODEL_DEFAULTS.get(
-            config.get("model_type"), {}
-        ).get("torch_dtype")
+        config["torch_dtype"] = (
+            config.get("dtype")
+            or (text_config.get("torch_dtype") if isinstance(text_config, dict) else None)
+            or _MODEL_DEFAULTS.get(config.get("model_type"), {}).get("torch_dtype")
+        )
     return config
 
 
