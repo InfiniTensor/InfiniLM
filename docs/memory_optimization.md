@@ -84,6 +84,22 @@ The external case format is a JSON list containing `dataset`, `index`, `id`,
 `prompt`, `token_ids`, `token_count`, `answers`, and `max_tokens`.
 No dataset, checkpoint, server address, or hardware identifier is bundled.
 
+Compare completed native captures on CPU, with NumPy and no model/CUDA:
+
+```sh
+python test/bench/compare_qwen3_memory_quality.py \
+  --control control.json --optimized optimized.json \
+  --require-identical-tokens --result comparison.json
+python -m unittest discover -s test/scripts -p test_memory_quality_comparison.py -v
+```
+
+Keep each JSON next to its same-stem NPZ. The comparison rejects incomplete or
+mismatched captures, missing logit vectors, invalid shapes, and nonfinite values.
+Numerical acceptance requires relative L2 below 0.02 and cosine above 0.999.
+Greedy token differences are reported separately; the optional strict flag also
+requires identical generated IDs. This check covers the first-generation logit
+vector and generated IDs, not all decode logits or cross-engine equivalence.
+
 ## Capacity and profiling
 
 Choose the global KV pool from the total simultaneously resident token budget.

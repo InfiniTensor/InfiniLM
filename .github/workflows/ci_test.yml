@@ -24,6 +24,7 @@ jobs:
       - name: Run selected host checks
         run: |
           python -m unittest discover -s test/scripts -p "test_base_config_device_detection.py" -v
+          python -m unittest discover -s test/scripts -p "test_memory_quality_comparison.py" -v
 
   check-format:
     name: Check Format
