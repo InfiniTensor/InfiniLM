@@ -4,6 +4,8 @@
 
 本项目是基于 [`InfiniCore`](https://github.com/InfiniTensor/InfiniCore) 的推理引擎。
 
+当前版本依赖[`InfiniCore v0.2.9`](https://github.com/InfiniTensor/InfiniCore/releases/tag/v0.2.9)版本。
+
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
 编译并安装 `InfiniCore`， 详情见 InfiniCore的 [`README`](https://github.com/InfiniTensor/InfiniCore) :
