@@ -397,15 +397,19 @@ class LLMEngine:
             if req.is_finished():
                 break
             if token_id < 0 or token_id >= vocab_size:
+                # Do not map to EOS — that aborts ignore_eos perf runs early.
+                # Fold into-vocab so decode/CB can continue; root-cause is
+                # batched sample extraction on QY (tracked separately).
+                mapped = int(token_id) % vocab_size
                 logger.error(
                     "Out-of-range sampled token_id=%s for request %s (vocab=%s); "
-                    "clamping to eos/0",
+                    "mapped to %s",
                     token_id,
                     req.request_id,
                     vocab_size,
+                    mapped,
                 )
-                eos = self.eos_token_ids[0] if self.eos_token_ids else 0
-                token_id = int(eos) if 0 <= int(eos) < vocab_size else 0
+                token_id = mapped
             req.append_generated_token_id(token_id)
             num_appended_tokens += 1
             pending_tokens = req.generated_token_ids[req._token_decode_offset :]
