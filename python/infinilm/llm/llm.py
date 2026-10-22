@@ -388,9 +388,9 @@ class LLMEngine:
             num_computed_output_tokens = 0
             token_ids = [int(token_ids)]
 
-        vocab_size = getattr(self.tokenizer, "vocab_size", None)
-        if not isinstance(vocab_size, int) or vocab_size <= 0:
-            vocab_size = len(self.tokenizer)
+        # Prefer len(tokenizer): HF vocab_size often excludes added tokens
+        # (MiniCPM5: vocab_size=130072 vs len=130560 == model config).
+        vocab_size = len(self.tokenizer)
 
         num_appended_tokens = 0
         for token_id in token_ids:
@@ -399,12 +399,13 @@ class LLMEngine:
             if token_id < 0 or token_id >= vocab_size:
                 logger.error(
                     "Out-of-range sampled token_id=%s for request %s (vocab=%s); "
-                    "clamping to 0",
+                    "clamping to eos/0",
                     token_id,
                     req.request_id,
                     vocab_size,
                 )
-                token_id = 0
+                eos = self.eos_token_ids[0] if self.eos_token_ids else 0
+                token_id = int(eos) if 0 <= int(eos) < vocab_size else 0
             req.append_generated_token_id(token_id)
             num_appended_tokens += 1
             pending_tokens = req.generated_token_ids[req._token_decode_offset :]
