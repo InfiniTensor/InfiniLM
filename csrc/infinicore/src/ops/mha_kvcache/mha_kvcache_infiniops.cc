@@ -45,7 +45,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
          && device_type != Device::Type::kHygon
-         && device_type != Device::Type::kAscend)
+         && device_type != Device::Type::kAscend
+         && device_type != Device::Type::kQy)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -119,9 +120,11 @@ struct PlannedMeta {
 
 std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     PlannedMeta &planned) {
+    const auto device_type = planned.q.device.type();
+    const auto implementation_index = implementation_index_for_device(device_type);
     const auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(
-        infini::ops::Device::Type::kNvidia, 16);
+        device_type, implementation_index);
 
     const auto q = planned.q.tensor(planned.q_tensor);
     const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);
@@ -323,6 +326,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kAscend, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kAscend, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kAscend, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kQy, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kQy, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kQy, &cleanup);
     return true;
 }();
 

@@ -17,7 +17,26 @@ class SentencePieceProcessor(BasicLLMProcessor):
         self._fix_tokenizer_decode(self.tokenizer)
 
     @staticmethod
+    def _uses_sentencepiece_metaspace(tokenizer) -> bool:
+        """True for SentencePiece Metaspace (▁ pieces), false for ByteLevel (Ġ)."""
+        vocab = tokenizer.get_vocab()
+        return any(token.startswith("▁") for token in vocab)
+
+    @staticmethod
     def _fix_tokenizer_decode(tokenizer):
+        """Fix leading space loss when tokenizer decodes incrementally.
+
+        ByteLevel tokenizers (MiniCPM5 sidecar ``tokenizer_bytelevel``) must
+        keep the native ``decode()`` so GPT-2 byte-unicode pieces become UTF-8.
+        Joining ``convert_ids_to_tokens`` leaves Chinese as mojibake (e.g. 二).
+        """
+        if not SentencePieceProcessor._uses_sentencepiece_metaspace(tokenizer):
+            return
+
+        SentencePieceProcessor._patch_metaspace_decode(tokenizer)
+
+    @staticmethod
+    def _patch_metaspace_decode(tokenizer):
         """Fix leading space loss when tokenizer decodes incrementally.
 
         Problem: Fast tokenizer's Rust backend trims leading spaces derived
@@ -78,6 +97,7 @@ class MistralProcessor(SentencePieceProcessor):
 
 @register_processor("minicpm")
 @register_processor("minicpm4")
+@register_processor("minicpm5_moe")
 class MiniCPMProcessor(SentencePieceProcessor):
     pass
 

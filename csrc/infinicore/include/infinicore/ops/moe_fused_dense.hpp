@@ -7,6 +7,8 @@
 
 namespace infinicore::op {
 
+// Capture-safe for QY full_and_piecewise (vLLM / pre-refactor InfiniLM proven).
+// Impls skip host sync while the stream is capturing (see sync_unless_capturing).
 INFINICORE_GRAPH_OP_CLASS(MoeFusedDense,
                           Tensor,
                           const Tensor &,

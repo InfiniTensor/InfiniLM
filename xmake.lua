@@ -1,6 +1,20 @@
-add_requires("pybind11")
-if is_plat("linux") then
-    add_requireconfs("pybind11.python", { configs = { headeronly = true } })
+-- Prefer pip/system pybind11 to avoid xmake-repo network fetches in offline containers.
+local PYBIND11_INCLUDE = os.getenv("PYBIND11_INCLUDE")
+if not PYBIND11_INCLUDE or PYBIND11_INCLUDE == "" then
+    local ok, out = pcall(function()
+        return os.iorunv(os.getenv("PYTHON") or "python3", {
+            "-c", "import pybind11; print(pybind11.get_include())"
+        })
+    end)
+    if ok and out and out:trim() ~= "" then
+        PYBIND11_INCLUDE = out:trim()
+    end
+end
+if not PYBIND11_INCLUDE or PYBIND11_INCLUDE == "" then
+    add_requires("pybind11")
+    if is_plat("linux") then
+        add_requireconfs("pybind11.python", { configs = { headeronly = true } })
+    end
 end
 
 local INFINI_ROOT = os.getenv("INFINI_ROOT") or (os.getenv(is_host("windows") and "HOMEPATH" or "HOME") .. "/.infini")
@@ -15,6 +29,24 @@ local MUSA_ROOT =
 local OPERATOR_CALLS_HEADER = INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"
 
 set_toolchains("gcc")
+
+-- Fallback when xmake python plugin / network repos are unavailable.
+rule("python.module")
+    on_config(function (target)
+        target:set("kind", "shared")
+        target:set("prefixname", "")
+        local suffix = try {
+            function ()
+                return os.iorunv(os.getenv("PYTHON") or "python3", {
+                    "-c", "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX') or '')"
+                }):trim()
+            end
+        }
+        if suffix and suffix ~= "" and suffix ~= "None" then
+            target:set("extension", suffix)
+        end
+    end)
+rule_end()
 
 option("cxx11-abi")
     set_default(nil)
@@ -50,11 +82,18 @@ if os.isdir(MUSA_ROOT .. "/include") then
     add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")
 end
 
+local QY_SDK_PRESENT = os.getenv("QY_ROOT") or os.getenv("QY_HOME") or os.getenv("QY_PATH")
+    or os.isdir("/usr/local/denglin/sdk") or os.isdir("/usr/local/dlgpu/sdk")
+
 target("infinicore_runtime")
     set_default(false)
     set_kind("shared")
     set_languages("cxx17")
     add_defines("ENABLE_INFINIOPS_API", "USE_INFINIRT_GRAPH")
+    -- Denglin QY: CUDA-compatible streams + ATen bridge for `_dl_C` MoE.
+    if QY_SDK_PRESENT then
+        add_defines("ENABLE_QY_API", "ENABLE_ATEN")
+    end
 
     if not is_plat("windows") then
         add_cxflags("-fPIC")
@@ -75,6 +114,7 @@ target("infinicore_runtime")
     add_links("infiniops", "infiniccl", "infinirt", { public = true })
 
     add_files("csrc/infinicore/src/*.cc")
+    add_files("csrc/infinicore/src/adaptor/*.cc")
     add_files("csrc/infinicore/src/context/*.cc")
     add_files("csrc/infinicore/src/context/*/*.cc")
     add_files("csrc/infinicore/src/graph/*.cc")
@@ -91,6 +131,39 @@ target("infinicore_runtime")
     remove_files("csrc/infinicore/src/ops/*/*_moore.cc")
 
     on_load(function (target)
+        if QY_SDK_PRESENT then
+            local python = os.getenv("PYTHON") or "python3"
+            local torch_dir = try {
+                function ()
+                    return os.iorunv(python, {"-c", "import torch, os; print(os.path.dirname(torch.__file__))"}):trim()
+                end
+            }
+            if torch_dir and torch_dir ~= "" then
+                target:add("includedirs",
+                    path.join(torch_dir, "include"),
+                    path.join(torch_dir, "include/torch/csrc/api/include"),
+                    { public = true })
+                target:add("linkdirs", path.join(torch_dir, "lib"), { public = true })
+                target:add("rpathdirs", path.join(torch_dir, "lib"))
+                target:add("links",
+                    "torch", "torch_cpu", "torch_cuda", "torch_python",
+                    "c10", "c10_cuda",
+                    { public = true })
+            end
+            local qy_root = os.getenv("QY_ROOT") or os.getenv("QY_HOME") or os.getenv("QY_PATH")
+            if (not qy_root or qy_root == "") and os.isdir("/usr/local/dlgpu/sdk") then
+                qy_root = "/usr/local/dlgpu"
+            end
+            if (not qy_root or qy_root == "") and os.isdir("/usr/local/denglin/sdk") then
+                qy_root = "/usr/local/denglin"
+            end
+            if qy_root and os.isdir(qy_root .. "/sdk/include") then
+                target:add("includedirs", qy_root .. "/sdk/include", { public = true })
+                target:add("linkdirs", qy_root .. "/sdk/lib", { public = true })
+                target:add("links", "curt", { public = true })
+            end
+        end
+
         if not os.isfile(OPERATOR_CALLS_HEADER) then
             return
         end
@@ -124,7 +197,11 @@ target("infinicore_runtime")
 target_end()
 
 target("_infinicore")
-    add_packages("pybind11")
+    if PYBIND11_INCLUDE and PYBIND11_INCLUDE ~= "" then
+        add_includedirs(PYBIND11_INCLUDE)
+    else
+        add_packages("pybind11")
+    end
     set_default(false)
     add_rules("python.module", { soabi = true })
     set_languages("cxx17")
@@ -150,7 +227,11 @@ target("_infinicore")
 target_end()
 
 target("_infinilm")
-    add_packages("pybind11")
+    if PYBIND11_INCLUDE and PYBIND11_INCLUDE ~= "" then
+        add_includedirs(PYBIND11_INCLUDE)
+    else
+        add_packages("pybind11")
+    end
     set_default(false)
     add_rules("python.module", { soabi = true })
     set_languages("cxx17")
@@ -178,6 +259,7 @@ target("_infinilm")
     add_files("csrc/models/internlm3/*.cpp")
     add_files("csrc/models/llama/*.cpp")
     add_files("csrc/models/minicpm4/*.cpp")
+    add_files("csrc/models/minicpm5_moe/*.cpp")
     add_files("csrc/models/minicpm_eagle/*.cpp")
     add_files("csrc/models/qwen2/*.cpp")
     add_files("csrc/models/qwen3/*.cpp")

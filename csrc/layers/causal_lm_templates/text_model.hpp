@@ -2,7 +2,9 @@
 
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "../../models/infinilm_model.hpp"
+#include "../../utils.hpp"
 #include "infinicore/nn/embedding.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
@@ -129,6 +131,106 @@ public:
         }
         return embed_tokens_->forward(input_ids);
     }
+
+    size_t num_layers() const { return layers_.size(); }
+
+    void piecewise_embed(const infinilm::InfinilmModel::Input &input,
+                         infinicore::Tensor &hidden_states) const {
+        auto &piecewise = infinilm::global_state::get_forward_context().piecewise;
+        const size_t bucket = hidden_states->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : bucket;
+        auto embedded = embed_tokens_->forward(input.input_ids.value());
+        hidden_states->narrow({{1, 0, valid_len}})->copy_from(embedded->narrow({{1, 0, valid_len}}));
+        if (valid_len < bucket) {
+            auto tail = hidden_states->narrow({{1, valid_len, bucket - valid_len}});
+            set_zeros(tail);
+        }
+    }
+
+    void piecewise_pre_attn_layer(size_t layer_idx,
+                                  const infinilm::InfinilmModel::Input &input,
+                                  infinicore::Tensor &hidden_states,
+                                  infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn(
+            input.position_ids.value(), hidden_states, residual, staging);
+    }
+
+    void piecewise_pre_attn_qkv_layer(size_t layer_idx,
+                                      const infinilm::InfinilmModel::Input &input,
+                                      infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn_qkv(
+            input.position_ids.value(), hidden_states, residual, staging);
+    }
+
+    void piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                       const infinilm::InfinilmModel::Input &input) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_pre_attn_rope(input.position_ids.value(), staging);
+    }
+
+    void piecewise_eager_attn_layer(size_t layer_idx,
+                                    const infinilm::InfinilmModel::Input &input) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_eager_attn(input.position_ids.value(), staging);
+    }
+
+    void piecewise_post_attn_layer(size_t layer_idx,
+                                   const infinilm::InfinilmModel::Input &,
+                                   infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_cg_layer(size_t layer_idx,
+                                      const infinilm::InfinilmModel::Input &,
+                                      infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_decode_cg_layer(size_t layer_idx,
+                                             const infinilm::InfinilmModel::Input &,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn_decode_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_eager_moe_layer(size_t layer_idx,
+                                   const infinilm::InfinilmModel::Input &,
+                                   infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_eager_moe(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_graph_layer(size_t layer_idx,
+                                         const infinilm::InfinilmModel::Input &,
+                                         infinicore::Tensor &hidden_states,
+                                         infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn_graph(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_allreduce_layer(size_t layer_idx,
+                                             const infinilm::InfinilmModel::Input &,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const {
+        auto &staging = infinilm::global_state::get_forward_context().piecewise.layer_staging.at(layer_idx);
+        layers_.at(layer_idx)->piecewise_post_attn_allreduce(hidden_states, residual, staging);
+    }
+
+    infinicore::Tensor piecewise_lm_head(infinicore::Tensor &hidden_states,
+                                         infinicore::Tensor &residual) const {
+        norm_->forward_inplace(hidden_states, residual);
+        return hidden_states;
+    }
+
 
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);

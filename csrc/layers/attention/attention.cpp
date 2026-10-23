@@ -139,6 +139,170 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     return output;
 }
 
+void Attention::forward_pre_attn_qkv_piecewise(const infinicore::Tensor &,
+                                               const infinicore::Tensor &hidden_states,
+                                               global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    auto hidden_states_mutable = hidden_states;
+    auto shape = hidden_states->shape();
+    size_t batch_size = shape[0];
+    size_t seq_len = shape[1];
+    ASSERT_EQ(batch_size, 1);
+
+    auto [q, k, v] = qkv_proj_->forward_split(hidden_states_mutable);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto q_heads = q->view({1, seq_len, num_attention_heads_, head_dim_});
+    auto k_heads = k->view({1, seq_len, num_key_value_heads_, head_dim_});
+    auto v_heads = v->view({1, seq_len, num_key_value_heads_, head_dim_});
+
+    if (valid_len < seq_len) {
+        staging.q_rope->narrow({{1, 0, valid_len}})->copy_from(q_heads->narrow({{1, 0, valid_len}}));
+        staging.k_rope->narrow({{1, 0, valid_len}})->copy_from(k_heads->narrow({{1, 0, valid_len}}));
+        staging.v_rope->narrow({{1, 0, valid_len}})->copy_from(v_heads->narrow({{1, 0, valid_len}}));
+        auto q_tail = staging.q_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto k_tail = staging.k_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        auto v_tail = staging.v_rope->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(q_tail);
+        set_zeros(k_tail);
+        set_zeros(v_tail);
+    } else {
+        staging.q_rope->copy_from(q_heads);
+        staging.k_rope->copy_from(k_heads);
+        staging.v_rope->copy_from(v_heads);
+    }
+}
+
+void Attention::forward_pre_attn_rope_piecewise(const infinicore::Tensor &position_ids,
+                                                global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.q_rope->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+    const bool addr_stable = infinicore::context::isGraphRecording()
+        || piecewise.compile_capture_active;
+
+    auto pos_shape = position_ids->shape();
+    infinicore::Tensor pos_ids_for_rope = position_ids;
+    if (pos_shape.size() == 2) {
+        auto pos_narrowed = position_ids->narrow({{0, 0, 1}});
+        if (addr_stable) {
+            pos_ids_for_rope = pos_narrowed->view({pos_shape[1]});
+        } else {
+            pos_ids_for_rope = pos_narrowed->contiguous()->view({pos_shape[1]});
+        }
+    } else if (pos_shape.size() == 1) {
+        if (!addr_stable && !position_ids->is_contiguous()) {
+            pos_ids_for_rope = position_ids->contiguous();
+        }
+    } else {
+        throw std::runtime_error("Attention: Unexpected position_ids shape");
+    }
+    if (pos_ids_for_rope->size(0) > valid_len) {
+        auto narrowed = pos_ids_for_rope->narrow({{0, 0, valid_len}});
+        if (addr_stable) {
+            if (!narrowed->is_contiguous()) {
+                throw std::runtime_error(
+                    "Attention::forward_pre_attn_rope_piecewise: "
+                    "position_ids narrow not contiguous under graph recording");
+            }
+            pos_ids_for_rope = narrowed;
+        } else {
+            pos_ids_for_rope = narrowed->contiguous();
+        }
+    }
+
+    auto q_rope = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k_rope = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    if (!q_rope->is_contiguous()) {
+        if (addr_stable) {
+            throw std::runtime_error(
+                "Attention::forward_pre_attn_rope_piecewise: "
+                "q_rope not contiguous under graph recording");
+        }
+        q_rope = q_rope->contiguous();
+    }
+    if (!k_rope->is_contiguous()) {
+        if (addr_stable) {
+            throw std::runtime_error(
+                "Attention::forward_pre_attn_rope_piecewise: "
+                "k_rope not contiguous under graph recording");
+        }
+        k_rope = k_rope->contiguous();
+    }
+    rotary_emb_->forward(q_rope, pos_ids_for_rope, true);
+    rotary_emb_->forward(k_rope, pos_ids_for_rope, true);
+}
+
+void Attention::forward_pre_attn_piecewise(const infinicore::Tensor &position_ids,
+                                           const infinicore::Tensor &hidden_states,
+                                           global_state::PiecewiseLayerStaging &staging) const {
+    forward_pre_attn_qkv_piecewise(position_ids, hidden_states, staging);
+    forward_pre_attn_rope_piecewise(position_ids, staging);
+}
+
+void Attention::forward_eager_attn_piecewise(const infinicore::Tensor &,
+                                             global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.q_rope->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+
+    auto q = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto k = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    auto v = staging.v_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
+    if (!q->is_contiguous()) {
+        q = q->contiguous();
+    }
+    if (!k->is_contiguous()) {
+        k = k->contiguous();
+    }
+    if (!v->is_contiguous()) {
+        v = v->contiguous();
+    }
+
+    auto attn_output = attn_->forward(q, k, v);
+    if (valid_len < seq_len) {
+        staging.attn_output->narrow({{1, 0, valid_len}})->copy_from(attn_output->narrow({{1, 0, valid_len}}));
+        auto attn_tail = staging.attn_output->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(attn_tail);
+    } else {
+        staging.attn_output->copy_from(attn_output);
+    }
+}
+
+void Attention::forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                                 global_state::PiecewiseLayerStaging &staging) const {
+    forward_post_attn_piecewise_graph_into(hidden_states, staging);
+    forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+}
+
+void Attention::forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
+                                                       global_state::PiecewiseLayerStaging &staging) const {
+    // Dest RowParallelLinear has no matmul-only/allreduce split; reuse fused path.
+    forward_post_attn_piecewise_cg_into(hidden_states, staging);
+}
+
+void Attention::forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_states,
+                                                    global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = staging.attn_output->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+    auto hidden_narrow = hidden_states->narrow({{1, 0, valid_len}});
+    auto attn_for_proj = staging.attn_output->narrow({{1, 0, valid_len}});
+    auto projected = o_proj_->forward(attn_for_proj);
+    hidden_narrow->copy_from(projected);
+    if (valid_len < seq_len) {
+        auto hidden_tail = hidden_states->narrow({{1, valid_len, seq_len - valid_len}});
+        set_zeros(hidden_tail);
+    }
+}
+
+void Attention::forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                           global_state::PiecewiseLayerStaging &staging) const {
+    (void)hidden_states;
+    (void)staging;
+    // TP>1 deferred allreduce not ported on post-refactor RowParallelLinear.
+}
+
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
                                 const infinicore::Device &device,
                                 infinicore::nn::Parameter &kv_cache_k_scale,

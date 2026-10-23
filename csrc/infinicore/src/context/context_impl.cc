@@ -4,8 +4,11 @@
 #include "../utils.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <stdexcept>
+#include <string>
 #include <utility>
 
 namespace infinicore {
@@ -20,6 +23,7 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
     Device::Type::kIluvatar,
     Device::Type::kHygon,
     Device::Type::kThead,
+    Device::Type::kQy,
     Device::Type::kCpu,
 };
 
@@ -237,6 +241,7 @@ ContextImpl::ContextImpl() {
     initializeDeviceType<Device::Type::kIluvatar>();
     initializeDeviceType<Device::Type::kHygon>();
     initializeDeviceType<Device::Type::kThead>();
+    initializeDeviceType<Device::Type::kQy>();
 
     const bool has_runtime = std::any_of(
         runtime_table_.begin(), runtime_table_.end(),
@@ -363,6 +368,180 @@ std::shared_ptr<graph::Graph> stopGraphRecording() {
 
 void cancelGraphRecording() noexcept {
     ContextImpl::singleton().cancelGraphRecording();
+}
+
+const char *cudagraphPolicy() {
+    const char *v = std::getenv("INFINI_CUDAGRAPH_POLICY");
+    if (v == nullptr || v[0] == '\0') {
+        return "";
+    }
+    const std::string s(v);
+    if (s == "eager") {
+        return "eager";
+    }
+    if (s == "full_and_piecewise") {
+        return "full_and_piecewise";
+    }
+    // Reject unknown values — fall back to legacy (empty).
+    return "";
+}
+
+bool deviceGraphSegmentsEnabled() {
+    // Kill-switch always wins (diagnostic escape hatch).
+    if (std::getenv("INFINICORE_DISABLE_DEVICE_GRAPH_SEGMENTS") != nullptr) {
+        return false;
+    }
+    const char *policy = cudagraphPolicy();
+    if (std::strcmp(policy, "eager") == 0) {
+        return false;
+    }
+    // full_and_piecewise and empty/legacy → enable segmented device graphs.
+    return true;
+}
+
+namespace {
+thread_local InferencePhase g_inference_phase = InferencePhase::Unknown;
+
+bool env_truthy_(const char *name) {
+    const char *v = std::getenv(name);
+    return v != nullptr && v[0] != '\0' && std::string(v) != "0"
+        && std::strcmp(v, "false") != 0 && std::strcmp(v, "no") != 0
+        && std::strcmp(v, "off") != 0;
+}
+
+void warn_once_(bool &flag, const char *msg) {
+    if (flag) {
+        return;
+    }
+    flag = true;
+    spdlog::warn("{}", msg);
+}
+
+enum class MoeIngraphMode : uint8_t { Off = 0, Decode, Prefill, Both };
+
+MoeIngraphMode moeIngraphMode_() {
+    const char *raw = std::getenv("INFINI_MOE_INGRAPH");
+    if (raw != nullptr && raw[0] != '\0') {
+        std::string s(raw);
+        for (char &c : s) {
+            if (c >= 'A' && c <= 'Z') {
+                c = static_cast<char>(c - 'A' + 'a');
+            }
+        }
+        if (s == "off" || s == "0" || s == "false" || s == "no") {
+            return MoeIngraphMode::Off;
+        }
+        if (s == "decode") {
+            return MoeIngraphMode::Decode;
+        }
+        if (s == "prefill") {
+            return MoeIngraphMode::Prefill;
+        }
+        if (s == "both") {
+            return MoeIngraphMode::Both;
+        }
+        static bool unknown_warned = false;
+        warn_once_(unknown_warned,
+                   "INFINI_MOE_INGRAPH has unknown value (expected "
+                   "off|decode|prefill|both); treating as off");
+        return MoeIngraphMode::Off;
+    }
+    if (env_truthy_("INFINI_MOE_FORCE_CAPTURE")
+        || env_truthy_("INFINI_MOE_TRITON_CAPTURE")) {
+        static bool legacy_warned = false;
+        warn_once_(
+            legacy_warned,
+            "INFINI_MOE_FORCE_CAPTURE / INFINI_MOE_TRITON_CAPTURE are deprecated; "
+            "shim to INFINI_MOE_INGRAPH=decode");
+        return MoeIngraphMode::Decode;
+    }
+    return MoeIngraphMode::Off;
+}
+
+enum class FaIngraphMode : uint8_t { Off = 0, Decode, Both };
+
+FaIngraphMode faIngraphMode_() {
+    const char *raw = std::getenv("INFINI_FA_INGRAPH");
+    if (raw != nullptr && raw[0] != '\0') {
+        std::string s(raw);
+        for (char &c : s) {
+            if (c >= 'A' && c <= 'Z') {
+                c = static_cast<char>(c - 'A' + 'a');
+            }
+        }
+        if (s == "off" || s == "0" || s == "false" || s == "no") {
+            return FaIngraphMode::Off;
+        }
+        if (s == "decode") {
+            return FaIngraphMode::Decode;
+        }
+        if (s == "both" || s == "1" || s == "true" || s == "yes" || s == "on") {
+            return FaIngraphMode::Both;
+        }
+        static bool unknown_warned = false;
+        warn_once_(unknown_warned,
+                   "INFINI_FA_INGRAPH has unknown value (expected "
+                   "off|decode|both); treating as off");
+        return FaIngraphMode::Off;
+    }
+    if (env_truthy_("INFINI_FA_FORCE_CAPTURE")) {
+        static bool warned = false;
+        warn_once_(
+            warned,
+            "INFINI_FA_FORCE_CAPTURE is deprecated; use "
+            "INFINI_FA_INGRAPH=decode (product) or both/1 (Prefill+Decode)");
+        return FaIngraphMode::Both;
+    }
+    // Product full_and_piecewise defaults to decode (FULL segs≈1; prefill FA HB).
+    if (std::strcmp(cudagraphPolicy(), "full_and_piecewise") == 0) {
+        return FaIngraphMode::Decode;
+    }
+    return FaIngraphMode::Off;
+}
+} // namespace
+
+void setInferencePhase(InferencePhase phase) {
+    g_inference_phase = phase;
+}
+
+InferencePhase getInferencePhase() {
+    return g_inference_phase;
+}
+
+bool faInGraphAllowed() {
+    const FaIngraphMode mode = faIngraphMode_();
+    const InferencePhase phase = getInferencePhase();
+    switch (mode) {
+    case FaIngraphMode::Off:
+        return false;
+    case FaIngraphMode::Decode:
+        return phase == InferencePhase::Decode;
+    case FaIngraphMode::Both:
+        return phase == InferencePhase::Prefill || phase == InferencePhase::Decode;
+    }
+    return false;
+}
+
+bool moeTritonCaptureAllowed() {
+    if (env_truthy_("INFINI_MOE_FORCE_HOST_BREAK")) {
+        return false;
+    }
+    if (std::strcmp(cudagraphPolicy(), "eager") == 0) {
+        return false;
+    }
+    const MoeIngraphMode mode = moeIngraphMode_();
+    const InferencePhase phase = getInferencePhase();
+    switch (mode) {
+    case MoeIngraphMode::Off:
+        return false;
+    case MoeIngraphMode::Decode:
+        return phase == InferencePhase::Decode;
+    case MoeIngraphMode::Prefill:
+        return phase == InferencePhase::Prefill;
+    case MoeIngraphMode::Both:
+        return phase == InferencePhase::Prefill || phase == InferencePhase::Decode;
+    }
+    return false;
 }
 
 std::shared_ptr<Memory> reinstantiateBlob(std::shared_ptr<Memory> blob) {

@@ -7,7 +7,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <sstream>
 #include <vector>
+
+#include <spdlog/spdlog.h>
 
 namespace infinicore::op::mha_varlen_impl::infiniops {
 namespace {
@@ -47,7 +50,8 @@ bool is_supported(const Tensor &out,
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
          && device_type != Device::Type::kHygon
-         && device_type != Device::Type::kAscend)
+         && device_type != Device::Type::kAscend
+         && device_type != Device::Type::kQy)
         || q->ndim() != 3
         || out->ndim() != 3
         || ((paged && (k->ndim() != 4 || v->ndim() != 4))
@@ -144,6 +148,40 @@ void *plan(Tensor out,
            int max_seqlen_k,
            std::optional<Tensor> alibi_slopes,
            float scale) {
+    // Piecewise / paged paths often pass a non-contiguous block_table view
+    // (e.g. shape [1,1] prefix of a wider bank). InfiniOps FA requires contig.
+    if (block_table.has_value() && block_table.value()
+        && !block_table.value()->is_contiguous()) {
+        block_table = block_table.value()->contiguous();
+    }
+    if (!is_supported(
+            out, q, k, v, cum_seqlens_q, cum_seqlens_k, block_table,
+            max_seqlen_q, max_seqlen_k, alibi_slopes)) {
+        auto shape_str = [](const Tensor &t) {
+            std::ostringstream oss;
+            oss << "ndim=" << t->ndim() << " shape=[";
+            for (size_t i = 0; i < t->ndim(); ++i) {
+                if (i) oss << ',';
+                oss << t->size(i);
+            }
+            oss << "] contig=" << t->is_contiguous()
+                << " dtype=" << static_cast<int>(t->dtype());
+            return oss.str();
+        };
+        spdlog::error(
+            "mha_varlen is_supported failed: max_q={} max_k={} q({}) k({}) v({}) "
+            "out({}) cu_q({}) cu_k({}) bt({}) device={}",
+            max_seqlen_q,
+            max_seqlen_k,
+            shape_str(q),
+            shape_str(k),
+            shape_str(v),
+            shape_str(out),
+            shape_str(cum_seqlens_q),
+            shape_str(cum_seqlens_k),
+            block_table ? shape_str(*block_table) : "null",
+            static_cast<int>(out->device().type()));
+    }
     INFINICORE_ASSERT(is_supported(
         out, q, k, v, cum_seqlens_q, cum_seqlens_k, block_table,
         max_seqlen_q, max_seqlen_k, alibi_slopes));
@@ -266,6 +304,12 @@ static bool registered = []() {
         Device::Type::kAscend, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kAscend, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kQy, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kQy, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kQy, &cleanup);
     return true;
 }();
 

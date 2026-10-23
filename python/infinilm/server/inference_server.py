@@ -15,6 +15,7 @@ from typing import Optional
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+
 from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
@@ -23,7 +24,8 @@ from infinilm.moe_config import configure_moe_ep_backend
 logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+# Long-prefill adapting (CPU RoPE + Q-chunked attn) can exceed 1000s at ~4–7k.
+DEFAULT_REQUEST_TIMEOUT = 7200.0
 
 
 def chunk_json(
@@ -193,6 +195,12 @@ class InferenceServer:
 
     def start(self):
         """Start the HTTP server."""
+        try:
+            from infinilm.compile.env import apply_cudagraph_policy_env
+
+            apply_cudagraph_policy_env()
+        except Exception as exc:  # noqa: BLE001 — best-effort policy expand
+            logger.debug("apply_cudagraph_policy_env skipped: %s", exc)
         app = self._create_app()
         logger.info(f"Starting API Server at {self.host}:{self.port}...")
         uvicorn.run(app, host=self.host, port=self.port)

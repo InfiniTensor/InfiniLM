@@ -42,10 +42,11 @@ class CoreGraphSyncTest(unittest.TestCase):
             self.assertIn(contract, header)
 
         warmup = instantiate.index("for (size_t iter = 0; iter < 5; ++iter)")
-        disable = instantiate.index("INFINICORE_DISABLE_DEVICE_GRAPH_SEGMENTS")
+        policy = instantiate.index("deviceGraphSegmentsEnabled")
         partition = instantiate.index("op->is_device_graph_capture_safe()")
-        self.assertLess(warmup, disable)
-        self.assertLess(disable, partition)
+        self.assertLess(warmup, policy)
+        self.assertLess(policy, partition)
+        self.assertIn("INFINI_CUDAGRAPH_POLICY", instantiate)
         self.assertIn("segments_.back()->ops.push_back(op)", instantiate)
         self.assertIn("if (!segment->capture_safe)", instantiate)
         self.assertIn("segment->run()", instantiate)
@@ -55,7 +56,16 @@ class CoreGraphSyncTest(unittest.TestCase):
         self.assertIn("host_segments", instantiate)
 
         self.assertIn("if (segments_.empty())", run)
-        self.assertIn("segment->run()", run)
+        self.assertIn("last_run_profile_", run)
+        self.assertIn("graph_run_profile", run)
+        self.assertIn("has_device_exec()", run)
+
+        context_header = read_source(
+            "csrc/infinicore/include/infinicore/context/context.hpp"
+        )
+        self.assertIn("cudagraphPolicy()", context_header)
+        self.assertIn("deviceGraphSegmentsEnabled()", context_header)
+        self.assertIn("LastRunProfile", header)
 
     def test_segment_cleanup_keeps_runtime_and_allocation_leases_alive(self) -> None:
         header = read_source("csrc/infinicore/include/infinicore/graph/graph.hpp")

@@ -8,6 +8,7 @@
 
 namespace infinicore::op {
 
+// Capture-safe for QY full_and_piecewise; pack path skips sync under capture.
 INFINICORE_GRAPH_OP_CLASS(RoPE, Tensor, const Tensor &, const Tensor &, const Tensor &, const Tensor &, infinicore::nn::RoPE::Algo);
 
 // Internal
