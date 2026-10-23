@@ -1,9 +1,22 @@
-# Qwen3 inference memory
+# Inference memory management
 
-Paged KV storage uses exact-sized allocations instead of rounded reusable-pool
+Shared static and paged KV storage use exact-sized allocations instead of rounded reusable-pool
 size classes. Cache capacity changes drain the owner stream and trim idle,
 unpinned blocks before replacement. Live graph allocations retain their backing.
 The existing parameter allocation APIs remain available.
+
+These runtime/cache changes have no Qwen3, BF16, or TP2 enablement filter. They
+apply to model paths that call the shared static/paged KV factories and, for
+replacement reclamation, the default cache reset path. Custom state/cache
+allocators or overridden reset methods only inherit the parts they actually
+call. Existing backend/dtype/topology support still applies; this change does
+not add a missing device kernel or make an unsupported model configuration run.
+CPU and zero-byte allocations retain the ordinary allocation fallback.
+
+The model-execution optimizations below are separate. Their implementation uses
+shared layers/templates, but their current default enablement is explicitly
+restricted by `supports_qwen3_memory_optimization`. That is a code restriction,
+not a claim that other configurations merely lack benchmark results.
 
 For ordinary Qwen3 on NVIDIA, BF16 weights and KV, PP1, TP1/2, and `paged-attn`,
 prefill runs through the decoder in blocks of at most 4096 tokens. Each block
@@ -32,8 +45,10 @@ vocabulary sharding to `false` to retain replicated embedding/head weights.
 Disabling either optimization can increase memory requirements. Chunk size must
 be a nonnegative integer no larger than `INT32_MAX`; sharding must be a boolean.
 
-Other models, devices, FP16/FP32 model weights, quantized paths, PP>1, and TP>2
-retain their previous execution paths. Model-internal chunking also falls back
+For model-internal chunking and embedding/head sharding, other models, devices,
+FP16/FP32 model weights, quantized paths, PP>1, and TP>2 retain their previous
+execution paths. They can still use the shared exact KV allocation and default
+cache replacement improvements described above. Model-internal chunking also falls back
 for graph recording, visual inputs, NSA ownership, and target hidden states.
 This qualification scope does not certify every combination supported by the
 underlying framework.
@@ -120,8 +135,8 @@ embedding are separate follow-ups. This change does not introduce INT8 KV.
 
 The qualification machine used two A100 40 GB devices, ordinary Qwen3-32B,
 BF16 weights/KV, TP2 and PP1. Five native regression executables, the quantization
-configuration guard, ten unaffected raw-loading tests, and all three new CUDA
-regressions at each of TP1 and TP2 passed. The CUDA regressions use tiny random
+configuration guard, ten unaffected raw-loading tests, and the original three CUDA
+regressions at each of TP1 and TP2 passed in the earlier qualification. The CUDA regressions use tiny random
 weights; TP1 here does not mean a BF16 32B checkpoint fits on one 40 GB device.
 
 Six fixed complete documents from public LongBench QASPER/QMSum were tested with
@@ -175,3 +190,19 @@ matched the tested build. Timings include scheduler/generation work and are not
 per-kernel comparisons. The table demonstrates comparable residency, not a
 throughput advantage over vLLM. B16 graph residency remains about 0.422 GiB
 higher; graph bucket/workspace sharing is a separate follow-up.
+
+## Shared-path cross-model coverage
+
+The deterministic CUDA fixture also constructs Llama and Qwen2 models, including
+Qwen2 QKV biases, and exercises packed/mixed requests, existing KV, cache resets,
+and continuation at TP1 and TP2. Both model families keep replicated embedding
+and head weights even when the Qwen3 optimization flags are set. This checks
+shared-cache compatibility and real enablement boundaries, not pretrained-model
+quality or model-specific chunking/sharding support for those families.
+
+The added family-specific TP1/TP2 runs passed. The combined TP1 suite passed all
+four tests. A fresh combined TP2 run stalled in its original Qwen3 first case;
+an EAGER-module-loading attempt exited during NCCL initialization. Those attempts
+are recorded as unsuccessful, separately from the passing family-specific runs
+and the earlier Qwen3 TP2 qualification. The failure occurred before the new family
+branches ran; its root cause remains open.

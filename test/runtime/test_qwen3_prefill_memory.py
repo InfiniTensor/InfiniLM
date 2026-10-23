@@ -1,4 +1,4 @@
-"""Opt-in CUDA regressions for packed Qwen3 prefill and vocabulary sharding.
+"""Opt-in CUDA regressions for shared dense-model caches and Qwen3 prefill.
 
 Run with INFINILM_RUN_CUDA_TESTS=1 and one or two visible CUDA devices.
 INFINILM_TEST_TP_SIZE defaults to 2. No checkpoint or Torch is required.
@@ -35,11 +35,24 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             raise ValueError("This regression requires TP1 or TP2.")
 
     def make_engine(
-        self, directory, chunk, shard, fp32_head=False, vocab=256, hidden=512
+        self,
+        directory,
+        chunk,
+        shard,
+        fp32_head=False,
+        vocab=256,
+        hidden=512,
+        family="qwen3",
     ):
         config = {
-            "model_type": "qwen3",
-            "architectures": ["Qwen3ForCausalLM"],
+            "model_type": family,
+            "architectures": [
+                {
+                    "qwen3": "Qwen3ForCausalLM",
+                    "qwen2": "Qwen2ForCausalLM",
+                    "llama": "LlamaForCausalLM",
+                }[family]
+            ],
             "torch_dtype": "bfloat16",
             "hidden_size": hidden,
             "intermediate_size": 1024,
@@ -53,7 +66,7 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             "rms_norm_eps": 1e-6,
             "rope_theta": 1000000.0,
             "hidden_act": "silu",
-            "attention_bias": False,
+            "attention_bias": family == "qwen2",
             "tie_word_embeddings": False,
             "infinilm_prefill_chunk_size": chunk,
             "infinilm_tp_vocab_sharding": shard,
@@ -102,18 +115,26 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             }
             for name, shape in projections.items():
                 weights[prefix + name] = bf16(random.normal(0, 0.02, shape))
+            if family == "qwen2":
+                for name, size in (("q_proj", 512), ("k_proj", 256), ("v_proj", 256)):
+                    weights[prefix + f"self_attn.{name}.bias"] = bf16(np.zeros(size))
             for name, size in {
                 "input_layernorm.weight": hidden,
                 "post_attention_layernorm.weight": hidden,
                 "self_attn.q_norm.weight": 128,
                 "self_attn.k_norm.weight": 128,
             }.items():
+                if family != "qwen3" and name in (
+                    "self_attn.q_norm.weight",
+                    "self_attn.k_norm.weight",
+                ):
+                    continue
                 weights[prefix + name] = bf16(np.ones(size))
         self.assertEqual(set(weights), set(engine.state_dict_keyname()))
         engine.load_state_dict(weights)
         engine.process_weights_after_loading()
         for rank in engine.state_dict():
-            divisor = self.tp if shard else 1
+            divisor = self.tp if shard and family == "qwen3" else 1
             embedding_divisor = divisor if hidden % divisor == 0 else 1
             head_divisor = divisor if not fp32_head and vocab % divisor == 0 else 1
             self.assertEqual(
@@ -166,9 +187,13 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
         )
         return {key: self.snapshot(output[key]) for key in ("hidden_states", "logits")}
 
-    def collect(self, chunk, shard, fp32_head=False, vocab=256, hidden=512):
+    def collect(
+        self, chunk, shard, fp32_head=False, vocab=256, hidden=512, family="qwen3"
+    ):
         with tempfile.TemporaryDirectory() as directory:
-            engine = self.make_engine(directory, chunk, shard, fp32_head, vocab, hidden)
+            engine = self.make_engine(
+                directory, chunk, shard, fp32_head, vocab, hidden, family
+            )
             random = np.random.default_rng(1063)
             records = {}
             try:
@@ -246,6 +271,13 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             with self.subTest(vocab=vocab, hidden=hidden):
                 reference = self.collect(0, False, vocab=vocab, hidden=hidden)
                 candidate = self.collect(128, True, vocab=vocab, hidden=hidden)
+                self.assert_close(reference, candidate)
+
+    def test_shared_kv_paths_for_other_model_families(self):
+        for family in ("llama", "qwen2"):
+            with self.subTest(family=family):
+                reference = self.collect(0, False, family=family)
+                candidate = self.collect(128, True, family=family)
                 self.assert_close(reference, candidate)
 
 
