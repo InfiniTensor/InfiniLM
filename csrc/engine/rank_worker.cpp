@@ -543,6 +543,9 @@ void RankWorker::thread_loop() {
 
                             const bool parameter_greedy = top_p == 0.0f || top_k == 1 || temperature == 0.0f;
                             const auto logits_dtype = logits->dtype();
+                            // QY batch_greedy (one random_sample_ on a flattened logits
+                            // view) returns garbage ids when n_out>1 under V1 multi-request.
+                            // Keep NVIDIA batch path; force QY through the per-index loop.
                             const bool batch_greedy = (rank_info_.device.type() == infinicore::Device::Type::kNvidia
                                                        || rank_info_.device.type() == infinicore::Device::Type::kQy)
                                                    && parameter_greedy
@@ -552,7 +555,9 @@ void RankWorker::thread_loop() {
                                                    && (logits_dtype == infinicore::DataType::kFloat16
                                                        || logits_dtype == infinicore::DataType::kBFloat16
                                                        || logits_dtype == infinicore::DataType::kFloat32)
-                                                   && (sample_all_positions || logits_are_last_token_only);
+                                                   && (sample_all_positions || logits_are_last_token_only)
+                                                   && !(rank_info_.device.type() == infinicore::Device::Type::kQy
+                                                        && n_out > 1);
                             if (batch_greedy) {
                                 float random_val = 0.0f;
                                 for (size_t i{0}; i < n_out; ++i) {

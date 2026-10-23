@@ -397,19 +397,14 @@ class LLMEngine:
             if req.is_finished():
                 break
             if token_id < 0 or token_id >= vocab_size:
-                # Do not map to EOS — that aborts ignore_eos perf runs early.
-                # Fold into-vocab so decode/CB can continue; root-cause is
-                # batched sample extraction on QY (tracked separately).
-                mapped = int(token_id) % vocab_size
-                logger.error(
-                    "Out-of-range sampled token_id=%s for request %s (vocab=%s); "
-                    "mapped to %s",
-                    token_id,
-                    req.request_id,
-                    vocab_size,
-                    mapped,
+                # Hard error: OOR samples must not be soft-mapped (% vocab);
+                # that kept the step loop alive but corrupted generation under
+                # wave packing. QY batch_greedy is disabled for n_out>1 so ids
+                # should stay in-range after the C++ fix.
+                raise ValueError(
+                    f"Out-of-range sampled token_id={token_id} for request "
+                    f"{req.request_id} (vocab={vocab_size})"
                 )
-                token_id = mapped
             req.append_generated_token_id(token_id)
             num_appended_tokens += 1
             pending_tokens = req.generated_token_ids[req._token_decode_offset :]
