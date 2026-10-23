@@ -198,7 +198,6 @@ private:
 
     // Backends
     backends::AttentionBackend attention_backend_;
-    size_t prefill_chunk_size_{0};
 
     // Graph Compiling
     bool enable_graph_compiling_;

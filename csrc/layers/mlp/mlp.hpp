@@ -27,6 +27,9 @@ namespace infinilm::layers::mlp {
  */
 class MLP : public infinilm::weights::ModelWeights {
 public:
+    // The dense feed-forward computation is independent for each token.
+    static constexpr bool supports_chunked_prefill = true;
+
     MLP(infinilm::runtime::Runtime &runtime, std::shared_ptr<infinilm::config::ModelConfig> model_config,
         size_t layer_idx, const engine::distributed::RankInfo &rank_info,
         backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config);

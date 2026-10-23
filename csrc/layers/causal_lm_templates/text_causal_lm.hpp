@@ -3,7 +3,7 @@
 #include <exception>
 #pragma once
 
-#include "../../config/qwen3_memory.hpp"
+#include "../../config/inference_memory.hpp"
 #include "../../global_state/forward_context.hpp"
 
 #include "../../models/infinilm_model.hpp"
@@ -40,6 +40,16 @@ struct KvOnlyPrepareCapability : std::false_type {};
 template <typename Model>
 struct KvOnlyPrepareCapability<Model, std::void_t<decltype(Model::kv_only_prepare)>>
     : std::bool_constant<Model::kv_only_prepare> {};
+
+template <typename Model, typename = void>
+struct PrefillChunkSize {
+    static size_t get(const Model &) { return 0; }
+};
+
+template <typename Model>
+struct PrefillChunkSize<Model, std::void_t<decltype(std::declval<const Model &>().prefill_chunk_size())>> {
+    static size_t get(const Model &model) { return model.prefill_chunk_size(); }
+};
 } // namespace infinilm::layers::causal_lm_templates::detail
 
 namespace infinilm::layers::causal_lm_templates {
@@ -78,12 +88,11 @@ public:
 
             model_ = this->bind_child("model", std::make_shared<Model>(runtime, model_config, rank_info, attention_backend, ep_config));
             if (is_last_pp_stage()) {
-                const bool shard_vocab = config::supports_qwen3_memory_optimization(
+                const bool shard_vocab = config::supports_tp_weight_sharding(
                                              *model_config, runtime.device().type(), rank_info.tp_size, rank_info.pp_size)
-                                      && attention_backend == backends::AttentionBackend::PAGED_ATTN
-                                      && rank_info.tp_size > 1 && vocab_size % rank_info.tp_size == 0
+                                      && vocab_size % rank_info.tp_size == 0
                                       && !head_output_dtype
-                                      && config::qwen3_tp_vocab_sharding(*model_config);
+                                      && config::tp_vocab_sharding(*model_config);
                 if (shard_vocab) {
                     sharded_lm_head_ = this->bind_child("lm_head", std::make_shared<linear::VocabParallelHead>(runtime, hidden_size, vocab_size, dtype, rank_info));
                 } else {
@@ -154,6 +163,8 @@ public:
         return detail::KvOnlyPrepareCapability<Model>::value;
     }
 
+    size_t prefill_chunk_size() const override { return detail::PrefillChunkSize<Model>::get(*model_); }
+
     infinilm::runtime::Tensor logits_from_hidden(infinilm::runtime::Runtime &runtime,
                                                  const infinilm::runtime::Tensor &hidden_states) const {
         if (!lm_head_ && !sharded_lm_head_) {
@@ -166,6 +177,14 @@ public:
     Model &model() { return *model_; }
 
 protected:
+    void set_lm_head_alpha(float alpha) {
+        if (sharded_lm_head_) {
+            sharded_lm_head_->set_alpha(alpha);
+        } else if (lm_head_) {
+            lm_head_->set_alpha(alpha);
+        }
+    }
+
     std::shared_ptr<Model> model_;
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 

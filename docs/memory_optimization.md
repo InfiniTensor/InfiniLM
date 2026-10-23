@@ -13,45 +13,73 @@ call. Existing backend/dtype/topology support still applies; this change does
 not add a missing device kernel or make an unsupported model configuration run.
 CPU and zero-byte allocations retain the ordinary allocation fallback.
 
-The model-execution optimizations below are separate. Their implementation uses
-shared layers/templates, but their current default enablement is explicitly
-restricted by `supports_qwen3_memory_optimization`. That is a code restriction,
-not a claim that other configurations merely lack benchmark results.
+Model execution selects optimizations by component contracts and runtime conditions,
+without inspecting `model_type` or using a model-family allowlist. Chunking and
+weight sharding are independent decisions in `config/inference_memory.hpp`.
+Workers obtain the enabled chunk size from the constructed model. NVIDIA TP
+sampling kernels are warmed before decoder collectives regardless of head layout,
+including when the optimizations are disabled.
 
-For ordinary Qwen3 on NVIDIA, BF16 weights and KV, PP1, TP1/2, and `paged-attn`,
-prefill runs through the decoder in blocks of at most 4096 tokens. Each block
-keeps the original absolute positions, request page mapping, and preceding KV.
-Sampling and request completion occur after the complete prefill. Full returned
-hidden states and logits keep their existing shapes.
+## Component contracts and execution conditions
 
-TP2 also shards embedding weights along the hidden dimension and the output
-head along the vocabulary dimension. Checkpoint keys remain unchanged. The
-existing AllReduce contract restores the full public embedding/logits tensors.
-The FP32 output-head option retains the replicated head. A vocabulary that
-cannot be divided across TP ranks retains a replicated head; an indivisible
-hidden dimension independently retains a replicated embedding.
+Prefill chunking requires all of the following:
+
+- The text model declares that request history resides only in ordinary KV state.
+- Both the attention and feed-forward components declare that splitting a causal
+  request preserves their state and token semantics. `TextDecoderLayer` composes
+  these capabilities; an undeclared component defaults to false. Derived modules
+  that change those semantics must override an inherited capability.
+- Execution uses NVIDIA BF16, unquantized weights/KV, PP1, a positive TP size,
+  `paged-attn`, and disabled expert parallelism.
+
+The shared causal attention and dense MLP satisfy the component contracts;
+per-token Q/K normalization also preserves them. Unknown custom decoders,
+recurrent components, and routed/MoE feed-forward components without an explicit
+contract keep the original execution path. KV-only graph preparation alone does
+not imply that a decoder can be chunked.
+
+Eligible prefill runs through the decoder in blocks of at most 4096 tokens.
+Each block keeps the original absolute positions, request page mapping, and
+preceding KV. Sampling and request completion occur after the complete prefill.
+Full returned hidden states and logits keep their existing shapes. The current
+implementation still retains whole-input embeddings and final hidden storage;
+chunking bounds decoder intermediates, not every activation allocation.
+
+TP weight sharding independently requires standard dense embedding/head storage,
+NVIDIA BF16 unquantized weights, PP1, and TP greater than one. It has no attention
+backend or KV-quantization condition and no TP2-only filter. Existing kernel,
+attention geometry, and communicator validation still apply to the overall model.
+The embedding shards the hidden dimension; the output head shards vocabulary.
+Checkpoint keys remain unchanged. AllReduce restores the full public tensors.
+The FP32 output-head option retains a replicated head. Indivisible vocabulary
+retains a replicated head; indivisible hidden size independently retains a
+replicated embedding. Head projection scaling is preserved for either storage
+layout. Sharded heads warm up required kernels before any decoder collectives,
+and sampling warmup follows TP execution rather than a model-name predicate.
 
 The following advanced fields in the model's `config.json` control these paths:
 
 ```json
 {
   "infinilm_prefill_chunk_size": 4096,
-  "infinilm_tp_vocab_sharding": true
+  "infinilm_tp_vocab_sharding": true,
+  "infinilm_tp_embedding_sharding": true
 }
 ```
 
-Set the chunk size to `0` to keep the original prefill execution shape. Set
-vocabulary sharding to `false` to retain replicated embedding/head weights.
-Disabling either optimization can increase memory requirements. Chunk size must
-be a nonnegative integer no larger than `INT32_MAX`; sharding must be a boolean.
+Set the chunk size to `0` to retain the original prefill execution shape.
+`infinilm_tp_vocab_sharding` controls the head. When the embedding field is absent,
+it also controls embedding sharding, preserving the existing combined opt-out.
+An explicit `infinilm_tp_embedding_sharding` overrides that default independently.
+Disabling an optimization can increase memory requirements. Chunk size must be
+an integer between zero and `INT32_MAX`; both sharding fields must be booleans.
 
-For model-internal chunking and embedding/head sharding, other models, devices,
-FP16/FP32 model weights, quantized paths, PP>1, and TP>2 retain their previous
-execution paths. They can still use the shared exact KV allocation and default
-cache replacement improvements described above. Model-internal chunking also falls back
-for graph recording, visual inputs, NSA ownership, and target hidden states.
-This qualification scope does not certify every combination supported by the
-underlying framework.
+Chunking falls back during graph recording, for visual inputs, NSA ownership,
+and target hidden states. Weight sharding remains independent of that per-forward
+fallback. FP16/FP32 model weights, other devices, quantized weights, and PP>1 keep
+the prior paths for these execution optimizations. Shared KV allocation and cache
+replacement still apply as described above. No additional TP ranks are certified
+merely by removing the hard-coded TP2 filter.
 
 Chunking changes GEMM/attention shapes. BF16 rounding can change near-tied
 argmax choices; arbitrary-input bitwise equality is not promised. Use the
@@ -79,7 +107,7 @@ xmake run test_kv_cache_storage
 xmake build test_post_load_traversal
 xmake run test_post_load_traversal --memory-config-only
 INFINILM_RUN_CUDA_TESTS=1 INFINILM_TEST_TP_SIZE=2 \
-  python -m unittest discover -s test/runtime -p test_qwen3_prefill_memory.py
+  python -m unittest discover -s test/runtime -p test_inference_memory.py
 ```
 
 Repeat the Python test with TP1 and a single visible CUDA device. The tests use
@@ -167,9 +195,9 @@ differences ranged from 0.249 to 1.000 and were identical before and after this
 optimization. Cross-engine numerical differences remain a separate validation
 question; the optimization did not introduce them in these cases.
 
-## Measured capacity
+## Earlier measured capacity
 
-Final-binary runs used Qwen3-32B BF16, TP2/PP1, two A100 40 GB devices, no offload
+The earlier qualification used Qwen3-32B BF16, TP2/PP1, two A100 40 GB devices, no offload
 or prefix caching, one warmup and three measured generations of 64 output tokens
 per request. NVML v2 whole-device memory was sampled every 20 ms; peaks below
 exclude driver-reserved memory. The vLLM 0.11.0 reference reuses the completed
@@ -191,18 +219,49 @@ per-kernel comparisons. The table demonstrates comparable residency, not a
 throughput advantage over vLLM. B16 graph residency remains about 0.422 GiB
 higher; graph bucket/workspace sharing is a separate follow-up.
 
-## Shared-path cross-model coverage
+## Component-path regression coverage
 
-The deterministic CUDA fixture also constructs Llama and Qwen2 models, including
-Qwen2 QKV biases, and exercises packed/mixed requests, existing KV, cache resets,
-and continuation at TP1 and TP2. Both model families keep replicated embedding
-and head weights even when the Qwen3 optimization flags are set. This checks
-shared-cache compatibility and real enablement boundaries, not pretrained-model
-quality or model-specific chunking/sharding support for those families.
+The deterministic CUDA fixture constructs ordinary dense attention, biased QKV,
+per-token Q/K normalization, and a non-unit scaled head through several model
+adapters. It compares disabled and enabled chunking/sharding, asserts actual
+local embedding/head shapes, and checks packed/mixed requests, existing KV,
+cache replacement, continuation, independent embedding/head switches, and flash
+attention with weight sharding. B1/B8/B16 packed prefill and decode are included.
+Native checks cover undeclared components, composed capabilities, runtime
+fallbacks, configuration validation, and the constructed model's chunk-size report.
 
-The added family-specific TP1/TP2 runs passed. The combined TP1 suite passed all
-four tests. A fresh combined TP2 run stalled in its original Qwen3 first case;
-an EAGER-module-loading attempt exited during NCCL initialization. Those attempts
-are recorded as unsuccessful, separately from the passing family-specific runs
-and the earlier Qwen3 TP2 qualification. The failure occurred before the new family
-branches ran; its root cause remains open.
+The earlier family-specific TP1/TP2 runs passed with the old model-name gate, so
+those runs establish only shared-cache compatibility. Earlier full Qwen3 TP2
+qualification and capacity/quality figures above likewise describe that prior
+implementation. A subsequent pre-generalization TP2 rerun stalled in its first
+Qwen3 case; an EAGER-module-loading attempt exited during NCCL initialization.
+Those attempts were unsuccessful. They cannot be replaced by the passing
+family-specific runs, nor do they qualify this generalized implementation.
+New implementation qualification is reported separately below.
+
+## Generalized implementation qualification
+
+The generalized implementation passed five native executables, the quantization
+configuration guard, and all seven CUDA tests at each of TP1 and TP2 on the same
+two A100 40 GB devices with `CUDA_MODULE_LOADING=LAZY`. These tests include the
+component-based paths, independent sharding switches, scaled head, flash-attention
+weight sharding, shape fallbacks, and B1/B8/B16 packed prefill/decode.
+The first TP2 regression also passed in two additional fresh processes.
+The source snapshot was checked file by file, and the installed extension matched
+the build artifact. NVIDIA TP sampling now warms its kernels regardless of head
+sharding, including the disabled-optimization reference path. Earlier stalls are
+retained as failed attempts; the EAGER-loading NCCL initialization failure was not
+separately qualified by this successful LAZY run.
+
+The same generalized binary was tested with Qwen3-32B BF16/TP2 on the complete
+15767-token QASPER and 16250-token QMSum cases. Disabled versus enabled chunking
+and sharding produced bitwise-identical first-generation logits and identical
+generated IDs, 75 tokens in total. This is a paired regression, not an official
+benchmark score or a general guarantee of bitwise BF16 equality.
+
+B16 x 2048 with graphs was also rerun, with the same 36864-token KV pool, one
+warmup, three measured batches, and 64 generated tokens per request. The NVML v2
+sampling maximum remained 38.6883 GiB/card; median batch time was 8.0531 seconds.
+Every run used 63 device-graph decode forwards, zero host segments, and batch 16.
+Generated IDs matched the earlier qualification. This retest does not rerun the
+earlier 40K/B8 workloads or the vLLM reference.

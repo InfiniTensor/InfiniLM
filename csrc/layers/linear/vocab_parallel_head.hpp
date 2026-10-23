@@ -17,6 +17,17 @@ public:
         weight_ = weights::Weight(runtime, {vocab, hidden}, dtype, 0, rank_, size_);
         bind_weight("weight", weight_);
     }
+    void set_alpha(float alpha) { alpha_ = alpha; }
+
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool) override {
+        // Load Fill on every rank before decoder collectives, including when
+        // embedding sharding is disabled or its dimension cannot be divided.
+        auto scratch = infinilm::runtime::Tensor::empty(runtime, {1}, weight_.tensor()->dtype());
+        execution::submit<infini::ops::Fill>(runtime,
+                                             infini::ops::Fill::DefaultConfig(runtime.device().type()), scratch, 0.0, scratch);
+        runtime.syncStream();
+    }
+
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &input) const {
         auto shape = input->shape();
         shape.back() = vocab_;
@@ -24,7 +35,7 @@ public:
         execution::submit<infini::ops::Fill>(runtime,
                                              infini::ops::Fill::DefaultConfig(runtime.device().type()), output, 0.0, output);
         auto local = output->narrow({{output->ndim() - 1, rank_ * (vocab_ / size_), vocab_ / size_}});
-        dense_projection(runtime, input, weight_.tensor(), std::nullopt, 1.0F,
+        dense_projection(runtime, input, weight_.tensor(), std::nullopt, alpha_,
                          std::nullopt, false, local);
         engine::distributed::allreduce_(runtime, output, output, infinicclSum, comm_);
         // Sampling may first-load a CUDA module. Do not leave a collective
@@ -39,5 +50,6 @@ private:
     weights::Weight weight_;
     size_t vocab_, rank_, size_;
     infinicclComm_t comm_;
+    float alpha_{1.0F};
 };
 } // namespace infinilm::layers::linear

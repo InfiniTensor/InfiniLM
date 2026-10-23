@@ -96,6 +96,9 @@ public:
     // provide their own write-set contract before graph preparation is enabled.
     virtual bool supports_kv_only_prepare() const { return false; }
 
+    // Report the constructed execution path so workers do not duplicate policy.
+    virtual size_t prefill_chunk_size() const { return 0; }
+
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
     // Validation consumes worker-owned values; no implicit rank/config snapshot.
     std::unique_ptr<quantization::W4ModelPlan> validate_w4_weights(

@@ -17,6 +17,9 @@ struct EPConfig;
 namespace infinilm::layers::attention {
 class Attention : public infinilm::weights::ModelWeights {
 public:
+    // Causal positions and the shared KV cache fully describe request history.
+    static constexpr bool supports_chunked_prefill = true;
+
     std::vector<std::shared_ptr<infinilm::weights::ModelWeights>> loading_children() const override {
         auto result = ModelWeights::loading_children();
         if (qkv_proj_) {

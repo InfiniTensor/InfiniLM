@@ -1,4 +1,5 @@
-#include "../../csrc/config/qwen3_memory.hpp"
+#include "../../csrc/config/inference_memory.hpp"
+#include "../../csrc/models/llama/llama_for_causal_lm.hpp"
 #include "../../csrc/weights/weights.hpp"
 #ifdef NDEBUG
 #undef NDEBUG
@@ -300,60 +301,113 @@ void typed_no_matching_tls() {
 
 } // namespace
 
-void check_qwen3_memory_config() {
+void check_inference_memory_config() {
     using namespace infinilm;
-    config::ModelConfig model(nlohmann::json{{"model_type", "qwen3"}, {"torch_dtype", "bfloat16"}});
-    auto supported = [&](Device::Type device, int tp, int pp) {
-        return config::supports_qwen3_memory_optimization(model, device, tp, pp);
+    using Backend = backends::AttentionBackend;
+    config::ModelConfig model(nlohmann::json{{"torch_dtype", "bfloat16"}});
+    auto chunked = [&](Device::Type device, int tp, int pp, Backend backend = Backend::PAGED_ATTN, bool capable = true) {
+        return config::supports_chunked_prefill(model, device, tp, pp, backend, capable);
     };
-    assert(supported(Device::Type::kNvidia, 1, 1));
-    assert(supported(Device::Type::kNvidia, 2, 1));
-    assert(!supported(Device::Type::kCpu, 2, 1));
-    assert(!supported(Device::Type::kNvidia, 4, 1));
-    assert(!supported(Device::Type::kNvidia, 2, 2));
+    auto sharded = [&](Device::Type device, int tp, int pp) {
+        return config::supports_tp_weight_sharding(model, device, tp, pp);
+    };
+    assert(chunked(Device::Type::kNvidia, 1, 1));
+    assert(chunked(Device::Type::kNvidia, 2, 1));
+    assert(chunked(Device::Type::kNvidia, 4, 1));
+    assert(sharded(Device::Type::kNvidia, 2, 1));
+    assert(sharded(Device::Type::kNvidia, 4, 1));
+    assert(!sharded(Device::Type::kNvidia, 1, 1));
+    assert(!chunked(Device::Type::kNvidia, 0, 1));
+    assert(!chunked(Device::Type::kCpu, 2, 1));
+    assert(!sharded(Device::Type::kCpu, 2, 1));
+    assert(!chunked(Device::Type::kNvidia, 2, 2));
+    assert(!sharded(Device::Type::kNvidia, 2, 2));
+    assert(!chunked(Device::Type::kNvidia, 2, 1, Backend::STATIC_ATTN));
+    assert(!chunked(Device::Type::kNvidia, 2, 1, Backend::PAGED_ATTN, false));
     for (const auto *dtype : {"float16", "float32"}) {
         model.get_config_json()["torch_dtype"] = dtype;
-        assert(!supported(Device::Type::kNvidia, 2, 1));
+        assert(!chunked(Device::Type::kNvidia, 2, 1));
+        assert(!sharded(Device::Type::kNvidia, 2, 1));
     }
     model.get_config_json()["torch_dtype"] = "bfloat16";
-    model.get_config_json()["model_type"] = "llama";
-    assert(!supported(Device::Type::kNvidia, 2, 1));
-    model.get_config_json()["model_type"] = "qwen3";
+    for (const auto *name : {"llama", "qwen3", "unregistered_capability_probe"}) {
+        model.get_config_json()["model_type"] = name;
+        assert(chunked(Device::Type::kNvidia, 2, 1));
+        assert(sharded(Device::Type::kNvidia, 2, 1));
+    }
     auto quantized = config::ModelConfig(model.get_config_json());
     quantized.set_kv_quant_scheme(runtime::DataType::kInt8);
-    assert(!config::supports_qwen3_memory_optimization(quantized, Device::Type::kNvidia, 2, 1));
+    assert(!config::supports_chunked_prefill(quantized, Device::Type::kNvidia, 2, 1, Backend::PAGED_ATTN, true));
+    assert(config::supports_tp_weight_sharding(quantized, Device::Type::kNvidia, 2, 1));
     model.get_config_json()["quantization_config"] = {
         {"quant_method", "awq"}, {"bits", 4}, {"group_size", 128}, {"version", "GEMM"}, {"zero_point", true}};
-    assert(!supported(Device::Type::kNvidia, 2, 1));
+    assert(!chunked(Device::Type::kNvidia, 2, 1));
+    assert(!sharded(Device::Type::kNvidia, 2, 1));
     model.get_config_json().erase("quantization_config");
-    assert(config::qwen3_prefill_chunk_size(model) == 4096);
-    assert(config::qwen3_tp_vocab_sharding(model));
+    assert(config::prefill_chunk_size(model) == 4096);
+    assert(config::tp_vocab_sharding(model));
+    assert(config::tp_embedding_sharding(model));
     for (const auto size : {0, 1, 128, 4096}) {
         model.get_config_json()["infinilm_prefill_chunk_size"] = size;
-        assert(config::qwen3_prefill_chunk_size(model) == static_cast<size_t>(size));
+        assert(config::prefill_chunk_size(model) == static_cast<size_t>(size));
     }
     for (const auto &bad : std::vector<nlohmann::json>{-1, 1.5, "4096", nullptr, true, uint64_t{1} << 40}) {
         model.get_config_json()["infinilm_prefill_chunk_size"] = bad;
         bool rejected = false;
         try {
-            (void)config::qwen3_prefill_chunk_size(model);
+            (void)config::prefill_chunk_size(model);
         } catch (const std::invalid_argument &) { rejected = true; }
         assert(rejected);
     }
     model.get_config_json()["infinilm_tp_vocab_sharding"] = false;
-    assert(!config::qwen3_tp_vocab_sharding(model));
-    model.get_config_json()["infinilm_tp_vocab_sharding"] = "true";
-    bool rejected = false;
-    try {
-        (void)config::qwen3_tp_vocab_sharding(model);
-    } catch (const std::invalid_argument &) { rejected = true; }
-    assert(rejected);
-    std::puts("Qwen3 memory scope and configuration PASS");
+    assert(!config::tp_vocab_sharding(model));
+    assert(!config::tp_embedding_sharding(model));
+    model.get_config_json()["infinilm_tp_embedding_sharding"] = true;
+    assert(config::tp_embedding_sharding(model));
+    model.get_config_json()["infinilm_tp_vocab_sharding"] = true;
+    model.get_config_json()["infinilm_tp_embedding_sharding"] = false;
+    assert(!config::tp_embedding_sharding(model));
+    assert(config::tp_vocab_sharding(model));
+    for (const auto *key : {"infinilm_tp_vocab_sharding", "infinilm_tp_embedding_sharding"}) {
+        model.get_config_json()[key] = "true";
+        bool rejected = false;
+        try {
+            if (std::string(key) == "infinilm_tp_vocab_sharding") {
+                (void)config::tp_vocab_sharding(model);
+            } else {
+                (void)config::tp_embedding_sharding(model);
+            }
+        } catch (const std::invalid_argument &) { rejected = true; }
+        assert(rejected);
+        model.get_config_json()[key] = true;
+    }
+    using namespace layers::causal_lm_templates;
+    struct UnknownModule {};
+    using DenseDecoder = TextDecoderLayer<layers::attention::Attention, layers::mlp::MLP>;
+    static_assert(ChunkedPrefillCapability<DenseDecoder>::value);
+    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<layers::attention::Attention, UnknownModule>>::value);
+    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<UnknownModule, layers::mlp::MLP>>::value);
+    static_assert(ChunkedPrefillCapability<TextModel<DenseDecoder, true>>::value);
+    static_assert(!ChunkedPrefillCapability<TextModel<DenseDecoder, false>>::value);
+    static_assert(!ChunkedPrefillCapability<TextModel<UnknownModule, true>>::value);
+    std::puts("Inference memory component capabilities and configuration PASS");
+}
+
+void check_constructed_memory_path(infinilm::runtime::Runtime &runtime,
+                                   const infinilm::engine::distributed::RankInfo &rank) {
+    using namespace infinilm;
+    auto model_config = std::make_shared<config::ModelConfig>(nlohmann::json{
+        {"model_type", "capability_probe"}, {"torch_dtype", "bfloat16"}, {"hidden_size", 256}, {"vocab_size", 128}, {"head_dim", 64}, {"intermediate_size", 512}, {"num_attention_heads", 4}, {"num_key_value_heads", 2}, {"num_hidden_layers", 1}, {"max_position_embeddings", 2048}, {"rms_norm_eps", 1e-6}, {"rope_theta", 10000.0}, {"attention_bias", false}, {"mlp_bias", false}});
+    for (auto backend : {backends::AttentionBackend::PAGED_ATTN, backends::AttentionBackend::STATIC_ATTN}) {
+        models::llama::LlamaForCausalLM model(runtime, model_config, rank, backend, layers::moe::EPConfig{});
+        assert(model.prefill_chunk_size() == (backend == backends::AttentionBackend::PAGED_ATTN ? 4096 : 0));
+    }
+    std::puts("Constructed shared decoder reports actual memory execution path PASS");
 }
 
 int main(int argc, char **argv) {
     try {
-        check_qwen3_memory_config();
+        check_inference_memory_config();
         if (argc == 2 && std::string(argv[1]) == "--memory-config-only") {
             return 0;
         }
@@ -363,6 +417,7 @@ int main(int argc, char **argv) {
         }
         typed_no_matching_tls();
         auto runtime = infinilm::runtime::Runtime::create({Device::Type::kNvidia, 0});
+        check_constructed_memory_path(*runtime, infinilm::engine::distributed::RankInfo(runtime->device()));
         auto settings = std::make_shared<infinilm::global_state::InfinilmConfig>();
         settings->attention_backend = infinilm::backends::AttentionBackend::STATIC_ATTN;
         infinilm::engine::distributed::RankInfo rank{runtime->device()};

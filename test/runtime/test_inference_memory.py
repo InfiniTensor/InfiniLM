@@ -1,4 +1,4 @@
-"""Opt-in CUDA regressions for shared dense-model caches and Qwen3 prefill.
+"""Opt-in CUDA regressions for component-based prefill and TP weight sharding.
 
 Run with INFINILM_RUN_CUDA_TESTS=1 and one or two visible CUDA devices.
 INFINILM_TEST_TP_SIZE defaults to 2. No checkpoint or Torch is required.
@@ -18,7 +18,7 @@ import numpy as np
 @unittest.skipUnless(
     os.environ.get("INFINILM_RUN_CUDA_TESTS") == "1", "Opt-in CUDA test."
 )
-class Qwen3PrefillMemoryTest(unittest.TestCase):
+class InferenceMemoryTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         from infinilm import _core
@@ -31,8 +31,8 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
         cls.dist_type = DistConfig
         cls.engine_type = InferEngine
         cls.tp = int(os.environ.get("INFINILM_TEST_TP_SIZE", "2"))
-        if cls.tp not in (1, 2):
-            raise ValueError("This regression requires TP1 or TP2.")
+        if cls.tp <= 0:
+            raise ValueError("This regression requires a positive TP size.")
 
     def make_engine(
         self,
@@ -43,6 +43,8 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
         vocab=256,
         hidden=512,
         family="qwen3",
+        embedding_shard=None,
+        backend="paged-attn",
     ):
         config = {
             "model_type": family,
@@ -51,6 +53,7 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
                     "qwen3": "Qwen3ForCausalLM",
                     "qwen2": "Qwen2ForCausalLM",
                     "llama": "LlamaForCausalLM",
+                    "fm9g": "FM9GForCausalLM",
                 }[family]
             ],
             "torch_dtype": "bfloat16",
@@ -71,6 +74,10 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             "infinilm_prefill_chunk_size": chunk,
             "infinilm_tp_vocab_sharding": shard,
         }
+        if family == "fm9g":
+            config["dim_model_base"] = hidden * 2
+        if embedding_shard is not None:
+            config["infinilm_tp_embedding_sharding"] = embedding_shard
         if fp32_head:
             config["lm_head_output_dtype"] = "float32"
         (Path(directory) / "config.json").write_text(json.dumps(config))
@@ -80,7 +87,7 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
             distributed_config=self.dist_type(self.tp),
             cache_config=self.cache_type(32, 256, 2),
             enable_graph_compiling=False,
-            attention_backend="paged-attn",
+            attention_backend=backend,
         )
         random = np.random.default_rng(773)
 
@@ -134,8 +141,15 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
         engine.load_state_dict(weights)
         engine.process_weights_after_loading()
         for rank in engine.state_dict():
-            divisor = self.tp if shard and family == "qwen3" else 1
-            embedding_divisor = divisor if hidden % divisor == 0 else 1
+            divisor = self.tp if shard else 1
+            embedding_divisor = (
+                self.tp
+                if (shard if embedding_shard is None else embedding_shard)
+                else 1
+            )
+            embedding_divisor = (
+                embedding_divisor if hidden % embedding_divisor == 0 else 1
+            )
             head_divisor = divisor if not fp32_head and vocab % divisor == 0 else 1
             self.assertEqual(
                 list(rank["model.embed_tokens.weight"].shape),
@@ -188,11 +202,27 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
         return {key: self.snapshot(output[key]) for key in ("hidden_states", "logits")}
 
     def collect(
-        self, chunk, shard, fp32_head=False, vocab=256, hidden=512, family="qwen3"
+        self,
+        chunk,
+        shard,
+        fp32_head=False,
+        vocab=256,
+        hidden=512,
+        family="qwen3",
+        embedding_shard=None,
+        backend="paged-attn",
     ):
         with tempfile.TemporaryDirectory() as directory:
             engine = self.make_engine(
-                directory, chunk, shard, fp32_head, vocab, hidden, family
+                directory,
+                chunk,
+                shard,
+                fp32_head,
+                vocab,
+                hidden,
+                family,
+                embedding_shard,
+                backend,
             )
             random = np.random.default_rng(1063)
             records = {}
@@ -273,12 +303,48 @@ class Qwen3PrefillMemoryTest(unittest.TestCase):
                 candidate = self.collect(128, True, vocab=vocab, hidden=hidden)
                 self.assert_close(reference, candidate)
 
-    def test_shared_kv_paths_for_other_model_families(self):
-        for family in ("llama", "qwen2"):
+    def test_component_paths_across_families(self):
+        for family in ("llama", "qwen2", "fm9g"):
             with self.subTest(family=family):
                 reference = self.collect(0, False, family=family)
                 candidate = self.collect(128, True, family=family)
                 self.assert_close(reference, candidate)
+
+    def test_independent_embedding_and_head_sharding(self):
+        reference = self.collect(0, False)
+        self.assert_close(reference, self.collect(0, False, embedding_shard=True))
+        self.assert_close(reference, self.collect(0, True, embedding_shard=False))
+
+    def test_weight_sharding_without_paged_attention(self):
+        reference = self.collect(0, False, family="llama", backend="flash-attn")
+        candidate = self.collect(128, True, family="llama", backend="flash-attn")
+        self.assert_close(reference, candidate)
+
+    def test_multi_request_batches(self):
+        def collect_batches(chunk, shard):
+            records = {}
+            with tempfile.TemporaryDirectory() as directory:
+                engine = self.make_engine(directory, chunk, shard, family="qwen2")
+                random = np.random.default_rng(1063)
+                try:
+                    for batch in (1, 8, 16):
+                        engine.reset_cache(self.cache_type(128, 256, 16))
+                        sequences = [
+                            random.integers(0, 256, 129, dtype=np.int64)
+                            for _ in range(batch)
+                        ]
+                        records[f"prefill-b{batch}"] = self.forward(engine, sequences)
+                        records[f"decode-b{batch}"] = self.forward(
+                            engine,
+                            [np.array([7], np.int64) for _ in range(batch)],
+                            past=[129] * batch,
+                        )
+                finally:
+                    del engine
+                    gc.collect()
+            return records
+
+        self.assert_close(collect_batches(0, False), collect_batches(128, True))
 
 
 if __name__ == "__main__":

@@ -77,9 +77,7 @@ public:
                 float dim_model_base = model_config->get<float>("dim_model_base");
                 size_t hidden_size = model_config->get<size_t>("hidden_size");
                 float scale_lm_head = dim_model_base / static_cast<float>(hidden_size);
-                if (this->lm_head_) {
-                    this->lm_head_->set_alpha(scale_lm_head);
-                }
+                this->set_lm_head_alpha(scale_lm_head);
             }
         } catch (...) {
             try {

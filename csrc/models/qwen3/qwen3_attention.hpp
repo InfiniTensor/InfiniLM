@@ -11,6 +11,9 @@
 namespace infinilm::models::qwen3 {
 class Qwen3Attention : public infinilm::weights::ModelWeights {
 public:
+    // Q/K normalization is per token; request history lives in shared KV state.
+    static constexpr bool supports_chunked_prefill = true;
+
     Qwen3Attention(infinilm::runtime::Runtime &, std::shared_ptr<config::ModelConfig>, size_t,
                    const engine::distributed::RankInfo &, backends::AttentionBackend, const layers::moe::EPConfig &);
 

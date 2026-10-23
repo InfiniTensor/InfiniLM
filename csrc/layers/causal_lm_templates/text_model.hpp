@@ -4,14 +4,15 @@
 #include <exception>
 #pragma once
 
+#include "../../config/inference_memory.hpp"
 #include "../../config/model_config.hpp"
-#include "../../config/qwen3_memory.hpp"
 #include "../../engine/distributed/communication_group.hpp"
 #include "../../global_state/forward_context.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../../parallel/topology.hpp"
 #include "../embedding/embedding.hpp"
 #include "../normalization/rmsnorm.hpp"
+#include "execution_capabilities.hpp"
 #include "runtime/tensor.hpp"
 #include <memory>
 #include <stdexcept>
@@ -35,6 +36,9 @@ template <typename DecoderLayer, bool KvOnlyPrepare = false>
 class TextModel : public infinilm::weights::ModelWeights {
 public:
     static constexpr bool kv_only_prepare = KvOnlyPrepare;
+    static constexpr bool supports_chunked_prefill = KvOnlyPrepare && ChunkedPrefillCapability<DecoderLayer>::value;
+
+    size_t prefill_chunk_size() const { return prefill_chunk_tokens_; }
 
     TextModel(infinilm::runtime::Runtime &runtime, std::shared_ptr<config::ModelConfig> model_config,
               const engine::distributed::RankInfo &rank_info, backends::AttentionBackend attention_backend, const layers::moe::EPConfig &ep_config) {
@@ -54,14 +58,14 @@ public:
             tp_rank_ = static_cast<size_t>(rank_info.tp_rank);
             tp_comm_ = rank_info.comm;
             world_comm_ = rank_info.world_comm;
-            const bool plain_qwen3 = config::supports_qwen3_memory_optimization(
-                                         *model_config, runtime.device().type(), rank_info.tp_size, rank_info.pp_size)
-                                  && attention_backend == backends::AttentionBackend::PAGED_ATTN;
-            if (plain_qwen3 && attention_backend == backends::AttentionBackend::PAGED_ATTN && KvOnlyPrepare) {
-                prefill_chunk_tokens_ = config::qwen3_prefill_chunk_size(*model_config);
+            if (config::supports_chunked_prefill(*model_config, runtime.device().type(), rank_info.tp_size,
+                                                 rank_info.pp_size, attention_backend, supports_chunked_prefill)
+                && ep_config.backend == layers::moe::EPBackend::Disabled && ep_config.ep_size == 1) {
+                prefill_chunk_tokens_ = config::prefill_chunk_size(*model_config);
             }
-            const bool shard_vocab = plain_qwen3 && tp_size_ > 1 && hidden_size_ % tp_size_ == 0
-                                  && config::qwen3_tp_vocab_sharding(*model_config);
+            const bool shard_embedding = config::supports_tp_weight_sharding(
+                                             *model_config, runtime.device().type(), rank_info.tp_size, rank_info.pp_size)
+                                      && hidden_size_ % tp_size_ == 0 && config::tp_embedding_sharding(*model_config);
             // Contiguous layer ranges are assigned proportionally so uneven layer
             // counts differ by at most one layer between adjacent PP stages.
             const auto local_layers = parallel::Topology(tp_size_, rank_info.pp_size,
@@ -72,7 +76,7 @@ public:
 
             if (is_first_pp_stage()) {
                 embed_tokens_ = this->bind_child("embed_tokens", std::make_shared<infinilm::layers::Embedding>(runtime, vocab_size, hidden_size_, std::nullopt, dtype,
-                                                                                                               shard_vocab ? tp_rank_ : 0, shard_vocab ? tp_size_ : 1, shard_vocab ? tp_comm_ : nullptr));
+                                                                                                               shard_embedding ? tp_rank_ : 0, shard_embedding ? tp_size_ : 1, shard_embedding ? tp_comm_ : nullptr));
             }
 
             layers_.reserve(local_layer_end_ - local_layer_begin_);
