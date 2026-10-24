@@ -15,6 +15,7 @@ std::string layout_format(const BaseQuantization &quantization) {
 
 bool packed_projection(size_t in_features, size_t out_features, const std::string &format) {
     const bool qwen_qkv = in_features == 4096 && out_features == 6144;
+    const bool qwen35_qkv = in_features == 4096 && out_features == 10240;
     const bool qwen_down = in_features == 12288;
     if (format == "lossless-layout") {
         return true;
@@ -26,7 +27,7 @@ bool packed_projection(size_t in_features, size_t out_features, const std::strin
         return qwen_down;
     }
     if (format == "mixed-v1") {
-        return qwen_qkv || qwen_down;
+        return qwen_qkv || qwen35_qkv || qwen_down;
     }
     return false;
 }
@@ -44,7 +45,7 @@ bool packed_weight(
         return weight->size(0) == 12288;
     }
     if (format == "mixed-v1") {
-        return weight->size(1) == 6144 || weight->size(0) == 12288;
+        return weight->size(1) == 6144 || weight->size(1) == 10240 || weight->size(0) == 12288;
     }
     return false;
 }

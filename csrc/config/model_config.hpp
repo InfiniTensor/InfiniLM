@@ -84,6 +84,8 @@ public:
         return quant_config;
     }
 
+    void refresh_quantization_config();
+
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization_method() const {
         return quant_config.get_quantization_method();
     }

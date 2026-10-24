@@ -5,6 +5,12 @@ ModelConfig::ModelConfig(const nlohmann::json &json) : config_json(json) {
     this->quant_config = QuantConfig(config_json["quantization_config"]);
 };
 
+void ModelConfig::refresh_quantization_config() {
+    quant_config = QuantConfig(config_json.value(
+        "quantization_config",
+        nlohmann::json::object()));
+}
+
 ModelConfig::ModelConfig(const std::string &path) {
     std::ifstream file(path);
     if (file.is_open()) {

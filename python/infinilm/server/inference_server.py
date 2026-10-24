@@ -89,7 +89,6 @@ def completion_json(
     }
 
 
-
 def text_completion_json(
     id_,
     text,
@@ -149,6 +148,8 @@ def text_completion_chunk_json(
         "choices": choices,
         "usage": usage,
     }
+
+
 class InferenceServer:
     """HTTP server for LLM inference."""
 
@@ -388,7 +389,9 @@ class InferenceServer:
                 return JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
 
             if data.get("prompt") is None:
-                return JSONResponse(content={"error": "No prompt provided"}, status_code=400)
+                return JSONResponse(
+                    content={"error": "No prompt provided"}, status_code=400
+                )
 
             stream = bool(data.get("stream", False))
             request_id = f"cmpl-{uuid.uuid4().hex}"
@@ -399,7 +402,12 @@ class InferenceServer:
                 )
 
             response = await self._completion(request_id, data, request)
-            return response if isinstance(response, JSONResponse) else JSONResponse(content=response)
+            return (
+                response
+                if isinstance(response, JSONResponse)
+                else JSONResponse(content=response)
+            )
+
     def _normalize_messages(self, messages: list) -> list:
         """Normalize messages to handle multimodal content (list format).
 
@@ -478,7 +486,7 @@ class InferenceServer:
             messages = data.get("messages", [])
             sampling_params = self._build_sampling_params(data)
 
-            req = self.engine.add_chat_request(
+            req = await self.engine.add_chat_request_async(
                 messages=messages,
                 sampling_params=sampling_params,
                 request_id=request_id,
@@ -583,7 +591,7 @@ class InferenceServer:
             messages = data.get("messages", [])
             sampling_params = self._build_sampling_params(data)
 
-            req = self.engine.add_chat_request(
+            req = await self.engine.add_chat_request_async(
                 messages=messages,
                 sampling_params=sampling_params,
                 request_id=request_id,
@@ -659,7 +667,9 @@ class InferenceServer:
             return None, prompt
         raise ValueError("prompt must be a string or a list of token IDs")
 
-    async def _stream_completion(self, request_id: str, data: dict, http_request: Request):
+    async def _stream_completion(
+        self, request_id: str, data: dict, http_request: Request
+    ):
         """Handle streaming OpenAI text completion request."""
         req = None
         _abort_reason = FinishReason.CANCELED
@@ -710,13 +720,17 @@ class InferenceServer:
                         model=self.model_id,
                         usage=usage,
                     )
-                    yield "data: " + json.dumps(usage_chunk, ensure_ascii=False) + "\n\n"
+                    yield "data: " + json.dumps(
+                        usage_chunk, ensure_ascii=False
+                    ) + "\n\n"
                     break
         except asyncio.CancelledError:
             logger.info(f"Request {request_id} was cancelled")
             raise
         except Exception as e:
-            logger.error(f"Text completion stream error for {request_id}: {e}", exc_info=True)
+            logger.error(
+                f"Text completion stream error for {request_id}: {e}", exc_info=True
+            )
             _abort_reason = FinishReason.ERROR
             error_chunk = text_completion_chunk_json(
                 request_id,
@@ -781,6 +795,7 @@ class InferenceServer:
         finally:
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
+
     def _convert_finish_reason(self, reason: FinishReason) -> str:
         """Convert FinishReason enum to string."""
         if reason is None:

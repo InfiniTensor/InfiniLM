@@ -3,6 +3,7 @@
 #include "../../utils.hpp"
 
 #include <infinicore/ops.hpp>
+#include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/mha.hpp>
 #include <infinicore/ops/upsample_bilinear.hpp>
 
@@ -107,7 +108,8 @@ Qwen35VisionAttention::Qwen35VisionAttention(const nlohmann::json &config,
 
 infinicore::Tensor Qwen35VisionAttention::forward(const infinicore::Tensor &hidden_states,
                                                   const infinicore::Tensor &row_position_ids,
-                                                  const infinicore::Tensor &col_position_ids) const {
+                                                  const infinicore::Tensor &col_position_ids,
+                                                   size_t image_count) const {
     const size_t seq_len = hidden_states->size(0);
     const size_t axis_head_dim = head_dim_ / 2;
     auto hidden_mut = hidden_states;
@@ -136,7 +138,24 @@ infinicore::Tensor Qwen35VisionAttention::forward(const infinicore::Tensor &hidd
     apply_2d_rope(q);
     apply_2d_rope(k);
 
-    auto out = infinicore::op::mha(q->unsqueeze(0), k->unsqueeze(0), v, std::nullopt, scale_, false)->view({seq_len, hidden_size_});
+    infinicore::Tensor out;
+    if (image_count > 1) {
+        if (seq_len % image_count != 0) {
+            throw std::runtime_error("Qwen35VisionAttention: total tokens must divide evenly by image count");
+        }
+        const size_t tokens_per_image = seq_len / image_count;
+        out = infinicore::op::mha(
+                  q->view({image_count, tokens_per_image, num_heads_, head_dim_}),
+                  k->view({image_count, tokens_per_image, num_heads_, head_dim_}),
+                  v->view({image_count, tokens_per_image, num_heads_, head_dim_}),
+                  std::nullopt,
+                  scale_,
+                  false)->view({seq_len, hidden_size_});
+    } else {
+        out = infinicore::op::mha(q->unsqueeze(0), k->unsqueeze(0), v,
+                                  std::nullopt, scale_, false)
+                  ->view({seq_len, hidden_size_});
+    }
     return proj_->forward(out);
 }
 
@@ -174,9 +193,10 @@ Qwen35VisionBlock::Qwen35VisionBlock(const nlohmann::json &config,
 
 infinicore::Tensor Qwen35VisionBlock::forward(const infinicore::Tensor &hidden_states,
                                               const infinicore::Tensor &row_position_ids,
-                                              const infinicore::Tensor &col_position_ids) const {
+                                              const infinicore::Tensor &col_position_ids,
+                                              size_t image_count) const {
     auto x = norm1_->forward(hidden_states);
-    x = attn_->forward(x, row_position_ids, col_position_ids);
+    x = attn_->forward(x, row_position_ids, col_position_ids, image_count);
     x = infinicore::op::add(x, hidden_states);
     auto residual = x;
     x = norm2_->forward(x);
@@ -225,8 +245,17 @@ Qwen35VisionModel::Qwen35VisionModel(const nlohmann::json &config,
 
 infinicore::Tensor Qwen35VisionModel::fast_pos_embed_interpolate(const infinicore::Tensor &image_grid_thw) const {
     auto grid = tensor_to_i64_vector(image_grid_thw);
+    if (grid.size() > 3) {
+        std::vector<infinicore::Tensor> position_embeds;
+        position_embeds.reserve(grid.size() / 3);
+        for (size_t i = 0; i < grid.size(); i += 3) {
+            position_embeds.push_back(
+                fast_pos_embed_interpolate(image_grid_thw->narrow({{0, i / 3, 1}})));
+        }
+        return infinicore::op::cat(position_embeds, 0);
+    }
     if (grid.size() != 3) {
-        throw std::runtime_error("Qwen35VisionModel: image_grid_thw must have shape [3]");
+        throw std::runtime_error("Qwen35VisionModel: image_grid_thw must have shape [3] or [num_images, 3]");
     }
     const size_t grid_t = static_cast<size_t>(grid[0]);
     const size_t grid_h = static_cast<size_t>(grid[1]);
@@ -306,6 +335,7 @@ infinicore::Tensor Qwen35VisionModel::build_rotary_position_ids(const infinicore
 
 infinicore::Tensor Qwen35VisionModel::forward(const infinicore::Tensor &pixel_values,
                                               const infinicore::Tensor &image_grid_thw) const {
+    const size_t image_count = std::max<size_t>(1, image_grid_thw->numel() / 3);
     auto hidden_states = patch_embed_->forward(pixel_values);
     auto pos_embeds = fast_pos_embed_interpolate(image_grid_thw);
     hidden_states = infinicore::op::add(hidden_states, pos_embeds);
@@ -315,7 +345,7 @@ infinicore::Tensor Qwen35VisionModel::forward(const infinicore::Tensor &pixel_va
     auto col_position_ids = position_ids->narrow({{0, 1, 1}})->view({position_ids->size(1)});
 
     for (const auto &block : blocks_) {
-        hidden_states = block->forward(hidden_states, row_position_ids, col_position_ids);
+        hidden_states = block->forward(hidden_states, row_position_ids, col_position_ids, image_count);
     }
     return merger_->forward(hidden_states);
 }

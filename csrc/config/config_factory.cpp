@@ -13,6 +13,7 @@ std::shared_ptr<infinilm::config::ModelConfig> ConfigFactory::createConfig(const
     auto it = config_map.find(model_type);
     if (it != config_map.end()) {
         it->second(model_config);
+        model_config->refresh_quantization_config();
     } else {
         throw std::invalid_argument("infinilm::config::ConfigFactory::createConfig: Unsupported model config type: " + model_type);
     }

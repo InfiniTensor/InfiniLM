@@ -3,6 +3,8 @@
 #include "../../global_state/global_state.hpp"
 #include "../qwen3_next/qwen3_next_allocate_kv_cache_tensors.hpp"
 
+#include <infinicore/ops/cat.hpp>
+
 #include <cstdint>
 #include <stdexcept>
 #include <utility>
@@ -73,21 +75,88 @@ void Qwen35ModelBase::replace_image_embeddings(infinicore::Tensor &inputs_embeds
     }
 
     auto offsets = tensor_to_i32_vector(input.input_offsets.value());
+    const auto &vision_config = model_config_->get_config_json().at("vision_config");
+    const size_t spatial_merge_size = vision_config.at("spatial_merge_size").get<size_t>();
+    std::vector<std::vector<int32_t>> grids(pixel_values.size());
+    std::vector<std::vector<int32_t>> bounds(pixel_values.size());
+    bool can_batch_images = pixel_values.size() > 1;
+    const auto first_pixel_shape = pixel_values.front()->shape();
+    const auto first_grid_shape = image_grid_thw.front()->shape();
 
     for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
-        const size_t req_id = image_req_ids_opt.value().at(image_idx);
+        const size_t req_id = infinilm::global_state::get_forward_context()
+                                  .mm_metadata.image_req_ids.value()
+                                  .at(image_idx);
         if (req_id + 1 >= offsets.size()) {
             throw std::runtime_error("Qwen35Model: image request id is out of range");
         }
+        bounds[image_idx] = tensor_to_i32_vector(image_bound.at(image_idx));
+        if (bounds[image_idx].size() < 2 || bounds[image_idx][0] < 0
+            || bounds[image_idx][1] < bounds[image_idx][0]) {
+            throw std::runtime_error("Qwen35Model: invalid image_bound range");
+        }
+        grids[image_idx] = tensor_to_i32_vector(image_grid_thw.at(image_idx));
+        if (pixel_values.at(image_idx)->shape() != first_pixel_shape
+            || image_grid_thw.at(image_idx)->shape() != first_grid_shape
+            || grids[image_idx] != grids.front()) {
+            can_batch_images = false;
+        }
+    }
 
-        auto bound = tensor_to_i32_vector(image_bound.at(image_idx));
+    if (can_batch_images) {
+        std::vector<infinicore::Tensor> batched_grids;
+        batched_grids.reserve(image_grid_thw.size());
+        for (const auto &grid : image_grid_thw) {
+            batched_grids.push_back(grid->unsqueeze(0));
+        }
+        auto vision_hidden = visual_->forward(
+            infinicore::op::cat(pixel_values, 0),
+            infinicore::op::cat(batched_grids, 0));
+        size_t vision_offset = 0;
+        for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
+            const size_t req_id = infinilm::global_state::get_forward_context()
+                                      .mm_metadata.image_req_ids.value()
+                                      .at(image_idx);
+            const size_t req_start = static_cast<size_t>(offsets[req_id]);
+            const size_t req_len = static_cast<size_t>(
+                offsets[req_id + 1] - offsets[req_id]);
+            const size_t local_start = static_cast<size_t>(bounds[image_idx][0]);
+            const size_t local_end = static_cast<size_t>(bounds[image_idx][1]);
+            const size_t span_len = local_end - local_start;
+            if (local_end > req_len) {
+                throw std::runtime_error("Qwen35Model: image_bound is out of request range");
+            }
+            const auto &grid = grids[image_idx];
+            const size_t vision_len = static_cast<size_t>(grid[0])
+                * (static_cast<size_t>(grid[1]) / spatial_merge_size)
+                * (static_cast<size_t>(grid[2]) / spatial_merge_size);
+            if (span_len != vision_len
+                || vision_offset + vision_len > vision_hidden->size(0)) {
+                throw std::runtime_error(
+                    "Qwen35Model: image_bound length does not match visual embedding length");
+            }
+            inputs_embeds->narrow({{1, req_start + local_start, span_len}})
+                ->copy_from(vision_hidden->narrow({{0, vision_offset, vision_len}})
+                                ->unsqueeze(0));
+            vision_offset += vision_len;
+        }
+        return;
+    }
+
+    for (size_t image_idx = 0; image_idx < pixel_values.size(); ++image_idx) {
+        const size_t req_id = infinilm::global_state::get_forward_context()
+                                  .mm_metadata.image_req_ids.value()
+                                  .at(image_idx);
+        if (req_id + 1 >= offsets.size()) {
+            throw std::runtime_error("Qwen35Model: image request id is out of range");
+        }
+        auto bound = bounds.at(image_idx);
         if (bound.size() < 2) {
             throw std::runtime_error("Qwen35Model: image_bound must contain start and end positions");
         }
         if (bound[0] < 0 || bound[1] < bound[0]) {
             throw std::runtime_error("Qwen35Model: invalid image_bound range");
         }
-
         auto vision_hidden = visual_->forward(pixel_values.at(image_idx), image_grid_thw.at(image_idx));
         const size_t vision_len = vision_hidden->size(0);
         const size_t req_start = static_cast<size_t>(offsets[req_id]);
@@ -101,11 +170,10 @@ void Qwen35ModelBase::replace_image_embeddings(infinicore::Tensor &inputs_embeds
         if (span_len != vision_len) {
             throw std::runtime_error("Qwen35Model: image_bound length does not match visual embedding length");
         }
-
-        inputs_embeds->narrow({{1, req_start + local_start, span_len}})->copy_from(vision_hidden->unsqueeze(0));
+        inputs_embeds->narrow({{1, req_start + local_start, span_len}})
+            ->copy_from(vision_hidden->unsqueeze(0));
     }
 }
-
 void Qwen35ModelBase::reset_cache(const cache::CacheConfig *cache_config) {
     auto &forward_context = infinilm::global_state::get_forward_context();
     forward_context.kv_cache_vec.clear();

@@ -68,12 +68,6 @@ class Qwen35Processor(BasicLLMProcessor):
         media_kwargs = {}
         if images:
             media_kwargs["images"] = images
-            images_kwargs = dict(kwargs.pop("images_kwargs", {}) or {})
-            image_size = dict(images_kwargs.get("size", {}) or {})
-            image_size.setdefault("shortest_edge", 3136)
-            image_size.setdefault("longest_edge", 2000000)
-            images_kwargs["size"] = image_size
-            kwargs["images_kwargs"] = images_kwargs
         if videos:
             media_kwargs["videos"] = videos
 

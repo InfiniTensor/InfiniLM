@@ -10,8 +10,8 @@ from pathlib import Path
 from safetensors.torch import safe_open, save_file
 
 LINEAR_RE = re.compile(
-    r"model\.layers\.\d+\.self_attn\.(?:q_proj|k_proj|v_proj)\.weight$|"
-    r"model\.layers\.\d+\.mlp\.down_proj\.weight$"
+    r"model(?:\.language_model)?\.layers\.\d+\.self_attn\.(?:q_proj|k_proj|v_proj)\.weight$|"
+    r"model(?:\.language_model)?\.layers\.\d+\.mlp\.down_proj\.weight$"
 )
 
 
@@ -41,9 +41,11 @@ def main() -> None:
     target = args.target.resolve()
     pattern = {
         "qkv": re.compile(
-            r"model\.layers\.\d+\.self_attn\.(?:q_proj|k_proj|v_proj)\.weight$"
+            r"model(?:\.language_model)?\.layers\.\d+\.self_attn\.(?:q_proj|k_proj|v_proj)\.weight$"
         ),
-        "down": re.compile(r"model\.layers\.\d+\.mlp\.down_proj\.weight$"),
+        "down": re.compile(
+            r"model(?:\.language_model)?\.layers\.\d+\.mlp\.down_proj\.weight$"
+        ),
         "mixed": LINEAR_RE,
     }[args.layout]
     format_name = {

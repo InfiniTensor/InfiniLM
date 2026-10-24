@@ -94,7 +94,7 @@ class LLMEngine:
             max_position_embeddings = llm_config.get(
                 "max_position_embeddings", config.max_cache_len
             )
-            num_mamba_cache_blocks = max(2, config.num_blocks // 4)
+            num_mamba_cache_blocks = max(2, int(config.max_batch_size or 2) + 1)
 
             max_num_batched_tokens = int(
                 os.getenv("INFINILM_MAX_NUM_BATCHED_TOKENS", max_position_embeddings)
@@ -664,7 +664,9 @@ class AsyncLLMEngine:
         self._healthy = True
         self._abort_queue: Optional[janus.Queue] = None
         self._profile_remaining_steps = int(os.getenv("INFINILM_PROFILE_STEPS", "0"))
-        self._profile_trace_path = os.getenv("INFINILM_PROFILE_TRACE", "/tmp/infinilm-trace.json")
+        self._profile_trace_path = os.getenv(
+            "INFINILM_PROFILE_TRACE", "/tmp/infinilm-trace.json"
+        )
 
     def is_healthy(self) -> bool:
         return bool(self._healthy)
@@ -804,50 +806,15 @@ class AsyncLLMEngine:
                     f"Likely due to client disconnecting or request cancelation."
                 )
 
-    def add_request(
+    def _prepare_request(
         self,
         messages: Optional[List[dict]],
-        apply_chat_template: bool = True,
-        add_generation_prompt: bool = True,
-        prompt: Optional[str] = None,
-        prompt_token_ids: Optional[List[int]] = None,
-        sampling_params: Optional[SamplingParams] = None,
-        request_id: Optional[str] = None,
-        # For server use
-        request_data: Optional[dict] = None,
-    ) -> InferenceRequest:
-        """Add a request to the engine.
-
-        Args:
-            messages: List of message dicts (chat conversation). Following this format:
-                    [
-                        {
-                            "role": "user",
-                            "content": [
-                            {
-                                "type": "text",
-                                "text": "xxxxxxxxx"
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                "url": "xxx.jpg"
-                                }
-                            },
-                            ]
-                        },
-                    ]
-            apply_chat_template: Whether to apply the chat template.
-            add_generation_prompt: Whether to add a generation prompt.
-            prompt: Text prompt for generation. If provided, it will be used directly after encoded by tokenizer, ignoring messages.
-            prompt_token_ids: Pre-tokenized prompt. If provided, it will be used directly as input.
-            sampling_params: Sampling parameters.
-            request_id: Optional request ID.
-            request_data: Optional request data dict (for server use).
-
-        Returns:
-            The created InferenceRequest object.
-        """
+        apply_chat_template: bool,
+        add_generation_prompt: bool,
+        prompt: Optional[str],
+        prompt_token_ids: Optional[List[int]],
+        request_id: Optional[str],
+    ) -> dict:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
 
@@ -856,27 +823,22 @@ class AsyncLLMEngine:
         has_multimodal_inputs = False
 
         if prompt_token_ids is not None:
-            # Token-ID inputs already define the exact model input. Avoid a
-            # prompt-length detokenization pass on the serving hot path.
             if prompt is None:
                 prompt = ""
         elif prompt is not None:
             prompt_token_ids = self.engine.tokenize(prompt)
         else:
-            assert messages is not None, (
-                "Either messages or prompt/prompt_token_ids must be provided"
-            )
-
-            assert apply_chat_template, (
-                "apply_chat_template needs to be true for multi-role conversation"
-            )
+            assert (
+                messages is not None
+            ), "Either messages or prompt/prompt_token_ids must be provided"
+            assert (
+                apply_chat_template
+            ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
                 messages, add_generation_prompt=add_generation_prompt
             )
-
             mm_inputs = resolve_multimodal_inputs(messages)
-
             has_multimodal_inputs = any(
                 mm_inputs[key] for key in ("images", "videos", "audios")
             )
@@ -887,7 +849,6 @@ class AsyncLLMEngine:
                 mm_inputs["audios"],
                 return_tensors="pt",
             )
-
             prompt_token_ids = processed_inputs.get("input_ids").flatten().tolist()
             mm_index_mappings = self.engine.processor.get_mm_token_index_list(
                 prompt_token_ids,
@@ -896,6 +857,21 @@ class AsyncLLMEngine:
                 audio_ids=mm_inputs["audio_urls"],
             )
 
+        return {
+            "request_id": request_id,
+            "prompt": prompt,
+            "prompt_token_ids": prompt_token_ids,
+            "processed_inputs": processed_inputs,
+            "mm_index_mappings": mm_index_mappings,
+            "has_multimodal_inputs": has_multimodal_inputs,
+        }
+
+    def _add_prepared_request(
+        self,
+        prepared: dict,
+        sampling_params: Optional[SamplingParams],
+        request_data: Optional[dict],
+    ) -> InferenceRequest:
         if sampling_params is None:
             sampling_params = SamplingParams(max_tokens=self.config.max_tokens)
         elif sampling_params.max_tokens is None:
@@ -903,26 +879,66 @@ class AsyncLLMEngine:
             sampling_params.max_tokens = self.config.max_tokens
 
         request = InferenceRequest(
-            request_id=request_id,
-            prompt=prompt,
-            prompt_token_ids=prompt_token_ids,
-            processed_inputs=processed_inputs,
-            mm_token_index_mappings=mm_index_mappings,
-            has_multimodal_inputs=has_multimodal_inputs,
+            request_id=prepared["request_id"],
+            prompt=prepared["prompt"],
+            prompt_token_ids=prepared["prompt_token_ids"],
+            processed_inputs=prepared["processed_inputs"],
+            mm_token_index_mappings=prepared["mm_index_mappings"],
+            has_multimodal_inputs=prepared["has_multimodal_inputs"],
             sampling_params=sampling_params,
             eos_token_ids=self.engine.eos_token_ids,
             request_data=request_data,
         )
 
         if request_data and "kv_transfer_params" in request_data:
-            kv_params = request_data["kv_transfer_params"]
-            request.kv_transfer_params = kv_params
+            request.kv_transfer_params = request_data["kv_transfer_params"]
 
-        # Initialize output queue for streaming
         _ = request.output_queue
-
         self.engine.add_request(request)
         return request
+
+    def add_request(
+        self,
+        messages: Optional[List[dict]],
+        apply_chat_template: bool = True,
+        add_generation_prompt: bool = True,
+        prompt: Optional[str] = None,
+        prompt_token_ids: Optional[List[int]] = None,
+        sampling_params: Optional[SamplingParams] = None,
+        request_id: Optional[str] = None,
+        request_data: Optional[dict] = None,
+    ) -> InferenceRequest:
+        prepared = self._prepare_request(
+            messages,
+            apply_chat_template,
+            add_generation_prompt,
+            prompt,
+            prompt_token_ids,
+            request_id,
+        )
+        return self._add_prepared_request(prepared, sampling_params, request_data)
+
+    async def add_request_async(
+        self,
+        messages: Optional[List[dict]],
+        apply_chat_template: bool = True,
+        add_generation_prompt: bool = True,
+        prompt: Optional[str] = None,
+        prompt_token_ids: Optional[List[int]] = None,
+        sampling_params: Optional[SamplingParams] = None,
+        request_id: Optional[str] = None,
+        request_data: Optional[dict] = None,
+    ) -> InferenceRequest:
+        prepared = await asyncio.to_thread(
+            self._prepare_request,
+            messages,
+            apply_chat_template,
+            add_generation_prompt,
+            prompt,
+            prompt_token_ids,
+            request_id,
+        )
+        return self._add_prepared_request(prepared, sampling_params, request_data)
 
     def add_chat_request(
         self,
@@ -1023,3 +1039,7 @@ class AsyncLLMEngine:
             # Unified cleanup point: runs whether the loop exits normally,
             # via exception, or via aclose() (GeneratorExit from Starlette).
             await request.close()
+
+    async def add_chat_request_async(self, **kwargs) -> InferenceRequest:
+        kwargs.pop("chat_template_kwargs", None)
+        return await self.add_request_async(apply_chat_template=True, **kwargs)

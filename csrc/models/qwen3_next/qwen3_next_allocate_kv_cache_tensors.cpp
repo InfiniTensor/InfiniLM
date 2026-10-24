@@ -121,7 +121,9 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
         if (nullptr == paged_kv_cache_config) {
             throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");
         }
-        const size_t mamba_pool_size = std::max<size_t>(2, paged_kv_cache_config->num_blocks() / 4);
+        // Linear-attention state is per active sequence, unlike paged KV blocks.
+        const size_t mamba_pool_size =
+            std::max<size_t>(2, paged_kv_cache_config->max_batch_size() + 1);
 
         for (size_t layer_idx = 0; layer_idx < num_hidden_layers; ++layer_idx) {
             const std::string &layer_type = layer_types[layer_idx];
