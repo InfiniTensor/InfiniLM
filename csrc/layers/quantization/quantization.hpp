@@ -9,4 +9,5 @@
 #include "gptq_qy.hpp"
 #include "mxfp4.hpp"
 #include "none_quantization.hpp"
+#include "packed_bf16.hpp"
 #include "quantization_scheme.hpp"

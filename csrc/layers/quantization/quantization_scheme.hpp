@@ -4,6 +4,7 @@ namespace infinilm::quantization {
 
 enum class QuantScheme {
     NONE,
+    PACKED_BF16,
     COMPRESSED_TENSOR_W8A8I8,
     AWQ_W4A16,
     AWQ_MARLIN_W4A16,
@@ -15,6 +16,7 @@ enum class QuantScheme {
 
 enum class KVQuantAlgo {
     NONE,
+    PACKED_BF16,
     INT8,
 };
 
