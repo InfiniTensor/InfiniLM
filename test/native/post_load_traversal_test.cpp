@@ -11,6 +11,7 @@
 #include "../../csrc/layers/linear/base_linear.hpp"
 #include <cassert>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <map>
 #include <stdexcept>
@@ -22,6 +23,17 @@ namespace {
 using namespace infinilm::models::minicpm4;
 using ModelConfigPtr = std::shared_ptr<infinilm::config::ModelConfig>;
 using Device = infinilm::runtime::Device;
+
+Device test_device() {
+    const auto *backend = std::getenv("INFINILM_TEST_DEVICE");
+    if (!backend || std::string(backend) == "nvidia") {
+        return {Device::Type::kNvidia, 0};
+    }
+    if (std::string(backend) == "hygon") {
+        return {Device::Type::kHygon, 0};
+    }
+    throw std::invalid_argument("INFINILM_TEST_DEVICE must be nvidia or hygon");
+}
 
 class CountedAttention final : public MiniCPM4Attention {
 public:
@@ -272,7 +284,7 @@ void typed_no_matching_tls() {
             const auto previous_type = infini::rt::runtime_device_type();
             int previous_index = 0;
             const bool had_device = infini::rt::runtime::GetDevice(&previous_index) == infini::rt::runtime::kSuccess;
-            auto runtime = infinilm::runtime::Runtime::create(Device{Device::Type::kNvidia, 0});
+            auto runtime = infinilm::runtime::Runtime::create(test_device());
             for (bool first : {false, true}) {
                 for (bool repeat : {false, true}) {
                     typed_success_case(*runtime, first, repeat);
@@ -306,7 +318,7 @@ int main(int argc, char **argv) {
             return 0;
         }
         typed_no_matching_tls();
-        auto runtime = infinilm::runtime::Runtime::create({Device::Type::kNvidia, 0});
+        auto runtime = infinilm::runtime::Runtime::create(test_device());
         auto settings = std::make_shared<infinilm::global_state::InfinilmConfig>();
         settings->attention_backend = infinilm::backends::AttentionBackend::STATIC_ATTN;
         infinilm::engine::distributed::RankInfo rank{runtime->device()};

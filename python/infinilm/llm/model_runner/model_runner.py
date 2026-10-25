@@ -108,7 +108,9 @@ class ModelRunner:
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
             pre_transpose=config.pre_transpose,
+            dtype=config.dtype,
         )
+        self.dtype = self.model_engine.dtype
 
         if self.model_engine.model_type == "minicpm_eagle":
             raise RuntimeError(
@@ -222,13 +224,13 @@ class ModelRunner:
             "bfloat16": infinicore.bfloat16,
         }
 
-        if self.config.dtype not in dtype_map:
+        if self.config.dtype is not None and self.config.dtype not in dtype_map:
             raise ValueError(
                 f"Unsupported dtype: '{self.config.dtype}'. "
                 f"Supported dtypes: {list(dtype_map.keys())}"
             )
 
-        self.dtype = dtype_map[self.config.dtype]
+        self.dtype = dtype_map.get(self.config.dtype)
 
     def execute_model(self, scheduler_output) -> ModelRunnerOutput:
         requests = tuple(scheduler_output.scheduled_requests)

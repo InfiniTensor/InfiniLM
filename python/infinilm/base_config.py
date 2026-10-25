@@ -366,9 +366,9 @@ class BaseConfig:
         self.parser.add_argument(
             "--dtype",
             type=str,
-            default="float16",
+            default=None,
             choices=["float32", "float16", "bfloat16"],
-            help="data type for model",
+            help="model compute dtype (default: checkpoint config)",
         )
 
         # --- Server parameters ---

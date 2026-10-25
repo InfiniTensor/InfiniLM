@@ -27,6 +27,7 @@ class SpeculativeRunner:
             attention_backend="default",
             use_mla=False,
             weight_load_mode=config.weight_load_mode,
+            dtype=config.dtype,
         )
         if self.draft_model_engine.model_type != "minicpm_eagle":
             raise RuntimeError(

@@ -5,8 +5,8 @@ import sys
 import time
 from collections import OrderedDict
 
-import infinicore
 import numpy as np
+from infinilm import _core as infinicore
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -545,6 +545,7 @@ class TestModel:
             use_mla=use_mla,
             weight_load_mode=weight_load_mode,
             pre_transpose=pre_transpose,
+            dtype=cfg.dtype,
         )
         self.multimodal_inputs = convert_multimodal_inputs(
             model, self.processor, processed_multimodal_inputs

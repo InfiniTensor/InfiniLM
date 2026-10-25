@@ -39,6 +39,7 @@ def test(
     weight_load_mode="async",
     enable_prefix_caching=True,
     pre_transpose=False,
+    dtype=None,
 ):
     if video_path is not None:
         from infinilm.processors.videonsa_processor import decode_video_frames
@@ -52,6 +53,7 @@ def test(
 
     model = LLM(
         model_path=model_path,
+        dtype=dtype,
         draft_model_path=draft_model_path,
         num_draft_tokens=num_draft_tokens,
         device=device,
@@ -181,4 +183,5 @@ if __name__ == "__main__":
         weight_load_mode=cfg.weight_load_mode,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        dtype=cfg.dtype,
     )

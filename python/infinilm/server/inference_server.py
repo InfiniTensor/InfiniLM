@@ -97,7 +97,7 @@ class InferenceServer:
         self,
         model_path: str,
         device: str = "cuda",
-        dtype: str = "float16",
+        dtype: Optional[str] = None,
         tensor_parallel_size: int = 1,
         pipeline_parallel_size: int = 1,
         pipeline_parallel_stage: int = 0,

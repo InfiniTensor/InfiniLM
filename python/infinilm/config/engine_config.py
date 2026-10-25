@@ -43,7 +43,7 @@ class EngineConfig:
     draft_model_path: Optional[str] = None
     num_draft_tokens: int = 4
     device: str = "cuda"
-    dtype: str = "float16"
+    dtype: Optional[str] = None
     tensor_parallel_size: int = 1
     pipeline_parallel_size: int = 1
     pipeline_parallel_stage: int = 0

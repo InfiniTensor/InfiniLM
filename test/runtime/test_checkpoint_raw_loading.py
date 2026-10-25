@@ -49,6 +49,30 @@ def _write_shard(path, entries, metadata=_MISSING_METADATA):
 
 
 class RawCheckpointLoadingTest(unittest.TestCase):
+    def test_embedding_scale_writes_every_element(self):
+        # Regression: scalar Mul used empty shape/stride metadata and treated
+        # a checkpoint matrix as one scalar in the generated Torch provider.
+        for dtype, encoding, bits in (
+            (infinicore.float32, "<I", 0x41400000),
+            (infinicore.float16, "<H", 0x4A00),
+            (infinicore.bfloat16, "<H", 0x4140),
+        ):
+            with self.subTest(dtype=str(dtype)):
+                tensor = infinicore.from_list(
+                    [[1.0] * 7 for _ in range(5)], dtype=dtype
+                )
+                width = struct.calcsize(encoding)
+                original = ctypes.string_at(tensor.data_ptr(), 35 * width)
+                result = loading._scale_checkpoint_tensor(tensor, 12.0)
+                self.assertEqual(list(result.shape), [5, 7])
+                self.assertEqual(
+                    ctypes.string_at(result.data_ptr(), 35 * width),
+                    struct.pack(encoding, bits) * 35,
+                )
+                self.assertEqual(
+                    ctypes.string_at(tensor.data_ptr(), 35 * width), original
+                )
+
     def test_mamba_raw_remap_cross_shard_real_head_and_owner(self):
         embed_name = "backbone.embeddings.weight"
         source_name = "backbone.layers.0.mixer.conv1d.weight"
@@ -559,15 +583,10 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 struct.pack("<8H", *bf16_bits),
                 infinicore.float32,
                 struct.pack(
-                    "<8f",
-                    0.0,
-                    -0.0,
-                    2**-133,
-                    1 + 2**-7,
-                    -1,
-                    65536,
-                    float("inf"),
-                    -float("inf"),
+                    # Construct the oracle from bits: Torch/HIP may enable
+                    # CPU FTZ, which must not erase this subnormal in Python.
+                    "<8I",
+                    *(bits << 16 for bits in bf16_bits),
                 ),
             ),
             (

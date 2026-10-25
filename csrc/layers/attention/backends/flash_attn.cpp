@@ -69,9 +69,16 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
     // 2. Compute attention
     auto attn_output = infinilm::runtime::Tensor::empty(
         runtime, {seq_len, num_heads_, head_dim_}, query->dtype());
+    // Hygon's linked ATen FlashAttention owns temporary allocations. Keep it
+    // as an explicit host segment between captured native device segments.
+    // Its ATen stream guard keeps all tensor work ordered on Runtime's stream;
+    // no preceding CPU synchronization is needed to enqueue that work.
+    const auto attention_policy = runtime.device().type() == infinilm::runtime::Device::Type::kHygon
+                                    ? infinilm::execution::RecordingPolicy::StreamOrderedHostReplay
+                                    : infinilm::execution::RecordingPolicy::DeviceOnly;
     if (is_prefill) {
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
-            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            runtime, attention_policy,
             infini::ops::Config::Automatic(),
             query, k_total, v_total, input_offsets.value(), cu_seqlens.value(),
             std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{block_tables.value()},
@@ -94,7 +101,7 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infinilm::runtime::Tensor> kv_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
-            runtime, infinilm::execution::RecordingPolicy::DeviceOnly, kv_config,
+            runtime, attention_policy, kv_config,
             q_for_fa, k_total, v_total, kv_none, kv_none, kv_none, kv_none,
             std::optional<infinilm::runtime::Tensor>{total_sequence_lengths.value()}, kv_none, kv_none,
             std::optional<infinilm::runtime::Tensor>{block_tables.value()}, kv_none,

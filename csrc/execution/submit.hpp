@@ -10,12 +10,16 @@
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
 namespace infinilm::execution {
 
 enum class RecordingPolicy { AllowHostReplay,
+                             // Host code only enqueues work on Runtime's stream;
+                             // it never reads device results on the CPU.
+                             StreamOrderedHostReplay,
                              DeviceOnly,
                              HostOnly };
 
@@ -174,7 +178,9 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
                                            recorded);
             std::apply([&](const auto &...args) { (*instance)(handle, args...); }, values);
         },
-        capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly));
+        capture_safe, policy != RecordingPolicy::DeviceOnly,
+        typeid(OpsKey).name(),
+        policy != RecordingPolicy::StreamOrderedHostReplay));
 }
 
 template <class OpsKey, class... Args>

@@ -229,8 +229,17 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_backend="disabled",
         moe_ep_size=1,
         pre_transpose=False,
+        dtype=None,
     ):
         self.hf_config = read_hf_config(model_path)
+        if dtype is not None:
+            if dtype not in ("float32", "float16", "bfloat16"):
+                raise ValueError(f"Unsupported model dtype: {dtype!r}")
+            self.hf_config["torch_dtype"] = dtype
+            self.hf_config["dtype"] = dtype
+            if isinstance(self.hf_config.get("text_config"), dict):
+                self.hf_config["text_config"]["torch_dtype"] = dtype
+                self.hf_config["text_config"]["dtype"] = dtype
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
         self.hf_config["position_id_axes"] = self.position_id_axes
@@ -305,11 +314,17 @@ class InferEngine(_infinilm.InferEngine):
         # InternLM3's config.json has eos_token_id=2, while
         # generation_config.json has eos_token_id=[2, 128131].
         # Following this priority ensures we always get the authoritative value.
-        eos_token_id = (
-            self.hf_generation_config.get("eos_token_id")
-            or self.hf_config.get("eos_token_id")
-            or []
-        )
+        text_config = self.hf_config.get("text_config") or {}
+        eos_token_id = []
+        for config in (
+            self.hf_generation_config,
+            self.hf_config,
+            text_config,
+        ):
+            candidate = config.get("eos_token_id")
+            if candidate is not None:
+                eos_token_id = candidate
+                break
         if isinstance(eos_token_id, int):
             eos_token_id = [eos_token_id]
         return eos_token_id

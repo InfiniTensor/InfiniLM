@@ -1,4 +1,6 @@
+#include <cstdint>
 #include <infini/ops.h>
+#include <limits>
 #include <pybind11/pybind11.h>
 #include <stdexcept>
 
@@ -36,7 +38,19 @@ PYBIND11_MODULE(_infinilm, m) {
             || input->shape() != output->shape()
             || !checkpoint_float(input->dtype()) || !checkpoint_float(output->dtype())) {
             throw std::invalid_argument("checkpoint Cast requires matching CPU shapes and FP32/FP16/BF16 tensors");
-}
+        }
+        if (!input->is_contiguous() || !output->is_contiguous()) {
+            throw std::invalid_argument("checkpoint Cast requires contiguous CPU tensors");
+        }
+        const auto ip = reinterpret_cast<std::uintptr_t>(input->data());
+        const auto op = reinterpret_cast<std::uintptr_t>(output->data());
+        const auto ib = input->nbytes(), ob = output->nbytes();
+        const auto limit = std::numeric_limits<std::uintptr_t>::max();
+        if ((ib && (!ip || ip > limit - ib)) || (ob && (!op || op > limit - ob))
+            || (ib && ob && ip < op + ob && op < ip + ib
+                && !(ip == op && input->dtype() == output->dtype()))) {
+            throw std::invalid_argument("checkpoint Cast requires disjoint storage or identical same-dtype storage");
+        }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
         infini::ops::Cast::Call(input_view, output_view); }, py::arg("input"), py::arg("output"), py::call_guard<py::gil_scoped_release>());

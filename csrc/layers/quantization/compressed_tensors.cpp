@@ -7,6 +7,7 @@
 #include <exception>
 #include <limits>
 #include <optional>
+#include <spdlog/spdlog.h>
 
 namespace infinilm::quantization {
 
@@ -100,18 +101,26 @@ infinilm::runtime::Tensor CompressedTensors::forward(
         if (bias_opt) {
             bias_opt = std::make_optional(bias_opt.value()->as_strided({batch, out_features}, {0, 1}));
         }
+        const char *stage = "PerChannelQuantI8";
         try {
             infinilm::execution::submit<infini::ops::PerChannelQuantI8>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::PerChannelQuantI8::DefaultConfig(runtime.device().type()),
                 input_view, input_packed, input_scale);
             INFINILM_TRACE_OP(PerChannelQuantI8, input_view);
+            stage = "I8Gemm";
             infinilm::execution::submit<infini::ops::I8Gemm>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::I8Gemm::DefaultConfig(runtime.device().type()),
                 output_view, input_packed, input_scale, weight_view, effective_weight_scale, bias_opt);
             INFINILM_TRACE_OP(I8Gemm, output_view);
         } catch (...) {
+            spdlog::error("W8A8 {} failed: M={} N={} K={} dtype={} bias={} A_strides={}/{} B_strides={}/{} AS_stride={} BS_stride={}",
+                          stage, batch, out_features, in_features,
+                          static_cast<int>(input_view->dtype()), has_bias,
+                          input_packed->stride(0), input_packed->stride(1),
+                          weight_view->stride(0), weight_view->stride(1),
+                          input_scale->stride(0), effective_weight_scale->stride(0));
             // Keep submitted operands alive through the original failure-only drain.
             const auto failure = std::current_exception();
             try {

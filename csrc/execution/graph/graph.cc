@@ -197,7 +197,11 @@ void Graph::run() const {
 #ifdef USE_INFINIRT_GRAPH
             if (!segment->capture_safe && previous != nullptr
                 && previous->device_graph_ != nullptr
-                && previous->device_graph_->exec != nullptr) {
+                && previous->device_graph_->exec != nullptr
+                && std::any_of(segment->ops.begin(), segment->ops.end(),
+                               [](const auto &op) {
+                                   return op->host_requires_synchronization();
+                               })) {
                 // Host code may inspect the preceding device result. Later device
                 // work is submitted on the same stream, so it stays ordered.
                 previous->device_graph_->synchronize();
@@ -265,7 +269,7 @@ void Graph::instantiate() {
         });
     if (first_unqualified != op_list_.end()) {
         const auto index = std::distance(op_list_.begin(), first_unqualified);
-        const auto detail = "operator #" + std::to_string(index) + " (RecordedCall)";
+        const auto detail = "operator #" + std::to_string(index) + " (" + (*first_unqualified)->name() + ")";
         if (require_device_graph_) {
             throw std::runtime_error(
                 "device graph is required but " + detail + " is not capture-qualified");
