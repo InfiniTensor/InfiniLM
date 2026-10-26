@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <stdexcept>
+#include <string>
 
 namespace {
 using namespace infinilm;
@@ -26,6 +27,9 @@ void check_storage(runtime::Runtime &owner, runtime::Tensor cache) {
     owner.memcpyD2H(&endpoints[1], cache->data() + bytes - sizeof(uint16_t), sizeof(uint16_t));
     require(endpoints[0] == 0 && endpoints[1] == 0, "cache must remain zero initialized");
 
+    if (owner.device().type() == runtime::Device::Type::kCpu) {
+        return;
+    }
     owner.startGraphRecording();
     auto blob = cache->to_blob_(owner);
     require(owner.graphPinnedMemoryBytes() == bytes, "KV backing was rounded to a size class");
@@ -45,9 +49,12 @@ void check_storage(runtime::Runtime &owner, runtime::Tensor cache) {
 }
 } // namespace
 
-int main() {
+int main(int argc, char **argv) {
     try {
-        auto owner = runtime::Runtime::create({runtime::Device::Type::kNvidia, 0});
+        const auto device = argc == 2 && std::string(argv[1]) == "--cpu"
+                              ? runtime::Device::Type::kCpu
+                              : runtime::Device::Type::kNvidia;
+        auto owner = runtime::Runtime::create({device, 0});
         engine::distributed::RankInfo rank(owner->device());
         rank.tp_size = 2;
         const cache::PagedKVCacheConfig paged(65, 256, 1);

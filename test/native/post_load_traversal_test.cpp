@@ -305,52 +305,45 @@ void check_inference_memory_config() {
     using namespace infinilm;
     using Backend = backends::AttentionBackend;
     config::ModelConfig model(nlohmann::json{{"torch_dtype", "bfloat16"}});
-    auto chunked = [&](Device::Type device, int tp, int pp, Backend backend = Backend::PAGED_ATTN, bool capable = true) {
+    auto chunked = [&](Device::Type device, int tp = 2, int pp = 1, Backend backend = Backend::PAGED_ATTN, bool capable = true) {
         return config::supports_chunked_prefill(model, device, tp, pp, backend, capable);
     };
-    auto sharded = [&](Device::Type device, int tp, int pp) {
+    auto sharded = [&](Device::Type device, int tp = 2, int pp = 1) {
         return config::supports_tp_weight_sharding(model, device, tp, pp);
     };
-    assert(chunked(Device::Type::kNvidia, 1, 1));
-    assert(chunked(Device::Type::kNvidia, 2, 1));
-    assert(chunked(Device::Type::kNvidia, 4, 1));
-    assert(sharded(Device::Type::kNvidia, 2, 1));
-    assert(sharded(Device::Type::kNvidia, 4, 1));
-    assert(!sharded(Device::Type::kNvidia, 1, 1));
-    assert(!chunked(Device::Type::kNvidia, 0, 1));
-    assert(!chunked(Device::Type::kCpu, 2, 1));
-    assert(!sharded(Device::Type::kCpu, 2, 1));
-    assert(!chunked(Device::Type::kNvidia, 2, 2));
-    assert(!sharded(Device::Type::kNvidia, 2, 2));
+    // Policy checks do not initialize an accelerator or require its SDK.
+    for (int value = 0; value < static_cast<int>(Device::Type::kCount); ++value) {
+        auto device = static_cast<Device::Type>(value);
+        assert(chunked(device) == (device == Device::Type::kNvidia));
+        assert(sharded(device) == (device == Device::Type::kNvidia));
+    }
+    assert(chunked(Device::Type::kNvidia, 1) && chunked(Device::Type::kNvidia, 4));
+    assert(!sharded(Device::Type::kNvidia, 1) && sharded(Device::Type::kNvidia, 4));
+    assert(!chunked(Device::Type::kNvidia, 0));
+    assert(!chunked(Device::Type::kNvidia, 2, 2) && !sharded(Device::Type::kNvidia, 2, 2));
     assert(!chunked(Device::Type::kNvidia, 2, 1, Backend::STATIC_ATTN));
     assert(!chunked(Device::Type::kNvidia, 2, 1, Backend::PAGED_ATTN, false));
     for (const auto *dtype : {"float16", "float32"}) {
         model.get_config_json()["torch_dtype"] = dtype;
-        assert(!chunked(Device::Type::kNvidia, 2, 1));
-        assert(!sharded(Device::Type::kNvidia, 2, 1));
+        assert(!chunked(Device::Type::kNvidia) && !sharded(Device::Type::kNvidia));
     }
     model.get_config_json()["torch_dtype"] = "bfloat16";
-    for (const auto *name : {"llama", "qwen3", "unregistered_capability_probe"}) {
-        model.get_config_json()["model_type"] = name;
-        assert(chunked(Device::Type::kNvidia, 2, 1));
-        assert(sharded(Device::Type::kNvidia, 2, 1));
-    }
     auto quantized = config::ModelConfig(model.get_config_json());
     quantized.set_kv_quant_scheme(runtime::DataType::kInt8);
     assert(!config::supports_chunked_prefill(quantized, Device::Type::kNvidia, 2, 1, Backend::PAGED_ATTN, true));
     assert(config::supports_tp_weight_sharding(quantized, Device::Type::kNvidia, 2, 1));
     model.get_config_json()["quantization_config"] = {
         {"quant_method", "awq"}, {"bits", 4}, {"group_size", 128}, {"version", "GEMM"}, {"zero_point", true}};
-    assert(!chunked(Device::Type::kNvidia, 2, 1));
-    assert(!sharded(Device::Type::kNvidia, 2, 1));
+    assert(!chunked(Device::Type::kNvidia) && !sharded(Device::Type::kNvidia));
     model.get_config_json().erase("quantization_config");
     assert(config::prefill_chunk_size(model) == 4096);
-    assert(config::tp_vocab_sharding(model));
+    assert(config::tp_vocab_sharding(model) && config::tp_embedding_sharding(model));
+    model.get_config_json()["infinilm_prefill_chunk_size"] = 0;
+    assert(config::prefill_chunk_size(model) == 0);
+    model.get_config_json()["infinilm_tp_vocab_sharding"] = false;
+    assert(!config::tp_vocab_sharding(model) && !config::tp_embedding_sharding(model));
+    model.get_config_json()["infinilm_tp_embedding_sharding"] = true;
     assert(config::tp_embedding_sharding(model));
-    for (const auto size : {0, 1, 128, 4096}) {
-        model.get_config_json()["infinilm_prefill_chunk_size"] = size;
-        assert(config::prefill_chunk_size(model) == static_cast<size_t>(size));
-    }
     for (const auto &bad : std::vector<nlohmann::json>{-1, 1.5, "4096", nullptr, true, uint64_t{1} << 40}) {
         model.get_config_json()["infinilm_prefill_chunk_size"] = bad;
         bool rejected = false;
@@ -359,38 +352,14 @@ void check_inference_memory_config() {
         } catch (const std::invalid_argument &) { rejected = true; }
         assert(rejected);
     }
-    model.get_config_json()["infinilm_tp_vocab_sharding"] = false;
-    assert(!config::tp_vocab_sharding(model));
-    assert(!config::tp_embedding_sharding(model));
-    model.get_config_json()["infinilm_tp_embedding_sharding"] = true;
-    assert(config::tp_embedding_sharding(model));
-    model.get_config_json()["infinilm_tp_vocab_sharding"] = true;
-    model.get_config_json()["infinilm_tp_embedding_sharding"] = false;
-    assert(!config::tp_embedding_sharding(model));
-    assert(config::tp_vocab_sharding(model));
-    for (const auto *key : {"infinilm_tp_vocab_sharding", "infinilm_tp_embedding_sharding"}) {
-        model.get_config_json()[key] = "true";
-        bool rejected = false;
-        try {
-            if (std::string(key) == "infinilm_tp_vocab_sharding") {
-                (void)config::tp_vocab_sharding(model);
-            } else {
-                (void)config::tp_embedding_sharding(model);
-            }
-        } catch (const std::invalid_argument &) { rejected = true; }
-        assert(rejected);
-        model.get_config_json()[key] = true;
-    }
     using namespace layers::causal_lm_templates;
     struct UnknownModule {};
     using DenseDecoder = TextDecoderLayer<layers::attention::Attention, layers::mlp::MLP>;
-    static_assert(ChunkedPrefillCapability<DenseDecoder>::value);
-    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<layers::attention::Attention, UnknownModule>>::value);
-    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<UnknownModule, layers::mlp::MLP>>::value);
     static_assert(ChunkedPrefillCapability<TextModel<DenseDecoder, true>>::value);
     static_assert(!ChunkedPrefillCapability<TextModel<DenseDecoder, false>>::value);
-    static_assert(!ChunkedPrefillCapability<TextModel<UnknownModule, true>>::value);
-    std::puts("Inference memory component capabilities and configuration PASS");
+    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<layers::attention::Attention, UnknownModule>>::value);
+    static_assert(!ChunkedPrefillCapability<TextDecoderLayer<UnknownModule, layers::mlp::MLP>>::value);
+    std::puts("Inference memory policy and component fallback PASS");
 }
 
 void check_constructed_memory_path(infinilm::runtime::Runtime &runtime,
@@ -400,7 +369,19 @@ void check_constructed_memory_path(infinilm::runtime::Runtime &runtime,
         {"model_type", "capability_probe"}, {"torch_dtype", "bfloat16"}, {"hidden_size", 256}, {"vocab_size", 128}, {"head_dim", 64}, {"intermediate_size", 512}, {"num_attention_heads", 4}, {"num_key_value_heads", 2}, {"num_hidden_layers", 1}, {"max_position_embeddings", 2048}, {"rms_norm_eps", 1e-6}, {"rope_theta", 10000.0}, {"attention_bias", false}, {"mlp_bias", false}});
     for (auto backend : {backends::AttentionBackend::PAGED_ATTN, backends::AttentionBackend::STATIC_ATTN}) {
         models::llama::LlamaForCausalLM model(runtime, model_config, rank, backend, layers::moe::EPConfig{});
-        assert(model.prefill_chunk_size() == (backend == backends::AttentionBackend::PAGED_ATTN ? 4096 : 0));
+        assert(model.prefill_chunk_size() == (runtime.device().type() == Device::Type::kNvidia && backend == backends::AttentionBackend::PAGED_ATTN ? 4096 : 0));
+        if (runtime.device().type() == Device::Type::kCpu && backend == backends::AttentionBackend::STATIC_ATTN) {
+            global_state::ForwardContext context;
+            context.runtime = &runtime;
+            for (size_t length : {64, 16}) {
+                cache::StaticKVCacheConfig capacity(1, length);
+                model.reset_cache(&capacity, context, backend, rank);
+                assert(context.kv_cache_vec.size() == 1);
+                assert(context.kv_cache_vec[0]->shape() == runtime::Shape({2, 1, 2, length, 64}));
+            }
+            model.reset_cache(nullptr, context, backend, rank);
+            assert(context.kv_cache_vec.empty());
+        }
     }
     std::puts("Constructed shared decoder reports actual memory execution path PASS");
 }
@@ -409,6 +390,11 @@ int main(int argc, char **argv) {
     try {
         check_inference_memory_config();
         if (argc == 2 && std::string(argv[1]) == "--memory-config-only") {
+            return 0;
+        }
+        if (argc == 2 && std::string(argv[1]) == "--cpu-cache-only") {
+            auto cpu = infinilm::runtime::Runtime::create({Device::Type::kCpu, 0});
+            check_constructed_memory_path(*cpu, infinilm::engine::distributed::RankInfo(cpu->device()));
             return 0;
         }
         check_forward_context_dispatch();

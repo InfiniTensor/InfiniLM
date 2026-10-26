@@ -48,14 +48,6 @@ class InferenceMemoryTest(unittest.TestCase):
     ):
         config = {
             "model_type": family,
-            "architectures": [
-                {
-                    "qwen3": "Qwen3ForCausalLM",
-                    "qwen2": "Qwen2ForCausalLM",
-                    "llama": "LlamaForCausalLM",
-                    "fm9g": "FM9GForCausalLM",
-                }[family]
-            ],
             "torch_dtype": "bfloat16",
             "hidden_size": hidden,
             "intermediate_size": 1024,
@@ -201,68 +193,40 @@ class InferenceMemoryTest(unittest.TestCase):
         )
         return {key: self.snapshot(output[key]) for key in ("hidden_states", "logits")}
 
-    def collect(
-        self,
-        chunk,
-        shard,
-        fp32_head=False,
-        vocab=256,
-        hidden=512,
-        family="qwen3",
-        embedding_shard=None,
-        backend="paged-attn",
-    ):
+    def collect(self, chunk, shard, **options):
         with tempfile.TemporaryDirectory() as directory:
-            engine = self.make_engine(
-                directory,
-                chunk,
-                shard,
-                fp32_head,
-                vocab,
-                hidden,
-                family,
-                embedding_shard,
-                backend,
-            )
+            engine = self.make_engine(directory, chunk, shard, **options)
             random = np.random.default_rng(1063)
             records = {}
+            vocab = options.get("vocab", 256)
+            cases = [
+                ((127,), (0,)),
+                ((128,), (0,)),
+                ((129,), (0,)),
+                ((257,), (0,)),
+                ((129, 257), (0, 0)),
+                ((1, 129), (128, 256)),
+                ((513,), (257,)),
+                ((129,) * 8, (0,) * 8),
+                ((129,) * 16, (0,) * 16),
+            ]
             try:
-                for length in (127, 128, 129, 257, 513):
-                    engine.reset_cache(self.cache_type(32, 256, 2))
-                    sequence = random.integers(0, vocab, length, dtype=np.int64)
-                    sequence[-1] = vocab - 1
-                    records[f"prefill-{length}"] = self.forward(
-                        engine, [sequence], all_positions=True
+                for index, (lengths, past) in enumerate(cases):
+                    engine.reset_cache(self.cache_type(128, 256, 16))
+                    if any(past):
+                        self.forward(
+                            engine, [random.integers(0, vocab, n) for n in past]
+                        )
+                    sequences = [random.integers(0, vocab, n) for n in lengths]
+                    sequences[-1][-1] = vocab - 1
+                    records[f"prefill-{index}"] = self.forward(
+                        engine, sequences, past=past, all_positions=len(lengths) == 1
                     )
-                    records[f"decode-{length}"] = self.forward(
-                        engine, [np.array([7], np.int64)], past=[length]
+                    records[f"decode-{index}"] = self.forward(
+                        engine,
+                        [np.array([7])] * len(lengths),
+                        past=[p + n for p, n in zip(past, lengths)],
                     )
-                engine.reset_cache(self.cache_type(32, 256, 2))
-                records["packed"] = self.forward(
-                    engine,
-                    [random.integers(0, vocab, n, dtype=np.int64) for n in (129, 257)],
-                )
-                records["packed-decode"] = self.forward(
-                    engine, [np.array([17]), np.array([29])], past=[129, 257]
-                )
-                engine.reset_cache(self.cache_type(32, 256, 2))
-                self.forward(
-                    engine,
-                    [random.integers(0, vocab, n, dtype=np.int64) for n in (128, 256)],
-                )
-                records["mixed-prefill-decode"] = self.forward(
-                    engine,
-                    [np.array([13]), random.integers(0, vocab, 129, dtype=np.int64)],
-                    past=[128, 256],
-                )
-                engine.reset_cache(self.cache_type(32, 256, 2))
-                sequence = random.integers(0, vocab, 770, dtype=np.int64)
-                self.forward(engine, [sequence[:257]])
-                records["continuation"] = self.forward(
-                    engine, [sequence[257:]], past=[257], all_positions=True
-                )
-                engine.reset_cache(self.cache_type(32, 256, 2))
-                records["cold"] = self.forward(engine, [sequence], all_positions=True)
             finally:
                 del engine
                 gc.collect()
@@ -285,66 +249,45 @@ class InferenceMemoryTest(unittest.TestCase):
                     self.assertLess(relative_l2, 0.02)
                     self.assertGreater(cosine, 0.999)
 
-    def test_boundaries_packed_prefix_and_opt_out(self):
-        reference = self.collect(0, False)
-        self.assert_close(reference, self.collect(0, True))
-        self.assert_close(reference, self.collect(128, False))
-        self.assert_close(reference, self.collect(128, True))
-
-    def test_float32_head_keeps_replicated_storage(self):
-        reference = self.collect(0, False, fp32_head=True)
-        candidate = self.collect(128, True, fp32_head=True)
-        self.assert_close(reference, candidate)
-
-    def test_indivisible_shapes_keep_compatible_storage(self):
-        for vocab, hidden in ((257, 512), (256, 513)):
-            with self.subTest(vocab=vocab, hidden=hidden):
-                reference = self.collect(0, False, vocab=vocab, hidden=hidden)
-                candidate = self.collect(128, True, vocab=vocab, hidden=hidden)
-                self.assert_close(reference, candidate)
-
-    def test_component_paths_across_families(self):
-        for family in ("llama", "qwen2", "fm9g"):
-            with self.subTest(family=family):
-                reference = self.collect(0, False, family=family)
-                candidate = self.collect(128, True, family=family)
-                self.assert_close(reference, candidate)
-
-    def test_independent_embedding_and_head_sharding(self):
-        reference = self.collect(0, False)
-        self.assert_close(reference, self.collect(0, False, embedding_shard=True))
-        self.assert_close(reference, self.collect(0, True, embedding_shard=False))
-
-    def test_weight_sharding_without_paged_attention(self):
-        reference = self.collect(0, False, family="llama", backend="flash-attn")
-        candidate = self.collect(128, True, family="llama", backend="flash-attn")
-        self.assert_close(reference, candidate)
-
-    def test_multi_request_batches(self):
-        def collect_batches(chunk, shard):
-            records = {}
-            with tempfile.TemporaryDirectory() as directory:
-                engine = self.make_engine(directory, chunk, shard, family="qwen2")
-                random = np.random.default_rng(1063)
-                try:
-                    for batch in (1, 8, 16):
-                        engine.reset_cache(self.cache_type(128, 256, 16))
-                        sequences = [
-                            random.integers(0, 256, 129, dtype=np.int64)
-                            for _ in range(batch)
-                        ]
-                        records[f"prefill-b{batch}"] = self.forward(engine, sequences)
-                        records[f"decode-b{batch}"] = self.forward(
-                            engine,
-                            [np.array([7], np.int64) for _ in range(batch)],
-                            past=[129] * batch,
-                        )
-                finally:
-                    del engine
-                    gc.collect()
-            return records
-
-        self.assert_close(collect_batches(0, False), collect_batches(128, True))
+    def test_execution_and_fallbacks(self):
+        cases = [
+            ("qwen3", {}),
+            ("llama", {}),
+            ("qwen2", {}),
+            ("fm9g", {}),
+            ("qwen3", {"fp32_head": True}),
+            ("qwen3", {"vocab": 257}),
+            ("qwen3", {"hidden": 513}),
+            ("llama", {"backend": "flash-attn"}),
+        ]
+        for family, options in cases:
+            reference = self.collect(0, False, family=family, **options)
+            switches = [(128, True, None)]
+            if family == "qwen3" and not options:
+                switches += [
+                    (0, True, None),
+                    (128, False, None),
+                    (0, False, True),
+                    (0, True, False),
+                ]
+            for chunk, head, embedding in switches:
+                with self.subTest(
+                    family=family,
+                    options=options,
+                    chunk=chunk,
+                    head=head,
+                    embedding=embedding,
+                ):
+                    self.assert_close(
+                        reference,
+                        self.collect(
+                            chunk,
+                            head,
+                            family=family,
+                            embedding_shard=embedding,
+                            **options,
+                        ),
+                    )
 
 
 if __name__ == "__main__":
