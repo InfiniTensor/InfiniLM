@@ -19,6 +19,20 @@ spec = importlib.util.spec_from_file_location(
 )
 protocol = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(protocol)
+with patch.dict(
+    sys.modules,
+    {
+        "infinilm": types.ModuleType("infinilm"),
+        "infinilm.server": types.ModuleType("infinilm.server"),
+        "infinilm.server.agent_protocol": protocol,
+    },
+):
+    spec = importlib.util.spec_from_file_location(
+        "infinilm.server.tool_parsers", SERVER / "tool_parsers/__init__.py"
+    )
+    parsers = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(parsers)
+ToolCallParser = parsers.ToolCallParser
 Error = protocol.AgentProtocolError
 TOOLS = [
     {
@@ -41,10 +55,21 @@ TOOLS = [
 XML = "<tool_call>\n<function=compute>\n<parameter=n>\n42\n</parameter>\n<parameter=label>\n123\n</parameter>\n</function>\n</tool_call>"
 
 
+JSON_CALL = {"name": "compute", "arguments": {"n": 42, "label": "123"}}
+WIRES = {
+    "qwen3_coder": XML,
+    "hermes": "<tool_call>" + json.dumps(JSON_CALL) + "</tool_call>",
+    "llama3_json": "<|python_tag|>"
+    + json.dumps({"name": "compute", "parameters": JSON_CALL["arguments"]}),
+    "mistral": "[TOOL_CALLS]" + json.dumps([JSON_CALL]),
+    "minicpm5": '<function name="compute"><param name="n">42</param><param name="label">123</param></function>',
+}
+
+
 def prepared(**fields):
     return protocol.prepare_agent_request(
         dict(messages=[{"role": "user", "content": "compute"}], tools=TOOLS, **fields),
-        True,
+        "qwen3_coder",
     )
 
 
@@ -91,18 +116,24 @@ def tools_with(**fields):
     return tools
 
 
-def test_stream_protocol_across_boundaries():
+@pytest.mark.parametrize("parser_name", WIRES)
+def test_stream_protocol_across_boundaries(parser_name):
     _, schemas, _ = prepared()
-    text = "<think>reason</think>\nanswer\n" + XML + "\n" + XML
+    wire = WIRES[parser_name] * 2
+    if parser_name in ("mistral", "llama3_json"):
+        wire = parsers.TOOL_CALL_FORMATS[parser_name][0] + json.dumps(
+            [JSON_CALL, JSON_CALL]
+        )
+    text = "<think>reason</think>\nanswer\n" + wire
     partitions = [list(text)] + [[text[:i], text[i:]] for i in range(len(text) + 1)]
     for parts in partitions:
-        parser = protocol.QwenAgentParser(schemas, thinking=False)
+        parser = ToolCallParser(schemas, thinking=False, parser=parser_name)
         events = []
         for part in parts:
             events.extend(parser.feed(part))
         message = protocol.collect_message(events + parser.feed("", final=True))
         assert message["reasoning_content"] == "reason"
-        assert message["content"] == "\nanswer\n\n"
+        assert message["content"] == "\nanswer\n"
         calls = message["tool_calls"]
         assert len(calls) == 2 and len({c["id"] for c in calls}) == 2
         assert all(
@@ -135,26 +166,26 @@ def test_stream_protocol_across_boundaries():
 def test_invalid_output_is_not_executable(text):
     _, schemas, _ = prepared()
     with pytest.raises(Error):
-        protocol.QwenAgentParser(schemas, thinking=False).feed(text, final=True)
+        ToolCallParser(schemas, thinking=False).feed(text, final=True)
 
 
 def test_tool_choice_and_parallel_contract():
     data, schemas, _ = prepared(tool_choice="none")
-    assert schemas == {} and data["chat_template_kwargs"]["tools"] == []
+    assert schemas == {} and not data["chat_template_kwargs"]["tools"]
     _, schemas, choice = prepared(
         tool_choice={"type": "function", "function": {"name": "compute"}}
     )
     assert choice == "compute" and list(schemas) == ["compute"]
     with pytest.raises(Error):
-        protocol.QwenAgentParser(schemas, thinking=False, choice="required").feed(
+        ToolCallParser(schemas, thinking=False, choice="required").feed(
             "answer", final=True
         )
     with pytest.raises(Error):
-        protocol.QwenAgentParser(schemas, thinking=False, parallel=False).feed(
+        ToolCallParser(schemas, thinking=False, parallel=False).feed(
             XML + XML, final=True
         )
     with pytest.raises(Error):
-        protocol.QwenAgentParser(schemas).feed(XML, final=True)
+        ToolCallParser(schemas, thinking=True).feed(XML, final=True)
 
 
 @pytest.mark.parametrize(
@@ -180,7 +211,7 @@ def test_tool_choice_and_parallel_contract():
 )
 def test_invalid_tool_requests(fields):
     with pytest.raises(Error):
-        protocol.prepare_agent_request({"tools": TOOLS, **fields}, True)
+        protocol.prepare_agent_request({"tools": TOOLS, **fields}, "qwen3_coder")
 
 
 @pytest.mark.parametrize(
@@ -206,7 +237,9 @@ def test_invalid_tool_requests(fields):
 )
 def test_invalid_tool_history(messages):
     with pytest.raises(Error):
-        protocol.prepare_agent_request({"messages": messages, "tools": TOOLS}, True)
+        protocol.prepare_agent_request(
+            {"messages": messages, "tools": TOOLS}, "qwen3_coder"
+        )
 
 
 @pytest.mark.parametrize(
@@ -225,7 +258,7 @@ def test_string_parameter_schema_integration(spec):
     }
     schemas["compute"]["properties"]["label"] = spec
     message = protocol.collect_message(
-        protocol.QwenAgentParser(schemas, thinking=False).feed(XML, final=True)
+        ToolCallParser(schemas, thinking=False).feed(XML, final=True)
     )
     assert (
         json.loads(message["tool_calls"][0]["function"]["arguments"])["label"] == "123"
@@ -236,14 +269,14 @@ def test_unresolved_parameter_reference_is_a_protocol_error():
     _, schemas, _ = prepared()
     schemas["compute"]["properties"]["label"] = {"$ref": "#/$defs/missing"}
     with pytest.raises(Error):
-        protocol.QwenAgentParser(schemas, thinking=False).feed(XML, final=True)
+        ToolCallParser(schemas, thinking=False).feed(XML, final=True)
 
 
 def test_arbitrary_precision_integer_arguments():
     _, schemas, _ = prepared()
     value = 10**400
     message = protocol.collect_message(
-        protocol.QwenAgentParser(schemas, thinking=False).feed(
+        ToolCallParser(schemas, thinking=False).feed(
             XML.replace("42", str(value)), final=True
         )
     )
@@ -278,10 +311,13 @@ class FakeEngine:
     def __init__(self, text):
         self.text = text
         self.requests = []
+        self.prompt = ""
 
     def add_chat_request(self, **kwargs):
         self.requests.append(kwargs)
-        return FakeRequest()
+        request = FakeRequest()
+        request.prompt = self.prompt
+        return request
 
     async def stream_request(self, *args, **kwargs):
         for char in self.text:
@@ -311,6 +347,7 @@ def make_client(text=XML, parser="qwen3_coder"):
     stubs["infinilm.llm"].SamplingParams = lambda **kw: kw
     stubs["infinilm.moe_config"].configure_moe_ep_backend = lambda *a: None
     stubs["infinilm.server.agent_protocol"] = protocol
+    stubs["infinilm.server.tool_parsers"] = parsers
     with patch.dict(sys.modules, stubs):
         spec = importlib.util.spec_from_file_location(
             "inference_server_under_test", SERVER / "inference_server.py"
@@ -325,8 +362,9 @@ def make_client(text=XML, parser="qwen3_coder"):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_http_tool_call_and_history_replay(stream):
-    client, server = make_client()
+@pytest.mark.parametrize("parser_name", WIRES)
+def test_http_tool_call_and_history_replay(stream, parser_name):
+    client, server = make_client(WIRES[parser_name], parser=parser_name)
     body = {
         "messages": [{"role": "user", "content": "compute"}],
         "tools": TOOLS,
@@ -379,8 +417,9 @@ def test_http_rejects_requests_before_sse(parser, fields):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_http_truncated_model_output(stream):
-    client, _ = make_client(XML[:-4])
+@pytest.mark.parametrize("parser_name", WIRES)
+def test_http_truncated_model_output(stream, parser_name):
+    client, _ = make_client(WIRES[parser_name][:-4], parser=parser_name)
     response = post_chat(
         client,
         tools=TOOLS,
@@ -437,3 +476,57 @@ def test_completion_token_alias_precedence():
     response = post_chat(client, max_tokens=3, max_completion_tokens=7)
     assert response.status_code == 200
     assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 3
+
+
+def test_minicpm_cdata_preserves_literal_tags():
+    _, schemas, _ = prepared()
+    value = "\ncode </function> and </param> & text\n"
+    wire = (
+        '<function name="compute"><param name="n">42</param><param name="label"><![CDATA['
+        + value
+        + "]]></param></function>"
+    )
+    parser = ToolCallParser(schemas, parser="minicpm5")
+    events = []
+    for char in wire:
+        events.extend(parser.feed(char))
+    message = protocol.collect_message(events + parser.feed("", final=True))
+    assert (
+        json.loads(message["tool_calls"][0]["function"]["arguments"])["label"] == value
+    )
+
+
+def test_json_array_validation_is_atomic():
+    _, schemas, _ = prepared()
+    parser = ToolCallParser(schemas, parser="mistral")
+    wire = "[TOOL_CALLS]" + json.dumps(
+        [JSON_CALL, {"name": "missing", "arguments": {}}]
+    )
+    with pytest.raises(Error):
+        parser.feed(wire, final=True)
+    assert not parser.calls
+
+
+def test_llama_bare_json_and_ordinary_json():
+    _, schemas, _ = prepared()
+    for text, is_call in [(json.dumps(JSON_CALL), True), ('{"name":"Alice"}', False)]:
+        message = protocol.collect_message(
+            ToolCallParser(schemas, parser="llama3_json").feed(text, final=True)
+        )
+        assert bool(message.get("tool_calls")) == is_call
+        if not is_call:
+            assert message["content"] == text
+
+
+@pytest.mark.parametrize("thinking", [False, True])
+def test_http_reasoning_starts_from_rendered_prompt(thinking):
+    client, server = make_client(
+        "reason</think>42" if thinking else "42", parser="hermes"
+    )
+    server.engine.prompt = "assistant\n<think>\n" if thinking else "assistant\n"
+    response = post_chat(client, stream=True)
+    message = protocol.collect_message(
+        [c["choices"][0]["delta"] for c in sse_chunks(response) if c.get("choices")]
+    )
+    assert message["content"] == "42"
+    assert message.get("reasoning_content") == ("reason" if thinking else None)

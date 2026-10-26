@@ -56,7 +56,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                     "Content dict must have 'type' and 'text' keys"
                 )
                 normalized_conversation.append(
-                    {"role": message["role"], "content": content_item["text"]}
+                    {**message, "content": content_item["text"]}
                 )
             else:
                 normalized_conversation.append(message)

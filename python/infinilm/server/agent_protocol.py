@@ -1,4 +1,4 @@
-"""Qwen3.5 XML tool protocol, independent of the native runtime.
+"""Tool protocols, independent of the native runtime.
 
 Tools are emitted only after a complete, schema-validated call. Text and reasoning
 stream incrementally; partial XML is never exposed as an executable tool call.
@@ -10,7 +10,6 @@ import re
 import uuid
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
-from referencing.exceptions import Unresolvable
 
 
 class AgentProtocolError(ValueError):
@@ -48,7 +47,7 @@ def _function_name(fn, label="function"):
     return name
 
 
-def prepare_agent_request(data, enabled):
+def prepare_agent_request(data, parser="none"):
     """Validate before SSE headers or GPU submission; preserve caller data."""
     data = copy.deepcopy(data)
     if not isinstance(data.get("messages", []), list):
@@ -68,8 +67,8 @@ def prepare_agent_request(data, enabled):
         tools = []
     if not isinstance(tools, list):
         raise AgentProtocolError("tools must be an array")
-    if tools and not enabled:
-        raise AgentProtocolError("Enable --tool-call-parser qwen3_coder for tools")
+    if tools and parser == "none":
+        raise AgentProtocolError("Enable `--tool-call-parser` for tools")
     schemas = {}
     for tool in tools:
         if not isinstance(tool, dict) or tool.get("type") != "function":
@@ -118,14 +117,10 @@ def prepare_agent_request(data, enabled):
         raise AgentProtocolError("chat_template_kwargs must be an object")
     if "tools" in kwargs:
         raise AgentProtocolError("Pass tools at request top level")
-    if enabled:
-        kwargs["tools"] = tools
+    if parser != "none":
+        kwargs["tools"] = tools or None
         if "reasoning_effort" in data:
             kwargs["reasoning_effort"] = data["reasoning_effort"]
-        if kwargs.get("enable_thinking", True) and kwargs.get(
-            "reasoning_effort", "xhigh"
-        ) not in ("low", "medium", "xhigh"):
-            raise AgentProtocolError("reasoning_effort must be low, medium, or xhigh")
         seen, pending = set(), {}
         for message in data.get("messages", []):
             if not isinstance(message, dict):
@@ -159,6 +154,10 @@ def prepare_agent_request(data, enabled):
                     raise AgentProtocolError(
                         "Tool call IDs must be nonempty and unique"
                     )
+                if parser == "mistral" and not re.fullmatch(r"[A-Za-z0-9]{9}", call_id):
+                    raise AgentProtocolError(
+                        "Mistral call IDs must be nine alphanumeric characters"
+                    )
                 if call.get("type") != "function":
                     raise AgentProtocolError("Only function tool calls are supported")
                 fn = _object(call.get("function"), "tool_call.function")
@@ -172,48 +171,12 @@ def prepare_agent_request(data, enabled):
     return data, schemas, selected or choice
 
 
-def _trim_newline(text):
-    return re.sub(r"\r?\n$", "", re.sub(r"^\r?\n", "", text))
-
-
-def _accepts_string(spec, root, raw):
-    # Preserve numeric-looking strings, including local references and unions.
-    if not isinstance(spec, dict) or not spec:
-        return False
+def make_tool_call(name, args, schemas, parser="qwen3_coder"):
+    if not isinstance(name, str) or name not in schemas:
+        raise AgentProtocolError("Unknown tool call")
+    args = _object(args, "tool arguments")
     try:
-        return Draft202012Validator(root).evolve(schema=spec).is_valid(raw)
-    except Unresolvable as exc:
-        raise AgentProtocolError("Unresolved local tool parameter reference") from exc
-
-
-def parse_xml_call(block, schemas):
-    match = re.fullmatch(
-        r"<tool_call>\s*<function=([^<>\s]+)>(.*?)</function>\s*</tool_call>",
-        block,
-        re.S,
-    )
-    if not match or match[1] not in schemas:
-        raise AgentProtocolError("Malformed or unknown tool call")
-    name, body = match[1], match[2]
-    schema = schemas[name]
-    args, offset = {}, 0
-    for param in re.finditer(r"<parameter=([^<>\s]+)>(.*?)</parameter>", body, re.S):
-        if body[offset : param.start()].strip() or param[1] in args:
-            raise AgentProtocolError("Malformed or duplicate tool parameter")
-        key, raw = param[1], _trim_newline(param[2])
-        spec = schema.get("properties", {}).get(key, {})
-        # The template writes strings verbatim and all other values as JSON.
-        args[key] = raw
-        if not _accepts_string(spec, schema, raw):
-            try:
-                args[key] = json.loads(raw)
-            except ValueError:
-                pass
-        offset = param.end()
-    if body[offset:].strip():
-        raise AgentProtocolError("Malformed tool parameters")
-    try:
-        Draft202012Validator(schema).validate(args)
+        Draft202012Validator(schemas[name]).validate(args)
     except ValidationError as exc:
         raise AgentProtocolError(
             f"Invalid arguments for {name}: {exc.message}"
@@ -225,96 +188,15 @@ def parse_xml_call(block, schemas):
             "Tool arguments must contain finite JSON values"
         ) from exc
     return {
-        "id": "call_" + uuid.uuid4().hex,
+        "id": uuid.uuid4().hex[:9]
+        if parser == "mistral"
+        else "call_" + uuid.uuid4().hex,
         "type": "function",
         "function": {
             "name": name,
             "arguments": encoded_args,
         },
     }
-
-
-class QwenAgentParser:
-    """A bounded-prefix scanner; accepts arbitrary token/chunk boundaries."""
-
-    def __init__(self, schemas, thinking=True, choice="auto", parallel=True):
-        self.schemas = schemas
-        self.mode = "reasoning_content" if thinking else "content"
-        self.buffer = ""
-        self.calls = []
-        self.choice = choice
-        self.parallel = parallel
-
-    def feed(self, text, final=False):
-        self.buffer += text
-        events = []
-        while self.buffer:
-            if self.mode == "tool":
-                end = self.buffer.find("</tool_call>")
-                if end < 0:
-                    break
-                end += len("</tool_call>")
-                call = parse_xml_call(self.buffer[:end], self.schemas)
-                if self.calls and not self.parallel:
-                    raise AgentProtocolError(
-                        "Multiple calls with parallel_tool_calls=false"
-                    )
-                self.calls.append(call)
-                events.append({"tool_calls": [dict(index=len(self.calls) - 1, **call)]})
-                self.buffer = self.buffer[end:]
-                self.mode = "content"
-                continue
-            markers = ["<think>", "</think>"]
-            if self.schemas:
-                markers.append("<tool_call>")
-            found = [(self.buffer.find(m), m) for m in markers if m in self.buffer]
-            if found:
-                pos, marker = min(found)
-                if pos:
-                    events.append({self.mode: self.buffer[:pos]})
-                self.buffer = self.buffer[pos:]
-                if marker == "<tool_call>":
-                    if self.mode == "reasoning_content":
-                        raise AgentProtocolError("Tool call inside reasoning")
-                    self.mode = "tool"
-                else:
-                    self.buffer = self.buffer[len(marker) :]
-                    self.mode = (
-                        "reasoning_content" if marker == "<think>" else "content"
-                    )
-                continue
-            # Hold only a suffix which could become a split marker.
-            keep = max(
-                [
-                    n
-                    for m in markers
-                    for n in range(1, len(m))
-                    if self.buffer.endswith(m[:n])
-                ]
-                or [0]
-            )
-            count = len(self.buffer) - keep
-            if count:
-                events.append({self.mode: self.buffer[:count]})
-                self.buffer = self.buffer[count:]
-            break
-        if final:
-            if self.mode == "tool" or (
-                self.buffer and self.schemas and "<tool_call>".startswith(self.buffer)
-            ):
-                raise AgentProtocolError("Truncated tool call")
-            if self.buffer:
-                events.append({self.mode: self.buffer})
-                self.buffer = ""
-            if self.choice not in ("auto", "none") and not self.calls:
-                raise AgentProtocolError("Model did not satisfy tool_choice")
-        return events
-
-    def finish_reason(self, original):
-        # Length/error/timeout always override a successfully parsed earlier call.
-        if original in ("stop", "eos_token", "stop_string") and self.calls:
-            return "tool_calls"
-        return original
 
 
 def collect_message(events):

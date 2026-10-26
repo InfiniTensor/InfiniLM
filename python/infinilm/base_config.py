@@ -379,9 +379,16 @@ class BaseConfig:
         self.parser.add_argument("--port", type=int, default=8000, help="server port")
         self.parser.add_argument(
             "--tool-call-parser",
-            choices=["none", "qwen3_coder"],
+            choices=[
+                "none",
+                "qwen3_coder",
+                "hermes",
+                "llama3_json",
+                "mistral",
+                "minicpm5",
+            ],
             default="none",
-            help="Enable Qwen3.5 XML tool calls and reasoning separation",
+            help="Select the model's native tool-call format",
         )
         self.parser.add_argument(
             "--endpoint", type=str, default="/completions", help="API endpoint"

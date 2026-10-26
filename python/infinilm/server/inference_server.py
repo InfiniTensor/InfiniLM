@@ -22,10 +22,10 @@ from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
 from infinilm.moe_config import configure_moe_ep_backend
 from infinilm.server.agent_protocol import (
     AgentProtocolError,
-    QwenAgentParser,
     collect_message,
     prepare_agent_request,
 )
+from infinilm.server.tool_parsers import TOOL_CALL_FORMATS, ToolCallParser
 
 logger = logging.getLogger(__name__)
 
@@ -208,7 +208,7 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
-        if tool_call_parser not in ("none", "qwen3_coder"):
+        if tool_call_parser != "none" and tool_call_parser not in TOOL_CALL_FORMATS:
             raise ValueError("Unsupported tool call parser")
         self.tool_call_parser = tool_call_parser
 
@@ -298,7 +298,7 @@ class InferenceServer:
 
             try:
                 data, schemas, choice = prepare_agent_request(
-                    data, self.tool_call_parser == "qwen3_coder"
+                    data, self.tool_call_parser
                 )
                 data["_agent_schemas"] = schemas
                 data["_agent_choice"] = choice
@@ -432,7 +432,7 @@ class InferenceServer:
         """Handle streaming chat request."""
         req = None
         _abort_reason = FinishReason.CANCELED
-        parser = self._agent_parser(data)
+        parser = None
 
         try:
             messages = data.get("messages", [])
@@ -446,6 +446,7 @@ class InferenceServer:
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
+            parser = self._agent_parser(data, req)
 
             yield sse_json(
                 chunk_json(request_id, role="assistant", model=self.model_id)
@@ -531,7 +532,7 @@ class InferenceServer:
                 self.engine.add_aborted_req(req, _abort_reason)
             error_chunk = (
                 error_json(e)
-                if parser
+                if self.tool_call_parser != "none"
                 else chunk_json(
                     request_id,
                     content=f"[Error: {str(e)}]",
@@ -602,7 +603,7 @@ class InferenceServer:
                 completion_tokens=req.get_num_generated_tokens(),
                 total_tokens=req.get_total_length(),
             )
-            parser = self._agent_parser(data)
+            parser = self._agent_parser(data, req)
             if parser:
                 response["choices"][0]["message"] = collect_message(
                     parser.feed(output_text, final=True)
@@ -632,14 +633,15 @@ class InferenceServer:
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
 
-    def _agent_parser(self, data):
-        if self.tool_call_parser != "qwen3_coder":
+    def _agent_parser(self, data, req):
+        if self.tool_call_parser == "none":
             return None
-        return QwenAgentParser(
+        return ToolCallParser(
             data.get("_agent_schemas", {}),
-            thinking=data.get("chat_template_kwargs", {}).get("enable_thinking", True),
+            thinking=(getattr(req, "prompt", None) or "").rstrip().endswith("<think>"),
             choice=data.get("_agent_choice", "auto"),
             parallel=data.get("parallel_tool_calls", True),
+            parser=self.tool_call_parser,
         )
 
     def _convert_finish_reason(self, reason: FinishReason) -> str:
