@@ -549,6 +549,7 @@ void RankWorker::thread_loop() {
 
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
             runtime_ = infinilm::runtime::Runtime::create(rank_info_.device);
+            runtime_->activate();
             forward_context_.runtime = runtime_.get();
             // Submission failure is terminal for this dedicated job-host process.
             // This also opts every worker into the existing strict failure-drain paths.
