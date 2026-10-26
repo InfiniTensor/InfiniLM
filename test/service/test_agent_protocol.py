@@ -49,6 +49,47 @@ def prepared(**fields):
     )
 
 
+def tool_history(function_name="compute", **result_fields):
+    return [
+        {
+            "role": "assistant",
+            "content": None,
+            "reasoning_content": "calculate",
+            "tool_calls": [
+                {
+                    "id": "call_first",
+                    "type": "function",
+                    "function": {
+                        "name": function_name,
+                        "arguments": '{"n":42,"label":"x"}',
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_first",
+            "content": "42",
+            **result_fields,
+        },
+    ]
+
+
+def post_chat(client, **fields):
+    return client.post(
+        "/v1/chat/completions",
+        json={"messages": [{"role": "user", "content": "compute"}], **fields},
+    )
+
+
+def sse_chunks(response):
+    return [
+        json.loads(line[6:])
+        for line in response.text.splitlines()
+        if line.startswith("data: ") and line != "data: [DONE]"
+    ]
+
+
 @pytest.mark.parametrize("width", [1, 2, 3, 7, 13, 64, 10000])
 def test_stream_partition_invariance(width):
     data, schemas, choice = prepared()
@@ -120,21 +161,7 @@ def test_tool_choice_none_and_named():
 
 
 def test_history_arguments_are_objects_for_jinja_and_ids_preserved():
-    call = {
-        "id": "call_first",
-        "type": "function",
-        "function": {"name": "compute", "arguments": '{"n":42,"label":"x"}'},
-    }
-    messages = [
-        {"role": "user", "content": "compute"},
-        {
-            "role": "assistant",
-            "content": None,
-            "reasoning_content": "calculate",
-            "tool_calls": [call],
-        },
-        {"role": "tool", "tool_call_id": "call_first", "content": "42"},
-    ]
+    messages = [{"role": "user", "content": "compute"}, *tool_history()]
     original = copy.deepcopy(messages)
     data, _, _ = protocol.prepare_agent_request(
         {"messages": messages, "tools": TOOLS}, True
@@ -196,11 +223,16 @@ def test_nested_nonfinite_arguments_rejected():
         {"enum": ["123"]},
         {"anyOf": [{"type": "string"}, {"type": "null"}]},
         {"$ref": "#/$defs/label"},
+        {"anyOf": [{"$ref": "#/$defs/label"}, {"type": "null"}]},
+        {"$ref": "#/$defs/alias"},
     ],
 )
 def test_string_schema_variants(spec):
     _, schemas, _ = prepared()
-    schemas["compute"]["$defs"] = {"label": {"type": "string"}}
+    schemas["compute"]["$defs"] = {
+        "label": {"type": "string"},
+        "alias": {"$ref": "#/$defs/label"},
+    }
     schemas["compute"]["properties"]["label"] = spec
     message = protocol.collect_message(
         protocol.QwenAgentParser(schemas, thinking=False).feed(XML, final=True)
@@ -208,6 +240,13 @@ def test_string_schema_variants(spec):
     assert (
         json.loads(message["tool_calls"][0]["function"]["arguments"])["label"] == "123"
     )
+
+
+def test_unresolved_parameter_reference_is_a_protocol_error():
+    _, schemas, _ = prepared()
+    schemas["compute"]["properties"]["label"] = {"$ref": "#/$defs/missing"}
+    with pytest.raises(Error, match="Unresolved local"):
+        protocol.QwenAgentParser(schemas, thinking=False).feed(XML, final=True)
 
 
 class FinishReason(Enum):
@@ -241,9 +280,6 @@ class FakeEngine:
         self.requests = []
 
     def add_chat_request(self, **kwargs):
-        validator = kwargs.get("request_validator")
-        if validator:
-            validator(12, kwargs["sampling_params"]["max_tokens"])
         self.requests.append(kwargs)
         return FakeRequest()
 
@@ -302,11 +338,7 @@ def test_http_tool_call_and_history_replay(stream):
     response = client.post("/v1/chat/completions", json=body)
     assert response.status_code == 200, response.text
     if stream:
-        chunks = [
-            json.loads(line[6:])
-            for line in response.text.splitlines()
-            if line.startswith("data: ") and line != "data: [DONE]"
-        ]
+        chunks = sse_chunks(response)
         events = [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
         message = protocol.collect_message(events)
         assert chunks[-1]["usage"]["total_tokens"] == 17
@@ -336,15 +368,7 @@ def test_http_tool_call_and_history_replay(stream):
 
 def test_http_malformed_request_before_sse():
     client, server = make_client()
-    response = client.post(
-        "/v1/chat/completions",
-        json={
-            "messages": [{"role": "user", "content": "x"}],
-            "tools": TOOLS,
-            "tool_choice": "invalid",
-            "stream": True,
-        },
-    )
+    response = post_chat(client, tools=TOOLS, tool_choice="invalid", stream=True)
     assert response.status_code == 400
     assert not server.engine.requests
 
@@ -352,14 +376,11 @@ def test_http_malformed_request_before_sse():
 @pytest.mark.parametrize("stream", [False, True])
 def test_http_malformed_model_output(stream):
     client, _ = make_client(XML[:-4])
-    r = client.post(
-        "/v1/chat/completions",
-        json={
-            "messages": [{"role": "user", "content": "x"}],
-            "tools": TOOLS,
-            "stream": stream,
-            "chat_template_kwargs": {"enable_thinking": False},
-        },
+    r = post_chat(
+        client,
+        tools=TOOLS,
+        stream=stream,
+        chat_template_kwargs={"enable_thinking": False},
     )
     if stream:
         assert "invalid_model_output" in r.text
@@ -372,18 +393,11 @@ def test_http_malformed_model_output(stream):
 @pytest.mark.parametrize("stream", [False, True])
 def test_disabled_parser_preserves_plain_chat(stream):
     client, server = make_client("plain answer", parser="none")
-    response = client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hello"}], "stream": stream},
-    )
+    response = post_chat(client, stream=stream)
     assert response.status_code == 200
     assert "tools" not in server.engine.requests[0]["chat_template_kwargs"]
     if stream:
-        chunks = [
-            json.loads(line[6:])
-            for line in response.text.splitlines()
-            if line.startswith("data: ") and line != "data: [DONE]"
-        ]
+        chunks = sse_chunks(response)
         assert (
             "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
             == "plain answer"
@@ -397,14 +411,7 @@ def test_disabled_parser_preserves_plain_chat(stream):
 @pytest.mark.parametrize("stream", [False, True])
 def test_disabled_parser_rejects_tools_before_submission(stream):
     client, server = make_client(parser="none")
-    response = client.post(
-        "/v1/chat/completions",
-        json={
-            "messages": [{"role": "user", "content": "compute"}],
-            "tools": TOOLS,
-            "stream": stream,
-        },
-    )
+    response = post_chat(client, tools=TOOLS, stream=stream)
     assert response.status_code == 400
     assert not server.engine.requests
 
@@ -417,10 +424,7 @@ def test_disabled_parser_preserves_legacy_error_shape(stream):
         raise RuntimeError("test execution failed")
 
     server.engine.add_chat_request = fail
-    response = client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hello"}], "stream": stream},
-    )
+    response = post_chat(client, stream=stream)
     if stream:
         assert response.status_code == 200
         assert "[Error: test execution failed]" in response.text
@@ -432,46 +436,17 @@ def test_disabled_parser_preserves_legacy_error_shape(stream):
 
 @pytest.mark.parametrize("name", [None, "", "bad name"])
 def test_historical_function_name_is_validated(name):
-    messages = [
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_a",
-                    "type": "function",
-                    "function": {"name": name, "arguments": "{}"},
-                }
-            ],
-        },
-        {"role": "tool", "tool_call_id": "call_a", "content": "result"},
-    ]
     with pytest.raises(Error, match="historical function name"):
-        protocol.prepare_agent_request({"messages": messages, "tools": TOOLS}, True)
+        protocol.prepare_agent_request(
+            {"messages": tool_history(name), "tools": TOOLS}, True
+        )
 
 
 def test_tool_result_name_must_match_call_id():
-    messages = [
-        {
-            "role": "assistant",
-            "content": None,
-            "tool_calls": [
-                {
-                    "id": "call_a",
-                    "type": "function",
-                    "function": {"name": "compute", "arguments": "{}"},
-                }
-            ],
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "call_a",
-            "name": "other",
-            "content": "result",
-        },
-    ]
     with pytest.raises(Error, match="name does not match"):
-        protocol.prepare_agent_request({"messages": messages, "tools": TOOLS}, True)
+        protocol.prepare_agent_request(
+            {"messages": tool_history(name="other"), "tools": TOOLS}, True
+        )
 
 
 def test_arbitrary_precision_integer_arguments():
@@ -517,9 +492,6 @@ def test_falsy_historical_calls_are_not_silently_coerced():
 )
 def test_completion_token_alias_reaches_sampling(fields, expected):
     client, server = make_client("answer")
-    response = client.post(
-        "/v1/chat/completions",
-        json={"messages": [{"role": "user", "content": "hello"}], **fields},
-    )
+    response = post_chat(client, **fields)
     assert response.status_code == 200
     assert server.engine.requests[0]["sampling_params"]["max_tokens"] == expected

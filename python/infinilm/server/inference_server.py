@@ -33,6 +33,21 @@ DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
 
 
+def sse_json(payload):
+    return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+
+def error_json(exc):
+    return {
+        "error": {
+            "message": str(exc),
+            "type": "invalid_model_output"
+            if isinstance(exc, AgentProtocolError)
+            else "server_error",
+        }
+    }
+
+
 def chunk_json(
     id_, content=None, role=None, finish_reason=None, model: str = "unknown"
 ):
@@ -432,12 +447,8 @@ class InferenceServer:
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
 
-            yield (
-                "data: "
-                + json.dumps(
-                    chunk_json(request_id, role="assistant", model=self.model_id)
-                )
-                + "\n\n"
+            yield sse_json(
+                chunk_json(request_id, role="assistant", model=self.model_id)
             )
 
             async for token_output in self.engine.stream_request(
@@ -454,16 +465,14 @@ class InferenceServer:
                     logger.warning(
                         f"Request {request_id} timed out after {DEFAULT_REQUEST_TIMEOUT}s"
                     )
-                    error_chunk = json.dumps(
+                    yield sse_json(
                         chunk_json(
                             request_id,
                             content="[Request timeout]",
                             finish_reason="timeout",
                             model=self.model_id,
-                        ),
-                        ensure_ascii=False,
+                        )
                     )
-                    yield f"data: {error_chunk}\n\n"
                     break
 
                 if token_output.token_text:
@@ -475,7 +484,7 @@ class InferenceServer:
                     for delta in events:
                         chunk = chunk_json(request_id, model=self.model_id)
                         chunk["choices"][0]["delta"] = delta
-                        yield "data: " + json.dumps(chunk, ensure_ascii=False) + "\n\n"
+                        yield sse_json(chunk)
 
                 if token_output.finished:
                     finish_reason = self._convert_finish_reason(
@@ -485,35 +494,27 @@ class InferenceServer:
                         for delta in parser.feed("", final=True):
                             last = chunk_json(request_id, model=self.model_id)
                             last["choices"][0]["delta"] = delta
-                            yield (
-                                "data: " + json.dumps(last, ensure_ascii=False) + "\n\n"
-                            )
+                            yield sse_json(last)
                         finish_reason = parser.finish_reason(finish_reason)
-                    chunk = json.dumps(
+                    yield sse_json(
                         chunk_json(
                             request_id, finish_reason=finish_reason, model=self.model_id
-                        ),
-                        ensure_ascii=False,
+                        )
                     )
-                    yield f"data: {chunk}\n\n"
                     if data.get("stream_options", {}).get("include_usage"):
-                        yield (
-                            "data: "
-                            + json.dumps(
-                                {
-                                    "id": request_id,
-                                    "object": "chat.completion.chunk",
-                                    "created": int(time.time()),
-                                    "model": self.model_id,
-                                    "choices": [],
-                                    "usage": {
-                                        "prompt_tokens": req.get_prompt_length(),
-                                        "completion_tokens": req.get_num_generated_tokens(),
-                                        "total_tokens": req.get_total_length(),
-                                    },
-                                }
-                            )
-                            + "\n\n"
+                        yield sse_json(
+                            {
+                                "id": request_id,
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": self.model_id,
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": req.get_prompt_length(),
+                                    "completion_tokens": req.get_num_generated_tokens(),
+                                    "total_tokens": req.get_total_length(),
+                                },
+                            }
                         )
                     break
 
@@ -528,28 +529,17 @@ class InferenceServer:
             _abort_reason = FinishReason.ERROR
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
-            error_chunk = json.dumps(
-                {
-                    "error": {
-                        "message": str(e),
-                        "type": "invalid_model_output"
-                        if isinstance(e, AgentProtocolError)
-                        else "server_error",
-                    }
-                },
-                ensure_ascii=False,
-            )
-            if parser is None:
-                error_chunk = json.dumps(
-                    chunk_json(
-                        request_id,
-                        content=f"[Error: {str(e)}]",
-                        finish_reason="error",
-                        model=self.model_id,
-                    ),
-                    ensure_ascii=False,
+            error_chunk = (
+                error_json(e)
+                if parser
+                else chunk_json(
+                    request_id,
+                    content=f"[Error: {str(e)}]",
+                    finish_reason="error",
+                    model=self.model_id,
                 )
-            yield f"data: {error_chunk}\n\n"
+            )
+            yield sse_json(error_chunk)
 
         finally:
             # Unified abort: reason is ERROR if we got here via Exception, else CANCELED.
@@ -632,14 +622,7 @@ class InferenceServer:
             if self.tool_call_parser == "none":
                 return JSONResponse(content={"error": str(e)}, status_code=500)
             return JSONResponse(
-                content={
-                    "error": {
-                        "message": str(e),
-                        "type": "invalid_model_output"
-                        if isinstance(e, AgentProtocolError)
-                        else "server_error",
-                    }
-                },
+                content=error_json(e),
                 status_code=502 if isinstance(e, AgentProtocolError) else 500,
             )
 

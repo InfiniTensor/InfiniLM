@@ -6,11 +6,11 @@ stream incrementally; partial XML is never exposed as an executable tool call.
 
 import copy
 import json
-import math
 import re
 import uuid
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
+from referencing.exceptions import Unresolvable
 
 
 class AgentProtocolError(ValueError):
@@ -41,6 +41,13 @@ def _check_refs(value):
             _check_refs(child)
 
 
+def _function_name(fn, label="function"):
+    name = fn.get("name")
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name):
+        raise AgentProtocolError(f"Invalid {label} name")
+    return name
+
+
 def prepare_agent_request(data, enabled):
     """Validate before SSE headers or GPU submission; preserve caller data."""
     data = copy.deepcopy(data)
@@ -68,11 +75,7 @@ def prepare_agent_request(data, enabled):
         if not isinstance(tool, dict) or tool.get("type") != "function":
             raise AgentProtocolError("Only function tools are supported")
         fn = _object(tool.get("function"), "function")
-        name = fn.get("name", "")
-        if not isinstance(name, str) or not re.fullmatch(
-            r"[A-Za-z0-9_.-]{1,128}", name
-        ):
-            raise AgentProtocolError("Invalid function name")
+        name = _function_name(fn)
         if name in schemas:
             raise AgentProtocolError("Duplicate function name")
         if fn.get("strict"):
@@ -159,13 +162,10 @@ def prepare_agent_request(data, enabled):
                 if call.get("type") != "function":
                     raise AgentProtocolError("Only function tool calls are supported")
                 fn = _object(call.get("function"), "tool_call.function")
-                if not isinstance(fn.get("name"), str) or not re.fullmatch(
-                    r"[A-Za-z0-9_.-]{1,128}", fn["name"]
-                ):
-                    raise AgentProtocolError("Invalid historical function name")
+                name = _function_name(fn, "historical function")
                 fn["arguments"] = _object(fn.get("arguments", {}), "tool arguments")
                 seen.add(call_id)
-                pending[call_id] = fn.get("name")
+                pending[call_id] = name
         if pending:
             raise AgentProtocolError("Missing tool results")
     data["chat_template_kwargs"] = kwargs
@@ -180,23 +180,10 @@ def _accepts_string(spec, root, raw):
     # Preserve numeric-looking strings, including local references and unions.
     if not isinstance(spec, dict) or not spec:
         return False
-    resolved = {
-        "$defs": root.get("$defs", {}),
-        "definitions": root.get("definitions", {}),
-        **spec,
-    }
-    for keyword in ("$ref", "$dynamicRef"):
-        reference = spec.get(keyword)
-        if reference and reference.startswith("#/"):
-            target = root
-            try:
-                for part in reference[2:].split("/"):
-                    target = target[part.replace("~1", "/").replace("~0", "~")]
-                resolved.pop(keyword, None)
-                resolved.update(target)
-            except (KeyError, TypeError):
-                raise AgentProtocolError("Unresolved local tool parameter reference")
-    return Draft202012Validator(resolved).is_valid(raw)
+    try:
+        return Draft202012Validator(root).evolve(schema=spec).is_valid(raw)
+    except Unresolvable as exc:
+        raise AgentProtocolError("Unresolved local tool parameter reference") from exc
 
 
 def parse_xml_call(block, schemas):
@@ -216,17 +203,12 @@ def parse_xml_call(block, schemas):
         key, raw = param[1], _trim_newline(param[2])
         spec = schema.get("properties", {}).get(key, {})
         # The template writes strings verbatim and all other values as JSON.
-        if _accepts_string(spec, schema, raw):
-            value = raw
-        else:
+        args[key] = raw
+        if not _accepts_string(spec, schema, raw):
             try:
-                value = json.loads(raw)
+                args[key] = json.loads(raw)
             except ValueError:
-                value = raw
-            if isinstance(value, float):
-                if not math.isfinite(value):
-                    raise AgentProtocolError("Non-finite tool parameter")
-        args[key] = value
+                pass
         offset = param.end()
     if body[offset:].strip():
         raise AgentProtocolError("Malformed tool parameters")
