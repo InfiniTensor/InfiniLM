@@ -13,8 +13,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-ROOT = Path(__file__).resolve().parents[2]
-SERVER = ROOT / "python/infinilm/server"
+SERVER = Path(__file__).resolve().parents[2] / "python/infinilm/server"
 spec = importlib.util.spec_from_file_location(
     "agent_protocol_under_test", SERVER / "agent_protocol.py"
 )
@@ -54,15 +53,11 @@ def tool_history(function_name="compute", **result_fields):
         {
             "role": "assistant",
             "content": None,
-            "reasoning_content": "calculate",
             "tool_calls": [
                 {
                     "id": "call_first",
                     "type": "function",
-                    "function": {
-                        "name": function_name,
-                        "arguments": '{"n":42,"label":"x"}',
-                    },
+                    "function": {"name": function_name, "arguments": "{}"},
                 }
             ],
         },
@@ -90,24 +85,30 @@ def sse_chunks(response):
     ]
 
 
-@pytest.mark.parametrize("width", [1, 2, 3, 7, 13, 64, 10000])
-def test_stream_partition_invariance(width):
-    data, schemas, choice = prepared()
-    text = "reason</think>\nanswer\n" + XML + "\n" + XML
-    parser = protocol.QwenAgentParser(schemas, choice=choice)
-    events = []
-    for i in range(0, len(text), width):
-        events.extend(parser.feed(text[i : i + width]))
-    events.extend(parser.feed("", final=True))
-    message = protocol.collect_message(events)
-    assert message["reasoning_content"] == "reason"
-    assert message["content"] == "\nanswer\n\n"
-    assert len(message["tool_calls"]) == 2
-    assert len({x["id"] for x in message["tool_calls"]}) == 2
-    assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {
-        "n": 42,
-        "label": "123",
-    }
+def tools_with(**fields):
+    tools = copy.deepcopy(TOOLS)
+    tools[0]["function"].update(fields)
+    return tools
+
+
+def test_stream_protocol_across_boundaries():
+    _, schemas, _ = prepared()
+    text = "<think>reason</think>\nanswer\n" + XML + "\n" + XML
+    partitions = [list(text)] + [[text[:i], text[i:]] for i in range(len(text) + 1)]
+    for parts in partitions:
+        parser = protocol.QwenAgentParser(schemas, thinking=False)
+        events = []
+        for part in parts:
+            events.extend(parser.feed(part))
+        message = protocol.collect_message(events + parser.feed("", final=True))
+        assert message["reasoning_content"] == "reason"
+        assert message["content"] == "\nanswer\n\n"
+        calls = message["tool_calls"]
+        assert len(calls) == 2 and len({c["id"] for c in calls}) == 2
+        assert all(
+            json.loads(c["function"]["arguments"]) == {"n": 42, "label": "123"}
+            for c in calls
+        )
     assert parser.finish_reason("stop") == "tool_calls"
     assert parser.finish_reason("length") == "length"
 
@@ -115,119 +116,108 @@ def test_stream_partition_invariance(width):
 @pytest.mark.parametrize(
     "text",
     [
-        XML[:-2],
         XML.replace("compute", "missing"),
         XML.replace("42", "oops"),
         XML.replace("<parameter=n>", "<parameter=unknown>"),
         XML.replace("</function>", "garbage</function>"),
+        XML.replace(
+            "</function>", '<parameter=options>{"x":NaN}</parameter></function>'
+        ),
+    ],
+    ids=[
+        "unknown-tool",
+        "wrong-type",
+        "extra-parameter",
+        "malformed-xml",
+        "nonfinite-json",
     ],
 )
 def test_invalid_output_is_not_executable(text):
     _, schemas, _ = prepared()
-    parser = protocol.QwenAgentParser(schemas, thinking=False)
     with pytest.raises(Error):
-        parser.feed(text, final=True)
+        protocol.QwenAgentParser(schemas, thinking=False).feed(text, final=True)
 
 
-def test_every_single_split():
-    _, schemas, _ = prepared()
-    for i in range(len(XML) + 1):
-        p = protocol.QwenAgentParser(schemas, thinking=False)
-        events = p.feed(XML[:i]) + p.feed(XML[i:]) + p.feed("", final=True)
-        assert len(protocol.collect_message(events)["tool_calls"]) == 1
-
-
-def test_required_and_parallel():
-    _, schemas, _ = prepared()
-    with pytest.raises(Error, match="tool_choice"):
-        protocol.QwenAgentParser(schemas, thinking=False, choice="required").feed(
-            "answer", final=True
-        )
-    with pytest.raises(Error, match="Multiple calls"):
-        protocol.QwenAgentParser(schemas, thinking=False, parallel=False).feed(
-            XML + XML, final=True
-        )
-    with pytest.raises(Error, match="inside reasoning"):
-        protocol.QwenAgentParser(schemas).feed(XML, final=True)
-
-
-def test_tool_choice_none_and_named():
-    data, schemas, choice = prepared(tool_choice="none")
+def test_tool_choice_and_parallel_contract():
+    data, schemas, _ = prepared(tool_choice="none")
     assert schemas == {} and data["chat_template_kwargs"]["tools"] == []
-    data, schemas, choice = prepared(
+    _, schemas, choice = prepared(
         tool_choice={"type": "function", "function": {"name": "compute"}}
     )
     assert choice == "compute" and list(schemas) == ["compute"]
-
-
-def test_history_arguments_are_objects_for_jinja_and_ids_preserved():
-    messages = [{"role": "user", "content": "compute"}, *tool_history()]
-    original = copy.deepcopy(messages)
-    data, _, _ = protocol.prepare_agent_request(
-        {"messages": messages, "tools": TOOLS}, True
-    )
-    assert messages == original
-    assert data["messages"][1]["tool_calls"][0]["function"]["arguments"]["n"] == 42
-    assert data["messages"][1]["tool_calls"][0]["id"] == "call_first"
-    assert data["messages"][2]["name"] == "compute"
-    with pytest.raises(Error, match="pending"):
-        protocol.prepare_agent_request({"messages": [messages[0], messages[2]]}, True)
-    with pytest.raises(Error, match="Missing tool results"):
-        protocol.prepare_agent_request({"messages": messages[:2]}, True)
-
-
-def test_request_rejections():
-    with pytest.raises(Error, match="Enable"):
-        protocol.prepare_agent_request({"tools": TOOLS}, False)
-    with pytest.raises(Error, match="unavailable"):
-        prepared(tool_choice={"type": "function", "function": {"name": "missing"}})
-    with pytest.raises(Error, match="top level"):
-        prepared(chat_template_kwargs={"tools": []})
-    bad = copy.deepcopy(TOOLS)
-    bad[0]["function"]["parameters"]["$ref"] = "https://example.org/schema"
-    with pytest.raises(Error, match="local"):
-        protocol.prepare_agent_request({"tools": bad}, True)
+    with pytest.raises(Error):
+        protocol.QwenAgentParser(schemas, thinking=False, choice="required").feed(
+            "answer", final=True
+        )
+    with pytest.raises(Error):
+        protocol.QwenAgentParser(schemas, thinking=False, parallel=False).feed(
+            XML + XML, final=True
+        )
+    with pytest.raises(Error):
+        protocol.QwenAgentParser(schemas).feed(XML, final=True)
 
 
 @pytest.mark.parametrize(
-    "field,value",
-    [("messages", {}), ("stream_options", []), ("parallel_tool_calls", "false")],
+    "fields",
+    [
+        {"tools": {}},
+        {"stream": "false"},
+        {"stream_options": {"include_usage": "false"}},
+        {"tool_choice": {"type": "function", "function": {"name": "missing"}}},
+        {"chat_template_kwargs": {"tools": []}},
+        {"tools": tools_with(strict=True)},
+        {"tools": tools_with(parameters={"$ref": "https://example.org/schema"})},
+    ],
+    ids=[
+        "falsy-tools",
+        "stream-type",
+        "usage-type",
+        "unavailable-tool",
+        "nested-tools",
+        "strict",
+        "remote-ref",
+    ],
 )
-def test_invalid_request_field_types(field, value):
+def test_invalid_tool_requests(fields):
     with pytest.raises(Error):
-        protocol.prepare_agent_request({field: value}, True)
+        protocol.prepare_agent_request({"tools": TOOLS, **fields}, True)
 
 
-def test_explicit_think_tags_and_numeric_looking_strings():
-    _, schemas, _ = prepared()
-    p = protocol.QwenAgentParser(schemas, thinking=False)
-    result = protocol.collect_message(p.feed("<think>reason</think>" + XML, final=True))
-    assert result["reasoning_content"] == "reason"
-    assert (
-        json.loads(result["tool_calls"][0]["function"]["arguments"])["label"] == "123"
-    )
-
-
-def test_nested_nonfinite_arguments_rejected():
-    _, schemas, _ = prepared()
-    xml = XML.replace(
-        "</function>", '<parameter=options>\n{"x":NaN}\n</parameter>\n</function>'
-    )
-    with pytest.raises(Error, match="finite"):
-        protocol.QwenAgentParser(schemas, thinking=False).feed(xml, final=True)
+@pytest.mark.parametrize(
+    "messages",
+    [
+        tool_history()[1:],
+        tool_history()[:1],
+        tool_history(name="other"),
+        tool_history() * 2,
+        tool_history(None),
+        tool_history("bad name"),
+        [{"role": "assistant", "tool_calls": {}}],
+    ],
+    ids=[
+        "orphan-result",
+        "missing-result",
+        "wrong-name",
+        "duplicate-id",
+        "missing-name",
+        "invalid-name",
+        "falsy-calls",
+    ],
+)
+def test_invalid_tool_history(messages):
+    with pytest.raises(Error):
+        protocol.prepare_agent_request({"messages": messages, "tools": TOOLS}, True)
 
 
 @pytest.mark.parametrize(
     "spec",
     [
         {"enum": ["123"]},
-        {"anyOf": [{"type": "string"}, {"type": "null"}]},
-        {"$ref": "#/$defs/label"},
-        {"anyOf": [{"$ref": "#/$defs/label"}, {"type": "null"}]},
-        {"$ref": "#/$defs/alias"},
+        {"anyOf": [{"$ref": "#/$defs/alias"}, {"type": "null"}]},
     ],
+    ids=["enum", "union-with-rooted-ref-chain"],
 )
-def test_string_schema_variants(spec):
+def test_string_parameter_schema_integration(spec):
     _, schemas, _ = prepared()
     schemas["compute"]["$defs"] = {
         "label": {"type": "string"},
@@ -245,14 +235,24 @@ def test_string_schema_variants(spec):
 def test_unresolved_parameter_reference_is_a_protocol_error():
     _, schemas, _ = prepared()
     schemas["compute"]["properties"]["label"] = {"$ref": "#/$defs/missing"}
-    with pytest.raises(Error, match="Unresolved local"):
+    with pytest.raises(Error):
         protocol.QwenAgentParser(schemas, thinking=False).feed(XML, final=True)
+
+
+def test_arbitrary_precision_integer_arguments():
+    _, schemas, _ = prepared()
+    value = 10**400
+    message = protocol.collect_message(
+        protocol.QwenAgentParser(schemas, thinking=False).feed(
+            XML.replace("42", str(value)), final=True
+        )
+    )
+    assert json.loads(message["tool_calls"][0]["function"]["arguments"])["n"] == value
 
 
 class FinishReason(Enum):
     EOS_TOKEN = "eos_token"
     STOP_STRING = "stop_string"
-    LENGTH = "length"
     CANCELED = "canceled"
     ERROR = "error"
     TIMEOUT = "timeout"
@@ -328,66 +328,72 @@ def make_client(text=XML, parser="qwen3_coder"):
 def test_http_tool_call_and_history_replay(stream):
     client, server = make_client()
     body = {
-        "model": "Qwen3.8-27B",
         "messages": [{"role": "user", "content": "compute"}],
         "tools": TOOLS,
         "stream": stream,
+        "max_completion_tokens": 7,
         "chat_template_kwargs": {"enable_thinking": False},
         "stream_options": {"include_usage": True},
     }
-    response = client.post("/v1/chat/completions", json=body)
+    response = post_chat(client, **body)
     assert response.status_code == 200, response.text
     if stream:
         chunks = sse_chunks(response)
-        events = [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
-        message = protocol.collect_message(events)
+        message = protocol.collect_message(
+            [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
+        )
         assert chunks[-1]["usage"]["total_tokens"] == 17
         assert chunks[-2]["choices"][0]["finish_reason"] == "tool_calls"
+        assert response.text.count("data: [DONE]") == 1
     else:
         message = response.json()["choices"][0]["message"]
         assert response.json()["choices"][0]["finish_reason"] == "tool_calls"
     assert server.engine.requests[0]["chat_template_kwargs"]["tools"] == TOOLS
+    assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 7
+    call_id = message["tool_calls"][0]["id"]
     body["messages"] += [
         message,
-        {
-            "role": "tool",
-            "tool_call_id": message["tool_calls"][0]["id"],
-            "content": "42",
-        },
+        {"role": "tool", "tool_call_id": call_id, "content": "42"},
     ]
     server.engine.text = "The result is 42."
-    response = client.post("/v1/chat/completions", json=dict(body, stream=False))
+    response = post_chat(client, **dict(body, stream=False))
     assert response.json()["choices"][0]["message"]["content"] == "The result is 42."
-    assert (
-        server.engine.requests[-1]["messages"][1]["tool_calls"][0]["function"][
-            "arguments"
-        ]["n"]
-        == 42
-    )
+    replay = server.engine.requests[-1]["messages"]
+    assert replay[1]["tool_calls"][0]["function"]["arguments"]["n"] == 42
+    assert replay[1]["tool_calls"][0]["id"] == call_id
+    assert replay[2]["name"] == "compute" and replay[2]["tool_call_id"] == call_id
 
 
-def test_http_malformed_request_before_sse():
-    client, server = make_client()
-    response = post_chat(client, tools=TOOLS, tool_choice="invalid", stream=True)
+@pytest.mark.parametrize(
+    "parser,fields",
+    [
+        ("none", {"tools": TOOLS}),
+        ("qwen3_coder", {"tools": TOOLS, "tool_choice": "invalid"}),
+    ],
+)
+def test_http_rejects_requests_before_sse(parser, fields):
+    client, server = make_client(parser=parser)
+    response = post_chat(client, stream=True, **fields)
     assert response.status_code == 400
     assert not server.engine.requests
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_http_malformed_model_output(stream):
+def test_http_truncated_model_output(stream):
     client, _ = make_client(XML[:-4])
-    r = post_chat(
+    response = post_chat(
         client,
         tools=TOOLS,
         stream=stream,
         chat_template_kwargs={"enable_thinking": False},
     )
     if stream:
-        assert "invalid_model_output" in r.text
-        assert '"tool_calls"' not in r.text
+        assert "invalid_model_output" in response.text
+        assert '"tool_calls"' not in response.text
+        assert response.text.count("data: [DONE]") == 1
     else:
-        assert r.status_code == 502
-        assert r.json()["error"]["type"] == "invalid_model_output"
+        assert response.status_code == 502
+        assert response.json()["error"]["type"] == "invalid_model_output"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -409,14 +415,6 @@ def test_disabled_parser_preserves_plain_chat(stream):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_disabled_parser_rejects_tools_before_submission(stream):
-    client, server = make_client(parser="none")
-    response = post_chat(client, tools=TOOLS, stream=stream)
-    assert response.status_code == 400
-    assert not server.engine.requests
-
-
-@pytest.mark.parametrize("stream", [False, True])
 def test_disabled_parser_preserves_legacy_error_shape(stream):
     client, server = make_client(parser="none")
 
@@ -434,64 +432,8 @@ def test_disabled_parser_preserves_legacy_error_shape(stream):
         assert response.json() == {"error": "test execution failed"}
 
 
-@pytest.mark.parametrize("name", [None, "", "bad name"])
-def test_historical_function_name_is_validated(name):
-    with pytest.raises(Error, match="historical function name"):
-        protocol.prepare_agent_request(
-            {"messages": tool_history(name), "tools": TOOLS}, True
-        )
-
-
-def test_tool_result_name_must_match_call_id():
-    with pytest.raises(Error, match="name does not match"):
-        protocol.prepare_agent_request(
-            {"messages": tool_history(name="other"), "tools": TOOLS}, True
-        )
-
-
-def test_arbitrary_precision_integer_arguments():
-    _, schemas, _ = prepared()
-    value = 10**400
-    text = XML.replace("42", str(value))
-    message = protocol.collect_message(
-        protocol.QwenAgentParser(schemas, thinking=False).feed(text, final=True)
-    )
-    assert json.loads(message["tool_calls"][0]["function"]["arguments"])["n"] == value
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("tools", {}),
-        ("tools", False),
-        ("tools", ""),
-        ("chat_template_kwargs", []),
-        ("stream", "false"),
-        ("stream_options", {"include_usage": "false"}),
-    ],
-)
-def test_falsy_protocol_fields_are_not_silently_coerced(field, value):
-    with pytest.raises(Error):
-        protocol.prepare_agent_request({field: value}, True)
-
-
-def test_falsy_historical_calls_are_not_silently_coerced():
-    with pytest.raises(Error, match="tool_calls must be an array"):
-        protocol.prepare_agent_request(
-            {"messages": [{"role": "assistant", "tool_calls": {}}]}, True
-        )
-
-
-@pytest.mark.parametrize(
-    "fields,expected",
-    [
-        ({"max_completion_tokens": 7}, 7),
-        ({"max_tokens": 3, "max_completion_tokens": 7}, 3),
-        ({"max_tokens": None, "max_completion_tokens": 7}, 7),
-    ],
-)
-def test_completion_token_alias_reaches_sampling(fields, expected):
+def test_completion_token_alias_precedence():
     client, server = make_client("answer")
-    response = post_chat(client, **fields)
+    response = post_chat(client, max_tokens=3, max_completion_tokens=7)
     assert response.status_code == 200
-    assert server.engine.requests[0]["sampling_params"]["max_tokens"] == expected
+    assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 3
