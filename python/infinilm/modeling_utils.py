@@ -1151,7 +1151,7 @@ def _iter_ernie_checkpoint_batches(catalog, read_keys, config, dtype):
 
 def _is_qwen_offset_norm(key):
     return "mtp." not in key and (
-        key == "model.norm.weight"
+        key in ("model.norm.weight", "model.language_model.norm.weight")
         or key.endswith(
             (
                 "input_layernorm.weight",

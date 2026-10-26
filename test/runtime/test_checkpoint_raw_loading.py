@@ -49,6 +49,32 @@ def _write_shard(path, entries, metadata=_MISSING_METADATA):
 
 
 class RawCheckpointLoadingTest(unittest.TestCase):
+    def test_qwen35_final_norm_offset_preserves_gated_norm(self):
+        config = {"text_config": {"linear_key_head_dim": 2, "linear_num_key_heads": 1}}
+        gated_key = "model.language_model.layers.0.linear_attn.norm.weight"
+        for dtype, expected in (
+            (infinicore.float32, struct.pack("<ff", 0.75, 1.75)),
+            (infinicore.float16, struct.pack("<ee", 0.75, 1.75)),
+            (infinicore.bfloat16, struct.pack("<HH", 0x3F40, 0x3FE0)),
+        ):
+            for key in ("model.norm.weight", "model.language_model.norm.weight"):
+                with self.subTest(dtype=dtype, key=key):
+                    weight = infinicore.from_list([-0.25, 0.75], dtype=dtype)
+                    gated = infinicore.from_list([1.25, 0.5], dtype=dtype)
+                    before = ctypes.string_at(weight.data_ptr(), len(expected))
+                    result = loading._remap_qwen3_5(
+                        {key: weight, gated_key: gated}, config, defer_tie=True
+                    )
+                    self.assertEqual(result[key].dtype, dtype)
+                    self.assertEqual(
+                        ctypes.string_at(result[key].data_ptr(), len(expected)),
+                        expected,
+                    )
+                    self.assertEqual(
+                        ctypes.string_at(weight.data_ptr(), len(expected)), before
+                    )
+                    self.assertIs(result[gated_key], gated)
+
     def test_mamba_raw_remap_cross_shard_real_head_and_owner(self):
         embed_name = "backbone.embeddings.weight"
         source_name = "backbone.layers.0.mixer.conv1d.weight"
