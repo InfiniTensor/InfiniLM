@@ -1,7 +1,6 @@
 #include "qwen3_5_for_causal_lm.hpp"
 
 #include "../models_registry.hpp"
-#include "runtime/runtime.hpp"
 #include <algorithm>
 #include <cmath>
 #include <exception>
@@ -11,55 +10,6 @@
 #include <vector>
 
 namespace infinilm::models::qwen3_5 {
-
-Qwen35ForCausalLM::Qwen35ForCausalLM(infinilm::runtime::Runtime &runtime,
-                                     std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                                     const engine::distributed::RankInfo &rank_info,
-                                     backends::AttentionBackend attention_backend,
-                                     const layers::moe::EPConfig &ep_config) {
-    models::validate_runtime_construction(model_config, runtime, rank_info);
-    try {
-        model_config_ = model_config;
-        const size_t hidden_size = model_config->get<size_t>("hidden_size");
-        const size_t vocab_size = model_config->get<size_t>("vocab_size");
-        const auto &dtype = model_config->get_dtype();
-
-        model_ = this->bind_child("model", std::make_shared<std::remove_reference_t<decltype(*model_)>>(runtime, model_config, rank_info, attention_backend, ep_config));
-        lm_head_ = this->bind_child("lm_head", std::make_shared<std::remove_reference_t<decltype(*lm_head_)>>(runtime, hidden_size, vocab_size, false, dtype));
-    } catch (...) {
-        try {
-            runtime.syncStream();
-        } catch (...) { std::terminate(); }
-        throw;
-    }
-}
-
-InfinilmModel::Output Qwen35ForCausalLM::forward(
-    const InfinilmModel::Input &input,
-    global_state::ForwardContext &forward_context) const {
-    if (forward_context.runtime == nullptr) {
-        throw std::invalid_argument("Qwen3.5 forward requires an explicit Runtime");
-    }
-    auto hidden_states = model_->forward(input, forward_context);
-    return {lm_head_->forward(*forward_context.runtime, hidden_states)};
-}
-
-void Qwen35ForCausalLM::reset_cache(
-    const cache::CacheConfig *cache_config,
-    global_state::ForwardContext &forward_context,
-    backends::AttentionBackend attention_backend,
-    const engine::distributed::RankInfo &rank_info) {
-    cache::validate_backend_cache_config(cache_config, attention_backend);
-    if (cache_config != nullptr) {
-        cache::validate_cache_runtime(forward_context.require_runtime(), rank_info);
-    }
-    if (cache_config == nullptr) {
-        cache_config_.reset();
-    } else {
-        cache_config_ = cache_config->unique_copy();
-    }
-    model_->reset_cache(cache_config, forward_context, attention_backend, rank_info);
-}
 
 std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
     if (!model_config) {

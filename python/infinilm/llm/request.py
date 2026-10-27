@@ -209,6 +209,14 @@ class InferenceRequest:
             0  # Number of cached tokens visible to the current model step
         )
         self.num_computed_tokens: int = 0  # Total tokens computed (local + remote)
+        # Chunked prefill state. chunked_prefill_pending is True while
+        # prompt tokens remain to be scheduled in later chunks; the
+        # scheduler re-queues such requests instead of decoding, and no
+        # sampled token is consumed for them. num_scheduled_tokens is
+        # the prompt slice this prefill step computes (None = all
+        # remaining tokens, the historical whole-prompt prefill).
+        self.chunked_prefill_pending: bool = False
+        self.num_scheduled_tokens: Optional[int] = None
         self.num_blocks: int = 0
         # Incremental hashes for complete logical token blocks.
         self._block_hashes: List[BlockHash] = []

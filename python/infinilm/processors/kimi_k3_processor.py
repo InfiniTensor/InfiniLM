@@ -108,8 +108,16 @@ class KimiK3Processor(BasicLLMProcessor):
                 raise RuntimeError(
                     f"Request {request.request_id} has no mamba cache index"
                 )
+            # A resumed chunked prefill continues from the recurrent
+            # state written by the previous chunk (zero state only
+            # starts a fresh prefill).
+            resumed = (
+                scheduler_output.is_prefill and request.num_local_cached_tokens > 0
+            )
             init_indices.append(
-                0 if scheduler_output.is_prefill else request.mamba_cache_index
+                request.mamba_cache_index
+                if resumed
+                else (0 if scheduler_output.is_prefill else request.mamba_cache_index)
             )
             final_indices.append(request.mamba_cache_index)
         model_inputs["mamba_init_state_indices"] = infinicore.from_list(

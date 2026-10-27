@@ -125,6 +125,7 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        chunked_prefill_size: int = 0,
     ):
         """Initialize inference server.
 
@@ -186,6 +187,7 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
+        self.chunked_prefill_size = chunked_prefill_size
 
         self.engine: AsyncLLMEngine = None
 
@@ -229,6 +231,7 @@ class InferenceServer:
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
                 pre_transpose=self.pre_transpose,
+                chunked_prefill_size=self.chunked_prefill_size,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -648,6 +651,7 @@ def main():
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        chunked_prefill_size=cfg.chunked_prefill_size,
     )
     server.start()
 
