@@ -5,6 +5,7 @@
 #include "../../cache/mamba_cache.hpp"
 #include "../../global_state/global_state.hpp"
 
+#include <cstdlib>
 #include <stdexcept>
 #include <vector>
 
@@ -21,8 +22,11 @@ qwen3_next::AllocatedHybridCache kimi_k3_allocate_cache_tensors(
         throw std::runtime_error("Kimi K3 does not support static attention");
     }
     const size_t num_layers = model_config->get<size_t>("num_hidden_layers");
+    const bool use_flash_mla = std::getenv("INFINILM_KIMI_FLASH_MLA") != nullptr;
     const size_t head_dim = model_config->get<size_t>("head_dim");
     const size_t num_heads = model_config->get<size_t>("num_attention_heads");
+    const size_t mla_cache_dim = model_config->get<size_t>("kv_lora_rank")
+                               + model_config->get<size_t>("qk_rope_head_dim");
     const auto &linear = model_config->get_config_json().at("linear_attn_config");
     const size_t linear_head_dim = linear.at("head_dim").get<size_t>();
     const size_t linear_num_heads = linear.at("num_heads").get<size_t>();
@@ -61,6 +65,10 @@ qwen3_next::AllocatedHybridCache kimi_k3_allocate_cache_tensors(
     for (size_t i = local_begin; i < local_end; ++i) {
         if (is_kda[i]) {
             allocate_kda(i, state_pool_size);
+        } else if (use_flash_mla) {
+            kv[i] = infinicore::Tensor::zeros(
+                {config->num_blocks(), config->block_size(), mla_cache_dim},
+                model_config->get_dtype(), rank_info.device);
         } else {
             kv[i] = cache::PagedKVCache::create_layer_kv_cache(
                 head_dim, head_dim, num_heads, num_heads,

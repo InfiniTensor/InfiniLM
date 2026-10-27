@@ -18,8 +18,14 @@ public:
                        const infinicore::Device &device);
 
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+    void process_weights_after_loading() override;
 
 private:
+    infinicore::Tensor project_q_nope_to_latent(
+        const infinicore::Tensor &q_nope) const;
+    infinicore::Tensor project_latent_to_value(
+        const infinicore::Tensor &latent) const;
+
     size_t layer_idx_{0};
     size_t q_lora_rank_{0};
     size_t kv_lora_rank_{0};
@@ -29,6 +35,9 @@ private:
     size_t v_head_dim_{0};
     size_t local_num_heads_{0};
     float softmax_scale_{1.0f};
+    infinilm::backends::AttentionBackend attention_backend_;
+    infinicore::Tensor w_uk_;
+    infinicore::Tensor w_uv_;
 
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, q_a_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_a_layernorm);
