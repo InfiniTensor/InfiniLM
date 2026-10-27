@@ -5,6 +5,7 @@
 #include <infinicore/ops.hpp>
 #include <infinicore/ops/cat.hpp>
 #include <infinicore/ops/mha.hpp>
+#include <infinicore/ops/mrope.hpp>
 #include <infinicore/ops/upsample_bilinear.hpp>
 
 #include <algorithm>
@@ -102,6 +103,9 @@ Qwen35VisionAttention::Qwen35VisionAttention(const nlohmann::json &config,
     }
     const size_t axis_head_dim = head_dim_ / 2;
     INFINICORE_NN_MODULE_INIT(rotary_emb, axis_head_dim, axis_head_dim, 8192, 10000.0, infinicore::nn::RoPE::Algo::GPT_NEOX, dtype, device);
+    // Vision repeats the axis frequencies for row and column halves.
+    vision_cos_ = infinicore::op::cat({rotary_emb_->cos_cache(), rotary_emb_->cos_cache()}, 1);
+    vision_sin_ = infinicore::op::cat({rotary_emb_->sin_cache(), rotary_emb_->sin_cache()}, 1);
     INFINICORE_NN_MODULE_INIT(qkv, hidden_size_, hidden_size_ * 3, true, dtype, device);
     INFINICORE_NN_MODULE_INIT(proj, hidden_size_, hidden_size_, true, dtype, device);
 }
@@ -114,29 +118,22 @@ infinicore::Tensor Qwen35VisionAttention::forward(const infinicore::Tensor &hidd
     const size_t axis_head_dim = head_dim_ / 2;
     auto hidden_mut = hidden_states;
     auto qkv = qkv_->forward(hidden_mut)->view({seq_len, 3, num_heads_, head_dim_});
-    auto q = qkv->narrow({{1, 0, 1}})->squeeze(1)->contiguous();
-    auto k = qkv->narrow({{1, 1, 1}})->squeeze(1)->contiguous();
+    auto q = qkv->narrow({{1, 0, 1}})->squeeze(1);
+    auto k = qkv->narrow({{1, 1, 1}})->squeeze(1);
     auto v = qkv->narrow({{1, 2, 1}})->squeeze(1)->contiguous()->unsqueeze(0);
 
-    const size_t axis_pair_dim = axis_head_dim / 2;
-    auto apply_2d_rope = [&](const infinicore::Tensor &x) {
-        auto row = infinicore::Tensor::empty({seq_len, num_heads_, axis_head_dim}, x->dtype(), x->device());
-        auto col = infinicore::Tensor::empty({seq_len, num_heads_, axis_head_dim}, x->dtype(), x->device());
-        row->narrow({{2, 0, axis_pair_dim}})->copy_from(x->narrow({{2, 0, axis_pair_dim}}));
-        row->narrow({{2, axis_pair_dim, axis_pair_dim}})->copy_from(x->narrow({{2, axis_head_dim, axis_pair_dim}}));
-        col->narrow({{2, 0, axis_pair_dim}})->copy_from(x->narrow({{2, axis_pair_dim, axis_pair_dim}}));
-        col->narrow({{2, axis_pair_dim, axis_pair_dim}})->copy_from(x->narrow({{2, axis_head_dim + axis_pair_dim, axis_pair_dim}}));
-
-        rotary_emb_->forward(row, row_position_ids, true);
-        rotary_emb_->forward(col, col_position_ids, true);
-
-        x->narrow({{2, 0, axis_pair_dim}})->copy_from(row->narrow({{2, 0, axis_pair_dim}}));
-        x->narrow({{2, axis_head_dim, axis_pair_dim}})->copy_from(row->narrow({{2, axis_pair_dim, axis_pair_dim}}));
-        x->narrow({{2, axis_pair_dim, axis_pair_dim}})->copy_from(col->narrow({{2, 0, axis_pair_dim}}));
-        x->narrow({{2, axis_head_dim + axis_pair_dim, axis_pair_dim}})->copy_from(col->narrow({{2, axis_pair_dim, axis_pair_dim}}));
-    };
-    apply_2d_rope(q);
-    apply_2d_rope(k);
+    // Split the row half into two equal sections; both use row positions.
+    // The final section uses columns, giving exactly the original 2D rotation.
+    auto positions = infinicore::op::cat({row_position_ids->view({1, seq_len}),
+                                         row_position_ids->view({1, seq_len}),
+                                         col_position_ids->view({1, seq_len})}, 0);
+    auto rotated = infinicore::op::mrope(
+        q->view({seq_len, hidden_size_}), k->view({seq_len, hidden_size_}),
+        vision_cos_, vision_sin_, positions,
+        head_dim_, head_dim_, axis_head_dim / 4, axis_head_dim / 2 - axis_head_dim / 4,
+        axis_head_dim / 2, false);
+    q = rotated.first->view({seq_len, num_heads_, head_dim_});
+    k = rotated.second->view({seq_len, num_heads_, head_dim_});
 
     infinicore::Tensor out;
     if (image_count > 1) {

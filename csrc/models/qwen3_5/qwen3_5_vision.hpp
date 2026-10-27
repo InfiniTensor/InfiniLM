@@ -67,6 +67,8 @@ private:
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, qkv);
     INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, proj);
     INFINICORE_NN_MODULE(infinicore::nn::RoPE, rotary_emb);
+    INFINICORE_NN_BUFFER(vision_cos);
+    INFINICORE_NN_BUFFER(vision_sin);
 };
 
 class Qwen35VisionMLP : public infinicore::nn::Module {
