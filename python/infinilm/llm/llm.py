@@ -822,6 +822,7 @@ class AsyncLLMEngine:
         prompt: Optional[str],
         prompt_token_ids: Optional[List[int]],
         request_id: Optional[str],
+        chat_template_kwargs: Optional[dict] = None,
     ) -> dict:
         if request_id is None:
             request_id = f"cmpl-{uuid.uuid4().hex}"
@@ -844,7 +845,9 @@ class AsyncLLMEngine:
             ), "apply_chat_template needs to be true for multi-role conversation"
 
             prompt = self.engine.apply_chat_template(
-                messages, add_generation_prompt=add_generation_prompt
+                messages,
+                add_generation_prompt=add_generation_prompt,
+                chat_template_kwargs=chat_template_kwargs,
             )
             mm_inputs = resolve_multimodal_inputs(messages)
             has_multimodal_inputs = any(
@@ -915,6 +918,7 @@ class AsyncLLMEngine:
         sampling_params: Optional[SamplingParams] = None,
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         prepared = self._prepare_request(
             messages,
@@ -923,6 +927,7 @@ class AsyncLLMEngine:
             prompt,
             prompt_token_ids,
             request_id,
+            chat_template_kwargs,
         )
         return self._add_prepared_request(prepared, sampling_params, request_data)
 
@@ -936,6 +941,7 @@ class AsyncLLMEngine:
         sampling_params: Optional[SamplingParams] = None,
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
+        chat_template_kwargs: Optional[dict] = None,
     ) -> InferenceRequest:
         prepared = await asyncio.to_thread(
             self._prepare_request,
@@ -945,6 +951,7 @@ class AsyncLLMEngine:
             prompt,
             prompt_token_ids,
             request_id,
+            chat_template_kwargs,
         )
         return self._add_prepared_request(prepared, sampling_params, request_data)
 
@@ -955,6 +962,7 @@ class AsyncLLMEngine:
         request_id: Optional[str] = None,
         request_data: Optional[dict] = None,
         add_generation_prompt: bool = True,
+        chat_template_kwargs: Optional[dict] = None,
         **kwargs,
     ) -> InferenceRequest:
         """Add a chat request to the engine.
@@ -976,6 +984,7 @@ class AsyncLLMEngine:
             sampling_params=sampling_params,
             request_id=request_id,
             request_data=request_data,
+            chat_template_kwargs=chat_template_kwargs,
         )
 
     async def stream_request(
@@ -1049,5 +1058,4 @@ class AsyncLLMEngine:
             await request.close()
 
     async def add_chat_request_async(self, **kwargs) -> InferenceRequest:
-        kwargs.pop("chat_template_kwargs", None)
         return await self.add_request_async(apply_chat_template=True, **kwargs)
