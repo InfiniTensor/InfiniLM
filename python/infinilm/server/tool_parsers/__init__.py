@@ -8,6 +8,7 @@ from jsonschema import Draft202012Validator
 from referencing.exceptions import Unresolvable
 
 from ..agent_protocol import AgentProtocolError, make_tool_call
+from .structured import parse_structured_calls
 
 TOOL_CALL_FORMATS = {
     "qwen3_coder": ("<tool_call>", "</tool_call>"),
@@ -15,6 +16,9 @@ TOOL_CALL_FORMATS = {
     "llama3_json": ("<|python_tag|>", ""),
     "mistral": ("[TOOL_CALLS]", ""),
     "minicpm5": ("<function", "</function>"),
+    "glm5": ("<tool_call>", "</tool_call>"),
+    "deepseek_v4": ("<｜DSML｜tool_calls>", "</｜DSML｜tool_calls>"),
+    "kimi_k3": ("<|open|>tools<|sep|>", "<|close|>tools<|sep|>"),
 }
 
 
@@ -38,6 +42,9 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
     if parser == "minicpm5":
         function = r'<function\s+name="([^"<>]+)"\s*>(.*?)</function>'
         parameter = r'<param\s+name="([^"<>]+)"\s*>(<!\[CDATA\[.*?\]\]>|.*?)</param>'
+    elif parser == "glm5":
+        function = r"<tool_call>\s*([^<>\s]+)\s*(.*?)</tool_call>"
+        parameter = r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>"
     match = re.fullmatch(function, block, re.S)
     if not match or match[1] not in schemas:
         raise AgentProtocolError("Malformed or unknown tool call")
@@ -51,7 +58,8 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         if parser == "minicpm5" and raw.startswith("<![CDATA[") and raw.endswith("]]>"):
             raw = raw[9:-3]
         else:
-            raw = _trim_newline(raw)
+            if parser != "glm5":
+                raw = _trim_newline(raw)
             if parser == "minicpm5":
                 raw = html.unescape(raw)
         spec = schema.get("properties", {}).get(key, {})
@@ -88,13 +96,28 @@ class ToolCallParser:
         self.parser = parser
         self.start, self.end = TOOL_CALL_FORMATS[parser]
         self.at_start = True
+        self.think_start, self.think_end = "<think>", "</think>"
+        self.ignored = []
+        if parser == "kimi_k3":
+            self.think_start = "<|open|>think<|sep|>"
+            self.think_end = "<|close|>think<|sep|>"
+            self.ignored = [
+                "<|open|>response<|sep|>",
+                "<|close|>response<|sep|>",
+                "<|close|>message<|sep|>",
+                "<|end_of_msg|>",
+            ]
 
     def _parse_calls(self, block):
-        if self.parser in ("qwen3_coder", "minicpm5"):
+        if self.parser in ("qwen3_coder", "minicpm5", "glm5"):
             return [parse_xml_call(block, self.schemas, self.parser)]
         body = block.removeprefix(self.start)
         if self.end:
             body = body.removesuffix(self.end)
+        if self.parser in ("deepseek_v4", "kimi_k3"):
+            return parse_structured_calls(
+                body, self.schemas, self.parser, len(self.calls)
+            )
         try:
             calls = json.loads(body)
         except ValueError as exc:
@@ -166,7 +189,7 @@ class ToolCallParser:
                 self.mode = "content"
                 self.at_start = False
                 continue
-            markers = ["<think>", "</think>"]
+            markers = [self.think_start, self.think_end, *self.ignored]
             if self.schemas:
                 markers.append(self.start)
             found = [(self.buffer.find(m), m) for m in markers if m in self.buffer]
@@ -183,8 +206,10 @@ class ToolCallParser:
                     self.mode = "tool"
                 else:
                     self.buffer = self.buffer[len(marker) :]
+                    if marker in self.ignored:
+                        continue
                     self.mode = (
-                        "reasoning_content" if marker == "<think>" else "content"
+                        "reasoning_content" if marker == self.think_start else "content"
                     )
                 continue
             # Hold only a suffix which could become a split marker.

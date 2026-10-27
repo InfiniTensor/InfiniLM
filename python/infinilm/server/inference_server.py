@@ -638,7 +638,9 @@ class InferenceServer:
             return None
         return ToolCallParser(
             data.get("_agent_schemas", {}),
-            thinking=(getattr(req, "prompt", None) or "").rstrip().endswith("<think>"),
+            thinking=(getattr(req, "prompt", None) or "")
+            .rstrip()
+            .endswith(("<think>", "<|open|>think<|sep|>")),
             choice=data.get("_agent_choice", "auto"),
             parallel=data.get("parallel_tool_calls", True),
             parser=self.tool_call_parser,

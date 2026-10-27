@@ -121,6 +121,11 @@ def prepare_agent_request(data, parser="none"):
         kwargs["tools"] = tools or None
         if "reasoning_effort" in data:
             kwargs["reasoning_effort"] = data["reasoning_effort"]
+        if parser == "kimi_k3":
+            if "enable_thinking" in kwargs:
+                kwargs["thinking"] = kwargs.pop("enable_thinking")
+            if "reasoning_effort" in kwargs:
+                kwargs["thinking_effort"] = kwargs.pop("reasoning_effort")
         seen, pending = set(), {}
         for message in data.get("messages", []):
             if not isinstance(message, dict):

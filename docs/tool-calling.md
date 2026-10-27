@@ -14,18 +14,27 @@ require prefix caching to be disabled as documented by the model backend.
 | `llama3_json` | JSON with `name` and `parameters`, optionally preceded by `<\|python_tag\|>` | Llama 3.1/3.3 JSON tool mode |
 | `mistral` | `[TOOL_CALLS]` followed by a JSON array | Mistral-7B-Instruct-v0.3 |
 | `minicpm5` | `<function name="..."><param name="...">...</param></function>` | MiniCPM5-1B/2B |
+| `glm5` | `<tool_call>name<arg_key>...</arg_key><arg_value>...</arg_value>` | GLM-5.3 key/value XML |
+| `deepseek_v4` | DSML `tool_calls` / `invoke` / typed `parameter` blocks | DeepSeek-V4 Flash/Pro |
+| `kimi_k3` | XTML `tools` / indexed `call` / typed `argument` or JSON blocks | Kimi K3 |
 
 Choose by the checkpoint's actual chat template, rather than its architecture
 alone: Hermes and MiniCPM5 can both use `model_type=llama`, with different tool
 formats. The parser does not add missing model/backend support or tool training.
 Llama JSON mode excludes its Python-call and built-in code interpreter formats.
 Hermes tokenizers with named templates must provide a `tool_use` template.
+These adapters assume that the selected checkpoint already runs correctly on
+the installed InfiniLM native backend. Adding a parser does not add C++ model
+implementations or certify untested weights.
 
 Template references: [Qwen](https://qwen.readthedocs.io/en/stable/framework/function_call.html),
 [Hermes](https://huggingface.co/NousResearch/Hermes-3-Llama-3.1-8B),
 [Llama](https://github.com/meta-llama/llama-models/blob/main/models/llama3_3/prompt_format.md),
 [Mistral](https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3), and
 [MiniCPM](https://github.com/OpenBMB/MiniCPM).
+Current-family references: [DeepSeek V4 encoding](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash/blob/main/encoding/README.md),
+[Kimi K3 encoding](https://huggingface.co/moonshotai/Kimi-K3/blob/main/encoding_k3.py),
+and [GLM 5.3 template](https://huggingface.co/zai-org/GLM-5.3/blob/main/chat_template.jinja).
 
 Send function definitions in the request's top-level `tools` array. They are
 forwarded to the chat template, rather than appended to a user message.
@@ -63,6 +72,20 @@ and `reasoning_effort` are passed to the native template, whose accepted values
 can differ between models. MiniCPM5 CDATA string parameters preserve literal XML
 tags and newlines. Ordinary Llama JSON objects without a call shape stay text.
 
+Kimi K3 uses XTML think/response channels, rather than K2's tool-section tokens.
+`enable_thinking` and `reasoning_effort` are translated to its native `thinking`
+and `thinking_effort` keywords. Call indices must follow call order; external
+OpenAI call IDs remain opaque and are matched by the native encoder on replay.
+
+DeepSeek V4 checkpoints must retain their official
+`encoding/encoding_dsv4.py`. The registered `DeepSeekV4Processor` delegates prompt
+encoding to that file, places tool definitions on a system message and serializes
+historical arguments as JSON strings. It uses the checkpoint tokenizer for token
+IDs and does not replace the official encoder with a Jinja approximation.
+`thinking_mode` can select `chat` or `thinking`; accepted effort values follow
+the installed encoder. DSML's explicit string flag and K3's argument type are
+honored before shared schema validation.
+
 ## Scope and layout
 
 The first step is model-side tool protocol support, kept in the InfiniLM
@@ -74,7 +97,7 @@ Agent execution, browser sessions, memory stores and orchestration belong in an
 agent framework or a separate integration package. They do not belong in model
 processors or the native inference engine.
 
-DeepSeek-V3, GLM-4.5, InternLM, Kimi-K2, MiniCPM4-MCP and Gemma native tool formats
+DeepSeek-V3, InternLM, Kimi-K2, MiniCPM4-MCP and Gemma native tool formats
 are deferred: their framing, history, reasoning or model-backend requirements
 need separate adapters and validation. MiniCPM4-MCP's Python-style calls are not
 the MiniCPM5 XML format; vision/audio MiniCPM support is also a separate claim.

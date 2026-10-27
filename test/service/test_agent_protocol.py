@@ -31,6 +31,7 @@ with patch.dict(
         "infinilm.server.tool_parsers", SERVER / "tool_parsers/__init__.py"
     )
     parsers = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = parsers
     spec.loader.exec_module(parsers)
 ToolCallParser = parsers.ToolCallParser
 Error = protocol.AgentProtocolError
@@ -63,6 +64,9 @@ WIRES = {
     + json.dumps({"name": "compute", "parameters": JSON_CALL["arguments"]}),
     "mistral": "[TOOL_CALLS]" + json.dumps([JSON_CALL]),
     "minicpm5": '<function name="compute"><param name="n">42</param><param name="label">123</param></function>',
+    "glm5": "<tool_call>compute<arg_key>n</arg_key><arg_value>42</arg_value><arg_key>label</arg_key><arg_value>123</arg_value></tool_call>",
+    "deepseek_v4": '<｜DSML｜tool_calls><｜DSML｜invoke name="compute"><｜DSML｜parameter name="n" string="false">42</｜DSML｜parameter><｜DSML｜parameter name="label" string="true">123</｜DSML｜parameter></｜DSML｜invoke></｜DSML｜tool_calls>',
+    "kimi_k3": '<|open|>tools<|sep|><|open|>call tool="compute" index="1"<|sep|><|open|>argument key="n" type="number"<|sep|>42<|close|>argument<|sep|><|open|>argument key="label" type="string"<|sep|>123<|close|>argument<|sep|><|close|>call<|sep|><|close|>tools<|sep|>',
 }
 
 
@@ -124,7 +128,13 @@ def test_stream_protocol_across_boundaries(parser_name):
         wire = parsers.TOOL_CALL_FORMATS[parser_name][0] + json.dumps(
             [JSON_CALL, JSON_CALL]
         )
-    text = "<think>reason</think>\nanswer\n" + wire
+    if parser_name == "kimi_k3":
+        start, end = parsers.TOOL_CALL_FORMATS[parser_name]
+        call = WIRES[parser_name][len(start) : -len(end)]
+        wire = start + call + call.replace('index="1"', 'index="2"') + end
+        text = "<|open|>think<|sep|>reason<|close|>think<|sep|>\nanswer\n" + wire
+    else:
+        text = "<think>reason</think>\nanswer\n" + wire
     partitions = [list(text)] + [[text[:i], text[i:]] for i in range(len(text) + 1)]
     for parts in partitions:
         parser = ToolCallParser(schemas, thinking=False, parser=parser_name)
@@ -519,14 +529,109 @@ def test_llama_bare_json_and_ordinary_json():
 
 
 @pytest.mark.parametrize("thinking", [False, True])
-def test_http_reasoning_starts_from_rendered_prompt(thinking):
+@pytest.mark.parametrize("parser_name", ["hermes", "kimi_k3"])
+def test_http_reasoning_starts_from_rendered_prompt(thinking, parser_name):
+    start, end = "<think>", "</think>"
+    if parser_name == "kimi_k3":
+        start, end = "<|open|>think<|sep|>", "<|close|>think<|sep|>"
     client, server = make_client(
-        "reason</think>42" if thinking else "42", parser="hermes"
+        "reason" + end + "42" if thinking else "42", parser=parser_name
     )
-    server.engine.prompt = "assistant\n<think>\n" if thinking else "assistant\n"
-    response = post_chat(client, stream=True)
+    server.engine.prompt = "assistant\n" + start if thinking else "assistant\n"
+    response = post_chat(
+        client,
+        stream=True,
+        reasoning_effort="low",
+        chat_template_kwargs={"enable_thinking": thinking},
+    )
     message = protocol.collect_message(
         [c["choices"][0]["delta"] for c in sse_chunks(response) if c.get("choices")]
     )
     assert message["content"] == "42"
     assert message.get("reasoning_content") == ("reason" if thinking else None)
+    if parser_name == "kimi_k3":
+        kwargs = server.engine.requests[0]["chat_template_kwargs"]
+        assert kwargs["thinking"] == thinking and kwargs["thinking_effort"] == "low"
+
+
+@pytest.mark.parametrize(
+    "parser_name,wire",
+    [
+        ("kimi_k3", WIRES["kimi_k3"].replace('index="1"', 'index="2"')),
+        ("kimi_k3", WIRES["kimi_k3"].replace('type="number"', 'type="unknown"')),
+        (
+            "deepseek_v4",
+            WIRES["deepseek_v4"].replace(
+                "</｜DSML｜invoke>",
+                '<｜DSML｜parameter name="n" string="false">42</｜DSML｜parameter></｜DSML｜invoke>',
+            ),
+        ),
+    ],
+)
+def test_typed_markup_rejects_invalid_structure(parser_name, wire):
+    _, schemas, _ = prepared()
+    parser = ToolCallParser(schemas, parser=parser_name)
+    with pytest.raises(Error):
+        parser.feed(wire, final=True)
+    assert not parser.calls
+
+
+def test_kimi_json_block_and_response_channels():
+    _, schemas, _ = prepared()
+    wire = (
+        '<|open|>response<|sep|>answer<|close|>response<|sep|><|open|>tools<|sep|><|open|>call tool="compute" index="1"<|sep|><|open|>json type="object"<|sep|>'
+        + json.dumps(JSON_CALL["arguments"])
+        + "<|close|>json<|sep|><|close|>call<|sep|><|close|>tools<|sep|><|close|>message<|sep|>"
+    )
+    message = protocol.collect_message(
+        ToolCallParser(schemas, parser="kimi_k3").feed(wire, final=True)
+    )
+    assert message["content"] == "answer"
+    assert (
+        json.loads(message["tool_calls"][0]["function"]["arguments"])
+        == JSON_CALL["arguments"]
+    )
+
+
+def test_deepseek_processor_supplies_native_encoder_contract():
+    base = types.ModuleType("infinilm.processors.basic_llm_processor")
+    base.BasicLLMProcessor = object
+    with patch.dict(
+        sys.modules,
+        {
+            "infinilm": types.ModuleType("infinilm"),
+            "infinilm.processors": types.ModuleType("infinilm.processors"),
+            "infinilm.processors.basic_llm_processor": base,
+        },
+    ):
+        spec = importlib.util.spec_from_file_location(
+            "infinilm.processors.deepseek_v4_processor",
+            SERVER.parent / "processors/deepseek_v4_processor.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    processor = object.__new__(module.DeepSeekV4Processor)
+    captured = {}
+
+    def encode(messages, **kwargs):
+        captured.update(messages=messages, kwargs=kwargs)
+        return "prompt<｜Assistant｜><think>"
+
+    processor.encode_messages = encode
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "compute"}]},
+        *tool_history(),
+    ]
+    original = copy.deepcopy(messages)
+    assert (
+        processor.apply_chat_template(
+            messages, tools=TOOLS, tokenize=False, add_generation_prompt=False
+        )
+        == "prompt"
+    )
+    assert captured["messages"][0]["tools"] == TOOLS
+    assert captured["messages"][1]["content"] == "compute"
+    assert isinstance(
+        captured["messages"][2]["tool_calls"][0]["function"]["arguments"], str
+    )
+    assert messages == original
