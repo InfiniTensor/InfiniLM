@@ -65,7 +65,11 @@ Use `stop_on_eos=False` for fixed-workload performance measurements.
 Build InfiniRT, InfiniOps and InfiniCCL from the pinned Core submodules into one
 private prefix with the COREX-compatible C++ ABI. For the combined profile,
 replace the Ops build with [InfiniOps PR #1010](https://github.com/InfiniTensor/InfiniOps/pull/1010)
-at `6489ac72cd99c487c11c4f0d582c2c12a4f3150a`. The InfiniLM submodule pins are
+at `d78fc8c47c068566f23563ba568f813125f50526` on
+`perf/iluvatar-r5-kernels`, including its CPU Cast fix from
+[InfiniOps PR #1011](https://github.com/InfiniTensor/InfiniOps/pull/1011).
+The performance measurements below retain the original tested Ops revisions;
+the subsequent CPU fix is qualified separately below. The InfiniLM submodule pins are
 unchanged; this companion dependency must be integrated upstream before the
 stock dependency build can provide the combined result. Do not combine the
 legacy R5 libraries with this module. Install the public operator API needed by the LM
@@ -180,13 +184,26 @@ The MMLU sanity entry must load the native runtime before `datasets` imports
 Torch on this COREX stack. The import-order fix avoids a native-module import
 stall and is kept separate from the inference changes.
 
-One existing checkpoint test still fails on both baseline and candidate:
-`test_checkpoint_cast_rejects_bad_contract_before_writing`, where the CPU
-Cast provider accepts overlapping input/output storage with different dtypes.
-The other 11 checkpoint tests passed. This unchanged baseline defect is not
-reported as a successful full checkpoint suite. NVIDIA and other vendor
-hardware were not available for local execution; platform CI requires
-maintainer approval for this fork's contribution.
+The initial baseline and candidate both failed
+`test_checkpoint_cast_rejects_bad_contract_before_writing`: native CPU Cast
+accepted overlapping buffers with different dtypes. The other 11 checkpoint
+tests passed in those initial runs. This defect is now fixed in
+[InfiniOps PR #1011](https://github.com/InfiniTensor/InfiniOps/pull/1011), and the
+same fix is included in the companion R5 operator branch.
+
+After rebuilding a separate SDK with that CPU fix, all 12 checkpoint tests
+passed. The affected CPU Cast suite passed 288 tests (19 optional Torch-provider
+cases skipped), and the native descriptor/storage executable passed. A model
+regression at batch 4/input 512/output 8 matched the prior R5 outputs for all
+five requests. Only the CPU Cast header changed among 1,359 runtime source
+files compared with the previously tested R5 SDK. See the companion
+`docs/cpu-cast-contract.md` and `docs/cpu-cast-validation.json` for commands,
+counts and hashes. The performance tables below retain their original source
+revisions; these CPU correctness checks do not create a new speedup claim.
+
+The stock pinned dependencies do not yet include this fix or the R5 kernels.
+NVIDIA and other vendor hardware were not available for local execution;
+platform CI requires maintainer approval for this fork's contribution.
 
 ## Current-main component comparison
 
