@@ -31,8 +31,14 @@ class Qwen3NextProcessor(BasicLLMProcessor):
                 raise RuntimeError(
                     f"Request {req.request_id} has no assigned mamba cache index"
                 )
+            # A resumed chunked prefill continues from the recurrent
+            # state written by the previous chunk (zero state only
+            # starts a fresh prefill).
+            resumed = scheduler_output.is_prefill and req.num_local_cached_tokens > 0
             init_indices.append(
-                0 if scheduler_output.is_prefill else req.mamba_cache_index
+                req.mamba_cache_index
+                if resumed
+                else (0 if scheduler_output.is_prefill else req.mamba_cache_index)
             )
             final_indices.append(req.mamba_cache_index)
 

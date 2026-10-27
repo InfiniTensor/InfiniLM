@@ -199,10 +199,15 @@ class Qwen35Processor(BasicLLMProcessor):
                 raise RuntimeError(
                     f"Request {req.request_id} has no assigned mamba cache index"
                 )
-            if scheduler_output.is_prefill:
-                init_indices.append(0)
-            else:
-                init_indices.append(req.mamba_cache_index)
+            # A resumed chunked prefill continues from the recurrent
+            # state written by the previous chunk (zero state only
+            # starts a fresh prefill).
+            resumed = scheduler_output.is_prefill and req.num_local_cached_tokens > 0
+            init_indices.append(
+                req.mamba_cache_index
+                if resumed
+                else (0 if scheduler_output.is_prefill else req.mamba_cache_index)
+            )
             final_indices.append(req.mamba_cache_index)
 
         from .. import _core as infinicore
@@ -397,7 +402,11 @@ class Qwen35Processor(BasicLLMProcessor):
             if scheduler_output.is_prefill:
                 self._update_request_mrope_delta(req)
                 num_cached = req.num_local_cached_tokens
-                compute_len = len(req.get_input_tokens()) - num_cached
+                compute_len = (
+                    req.num_scheduled_tokens
+                    if req.num_scheduled_tokens is not None
+                    else len(req.get_input_tokens()) - num_cached
+                )
                 position_chunks.append(
                     self._build_mrope_position_ids(req, num_cached, compute_len)
                 )

@@ -307,11 +307,20 @@ class BasicLLMProcessor(InfinilmProcessor):
             if scheduler_output.is_prefill:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
+                # A chunked prefill schedules only part of the
+                # remaining prompt; past KV covers num_cached.
+                compute_end = num_cached + (
+                    req.num_scheduled_tokens
+                    if req.num_scheduled_tokens is not None
+                    else len(req_tokens) - num_cached
+                )
+                tokens_to_compute = req_tokens[num_cached:compute_end]
                 tokens.extend(tokens_to_compute)
 
                 compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
+                # KV total length: cached prefix plus this step's
+                # tokens (equals the full prompt for whole prefills).
+                seq_len = num_cached + compute_len
                 seq_lens.append(seq_len)
 
                 current_offset += compute_len

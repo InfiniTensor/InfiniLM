@@ -69,6 +69,7 @@ class EngineConfig:
     kv_transfer_config: Optional[KVTransferConfig] = None
     enable_prefix_caching: bool = True
     static_cache_capacity: int = 1
+    chunked_prefill_size: int = 0
 
     def __post_init__(self) -> None:
         if (
@@ -96,3 +97,7 @@ class EngineConfig:
             and self.cache_type != "paged"
         ):
             raise ValueError("kv_transfer_config requires cache_type='paged'")
+        if type(self.chunked_prefill_size) is not int or (
+            self.chunked_prefill_size < 0
+        ):
+            raise ValueError("chunked_prefill_size must be a non-negative integer")

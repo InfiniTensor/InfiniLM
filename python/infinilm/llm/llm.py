@@ -132,6 +132,11 @@ class LLMEngine:
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
+            if config.chunked_prefill_size:
+                logger.warning(
+                    "chunked_prefill_size requires paged attention; "
+                    "ignoring it with cache_type='static'"
+                )
             self.scheduler = StaticScheduler(
                 max_cache_len=config.max_cache_len,
                 enable_prefix_caching=config.enable_prefix_caching,
@@ -182,6 +187,7 @@ class LLMEngine:
                     if model_engine.model_type == "videonsa"
                     else None
                 ),
+                chunked_prefill_size=config.chunked_prefill_size,
             )
             if model_engine.model_type == "videonsa":
                 self.model_runner.bind_nsa_scheduler(self.scheduler)
@@ -332,6 +338,23 @@ class LLMEngine:
             requests, sampled_token_ids
         )
         for req, token_ids in zip(requests, sampled_token_ids):
+            # A chunked prefill step computes prompt tokens only;
+            # its sampled row predicts a mid-prompt position and is
+            # discarded. Advance the computed boundary to the chunk
+            # end; the request resumes prefill from there.
+            if req.chunked_prefill_pending:
+                if req.is_aborted():
+                    logger.info(
+                        f"Request {req.request_id} aborted by client, skipping update"
+                    )
+                    if not self._async_abort_owner:
+                        _finalize_aborted_request(req, FinishReason.CANCELED)
+                    continue
+                req.num_computed_tokens = (
+                    req.num_local_cached_tokens + req.num_scheduled_tokens
+                )
+                self.scheduler.commit_computed_tokens(req, req.num_computed_tokens)
+                continue
             # The model successfully consumed the request's current logical tokens.
             # Commit this boundary before observing a concurrent client abort.
             pre_output_computed_tokens = req.get_total_length()
@@ -509,6 +532,7 @@ class LLM:
         skip_load: bool = False,
         enable_prefix_caching: bool = True,
         static_cache_capacity: int = 1,
+        chunked_prefill_size: int = 0,
     ):
         """Initialize LLM.
 
@@ -548,6 +572,7 @@ class LLM:
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             static_cache_capacity=static_cache_capacity,
+            chunked_prefill_size=chunked_prefill_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -736,6 +761,7 @@ class AsyncLLMEngine:
         weight_load_mode: str = "async",
         enable_prefix_caching: bool = True,
         static_cache_capacity: int = 1,
+        chunked_prefill_size: int = 0,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -779,6 +805,7 @@ class AsyncLLMEngine:
             cache_type=cache_type,
             max_batch_size=max_batch_size,
             static_cache_capacity=static_cache_capacity,
+            chunked_prefill_size=chunked_prefill_size,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
