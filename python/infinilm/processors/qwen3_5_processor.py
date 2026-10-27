@@ -382,7 +382,11 @@ class Qwen35Processor(BasicLLMProcessor):
             if scheduler_output.is_prefill:
                 self._update_request_mrope_delta(req)
                 num_cached = req.num_local_cached_tokens
-                compute_len = len(req.get_input_tokens()) - num_cached
+                compute_len = (
+                    req.num_scheduled_tokens
+                    if req.num_scheduled_tokens is not None
+                    else len(req.get_input_tokens()) - num_cached
+                )
                 position_chunks.append(
                     self._build_mrope_position_ids(req, num_cached, compute_len)
                 )
