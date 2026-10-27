@@ -253,6 +253,7 @@ class InferEngine(_infinilm.InferEngine):
         eos_token_id = (
             self.hf_generation_config.get("eos_token_id")
             or self.hf_config.get("eos_token_id")
+            or (self.hf_config.get("text_config") or {}).get("eos_token_id")
             or []
         )
         if isinstance(eos_token_id, int):
