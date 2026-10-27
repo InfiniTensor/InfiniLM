@@ -8,6 +8,7 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -163,6 +164,20 @@ class StaticBatchEosTest(unittest.TestCase):
             _, output = self.run_case([[2, 2], [9, 9]], _measure_and_log_time=True)
         self.assertEqual(output, [[2, 2]])
         self.assertIn("Per_Batch_New_Tokens=1", buffer.getvalue())
+
+    def test_final_decode_step_is_included_in_timing(self):
+        buffer = io.StringIO()
+        with (
+            contextlib.redirect_stdout(buffer),
+            patch.object(time, "perf_counter", side_effect=[0.0, 0.01, 0.01, 0.03]),
+        ):
+            _, output = self.run_case(
+                [[2, 7], [8, 2], [9, 9]], _measure_and_log_time=True
+            )
+        self.assertEqual(output, [[2, 7], [8, 2]])
+        self.assertIn("Per_Batch_New_Tokens=2", buffer.getvalue())
+        self.assertIn("Generation completed in 30.0 ms", buffer.getvalue())
+        self.assertIn("Decode  Avg ITL: 20.0 ms", buffer.getvalue())
 
     def test_effective_sequences_match_disabled_reference(self):
         steps = [[7, 8], [2, 9], [10, 2], [11, 12]]
