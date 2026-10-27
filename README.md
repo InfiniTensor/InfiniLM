@@ -195,3 +195,12 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
       ```bash
       python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn [--attn=default | --attn=flash-attn]
       ```
+
+## Iluvatar static R5 profile
+
+The optional low-level `InferEngine(static_r5_profile=True)` profile combines
+validated static vocabulary projection and paired Q/K RoPE. See the
+[R5 migration notes](docs/optimizations/tg200-r5-main.md) for supported shapes,
+the companion InfiniOps dependency, measured results and regression limits.
+The profile is disabled by default. Static batch EOS completion is a separate
+`GenerationConfig(stop_batch_on_eos=True)` option.

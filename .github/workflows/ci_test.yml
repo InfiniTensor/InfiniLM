@@ -24,6 +24,10 @@ jobs:
       - name: Run selected host checks
         run: |
           python -m unittest discover -s test/scripts -p "test_base_config_device_detection.py" -v
+          python -m unittest discover -s test/runtime -p "test_static_batch_eos.py" -v
+          python -m unittest discover -s test/runtime -p "test_safetensors_mmap_host.py" -v
+          c++ -std=c++17 -Wall -Wextra -Werror -I. test/runtime/static_logits_policy_test.cpp -o /tmp/static_logits_policy_test
+          /tmp/static_logits_policy_test
 
   check-format:
     name: Check Format
