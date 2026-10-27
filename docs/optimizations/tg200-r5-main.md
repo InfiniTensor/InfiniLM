@@ -187,3 +187,40 @@ The other 11 checkpoint tests passed. This unchanged baseline defect is not
 reported as a successful full checkpoint suite. NVIDIA and other vendor
 hardware were not available for local execution; platform CI requires
 maintainer approval for this fork's contribution.
+
+## Current-main component comparison
+
+A second experiment holds the underlying Ops version constant: control
+`4038a8e` is current Ops master `640475a` plus only the Iluvatar capability
+fix, and candidate `6489ac7` adds the R5 kernels. All three roles use the same
+InfiniLM code at `d62e16c` and the same TG-V200. The model option is disabled
+for the first two columns and enabled for the combined column. This removes
+the Ops-version difference present in the earlier three-runtime comparison.
+Greedy generation, disabled graphs/EOS stopping, two warmups, three measured
+requests and the host-visible timing boundary are unchanged.
+
+| Batch / input / output / cache | Current-Ops control (ms) | Kernels only (ms) | Combined (ms) | Combined reduction | Model-option increment |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 4 / 64 / 8 / 96 | 387.015 | 368.058 | 350.057 | 9.55% | 4.89% |
+| 4 / 512 / 8 / 544 | 864.816 | 769.071 | 761.181 | 11.98% | 1.03% |
+| 16 / 2048 / 16 / 2080 | 12557.289 | 11497.418 | 11336.180 | 9.72% | 1.40% |
+
+All warmup and measured output token matrices matched across the three roles.
+The model-option increment compares combined against kernels-only; it is not
+an additive percentage. The paired RoPE and vocabulary projection remain one
+model option in this experiment, so their individual contributions are not
+claimed. Individual samples, input/output hashes and loaded SDK hashes are in
+[`tg200-r5-current-main.json`](tg200-r5-current-main.json).
+
+The data supports retaining the migrated Softmax/SwiGLU paths and the restricted
+model option. Length metadata reuse and residual Add/RMSNorm fusion already
+have current-main implementations and are not counted as new R5 gains here.
+The companion [operator benchmark](https://github.com/superme1one/InfiniOps/blob/perf/iluvatar-r5-kernels/docs/iluvatar-r5.md#current-master-performance-comparison)
+reports the local operator measurements separately; those ratios must not be
+added together or presented as whole-model speedups.
+
+During setup, runtime stream initialization stalled on the previous test
+device for both the control and already-qualified candidate SDK. The same
+initialization checks passed on another idle TG-V200. Every role in this
+table was rerun on that one device; measurements from different devices were
+not combined. The stalled attempts contribute no performance result.
