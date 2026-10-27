@@ -5,8 +5,11 @@ import os
 import re
 
 from backends import InfiniLMBenchmark, TransformersBenchmark, VLLMBenchmark
-from datasets import Dataset, load_dataset
 from infinilm.base_config import BaseConfig
+
+# Load the native runtime before `datasets` imports Torch on COREX.
+# isort: split
+from datasets import Dataset, load_dataset
 
 
 def extract_answer_ceval(output_content, answer):
