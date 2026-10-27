@@ -157,8 +157,9 @@ Additional validation:
 - 149 public-SDK operator cases passed and matched baseline output byte hashes.
 - 14 static-shape cases matched generated tokens: batches 4/16, input lengths
   1/2/7/63/64/65/128, eight generated tokens, and distinct input rows.
-- Batch EOS integration passed at batches 4 and 16; 14 host tests cover
-  staggered completion, multiple EOS IDs, disabled/default and excluded paths.
+- Batch EOS integration passed at batches 4 and 16; 15 host tests cover
+  staggered completion, multiple EOS IDs, disabled/default and excluded paths,
+  including timing the final step when a batch stops during prefill or decode.
 - The projection-policy C++ boundary test and checkpoint mapping host test passed.
 - `examples/test_infer.py` passed on the real checkpoint.
 - `examples/bench.py` passed after switching its stale external InfiniCore
