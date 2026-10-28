@@ -463,13 +463,21 @@ class InferenceServer:
                     break
 
                 if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(
-                        f"Request {request_id} timed out after {DEFAULT_REQUEST_TIMEOUT}s"
+                    _abort_reason = FinishReason.TIMEOUT
+                    logger.warning(f"Request {request_id} exceeded its deadline")
+                    if req and not req.is_finished():
+                        self.engine.add_aborted_req(req, FinishReason.TIMEOUT)
+                    yield sse_json(
+                        {
+                            "error": {
+                                "message": "Request deadline exceeded",
+                                "type": "timeout_error",
+                            }
+                        }
                     )
                     yield sse_json(
                         chunk_json(
                             request_id,
-                            content="[Request timeout]",
                             finish_reason="timeout",
                             model=self.model_id,
                         )
@@ -581,8 +589,19 @@ class InferenceServer:
 
                 # Request-level timeout is handled inside stream_request.
                 if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(f"Request {request_id} timed out")
-                    break
+                    _abort_reason = FinishReason.TIMEOUT
+                    logger.warning(f"Request {request_id} exceeded its deadline")
+                    if req and not req.is_finished():
+                        self.engine.add_aborted_req(req, FinishReason.TIMEOUT)
+                    return JSONResponse(
+                        content={
+                            "error": {
+                                "message": "Request deadline exceeded",
+                                "type": "timeout_error",
+                            }
+                        },
+                        status_code=504,
+                    )
 
                 if token_output.token_text:
                     output_text += token_output.token_text

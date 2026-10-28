@@ -439,6 +439,47 @@ def test_glm_named_choice_keeps_task_tools_but_rejects_other_calls(stream):
     assert prepared_data["chat_template_kwargs"]["tools"] == TOOLS
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_timeout_is_an_error_and_preserves_abort_reason(stream):
+    client, server = make_client()
+    engine = server.engine
+    original_add = engine.add_chat_request
+    original_stream = engine.stream_request
+    aborted = []
+
+    def add_pending(**kwargs):
+        req = original_add(**kwargs)
+        req.finish_reason = None
+        req.is_finished = lambda: False
+        return req
+
+    async def timeout(*args, **kwargs):
+        yield types.SimpleNamespace(
+            token_text="", finished=True, finish_reason=FinishReason.TIMEOUT
+        )
+
+    engine.add_chat_request = add_pending
+    engine.stream_request = timeout
+    engine.add_aborted_req = lambda req, reason: aborted.append(reason)
+    response = post_chat(client, tools=TOOLS, tool_choice="required", stream=stream)
+    if stream:
+        chunks = sse_chunks(response)
+        assert any(c.get("error", {}).get("type") == "timeout_error" for c in chunks)
+        assert chunks[-1]["choices"][0]["finish_reason"] == "timeout"
+        assert '"tool_calls"' not in response.text
+        assert response.text.count("data: [DONE]") == 1
+    else:
+        assert response.status_code == 504
+        assert response.json()["error"]["type"] == "timeout_error"
+        assert "choices" not in response.json()
+    assert aborted and all(reason == FinishReason.TIMEOUT for reason in aborted)
+    engine.add_chat_request = original_add
+    engine.stream_request = original_stream
+    engine.text = "recovered"
+    response = post_chat(client)
+    assert response.json()["choices"][0]["message"]["content"] == "recovered"
+
+
 @pytest.mark.parametrize(
     "parser,fields",
     [

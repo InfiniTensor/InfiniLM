@@ -71,6 +71,8 @@ understand the full task; output validation still permits only the named tool.
 Thinking controls follow the checkpoint: GLM-5.3 may ignore `enable_thinking`,
 so allow enough output tokens for reasoning and enough context for the complete
 tool history. A short output budget can truncate calls in either HTTP or SSE.
+An engine timeout returns HTTP 504 or an SSE `timeout_error` followed by a
+`timeout` finish. It never becomes a successful tool completion.
 
 An open `<think>` at the end of the rendered generation prompt starts reasoning
 mode; explicit `<think>`/`</think>` output is also recognized. Thinking controls
