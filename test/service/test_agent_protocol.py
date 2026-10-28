@@ -412,6 +412,33 @@ def test_http_tool_call_and_history_replay(stream, parser_name):
     assert replay[2]["name"] == "compute" and replay[2]["tool_call_id"] == call_id
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_glm_named_choice_keeps_task_tools_but_rejects_other_calls(stream):
+    tools = TOOLS + tools_with(name="other")
+    fields = {
+        "tools": tools,
+        "tool_choice": {"type": "function", "function": {"name": "compute"}},
+        "stream": stream,
+    }
+    original = copy.deepcopy(fields)
+    client, server = make_client(WIRES["glm5"], parser="glm5")
+    response = post_chat(client, **fields)
+    assert response.status_code == 200 and "tool_calls" in response.text
+    assert server.engine.requests[-1]["chat_template_kwargs"]["tools"] == tools
+    assert fields == original
+    server.engine.text = WIRES["glm5"].replace("compute", "other")
+    response = post_chat(client, **fields)
+    if stream:
+        assert "invalid_model_output" in response.text
+        assert '"tool_calls"' not in response.text
+    else:
+        assert response.status_code == 502
+    prepared_data, _, _ = protocol.prepare_agent_request(
+        {"messages": [], **fields}, "qwen3_coder"
+    )
+    assert prepared_data["chat_template_kwargs"]["tools"] == TOOLS
+
+
 @pytest.mark.parametrize(
     "parser,fields",
     [

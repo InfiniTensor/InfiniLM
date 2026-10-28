@@ -66,6 +66,12 @@ an already-open SSE response. Clients should execute tools only after a
 successful completed turn, and handle tool permissions and side effects in the
 agent framework.
 
+For GLM, a named choice retains all declared tool definitions so the model can
+understand the full task; output validation still permits only the named tool.
+Thinking controls follow the checkpoint: GLM-5.3 may ignore `enable_thinking`,
+so allow enough output tokens for reasoning and enough context for the complete
+tool history. A short output budget can truncate calls in either HTTP or SSE.
+
 An open `<think>` at the end of the rendered generation prompt starts reasoning
 mode; explicit `<think>`/`</think>` output is also recognized. Thinking controls
 and `reasoning_effort` are passed to the native template, whose accepted values

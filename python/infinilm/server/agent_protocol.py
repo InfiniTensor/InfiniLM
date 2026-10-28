@@ -108,7 +108,9 @@ def prepare_agent_request(data, parser="none"):
         schemas = {}
         tools = []
     elif selected:
-        tools = [t for t in tools if t["function"]["name"] == selected]
+        # GLM needs the full tool set to understand a multi-step task.
+        if parser != "glm5":
+            tools = [t for t in tools if t["function"]["name"] == selected]
         schemas = {selected: schemas[selected]}
     kwargs = data.get("chat_template_kwargs")
     if kwargs is None:
