@@ -2,11 +2,13 @@
 
 #include "../../global_state/global_state.hpp"
 
+#include <infinicore/adaptor/iluvatar_gdn_adaptor.hpp>
 #include <infinicore/ops/causal_conv1d.hpp>
 #include <infinicore/ops/chunk_gated_delta_rule.hpp>
 #include <infinicore/ops/fused_gated_delta_net_gating.hpp>
 #include <infinicore/ops/mul.hpp>
 #include <infinicore/ops/recurrent_gated_delta_rule.hpp>
+#include <infinicore/ops/rms_norm_gated.hpp>
 #include <infinicore/ops/silu.hpp>
 #include <infinicore/ops/swiglu.hpp>
 
@@ -214,28 +216,58 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward_projected_(
         delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
     } else {
         auto ssm_state = forward_context.ssm_state_vec[layer_idx_];
-        auto q_delta = q->view({1, seq_len, local_num_key_heads_, key_head_dim_})->contiguous();
-        auto k_delta = k->view({1, seq_len, local_num_key_heads_, key_head_dim_})->contiguous();
-        auto v_delta = v->view({1, seq_len, local_num_value_heads_, value_head_dim_})->contiguous();
+        auto q_delta = q->view({1, seq_len, local_num_key_heads_, key_head_dim_});
+        auto k_delta = k->view({1, seq_len, local_num_key_heads_, key_head_dim_});
+        auto v_delta = v->view({1, seq_len, local_num_value_heads_, value_head_dim_});
 
+        // Keep the verified legacy path available as an exact A/B control.
+        if (std::getenv("INFINICORE_DISABLE_FUSED_GDN_QKV_NORM") != nullptr) {
+            q_delta = q_delta->contiguous();
+            k_delta = k_delta->contiguous();
+            v_delta = v_delta->contiguous();
+        }
         auto a_heads = a->view({1, seq_len, local_num_value_heads_});
         auto b_heads = b->view({1, seq_len, local_num_value_heads_});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
 
-        delta_out = infinicore::op::chunk_gated_delta_rule(
-            q_delta,
-            k_delta,
-            v_delta,
-            g,
-            beta,
-            ssm_state,
-            mamba_metadata.input_offsets.value(),
-            mamba_metadata.init_state_indices.value(),
-            mamba_metadata.final_state_indices.value(),
-            true);
+        if (mamba_metadata.host_input_offsets.has_value()) {
+            auto vendor = infinicore::adaptor::iluvatar_gdn::chunk(
+                q_delta, k_delta, v_delta, g, beta, ssm_state,
+                mamba_metadata.input_offsets.value(),
+                mamba_metadata.host_input_offsets.value(),
+                mamba_metadata.init_state_indices.value(),
+                mamba_metadata.final_state_indices.value());
+            if (vendor.has_value()) {
+                delta_out = vendor.value();
+            }
+        }
+        if (!delta_out) {
+            q_delta = q_delta->contiguous();
+            k_delta = k_delta->contiguous();
+            v_delta = v_delta->contiguous();
+            delta_out = infinicore::op::chunk_gated_delta_rule(
+                q_delta,
+                k_delta,
+                v_delta,
+                g,
+                beta,
+                ssm_state,
+                mamba_metadata.input_offsets.value(),
+                mamba_metadata.init_state_indices.value(),
+                mamba_metadata.final_state_indices.value(),
+                true);
+        }
         delta_out = delta_out->view({seq_len, local_num_value_heads_, value_head_dim_});
     }
 
+    if (delta_out->device().getType() == infinicore::Device::Type::ILUVATAR
+        && delta_out->dtype() == infinicore::DataType::BF16 && value_head_dim_ == 128
+        && std::getenv("INFINILM_DISABLE_FUSED_GDN_NORM_GATE") == nullptr) {
+        return infinicore::op::rms_norm_gated(
+                   delta_out->view({batch_size * seq_len, local_value_dim_}),
+                   z->view({batch_size * seq_len, local_value_dim_}), norm_->weight(), norm_->eps())
+            ->view({batch_size, seq_len, local_value_dim_});
+    }
     auto v_norm = norm_->forward(delta_out->view({batch_size * seq_len * local_num_value_heads_, value_head_dim_}))
                       ->view({batch_size, seq_len, local_value_dim_});
     auto gated = infinicore::op::swiglu(v_norm, z);

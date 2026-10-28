@@ -2,7 +2,8 @@
 
 #include "graph_compiler.hpp"
 
-#include <unordered_map>
+#include <map>
+#include <utility>
 
 namespace infinilm::engine {
 class PagedCompiler : public GraphCompiler {
@@ -14,6 +15,8 @@ public:
     Compiled get_compiled(const InfinilmModel::Input &input) override;
 
 private:
+    void compile_bucket(size_t batch_size, size_t block_per_req);
+    bool lazy_capture_ = false;
     std::vector<size_t> decode_batch_sizes_;
 
     infinicore::Tensor block_tables_holder_;
@@ -23,8 +26,8 @@ private:
         Compiled compiled;
     };
 
-    std::unordered_map<
-        size_t, // num_requests
+    std::map<
+        std::pair<size_t, size_t>, // requests and block-table capacity
         CompiledResult>
         compiled_map_decode_;
 };

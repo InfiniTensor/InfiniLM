@@ -2,6 +2,9 @@
 #include "../models/model_factory.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <cstdlib>
+#include <infinicore/ops/cast.hpp>
+#include <infinicore/ops/topk.hpp>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -484,16 +487,34 @@ void RankWorker::thread_loop() {
                             const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
                             auto output_ids{infinicore::Tensor::empty({n_out}, infinicore::DataType::I64, rank_info_.device)};
 
-                            for (size_t i{0}; i < n_out; ++i) {
-                                size_t score_idx = i;
-                                if (!sample_all_positions && !logits_are_last_token_only) {
-                                    score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                            const auto *disable_greedy = std::getenv("INFINILM_DISABLE_BATCHED_GREEDY");
+                            const bool batch_greedy = rank_info_.device.getType() == infinicore::Device::Type::ILUVATAR
+                                                   && logits->dtype() == infinicore::DataType::BF16
+                                                   && n_out > 1 && n_out <= 512 && logits_positions == n_out
+                                                   && logits->is_contiguous()
+                                                   && (temperature == 0 || top_k == 1 || top_p == 0)
+                                                   && !(disable_greedy && std::string(disable_greedy) == "1");
+                            if (batch_greedy) {
+                                auto [values, indices] = infinicore::op::topk(
+                                    logits->view({n_out, vocab_size}), 1, 1, true, false);
+                                infinicore::op::cast_(output_ids, indices->view({n_out}));
+                                // Preserve the RNG progression of the per-request
+                                // sampler when greedy and stochastic jobs interleave.
+                                for (size_t i = 0; i < n_out; ++i) {
+                                    (void)std::uniform_real_distribution<float>(0, 1)(rng_);
                                 }
-                                auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                infinicore::op::random_sample_(
-                                    out, score, random_val, top_p, top_k, temperature);
+                            } else {
+                                for (size_t i{0}; i < n_out; ++i) {
+                                    size_t score_idx = i;
+                                    if (!sample_all_positions && !logits_are_last_token_only) {
+                                        score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                    }
+                                    auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                    auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                    float random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    infinicore::op::random_sample_(
+                                        out, score, random_val, top_p, top_k, temperature);
+                                }
                             }
 
                             if (rank_info_.pp_size > 1) {

@@ -15,6 +15,7 @@ import uuid
 from typing import AsyncIterator, List, Optional, Union
 
 import janus
+from infinicore.lib import _infinicore
 
 from infinilm.config.engine_config import EngineConfig
 from infinilm.config.kv_transfer import KVTransferConfig
@@ -28,7 +29,7 @@ from infinilm.llm.request import (
     TokenOutput,
 )
 from infinilm.llm.sampling_params import SamplingParams
-from infinilm.llm.scheduler import Scheduler
+from infinilm.llm.scheduler import Scheduler, SchedulerOutput
 from infinilm.llm.static_scheduler import StaticScheduler
 from infinilm.multimodal.multimodal import resolve_multimodal_inputs
 
@@ -108,6 +109,63 @@ class LLMEngine:
             )
             assert 1024 <= max_num_batched_tokens <= max_packed_prefill_tokens
 
+            mixed_capable = (
+                self.model_runner.model_type in ("qwen3", "qwen3_5")
+                and config.draft_model_path is None
+                and config.pipeline_parallel_size == 1
+                and config.tensor_parallel_size == 1
+                and connector is None
+            )
+            automatic_prefill = (
+                mixed_capable
+                and self.device._underlying.type == _infinicore.Device.Type.ILUVATAR
+                and config.dtype == "bfloat16"
+                and not config.enable_prefix_caching
+                and 1 < config.max_batch_size <= 32
+                and (config.temperature == 0 or config.top_k == 1)
+            )
+            mixed_prefill = (
+                mixed_capable
+                and os.getenv(
+                    "INFINILM_EXPERIMENTAL_MIXED_PREFILL",
+                    "1" if automatic_prefill else "0",
+                )
+                == "1"
+            )
+            chunk_size = 0
+            if mixed_prefill and (config.temperature == 0 or config.top_k == 1):
+                chunk_size = max(
+                    0,
+                    int(
+                        os.getenv(
+                            "INFINILM_EXPERIMENTAL_PREFILL_CHUNK_SIZE",
+                            "1024" if automatic_prefill else "0",
+                        )
+                    ),
+                )
+            prefill_order = os.getenv(
+                "INFINILM_EXPERIMENTAL_PREFILL_ORDER",
+                (
+                    (
+                        "balanced"
+                        if self.model_runner.model_type == "qwen3_5"
+                        else "round-robin"
+                    )
+                    if automatic_prefill
+                    else ""
+                ),
+            )
+            continuation_limit = 0
+            if prefill_order == "balanced":
+                continuation_limit = max(
+                    1,
+                    int(
+                        os.getenv(
+                            "INFINILM_EXPERIMENTAL_PREFILL_CONTINUATIONS",
+                            str(max(1, config.max_batch_size // 4)),
+                        )
+                    ),
+                )
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
@@ -117,6 +175,27 @@ class LLMEngine:
                 has_mamba_cache=has_mamba_cache,
                 num_mamba_cache_blocks=num_mamba_cache_blocks,
                 enable_prefix_caching=config.enable_prefix_caching,
+                enable_mixed_prefill=mixed_prefill,
+                prefill_chunk_size=chunk_size,
+                partial_prefill_first=prefill_order in ("partial-first", "balanced"),
+                max_prefill_continuations=continuation_limit,
+                # Language tokens compress image patches by spatial merging.
+                # Limit actual vision work as well as the packed text budget.
+                max_num_batched_visual_tokens=(
+                    9600
+                    if automatic_prefill
+                    and self.model_runner.model_type == "qwen3_5"
+                    and os.getenv("INFINILM_DISABLE_VISUAL_PREFILL_BUDGET", "0") != "1"
+                    else 0
+                ),
+            )
+            logger.info(
+                "Prefill schedule: mixed=%s chunk_size=%s order=%s continuations=%s visual_tokens=%s",
+                self.scheduler.enable_mixed_prefill,
+                self.scheduler.prefill_chunk_size,
+                prefill_order,
+                self.scheduler.max_prefill_continuations,
+                self.scheduler.max_num_batched_visual_tokens,
             )
             logger.info(f"Using Paged KV Cache with num_blocks={config.num_blocks}")
             if has_mamba_cache:
@@ -164,10 +243,25 @@ class LLMEngine:
         runner_output = self.model_runner.execute_model(scheduler_output)
         sampled_token_ids = runner_output.sampled_token_ids
         self.scheduler.update_from_output(runner_output)
-        pending = self._update_requests(
-            scheduler_output.scheduled_requests,
-            sampled_token_ids,
-        )
+        if len(sampled_token_ids) != scheduler_output.num_requests:
+            raise RuntimeError(
+                "model output count does not match the scheduled request count"
+            )
+        output_requests = []
+        output_tokens = []
+        for req, token in zip(scheduler_output.scheduled_requests, sampled_token_ids):
+            if isinstance(
+                scheduler_output, SchedulerOutput
+            ) and not scheduler_output.request_finishes_prefill(req):
+                # Intermediate prefill logits are not generated tokens. Commit
+                # only the consumed prompt prefix and requeue the remainder.
+                self.scheduler.complete_prefill_chunk(
+                    req, scheduler_output.request_token_count(req)
+                )
+            else:
+                output_requests.append(req)
+                output_tokens.append(token)
+        pending = self._update_requests(output_requests, output_tokens)
 
         # Return False (no immediate work) only when no requests were scheduled
         # and no KV transfers completed in this step.

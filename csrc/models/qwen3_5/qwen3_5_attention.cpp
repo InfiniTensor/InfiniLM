@@ -6,7 +6,9 @@
 #include "../../utils.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <infinicore/ops/mul.hpp>
+#include <infinicore/ops/qk_rms_norm_mrope.hpp>
 #include <infinicore/ops/sigmoid.hpp>
 #include <optional>
 #include <vector>
@@ -139,14 +141,31 @@ infinicore::Tensor Qwen35Attention::forward_paged_(const infinicore::Tensor &pos
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-    q_reshaped = q_norm_->forward(q_reshaped);
-    k_reshaped = k_norm_->forward(k_reshaped);
-
     auto pos_shape = position_ids->shape();
     if (pos_shape.size() != 2 && pos_shape.size() != 1) {
         throw std::runtime_error("Unexpected position_ids shape");
     }
-    std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
+    const bool fused_norm_mrope = hidden_states->device().getType() == infinicore::Device::Type::ILUVATAR
+                               && hidden_states->dtype() == infinicore::DataType::BF16
+                               && head_dim_ == 256 && rotary_dim_ == 64
+                               && mrope_->algo() == infinicore::nn::RoPE::Algo::GPT_NEOX
+                               && mrope_->mrope_section().has_value()
+                               && q_norm_->eps() == k_norm_->eps()
+                               && std::getenv("INFINILM_DISABLE_FUSED_QK_NORM_MROPE") == nullptr;
+    if (fused_norm_mrope) {
+        auto q_out = infinicore::Tensor::empty(q_reshaped->shape(), q_reshaped->dtype(), q_reshaped->device());
+        auto k_out = infinicore::Tensor::empty(k_reshaped->shape(), k_reshaped->dtype(), k_reshaped->device());
+        const auto &sections = mrope_->mrope_section().value();
+        infinicore::op::qk_rms_norm_mrope_(q_out, k_out, q_reshaped, k_reshaped,
+                                           q_norm_->weight(), k_norm_->weight(), mrope_->cos_cache(), mrope_->sin_cache(),
+                                           position_ids, q_norm_->eps(), sections[0], sections[1], sections[2], mrope_->mrope_interleaved());
+        q_reshaped = q_out;
+        k_reshaped = k_out;
+    } else {
+        q_reshaped = q_norm_->forward(q_reshaped);
+        k_reshaped = k_norm_->forward(k_reshaped);
+        std::tie(q_reshaped, k_reshaped) = mrope_->forward(q_reshaped, k_reshaped, position_ids);
+    }
 
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
     attn_output = infinicore::op::mul(attn_output, infinicore::op::sigmoid(gate)->view(attn_output->shape()));

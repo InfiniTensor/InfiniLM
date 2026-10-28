@@ -1,11 +1,14 @@
 #include "packed_bf16.hpp"
+#include "infinicore/adaptor/iluvatar_linear_adaptor.hpp"
+#include "none_quantization.hpp"
+#include <cstdlib>
 
-#include "infinicore/ops/linear_allreduce.hpp"
 #include "infinicore/ops/linear.hpp"
+#include "infinicore/ops/linear_allreduce.hpp"
 
 #include <optional>
-#include <string>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::quantization {
 namespace {
@@ -122,6 +125,27 @@ infinicore::Tensor PackedBF16::forward_allreduce(
         input_contiguous, weight, bias, communicator);
 }
 
+std::shared_ptr<BaseQuantization> PackedBF16::process_weights_after_loading(
+    ParamsMap &params, const infinicore::Device &device, int split_dim) const {
+    (void)split_dim;
+    const auto *disabled = std::getenv("INFINILM_DISABLE_VENDOR_WEIGHT_LAYOUT");
+    if (device.getType() != infinicore::Device::Type::ILUVATAR
+        || (disabled && std::string(disabled) == "1")
+        || !infinicore::adaptor::iluvatar_linear::available()) {
+        return nullptr;
+    }
+    const auto &weight = params.at("weight");
+    if (layout_format(*this) == "mixed-v1" && weight->ndim() == 2
+        && ((weight->size(0) == 12288 && weight->size(1) == 4096)
+            || (weight->size(0) == 4096 && weight->size(1) == 10240))) {
+        // The vendor decode kernel consumes contiguous [N,K]. Replace the
+        // checkpoint's [K,N] storage once; never retain a second full weight.
+        params["weight"] = weight->permute({1, 0})->contiguous();
+        return std::make_shared<NoneQuantization>();
+    }
+    return nullptr;
+}
+
 int PackedBF16::get_fused_split_dim() const {
     return use_full_layout() ? 1 : 0;
 }
@@ -141,11 +165,9 @@ std::vector<SplitParam> PackedBF16::split_params(
 
     auto weight_it = params.find("weight");
     auto bias_it = params.find("bias");
-    const int packed_dim =
-        (narrow_dim == 0 && weight_it->second->size(0) <
-                     weight_it->second->size(1))
-            ? 1
-            : narrow_dim;
+    const int packed_dim = (narrow_dim == 0 && weight_it->second->size(0) < weight_it->second->size(1))
+                             ? 1
+                             : narrow_dim;
     std::vector<SplitParam> result;
     result.reserve(splits.size());
     for (const auto &split : splits) {

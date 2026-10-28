@@ -7,10 +7,12 @@
 #include <infinicore/ops/mha.hpp>
 #include <infinicore/ops/mrope.hpp>
 #include <infinicore/ops/upsample_bilinear.hpp>
+#include <infinicore/ops/vision_qkv_rope_pad.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -113,27 +115,43 @@ Qwen35VisionAttention::Qwen35VisionAttention(const nlohmann::json &config,
 infinicore::Tensor Qwen35VisionAttention::forward(const infinicore::Tensor &hidden_states,
                                                   const infinicore::Tensor &row_position_ids,
                                                   const infinicore::Tensor &col_position_ids,
-                                                   size_t image_count) const {
+                                                  size_t image_count) const {
     const size_t seq_len = hidden_states->size(0);
     const size_t axis_head_dim = head_dim_ / 2;
     auto hidden_mut = hidden_states;
     auto qkv = qkv_->forward(hidden_mut)->view({seq_len, 3, num_heads_, head_dim_});
-    auto q = qkv->narrow({{1, 0, 1}})->squeeze(1);
-    auto k = qkv->narrow({{1, 1, 1}})->squeeze(1);
-    auto v = qkv->narrow({{1, 2, 1}})->squeeze(1)->contiguous()->unsqueeze(0);
+    infinicore::Tensor q, k, v;
+    const bool fused_pack = hidden_states->device().getType() == infinicore::Device::Type::ILUVATAR
+                         && hidden_states->dtype() == infinicore::DataType::BF16
+                         && num_heads_ == 16 && head_dim_ == 72
+                         && std::getenv("INFINILM_DISABLE_FUSED_VISION_QKV_PACK") == nullptr
+                         && std::getenv("INFINICORE_DISABLE_VISION_HEAD_PADDING") == nullptr;
+    const size_t attention_head_dim = fused_pack ? 128 : head_dim_;
+    if (fused_pack) {
+        q = infinicore::Tensor::empty({seq_len, num_heads_, attention_head_dim}, hidden_states->dtype(), hidden_states->device());
+        k = infinicore::Tensor::empty(q->shape(), q->dtype(), q->device());
+        v = infinicore::Tensor::empty(q->shape(), q->dtype(), q->device());
+        infinicore::op::vision_qkv_rope_pad_(q, k, v, qkv, vision_cos_, vision_sin_, row_position_ids, col_position_ids);
+        v = v->unsqueeze(0);
+    } else {
+        q = qkv->narrow({{1, 0, 1}})->squeeze(1);
+        k = qkv->narrow({{1, 1, 1}})->squeeze(1);
+        v = qkv->narrow({{1, 2, 1}})->squeeze(1)->contiguous()->unsqueeze(0);
 
-    // Split the row half into two equal sections; both use row positions.
-    // The final section uses columns, giving exactly the original 2D rotation.
-    auto positions = infinicore::op::cat({row_position_ids->view({1, seq_len}),
-                                         row_position_ids->view({1, seq_len}),
-                                         col_position_ids->view({1, seq_len})}, 0);
-    auto rotated = infinicore::op::mrope(
-        q->view({seq_len, hidden_size_}), k->view({seq_len, hidden_size_}),
-        vision_cos_, vision_sin_, positions,
-        head_dim_, head_dim_, axis_head_dim / 4, axis_head_dim / 2 - axis_head_dim / 4,
-        axis_head_dim / 2, false);
-    q = rotated.first->view({seq_len, num_heads_, head_dim_});
-    k = rotated.second->view({seq_len, num_heads_, head_dim_});
+        // Split the row half into two equal sections; both use row positions.
+        // The final section uses columns, giving exactly the original 2D rotation.
+        auto positions = infinicore::op::cat({row_position_ids->view({1, seq_len}),
+                                              row_position_ids->view({1, seq_len}),
+                                              col_position_ids->view({1, seq_len})},
+                                             0);
+        auto rotated = infinicore::op::mrope(
+            q->view({seq_len, hidden_size_}), k->view({seq_len, hidden_size_}),
+            vision_cos_, vision_sin_, positions,
+            head_dim_, head_dim_, axis_head_dim / 4, axis_head_dim / 2 - axis_head_dim / 4,
+            axis_head_dim / 2, false);
+        q = rotated.first->view({seq_len, num_heads_, head_dim_});
+        k = rotated.second->view({seq_len, num_heads_, head_dim_});
+    }
 
     infinicore::Tensor out;
     if (image_count > 1) {
@@ -142,18 +160,52 @@ infinicore::Tensor Qwen35VisionAttention::forward(const infinicore::Tensor &hidd
         }
         const size_t tokens_per_image = seq_len / image_count;
         out = infinicore::op::mha(
-                  q->view({image_count, tokens_per_image, num_heads_, head_dim_}),
-                  k->view({image_count, tokens_per_image, num_heads_, head_dim_}),
-                  v->view({image_count, tokens_per_image, num_heads_, head_dim_}),
+                  q->view({image_count, tokens_per_image, num_heads_, attention_head_dim}),
+                  k->view({image_count, tokens_per_image, num_heads_, attention_head_dim}),
+                  v->view({image_count, tokens_per_image, num_heads_, attention_head_dim}),
                   std::nullopt,
                   scale_,
-                  false)->view({seq_len, hidden_size_});
+                  false)
+                  ->view({seq_len, num_heads_ * attention_head_dim});
     } else {
         out = infinicore::op::mha(q->unsqueeze(0), k->unsqueeze(0), v,
                                   std::nullopt, scale_, false)
+                  ->view({seq_len, num_heads_ * attention_head_dim});
+    }
+    if (fused_pack) {
+        out = out->view({seq_len, num_heads_, attention_head_dim})
+                  ->narrow({{2, 0, head_dim_}})
+                  ->contiguous()
                   ->view({seq_len, hidden_size_});
     }
     return proj_->forward(out);
+}
+
+void Qwen35VisionMLPLinear::process_weights_after_loading() {
+    BaseLinear::process_weights_after_loading();
+    const auto &original = weight();
+    if (device_.getType() != infinicore::Device::Type::ILUVATAR
+        || dtype_ != infinicore::DataType::BF16
+        || std::getenv("INFINILM_DISABLE_VISION_MLP_PADDING") != nullptr
+        || !original || original->ndim() != 2
+        || !((in_features_ == 1152 && out_features_ == 4304)
+             || (in_features_ == 4304 && out_features_ == 1152))) {
+        return;
+    }
+    const size_t padded_in = in_features_ == 4304 ? 4352 : in_features_;
+    const size_t padded_out = out_features_ == 4304 ? 4352 : out_features_;
+    auto padded_weight = infinicore::Tensor::zeros({padded_out, padded_in}, dtype_, device_);
+    padded_weight->narrow({{0, 0, out_features_}, {1, 0, in_features_}})->copy_from(original);
+    parameters_["weight"] = infinicore::nn::Parameter(padded_weight);
+    if (has_bias_ && padded_out != out_features_) {
+        auto padded_bias = infinicore::Tensor::zeros({padded_out}, dtype_, device_);
+        padded_bias->narrow({{0, 0, out_features_}})->copy_from(bias());
+        parameters_["bias"] = infinicore::nn::Parameter(padded_bias);
+    }
+    // Extra fc1 rows/bias and fc2 columns are all zero, so GELU and the
+    // complete MLP preserve the original result without activation copies.
+    in_features_ = padded_in;
+    out_features_ = padded_out;
 }
 
 Qwen35VisionMLP::Qwen35VisionMLP(const nlohmann::json &config,

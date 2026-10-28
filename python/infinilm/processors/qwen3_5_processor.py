@@ -198,8 +198,14 @@ class Qwen35Processor(BasicLLMProcessor):
                 raise RuntimeError(
                     f"Request {req.request_id} has no assigned mamba cache index"
                 )
-            if scheduler_output.is_prefill:
-                init_indices.append(0)
+            if (
+                scheduler_output.request_is_prefill(req)
+                if isinstance(scheduler_output, SchedulerOutput)
+                else scheduler_output.is_prefill
+            ):
+                init_indices.append(
+                    0 if req.num_local_cached_tokens == 0 else req.mamba_cache_index
+                )
             else:
                 init_indices.append(req.mamba_cache_index)
             final_indices.append(req.mamba_cache_index)
@@ -388,14 +394,40 @@ class Qwen35Processor(BasicLLMProcessor):
 
     def _append_qwen35_position_ids(self, model_inputs: dict, scheduler_output) -> None:
         import infinicore
+
+        if (
+            not scheduler_output.is_prefill
+            and os.environ.get("INFINILM_DISABLE_BATCHED_DECODE_POSITIONS") is None
+        ):
+            # Pure decode has one scalar position per request, identical on all
+            # three MRoPE axes. Build one batch instead of allocating and
+            # concatenating a separate CPU Tensor for every active request.
+            positions = [
+                req.get_total_length() - 1 + self._mrope_delta(req)
+                for req in scheduler_output.scheduled_requests
+            ]
+            if positions:
+                model_inputs["position_ids"] = infinicore.from_list(
+                    [positions, positions, positions], dtype=infinicore.int64
+                )
+            return
+
         import torch
 
         position_chunks = []
         for req in scheduler_output.scheduled_requests:
-            if scheduler_output.is_prefill:
+            if (
+                scheduler_output.request_is_prefill(req)
+                if isinstance(scheduler_output, SchedulerOutput)
+                else scheduler_output.is_prefill
+            ):
                 self._update_request_mrope_delta(req)
                 num_cached = req.num_local_cached_tokens
-                compute_len = len(req.get_input_tokens()) - num_cached
+                compute_len = (
+                    scheduler_output.request_token_count(req)
+                    if isinstance(scheduler_output, SchedulerOutput)
+                    else len(req.get_input_tokens()) - num_cached
+                )
                 position_chunks.append(
                     self._build_mrope_position_ids(req, num_cached, compute_len)
                 )
@@ -454,7 +486,7 @@ class Qwen35Processor(BasicLLMProcessor):
         for req_id, req in enumerate(scheduler_output.scheduled_requests):
             processed_inputs = req.processed_inputs
             if (
-                not scheduler_output.is_prefill
+                not scheduler_output.request_is_prefill(req)
                 or processed_inputs is None
                 or "pixel_values" not in processed_inputs
             ):
@@ -489,8 +521,14 @@ class Qwen35Processor(BasicLLMProcessor):
                 )
 
             for image_idx, (pixel, grid) in enumerate(zip(pixels, grids)):
-                if bounds[image_idx, 1].item() <= num_cached:
+                chunk_end = num_cached + scheduler_output.request_token_count(req)
+                if (
+                    bounds[image_idx, 1].item() <= num_cached
+                    or bounds[image_idx, 0].item() >= chunk_end
+                ):
                     continue
+                if bounds[image_idx, 1].item() > chunk_end:
+                    raise RuntimeError("Qwen3.5 prefill chunk splits an image span")
                 pixel_values.append(pixel)
                 image_grid_thw.append(grid)
                 image_bound.append((bounds[image_idx] - num_cached).to(torch.int64))

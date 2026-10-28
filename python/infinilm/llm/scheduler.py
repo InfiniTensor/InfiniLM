@@ -3,6 +3,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 """
 
 import logging
+from collections import deque
 import queue
 from typing import List, Optional
 
@@ -44,12 +45,37 @@ class SchedulerOutput:
         scheduled_requests: List[InferenceRequest],
         is_prefill: bool = False,
         speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
+        prefill_request_ids: Optional[set[str]] = None,
+        scheduled_token_counts: Optional[dict[str, int]] = None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
         self.is_prefill = is_prefill
         self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
+        self.prefill_request_ids = prefill_request_ids
+        self.scheduled_token_counts = scheduled_token_counts or {}
+
+    def request_is_prefill(self, request: InferenceRequest) -> bool:
+        if self.prefill_request_ids is None:
+            return self.is_prefill
+        return request.request_id in self.prefill_request_ids
+
+    def request_token_count(self, request: InferenceRequest) -> int:
+        if request.request_id in self.scheduled_token_counts:
+            return self.scheduled_token_counts[request.request_id]
+        return (
+            request.get_prompt_length() - request.num_local_cached_tokens
+            if self.request_is_prefill(request)
+            else 1
+        )
+
+    def request_finishes_prefill(self, request: InferenceRequest) -> bool:
+        return (
+            not self.request_is_prefill(request)
+            or request.num_local_cached_tokens + self.request_token_count(request)
+            == request.get_prompt_length()
+        )
 
 
 class Scheduler:
@@ -71,6 +97,11 @@ class Scheduler:
         has_mamba_cache: bool = False,
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
+        enable_mixed_prefill: bool = False,
+        prefill_chunk_size: int = 0,
+        partial_prefill_first: bool = False,
+        max_prefill_continuations: int = 0,
+        max_num_batched_visual_tokens: int = 0,
     ):
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
@@ -94,6 +125,19 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
+        self.enable_mixed_prefill = enable_mixed_prefill and connector is None
+        self.prefill_chunk_size = (
+            max(0, prefill_chunk_size) if self.enable_mixed_prefill else 0
+        )
+        self.partial_prefill_requests: dict[str, InferenceRequest] = {}
+        self.partial_prefill_first = partial_prefill_first
+        self.max_prefill_continuations = max(0, max_prefill_continuations)
+        self._partial_prefill_queue = deque()
+        self._prefill_budget = max_num_batched_tokens
+        self._chunking_active = False
+        self._prefill_heavy_requests: dict[str, int] = {}
+        self.max_num_batched_visual_tokens = max(0, max_num_batched_visual_tokens)
+        self._visual_prefill_spans: dict[str, list[tuple[int, int, int]]] = {}
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -105,7 +149,46 @@ class Scheduler:
                 and not self.has_mamba_cache
                 and not request.has_multimodal_inputs,
             )
+            if (
+                self.max_num_batched_visual_tokens
+                and request.processed_inputs is not None
+            ):
+                inputs = request.processed_inputs
+                if "image_grid_thw" in inputs and "image_bound" in inputs:
+
+                    def metadata_list(value):
+                        if hasattr(value, "tolist"):
+                            return value.tolist()
+                        return [
+                            (
+                                metadata_list(v)
+                                if isinstance(v, (list, tuple)) or hasattr(v, "tolist")
+                                else v
+                            )
+                            for v in value
+                        ]
+
+                    grids = metadata_list(inputs["image_grid_thw"])
+                    bounds = metadata_list(inputs["image_bound"])
+                    if grids and not isinstance(grids[0], list):
+                        grids = [grids]
+                    if bounds and isinstance(bounds[0][0], list):
+                        bounds = bounds[0]
+                    if len(grids) == len(bounds):
+                        self._visual_prefill_spans[request.request_id] = [
+                            (int(b[0]), int(b[1]), int(g[0]) * int(g[1]) * int(g[2]))
+                            for b, g in zip(bounds, grids)
+                        ]
             request.status = RequestStatus.WAITING
+            if (
+                self.prefill_chunk_size
+                and self._can_chunk_request(request)
+                and request.get_prompt_length() > self.prefill_chunk_size
+                and request.get_prompt_length() > 2 * request.sampling_params.max_tokens
+            ):
+                self._prefill_heavy_requests[request.request_id] = (
+                    request.get_prompt_length()
+                )
             self.waiting_queue.sync_q.put(request)
 
     def _exceeds_token_budget(
@@ -121,26 +204,167 @@ class Scheduler:
         """
         if num_scheduled_requests == 0:
             return False
+        return current_num_batched_tokens + num_tokens_this_step > self._prefill_budget
+
+    def _visual_token_count(
+        self, request: InferenceRequest, start: int, count: int
+    ) -> int:
+        # Count only images actually encoded in this chunk; continuations and
+        # decode must not be charged for pictures that already reside in KV.
+        return sum(
+            cost
+            for left, right, cost in self._visual_prefill_spans.get(
+                request.request_id, []
+            )
+            if right > start and left < start + count
+        )
+
+    def _exceeds_visual_budget(
+        self,
+        current: int,
+        request: InferenceRequest,
+        start: int,
+        count: int,
+        scheduled: int,
+    ) -> bool:
+        if not self.max_num_batched_visual_tokens or not scheduled:
+            return False
+        # At high occupancy keep the throughput-oriented token batch. Smaller
+        # waves benefit from completing some vision work earlier; large vision
+        # batches can otherwise dominate their first-token latency.
+        queued = (
+            self.waiting_queue.sync_q.qsize()
+            + len(self._partial_prefill_queue)
+            + self.running_queue.sync_q.qsize()
+            + scheduled
+            + 1
+        )
+        if queued >= max(2, (3 * self.max_batch_size + 3) // 4):
+            return False
         return (
-            current_num_batched_tokens + num_tokens_this_step
-            > self.max_num_batched_tokens
+            current + self._visual_token_count(request, start, count)
+            > self.max_num_batched_visual_tokens
+        )
+
+    @staticmethod
+    def _can_chunk_request(request: InferenceRequest) -> bool:
+        # Incomplete chunks still execute sampling internally. Restrict chunking
+        # to deterministic requests so discarded samples cannot advance RNG.
+        params = request.sampling_params
+        return params.temperature == 0 or params.top_k == 1
+
+    def _prefill_token_count(self, request: InferenceRequest, start: int) -> int:
+        end = request.get_prompt_length()
+        if self._chunking_active and self._can_chunk_request(request):
+            end = min(end, start + self.prefill_chunk_size)
+            # A visual embedding span must be consumed atomically. Splitting
+            # inside it would either reinsert or omit image embeddings.
+            for mapping in request.mm_token_index_mappings or []:
+                left, right = mapping["start_index"], mapping["end_index"] + 1
+                if left < end < right:
+                    end = right
+        return end - start
+
+    def complete_prefill_chunk(
+        self, request: InferenceRequest, token_count: int
+    ) -> None:
+        computed = request.num_local_cached_tokens + token_count
+        if not request.num_local_cached_tokens < computed < request.get_prompt_length():
+            raise RuntimeError("invalid partial prefill boundary")
+        self.commit_computed_tokens(request, computed)
+        request.num_computed_tokens = computed
+        request.num_local_cached_tokens = computed
+        if request.is_finished() or request.is_aborted():
+            if not request.is_finished():
+                request.mark_canceled()
+            self.complete_requests([request])
+            return
+        request.status = RequestStatus.WAITING
+        self.partial_prefill_requests[request.request_id] = request
+        if self.partial_prefill_first:
+            self._partial_prefill_queue.append(request)
+        else:
+            self.waiting_queue.sync_q.put(request)
+
+    def _should_chunk_prefill(self, scheduled_prefills: int = 0) -> bool:
+        return bool(self.prefill_chunk_size) and (
+            self.waiting_queue.sync_q.qsize()
+            + len(self._partial_prefill_queue)
+            + self.running_queue.sync_q.qsize()
+            + scheduled_prefills
+            >= max(2, (3 * self.max_batch_size + 3) // 4)
+            or bool(self.partial_prefill_requests)
+            # Prefill-heavy arrivals may fill a token batch before they reach
+            # the request-count threshold. Start chunking as soon as their
+            # queued work occupies half the budget; never wait to form a batch.
+            or (
+                self.waiting_queue.sync_q.qsize() + scheduled_prefills >= 2
+                and sum(self._prefill_heavy_requests.values())
+                > self.max_num_batched_tokens // 2
+            )
         )
 
     def schedule(self) -> Optional[SchedulerOutput]:
         """Schedule and return batch of requests to execute."""
+        self._chunking_active = self._should_chunk_prefill()
+        decode_reserve = (
+            min(self.running_queue.sync_q.qsize(), self.max_batch_size - 1)
+            if self._chunking_active and self.partial_prefill_first
+            else 0
+        )
+        self._prefill_budget = self.max_num_batched_tokens - decode_reserve
+        scheduled_token_counts = {}
+        scheduled_continuations = 0
         deferred_requests = []
         scheduled_requests = []
         is_prefill = False
         current_num_batched_tokens = 0
+        current_batched_visual_tokens = 0
         current_prefill_extra_blocks = 0
 
         # Process Waiting queue (prefill phase)
         while (
             len(scheduled_requests) < self.max_batch_size
-            and current_num_batched_tokens < self.max_num_batched_tokens
+            and current_num_batched_tokens < self._prefill_budget
         ):
+            # Arrivals can continue while CPU-side allocation builds a batch.
+            # Recheck pressure before execution, including already selected
+            # prompts, and shorten their metadata together when it rises.
+            if not self._chunking_active and self._should_chunk_prefill(
+                len(scheduled_requests)
+            ):
+                self._chunking_active = True
+                if self.partial_prefill_first:
+                    self._prefill_budget = self.max_num_batched_tokens - min(
+                        self.running_queue.sync_q.qsize(), self.max_batch_size - 1
+                    )
+                current_num_batched_tokens = 0
+                current_batched_visual_tokens = 0
+                for selected in scheduled_requests:
+                    count = self._prefill_token_count(
+                        selected, selected.num_local_cached_tokens
+                    )
+                    scheduled_token_counts[selected.request_id] = count
+                    selected.slot_mapping = self.cache_manager.update_blocks_slot(
+                        selected.block_table,
+                        selected.num_local_cached_tokens,
+                        selected.num_local_cached_tokens + count,
+                    )
+                    current_num_batched_tokens += count
+                    current_batched_visual_tokens += self._visual_token_count(
+                        selected, selected.num_local_cached_tokens, count
+                    )
             try:
-                req = self.waiting_queue.sync_q.get_nowait()
+                take_continuation = bool(self._partial_prefill_queue) and (
+                    not self.max_prefill_continuations
+                    or scheduled_continuations < self.max_prefill_continuations
+                    or self.waiting_queue.sync_q.empty()
+                )
+                if take_continuation:
+                    req = self._partial_prefill_queue.popleft()
+                    scheduled_continuations += 1
+                else:
+                    req = self.waiting_queue.sync_q.get_nowait()
             except queue.Empty:
                 break
             # Skip requests that were already finished (e.g., timed out/canceled while waiting)
@@ -188,9 +412,17 @@ class Scheduler:
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
-                    num_tokens_this_step = req.get_prompt_length() - num_computed_tokens
+                    num_tokens_this_step = self._prefill_token_count(
+                        req, num_computed_tokens
+                    )
                     if self._exceeds_token_budget(
                         current_num_batched_tokens,
+                        num_tokens_this_step,
+                        len(scheduled_requests),
+                    ) or self._exceeds_visual_budget(
+                        current_batched_visual_tokens,
+                        req,
+                        num_computed_tokens,
                         num_tokens_this_step,
                         len(scheduled_requests),
                     ):
@@ -203,6 +435,7 @@ class Scheduler:
                     req,
                     num_local_computed_tokens,
                     current_prefill_extra_blocks,
+                    {r.request_id for r in scheduled_requests},
                 ):
                     logger.warning(
                         "Insufficient KV cache blocks for request %s, deferring.",
@@ -260,11 +493,17 @@ class Scheduler:
                     )
             else:
                 load_kv_async = False
-                num_tokens_this_step = (
-                    req.get_prompt_length() - req.num_local_cached_tokens
+                num_tokens_this_step = self._prefill_token_count(
+                    req, req.num_local_cached_tokens
                 )
                 if self._exceeds_token_budget(
                     current_num_batched_tokens,
+                    num_tokens_this_step,
+                    len(scheduled_requests),
+                ) or self._exceeds_visual_budget(
+                    current_batched_visual_tokens,
+                    req,
+                    req.num_local_cached_tokens,
                     num_tokens_this_step,
                     len(scheduled_requests),
                 ):
@@ -283,22 +522,74 @@ class Scheduler:
             current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
             scheduled_requests.append(req)
 
-            num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
+            num_tokens_this_step = self._prefill_token_count(
+                req, req.num_local_cached_tokens
+            )
+            scheduled_token_counts[req.request_id] = num_tokens_this_step
+            req.slot_mapping = self.cache_manager.update_blocks_slot(
+                req.block_table,
+                req.num_local_cached_tokens,
+                req.num_local_cached_tokens + num_tokens_this_step,
+            )
             current_num_batched_tokens += num_tokens_this_step
+            current_batched_visual_tokens += self._visual_token_count(
+                req, req.num_local_cached_tokens, num_tokens_this_step
+            )
 
             req.status = RequestStatus.RUNNING
 
         if deferred_requests:
-            for req in deferred_requests:
-                self.waiting_queue.sync_q.put(req)
+            for req in reversed(deferred_requests):
+                if (
+                    self.partial_prefill_first
+                    and req.request_id in self.partial_prefill_requests
+                ):
+                    self._partial_prefill_queue.appendleft(req)
+                else:
+                    self.waiting_queue.sync_q.put(req)
 
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
+            prefill_request_ids = {req.request_id for req in scheduled_requests}
+            # Include existing decode requests in the same eager forward. The
+            # token budget and request ceiling include both phases. Each decode
+            # row retains its own KV/Mamba state and consumes exactly one token.
+            has_partial_prefill = any(
+                req.num_local_cached_tokens + scheduled_token_counts[req.request_id]
+                < req.get_prompt_length()
+                for req in scheduled_requests
+            )
+            if self.enable_mixed_prefill and (
+                not self.prefill_chunk_size
+                or has_partial_prefill
+                or self.partial_prefill_requests
+            ):
+                while (
+                    len(scheduled_requests) < self.max_batch_size
+                    and current_num_batched_tokens < self.max_num_batched_tokens
+                ):
+                    try:
+                        req = self.running_queue.sync_q.get_nowait()
+                    except queue.Empty:
+                        break
+                    if req.is_finished():
+                        self.complete_requests([req])
+                        continue
+                    req.block_table, new_slot = self.cache_manager.append_slot(
+                        req.block_table, req.get_total_length()
+                    )
+                    req.slot_mapping = [new_slot]
+                    req.num_blocks = len(req.block_table)
+                    req.num_local_cached_tokens = req.get_total_length() - 1
+                    scheduled_requests.append(req)
+                    current_num_batched_tokens += 1
             is_prefill = True
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
                 speculative_cache_ops=self.speculative_cache_ops,
+                prefill_request_ids=prefill_request_ids,
+                scheduled_token_counts=scheduled_token_counts,
             )
             if self.connector is not None:
                 meta = self.connector.build_connector_meta()
@@ -404,6 +695,9 @@ class Scheduler:
     def complete_requests(self, requests: List[InferenceRequest]):
         """Handle completed requests and free their blocks."""
         for req in requests:
+            self._prefill_heavy_requests.pop(req.request_id, None)
+            self._visual_prefill_spans.pop(req.request_id, None)
+            self.partial_prefill_requests.pop(req.request_id, None)
             if req.status in [
                 RequestStatus.FINISHED,
                 RequestStatus.CANCELED,
@@ -455,6 +749,7 @@ class Scheduler:
         request: InferenceRequest,
         num_local_computed_tokens: int,
         current_prefill_extra_blocks: int = 0,
+        scheduled_request_ids: Optional[set[str]] = None,
     ) -> bool:
         if (
             self.mamba_cache_manager is not None
@@ -463,7 +758,11 @@ class Scheduler:
         ):
             return False
 
-        total_required_blocks = 0
+        total_required_blocks = sum(
+            self._get_prefill_extra_blocks(req)
+            for key, req in self.partial_prefill_requests.items()
+            if key not in (scheduled_request_ids or set()) and key != request.request_id
+        )
 
         # Calculate blocks needed for running requests
         running_queue_size = self.running_queue.sync_q.qsize()

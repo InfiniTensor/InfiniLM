@@ -15,6 +15,10 @@ public:
         return QuantScheme::PACKED_BF16;
     }
 
+    std::shared_ptr<BaseQuantization> process_weights_after_loading(
+        ParamsMap &params, const infinicore::Device &device,
+        int split_dim = -1) const override;
+
     int get_fused_split_dim() const override;
     bool use_full_layout() const;
 

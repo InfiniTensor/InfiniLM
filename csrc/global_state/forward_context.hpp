@@ -61,6 +61,8 @@ struct MambaMetadata {
     std::optional<infinicore::Tensor> init_state_indices;
     /// State cache indices written with the final state of each request forward.
     std::optional<infinicore::Tensor> final_state_indices;
+    /// Scheduler-owned CPU offsets for prefill operators that need host lengths.
+    std::optional<infinicore::Tensor> host_input_offsets;
 };
 
 struct ForwardContext {

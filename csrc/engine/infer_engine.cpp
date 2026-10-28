@@ -259,7 +259,8 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,
         input.mamba_init_state_indices,
-        input.mamba_final_state_indices};
+        input.mamba_final_state_indices,
+        input_offsets};
 
     global_state::get_forward_context().mm_metadata = {
         image_req_ids,

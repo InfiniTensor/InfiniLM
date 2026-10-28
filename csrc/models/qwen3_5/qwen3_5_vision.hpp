@@ -71,6 +71,14 @@ private:
     INFINICORE_NN_BUFFER(vision_sin);
 };
 
+// Keep checkpoint dimensions/names during loading; pad only the physical
+// BF16 MLP layout after all weights have arrived.
+class Qwen35VisionMLPLinear : public infinilm::layers::linear::ReplicatedLinear {
+public:
+    using infinilm::layers::linear::ReplicatedLinear::ReplicatedLinear;
+    void process_weights_after_loading() override;
+};
+
 class Qwen35VisionMLP : public infinicore::nn::Module {
 public:
     Qwen35VisionMLP(const nlohmann::json &config,
@@ -81,8 +89,8 @@ public:
 
 private:
     std::string activation_;
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc1);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, linear_fc2);
+    INFINICORE_NN_MODULE(Qwen35VisionMLPLinear, linear_fc1);
+    INFINICORE_NN_MODULE(Qwen35VisionMLPLinear, linear_fc2);
 };
 
 class Qwen35VisionBlock : public infinicore::nn::Module {
