@@ -37,6 +37,10 @@ PYBIND11_MODULE(_infinilm, m) {
             || !checkpoint_float(input->dtype()) || !checkpoint_float(output->dtype())) {
             throw std::invalid_argument("checkpoint Cast requires matching CPU shapes and FP32/FP16/BF16 tensors");
 }
+        if (input->numel() != 0 && input->data() == output->data()
+            && input->dtype() != output->dtype()) {
+            throw std::invalid_argument("checkpoint dtype conversion requires distinct storage");
+        }
         const infini::ops::Tensor input_view{input->view()};
         const infini::ops::Tensor output_view{output->view()};
         infini::ops::Cast::Call(input_view, output_view); }, py::arg("input"), py::arg("output"), py::call_guard<py::gil_scoped_release>());

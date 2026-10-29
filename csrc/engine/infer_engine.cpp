@@ -448,6 +448,8 @@ InferEngine::Input::to_model_input(
             : to_device(target_hidden_states),
         sample_all_positions};
     input.logical_kv_upper_bound = logical_kv_upper_bound;
+    input.diffusion_preview = diffusion_preview;
+    input.diffusion_expert_budget = diffusion_expert_budget;
 
     auto &attn_metadata = forward_context.attn_metadata;
     attn_metadata = {

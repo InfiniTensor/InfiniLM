@@ -1,0 +1,4 @@
+# Public APIs needed to compile the complete InfiniLM source tree.
+set(INFINI_OPS_DECLARATIONS
+    "add;argmax;cast;cat;causal_conv1d;chunk_gated_delta_rule;clover_block_conv1d;clover_coreset;clover_local_memory;clover_recurrent_gdn;convolution;copy;deepseek_moe;embedding;fill;flash_attn_varlen_func;flash_attn_with_kvcache;fused_add_rms_norm;fused_gated_delta_net_gating;gelu;gemm;i8_gemm;internal_softmax;layer_norm;mamba_selective_scan;moe_align_block_size;moe_fused_dense;moe_fused_gate;mrope;mul;pad;per_channel_quant_i8;per_tensor_dequant_i8;per_tensor_quant_i8;quick_gelu;recurrent_gated_delta_rule;relu;reshape_and_cache_flash;rms_norm;rotary_embedding;row_l2_normalize;separate_table_rope;sigmoid;silu;silu_and_mul;softmax;sum;take;top_k_top_p_sampling_from_logits;topk_sigmoid;topk_softmax;tril;triu;upsample_bicubic2d;upsample_bilinear2d;w4_marlin_gemm;w4_marlin_parameters;w4_marlin_repack"
+    CACHE STRING "Additional public operator declarations" FORCE)
