@@ -5,6 +5,8 @@
 
 #include <infini/rt/device_guard.h>
 
+#include <tuning.h>
+
 #include <atomic>
 #include <cstdint>
 #include <exception>
@@ -36,6 +38,16 @@ uint64_t currentOwnerGeneration() noexcept {
     return generation;
 }
 
+void initializeOperatorTuning() {
+    // The InfiniOps Python bindings initialize tuning at import time; native
+    // InfiniLM embedders do not import that module, so initialize it once here.
+    static const bool initialized = [] {
+        infini::ops::TuningManager::Instance().InitializeFromEnvironment();
+        return true;
+    }();
+    (void)initialized;
+}
+
 void warn_runtime_cleanup_failure(const char *operation, infini::rt::runtime::Error status) noexcept {
     if (status == infini::rt::runtime::kSuccess) {
         return;
@@ -58,6 +70,7 @@ void warn_runtime_cleanup_failure(const char *operation, const char *detail) noe
 } // namespace
 
 std::shared_ptr<Runtime> Runtime::create(Device device) {
+    initializeOperatorTuning();
     if (device.index() < 0 || static_cast<size_t>(device.index()) >= context::getDeviceCount(device.type())) {
         throw std::invalid_argument("device index is unavailable for the requested backend");
     }
