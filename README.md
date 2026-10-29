@@ -52,6 +52,15 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
     打包从同一前缀读取依赖；ELF 依赖检查需要 `readelf`。
     可选 Torch checkpoint 兼容路径需要安装 `torch-compat`。
 
+    可选启用 InfiniOps 算子自动调优。Runtime 创建时会读取以下环境变量；
+    未启用时保持 InfiniOps 默认实现选择：
+    ```bash
+    export INFINI_OPS_ENABLE_AUTO_TUNING=1
+    export INFINI_OPS_TUNING_PATH=/absolute/path/to/tuning.json
+    export INFINI_OPS_TUNING_WARMUP=20
+    export INFINI_OPS_TUNING_REPEAT=100
+    ```
+
     返回的引擎 Tensor 是保有存储的可变借用视图；下一次 forward 复用缓冲区前，
     调用方应读完或复制输出。模型、后端、并行及 graph 组合以实际支持边界为准。
 
