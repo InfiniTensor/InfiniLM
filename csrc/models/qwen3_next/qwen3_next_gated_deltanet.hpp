@@ -64,7 +64,7 @@ public:
     infinilm::runtime::Tensor forward(const infinilm::runtime::Tensor &hidden_states,
                                       const infinilm::global_state::ForwardContext &forward_context) const;
 
-private:
+protected:
     std::shared_ptr<layers::linear::QKVParallelLinear> in_proj_qkv_;
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_z_;
     std::shared_ptr<layers::linear::ColumnParallelLinear> in_proj_a_;

@@ -31,6 +31,7 @@ struct StaticPrefillHostDescription {
 };
 
 struct AttentionMetadata {
+    bool diffusion_preview{false};
     /// Past Lengths of cached sequence for each request, of shape `[num_requests]`.
     std::optional<infinilm::runtime::Tensor> past_sequence_lengths;
     /// ToTal Lengths for each request sequence, of shape `[num_requests]`.
@@ -119,6 +120,11 @@ struct ForwardContext {
     AttentionMetadata attn_metadata;
     MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;
+    bool diffusion_preview{false};
+    size_t diffusion_block_size{32};
+    bool diffusion_expert_budget{false};
+    infinilm::runtime::Tensor diffusion_valid;
+    infinilm::runtime::Tensor diffusion_live;
     std::vector<infinilm::runtime::Tensor> kv_cache_vec;
     std::vector<infinilm::runtime::Tensor> conv_state_vec;
     std::vector<infinilm::runtime::Tensor> ssm_state_vec;

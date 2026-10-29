@@ -1,0 +1,4 @@
+Frontier-guided stride control is adapted from Ringssss/dLLM-serve, commit
+1da50a96c9ce6b888d245d378f2bac0425feba8c, cwsrpt_v2/algorithm/cw_srpt_v3.py.
+The adaptation preserves confident-token progress and uses a configurable
+confidence floor. Original source is distributed under Apache-2.0.

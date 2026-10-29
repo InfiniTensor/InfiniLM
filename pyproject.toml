@@ -28,6 +28,7 @@ classifiers = [
 
 [project.optional-dependencies]
 torch-compat = ["torch"]
+clover = ["torch", "triton", "fastapi", "uvicorn"]
 
 [project.urls]
 Homepage = "https://github.com/InfiniTensor/InfiniLM"

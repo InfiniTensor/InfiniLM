@@ -195,3 +195,8 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
       ```bash
       python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn [--attn=default | --attn=flash-attn]
       ```
+
+### Clover on Hygon
+
+Native Clover block diffusion and the optional frontier/expert-reuse decoder are
+documented in [the Hygon guide](docs/clover-hygon.md).
