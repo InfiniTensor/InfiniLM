@@ -233,6 +233,8 @@ inline void bind_infer_engine(py::module &m) {
                     "random_values",
                     "sampling_rows",
                     "nsa_owner_snapshot",
+                    "diffusion_preview",
+                    "diffusion_expert_budget",
                 };
 
                 for (auto &item : kwargs) {
@@ -243,7 +245,11 @@ inline void bind_infer_engine(py::module &m) {
                             "InferEngine.Input got an unexpected keyword argument '" + key + "'");
                     }
 
-                    if (key == "temperature") {
+                    if (key == "diffusion_expert_budget") {
+                        input.diffusion_expert_budget = py::cast<bool>(item.second);
+                    } else if (key == "diffusion_preview") {
+                        input.diffusion_preview = py::cast<bool>(item.second);
+                    } else if (key == "temperature") {
                         input.temperature = py::cast<float>(item.second);
                     } else if (key == "top_p") {
                         input.top_p = py::cast<float>(item.second);
@@ -303,6 +309,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("diffusion_preview", &InferEngine::Input::diffusion_preview)
+        .def_readwrite("diffusion_expert_budget", &InferEngine::Input::diffusion_expert_budget)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p)

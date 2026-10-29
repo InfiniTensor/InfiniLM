@@ -95,6 +95,7 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     const bool finite_window = window_size[0] >= 0;
     bool varlen_candidate = finite_window;
     varlen_candidate = varlen_candidate || (prefill && seq_len > 1 && kv_quant_scheme_ == infinilm::quantization::KVQuantAlgo::NONE && (q_rope->dtype() == infinilm::runtime::DataType::kFloat16 || q_rope->dtype() == infinilm::runtime::DataType::kBFloat16));
+    varlen_candidate = varlen_candidate && !attn_metadata.diffusion_preview;
     if (finite_window && seq_len > 1 && !prefill) {
         throw std::invalid_argument("Static finite window requires validated prefill row/past/total metadata");
     }
@@ -269,7 +270,7 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             throw std::invalid_argument("causal_softmax has unsupported shape or dtype");
         }
         std::optional<infinilm::runtime::Tensor> causal_mask;
-        if (seq_len != 1) {
+        if (seq_len != 1 && !attn_metadata.diffusion_preview) {
             causal_mask = infinilm::runtime::Tensor::empty(
                 runtime, {seq_len, total_seq_len}, attn_weight_softmax->dtype());
         }

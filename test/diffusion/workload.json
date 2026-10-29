@@ -1,0 +1,194 @@
+[
+  {
+    "id": 0,
+    "prompt": "What is 2 + 2? Reply with only the number.",
+    "max_tokens": 32,
+    "check": "4"
+  },
+  {
+    "id": 1,
+    "prompt": "What is the capital of France? Answer in one sentence.",
+    "max_tokens": 64,
+    "check": "Paris"
+  },
+  {
+    "id": 2,
+    "prompt": "What is the capital of Germany? Answer briefly.",
+    "max_tokens": 64,
+    "check": "Berlin"
+  },
+  {
+    "id": 3,
+    "prompt": "Sort these numbers in ascending order: 3, 1, 2. Reply only with a JSON array.",
+    "max_tokens": 64,
+    "check": "[1, 2, 3]"
+  },
+  {
+    "id": 4,
+    "prompt": "Return only this JSON object: {\"ok\": true, \"count\": 3}",
+    "max_tokens": 64,
+    "check": "json"
+  },
+  {
+    "id": 5,
+    "prompt": "Translate \"good morning\" into Chinese. Answer briefly.",
+    "max_tokens": 64,
+    "check": "早"
+  },
+  {
+    "id": 6,
+    "prompt": "Reverse the string abc. Output only the reversed string.",
+    "max_tokens": 32,
+    "check": "cba"
+  },
+  {
+    "id": 7,
+    "prompt": "What is 6 multiplied by 7? Answer with only the number.",
+    "max_tokens": 32,
+    "check": "42"
+  },
+  {
+    "id": 8,
+    "prompt": "Write a Python function add(a, b) that returns their sum. Return only the function.",
+    "max_tokens": 128,
+    "check": "code"
+  },
+  {
+    "id": 9,
+    "prompt": "Write a Python function square(x) that returns x squared. Return only the function.",
+    "max_tokens": 128,
+    "check": "code"
+  },
+  {
+    "id": 10,
+    "prompt": "用一句话解释什么是机器学习。",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 11,
+    "prompt": "Explain photosynthesis in two short sentences.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 12,
+    "prompt": "List three primary colors of light, with no explanation.",
+    "max_tokens": 64,
+    "check": "red"
+  },
+  {
+    "id": 13,
+    "prompt": "Give two benefits of unit testing in software.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 14,
+    "prompt": "用两句话解释为什么需要备份数据。",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 15,
+    "prompt": "Write a polite one-sentence message declining a meeting invitation.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 16,
+    "prompt": "Summarize this in one sentence: Bees transfer pollen between flowers. This helps many plants produce fruit and seeds.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 17,
+    "prompt": "What is the opposite of hot? Reply with one word.",
+    "max_tokens": 32,
+    "check": "cold"
+  },
+  {
+    "id": 18,
+    "prompt": "Return a JSON object with name Ada and age 30. No explanation.",
+    "max_tokens": 64,
+    "check": "json"
+  },
+  {
+    "id": 19,
+    "prompt": "Complete the sequence: 2, 4, 6, 8, __. Reply with only the next number.",
+    "max_tokens": 32,
+    "check": "10"
+  },
+  {
+    "id": 20,
+    "prompt": "Write a Python function is_even(n) that returns whether n is even. Return only code.",
+    "max_tokens": 128,
+    "check": "code"
+  },
+  {
+    "id": 21,
+    "prompt": "Explain the difference between a list and a tuple in Python in two sentences.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 22,
+    "prompt": "请用一句话解释什么是开源软件。",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 23,
+    "prompt": "计算：一个盒子有12个苹果，拿走5个，再放入8个，还剩多少个？",
+    "max_tokens": 64,
+    "check": "15"
+  },
+  {
+    "id": 24,
+    "prompt": "What is the largest planet in our solar system? Answer briefly.",
+    "max_tokens": 64,
+    "check": "Jupiter"
+  },
+  {
+    "id": 25,
+    "prompt": "Convert 100 centimeters to meters. Answer briefly.",
+    "max_tokens": 32,
+    "check": "1"
+  },
+  {
+    "id": 26,
+    "prompt": "Write a short definition of a database index.",
+    "max_tokens": 128,
+    "check": null
+  },
+  {
+    "id": 27,
+    "prompt": "Translate \"Thank you for your help\" into Chinese.",
+    "max_tokens": 64,
+    "check": "帮助"
+  },
+  {
+    "id": 28,
+    "prompt": "What is 10 minus 3? Reply with only the number.",
+    "max_tokens": 32,
+    "check": "7"
+  },
+  {
+    "id": 29,
+    "prompt": "Name the chemical formula of water. Reply with only the formula.",
+    "max_tokens": 32,
+    "check": "H2O"
+  },
+  {
+    "id": 30,
+    "prompt": "Write a Python function that returns the nth Fibonacci number.",
+    "max_tokens": 192,
+    "check": "code"
+  },
+  {
+    "id": 31,
+    "prompt": "Describe how to make tea in three short steps.",
+    "max_tokens": 128,
+    "check": null
+  }
+]

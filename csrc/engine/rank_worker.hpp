@@ -98,6 +98,8 @@ public:
         std::optional<std::vector<std::tuple<float, float, int>>> sampling_rows;
 
         std::optional<nsa::Snapshot> nsa_owner_snapshot;
+        bool diffusion_preview{false};
+        bool diffusion_expert_budget{false};
 
         infinilm::InfinilmModel::Input to_model_input(
             infinilm::runtime::Device device,
