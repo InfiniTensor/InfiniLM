@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from .basic_llm_processor import BasicLLMProcessor
+from .history_encoding import deepseek_history_encoder
 
 
 class DeepSeekV4Processor(BasicLLMProcessor):
@@ -15,7 +16,7 @@ class DeepSeekV4Processor(BasicLLMProcessor):
         spec = importlib.util.spec_from_file_location("deepseek_v4_encoding", source)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        self.encode_messages = module.encode_messages
+        self.encode_messages = deepseek_history_encoder(module.encode_messages)
 
     def apply_chat_template(
         self, conversation, add_generation_prompt=False, tokenize=True, **kwargs
@@ -45,6 +46,7 @@ class DeepSeekV4Processor(BasicLLMProcessor):
             messages,
             thinking_mode=mode,
             reasoning_effort=kwargs.get("reasoning_effort"),
+            drop_thinking=False,
         )
         if not add_generation_prompt:
             prompt = prompt.removesuffix(

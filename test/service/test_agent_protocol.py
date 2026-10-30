@@ -1,5 +1,6 @@
 """Protocol and real HTTP-route tests; fake inference is explicitly scoped here."""
 
+import ast
 import copy
 import importlib.util
 import json
@@ -14,6 +15,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 SERVER = Path(__file__).resolve().parents[2] / "python/infinilm/server"
+spec = importlib.util.spec_from_file_location(
+    "history_encoding_under_test", SERVER.parent / "processors/history_encoding.py"
+)
+history_encoding = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(history_encoding)
 spec = importlib.util.spec_from_file_location(
     "agent_protocol_under_test", SERVER / "agent_protocol.py"
 )
@@ -670,6 +676,7 @@ def test_deepseek_processor_supplies_native_encoder_contract():
             "infinilm": types.ModuleType("infinilm"),
             "infinilm.processors": types.ModuleType("infinilm.processors"),
             "infinilm.processors.basic_llm_processor": base,
+            "infinilm.processors.history_encoding": history_encoding,
         },
     ):
         spec = importlib.util.spec_from_file_location(
@@ -703,3 +710,148 @@ def test_deepseek_processor_supplies_native_encoder_contract():
         captured["messages"][2]["tool_calls"][0]["function"]["arguments"], str
     )
     assert messages == original
+    assert captured["kwargs"]["drop_thinking"] is False
+
+
+def test_history_hooks_keep_current_mode_and_leave_checkpoint_globals_unchanged():
+    # A checkpoint-style function must resolve the hook through its own globals.
+    namespace = {}
+    exec(
+        "def render_message(index, messages, thinking_mode, **kwargs):\n"
+        " return (index, thinking_mode, kwargs.get('reasoning_effort'))\n"
+        "def encode(messages, thinking_mode, **kwargs):\n"
+        " return [render_message(i, messages, thinking_mode, **kwargs) for i in range(len(messages))]\n",
+        namespace,
+    )
+    messages = [
+        {"role": "user", "content": "first"},
+        {"role": "assistant", "reasoning_content": "saved", "content": "answer"},
+        {"role": "user", "content": "next"},
+    ]
+    original = namespace["encode"]
+    adapted = history_encoding.deepseek_history_encoder(original)
+    assert adapted(messages, "chat", reasoning_effort="max") == [
+        (0, "thinking", None),
+        (1, "thinking", None),
+        (2, "chat", "max"),
+    ]
+    assert original(messages, "chat") == [(i, "chat", None) for i in range(3)]
+    assert adapted(messages, "thinking") == [(i, "thinking", None) for i in range(3)]
+
+    namespace = {}
+    exec(
+        "def _render_assistant_segments(message, image_state, thinking=True):\n"
+        " return (message.get('reasoning_content'), thinking)\n"
+        "def build_chat_segments(messages, *, thinking=True):\n"
+        " return [_render_assistant_segments(m, None, thinking) for m in messages], thinking\n"
+        "def template(self, messages, *, thinking=True):\n"
+        " return build_chat_segments(messages, thinking=thinking)\n",
+        namespace,
+    )
+    template = types.MethodType(namespace["template"], object())
+    adapted = history_encoding.kimi_history_template(template)
+    assert adapted(messages, thinking=False) == (
+        [(None, False), ("saved", True), (None, False)],
+        False,
+    )
+    assert template(messages, thinking=False) == (
+        [(None, False), ("saved", False), (None, False)],
+        False,
+    )
+
+
+def test_chat_inputs_use_segment_encoder_only_for_supported_text_processors():
+    tree = ast.parse((SERVER.parent / "llm/llm.py").read_text())
+    method = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "process"
+    )
+    namespace = {}
+    exec(
+        compile(ast.Module(body=[method], type_ignores=[]), "llm.process", "exec"),
+        namespace,
+    )
+    calls = []
+
+    class Processor:
+        def encode_chat_inputs(self, messages, **kwargs):
+            calls.append((messages, kwargs))
+            return {"input_ids": [17, 18]}
+
+        def __call__(self, prompt, **kwargs):
+            return {"legacy_prompt": prompt, **kwargs}
+
+    engine = types.SimpleNamespace(processor=Processor())
+    messages = [{"role": "user", "content": "literal <|open|>"}]
+    process = namespace["process"]
+    assert process(
+        engine,
+        "rendered",
+        [],
+        [],
+        [],
+        chat_messages=messages,
+        chat_template_kwargs={"thinking": False},
+        return_tensors="pt",
+    ) == {"input_ids": [17, 18]}
+    assert calls == [
+        (
+            messages,
+            {"thinking": False, "return_tensors": "pt", "add_generation_prompt": True},
+        )
+    ]
+    assert process(engine, "raw", [], [], [])["legacy_prompt"] == "raw"
+    assert (
+        process(engine, "image", ["image"], [], [], chat_messages=messages)[
+            "legacy_prompt"
+        ]
+        == "image"
+    )
+    engine.processor = lambda prompt, **kwargs: {"legacy_prompt": prompt, **kwargs}
+    assert (
+        process(engine, "other model", [], [], [], chat_messages=messages)[
+            "legacy_prompt"
+        ]
+        == "other model"
+    )
+
+
+@pytest.mark.parametrize("parser", ["deepseek_v4", "glm5", "kimi_k3", "qwen3_coder"])
+def test_turn_constraints_reach_model_without_changing_caller_history(parser):
+    request = dict(
+        messages=[{"role": "user", "content": "compute"}],
+        tools=TOOLS,
+        tool_choice={"type": "function", "function": {"name": "compute"}},
+        parallel_tool_calls=False,
+    )
+    original = copy.deepcopy(request)
+    data, schemas, choice = protocol.prepare_agent_request(request, parser)
+    assert request == original
+    history = data["messages"][:-1] if parser == "kimi_k3" else data["messages"][1:]
+    assert history == original["messages"]
+    system = data["messages"][-1 if parser == "kimi_k3" else 0]["content"]
+    assert 'function "compute"' in system
+    assert "at most one real tool call" in system
+    assert choice == "compute" and set(schemas) == {"compute"}
+    disabled, _, _ = protocol.prepare_agent_request(
+        dict(request, tool_choice="none"), parser
+    )
+    required, _, _ = protocol.prepare_agent_request(
+        dict(request, tool_choice="required"), parser
+    )
+    if parser == "kimi_k3":
+        assert data["chat_template_kwargs"]["tool_choice"] == "required"
+        assert disabled["chat_template_kwargs"]["tool_choice"] == "none"
+        assert required["chat_template_kwargs"]["tool_choice"] == "required"
+        assert required["chat_template_kwargs"]["thinking_effort"] == "high"
+        ordinary, _, _ = protocol.prepare_agent_request(
+            dict(request, chat_template_kwargs={"enable_thinking": False}), parser
+        )
+        assert ordinary["messages"][1:] == original["messages"]
+        assert ordinary["messages"][0]["content"] == system
+    else:
+        assert "Tools are disabled" in disabled["messages"][0]["content"]
+        assert (
+            "requires at least one real tool call" in required["messages"][0]["content"]
+        )

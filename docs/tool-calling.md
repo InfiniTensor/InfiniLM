@@ -94,6 +94,22 @@ IDs and does not replace the official encoder with a Jinja approximation.
 the installed encoder. DSML's explicit string flag and K3's argument type are
 honored before shared schema validation.
 
+Historical reasoning is retained independently of the next response's thinking
+mode. DeepSeek disables history pruning; its original message renderer and K3's
+original segment renderer retain the historical thinking channel while the new
+generation prefix follows the requested mode. Hooks use per-processor function
+globals, without modifying checkpoint files or shared module state. These paths
+require the checkpoint's Python encoders (`render_message` for DeepSeek and
+`build_chat_segments` for K3); custom tokenizer replacements need separate tests.
+Text-only K3 chat inputs use that tokenizer's segment-aware encoding directly,
+so literal special-token-looking user/tool text is not reinterpreted as a
+structural marker. Raw text prompts and multimodal encoding retain their
+existing paths and are separate validation scopes.
+
+Qwen3.5, DeepSeek V4, GLM5 and K3 receive per-turn prompt instructions for required/named
+tools, disabled tools and `parallel_tool_calls=false`. Output validation remains
+mandatory: these instructions are not constrained decoding guarantees.
+
 ## Scope and layout
 
 The first step is model-side tool protocol support, kept in the InfiniLM

@@ -128,6 +128,13 @@ def prepare_agent_request(data, parser="none"):
                 kwargs["thinking"] = kwargs.pop("enable_thinking")
             if "reasoning_effort" in kwargs:
                 kwargs["thinking_effort"] = kwargs.pop("reasoning_effort")
+            kwargs.pop("tool_choice", None)
+            if choice == "none":
+                kwargs["tool_choice"] = "none"
+            elif selected or choice == "required":
+                kwargs["tool_choice"] = "required"
+            if kwargs.get("thinking", True):
+                kwargs.setdefault("thinking_effort", "high")
         seen, pending = set(), {}
         for message in data.get("messages", []):
             if not isinstance(message, dict):
@@ -174,6 +181,71 @@ def prepare_agent_request(data, parser="none"):
                 pending[call_id] = name
         if pending:
             raise AgentProtocolError("Missing tool results")
+        if parser == "kimi_k3":
+            rules = []
+            if selected:
+                rules.append(
+                    "This assistant turn requires a real call to function "
+                    + json.dumps(selected, ensure_ascii=False)
+                    + " following its provided schema. Do not replace the required call with a text answer."
+                )
+            if choice != "none" and tools and not data.get("parallel_tool_calls", True):
+                rules.append(
+                    "In this assistant turn, issue at most one real tool call. After that call, end this assistant turn and wait for its tool result before deciding or calling any next tool. Do not combine later steps or additional invocations in this turn."
+                )
+            if rules:
+                data.setdefault("messages", []).insert(
+                    len(data["messages"]) if kwargs.get("thinking", True) else 0,
+                    {
+                        "role": "system",
+                        "content": "[Request tool-call constraints]\n"
+                        + "\n".join(rules),
+                    },
+                )
+        if parser in {"deepseek_v4", "glm5", "qwen3_coder"}:
+            rules = []
+            if choice == "none":
+                rules.append(
+                    "Tools are disabled for this assistant turn. Do not invoke any tool. Respond without a tool call."
+                )
+            elif tools:
+                if not data.get("parallel_tool_calls", True):
+                    rules.append(
+                        "In this assistant turn, issue at most one real tool call. After issuing that call, end this assistant turn and wait for its tool result before deciding or calling any next tool. Do not combine later steps or additional invocations in this turn."
+                    )
+                if choice == "required":
+                    rules.append(
+                        "This request requires at least one real tool call in this assistant turn. Do not substitute a text answer for the required tool call."
+                    )
+                elif selected:
+                    rules.append(
+                        "This request requires a real call to the function "
+                        + json.dumps(selected, ensure_ascii=False)
+                        + " in this assistant turn, following its provided schema. Do not substitute a text answer for the required call."
+                    )
+            if rules:
+                messages = data.setdefault("messages", [])
+                if not messages or messages[0].get("role") != "system":
+                    messages.insert(0, {"role": "system", "content": ""})
+                content = messages[0].get("content") or ""
+                if isinstance(content, list):
+                    if any(
+                        not isinstance(part, dict)
+                        or part.get("type") != "text"
+                        or not isinstance(part.get("text"), str)
+                        for part in content
+                    ):
+                        raise AgentProtocolError(
+                            "System tool constraints require text content"
+                        )
+                    content = "".join(part["text"] for part in content)
+                if not isinstance(content, str):
+                    raise AgentProtocolError(
+                        "System tool constraints require text content"
+                    )
+                messages[0]["content"] = (
+                    content + "\n\n[Request tool-call constraints]\n" + "\n".join(rules)
+                )
     data["chat_template_kwargs"] = kwargs
     return data, schemas, selected or choice
 
