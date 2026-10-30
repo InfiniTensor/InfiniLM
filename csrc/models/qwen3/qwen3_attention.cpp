@@ -1,4 +1,8 @@
 #include "qwen3_attention.hpp"
+#include "../../execution/submit.hpp"
+#if __has_include(<ninetoothed/ops/merged_qk_rms_norm/merged_qk_rms_norm.h>)
+#define INFINILM_HAS_NINETOOTHED_MERGED_QK_RMS_NORM
+#endif
 #include "../../global_state/global_state.hpp"
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
@@ -25,6 +29,7 @@ Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_
         double rms_norm_eps = model_config->get<double>("rms_norm_eps");
 
         attention_backend_ = attention_backend;
+        device_ = runtime.device();
         int tp_rank = rank_info.tp_rank;
         int tp_size = rank_info.tp_size;
         num_attention_heads_ = total_num_heads / tp_size;
@@ -49,6 +54,11 @@ Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_
 
         q_norm_ = this->bind_child("q_norm", std::make_shared<std::remove_reference_t<decltype(*q_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
         k_norm_ = this->bind_child("k_norm", std::make_shared<std::remove_reference_t<decltype(*k_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
+#ifdef INFINILM_HAS_NINETOOTHED_MERGED_QK_RMS_NORM
+        use_merged_qk_norm_ = device_.type() == infinilm::runtime::Device::Type::kNvidia && head_dim_ == 128 && dtype == infinilm::runtime::DataType::kBFloat16 && !infini::ops::MergedQkRmsNorm::active_implementation_indices(device_.type()).empty();
+#else
+        use_merged_qk_norm_ = false;
+#endif
 
         // NONE KV scales remain the original null Parameters; no Device allocation.
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
@@ -62,6 +72,33 @@ Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_
         }
         throw;
     }
+}
+
+void Qwen3Attention::process_weights_after_loading(infinilm::runtime::Runtime &runtime,
+                                                   bool /*pre_transpose*/) {
+    runtime.assertOwnerThread();
+    if (!use_merged_qk_norm_) {
+        return;
+    }
+    if (runtime.device() != device_) {
+        throw std::invalid_argument("Qwen3Attention postload Runtime device differs");
+    }
+    if (runtime.graphCaptureState() != infinilm::execution::graph::GraphManager::CaptureState::kInactive) {
+        throw std::logic_error("Qwen3 merged Q/K norm packing requires inactive graph state");
+    }
+
+    const auto q_weight = q_norm_->weight();
+    const auto k_weight = k_norm_->weight();
+    merged_qk_norm_weight_ = infinilm::runtime::Tensor::empty_parameter(
+        runtime, {num_attention_heads_ + num_key_value_heads_, head_dim_}, q_norm_->dtype());
+    auto q_rows = merged_qk_norm_weight_->narrow({{0, 0, num_attention_heads_}});
+    auto k_rows = merged_qk_norm_weight_->narrow({{0, num_attention_heads_, num_key_value_heads_}});
+    infinilm::execution::submit<infini::ops::Copy>(
+        runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
+        q_weight, false, q_rows);
+    infinilm::execution::submit<infini::ops::Copy>(
+        runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
+        k_weight, false, k_rows);
 }
 
 infinilm::runtime::Tensor Qwen3Attention::forward(
@@ -88,10 +125,20 @@ infinilm::runtime::Tensor Qwen3Attention::forward_static_(const infinilm::runtim
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
+#ifdef INFINILM_HAS_NINETOOTHED_MERGED_QK_RMS_NORM
+    auto [q, k, v] = use_merged_qk_norm_
+                       ? forward_split_merged_qk_(*forward_context.runtime,
+                                                  qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                                  batch_size * seq_len)
+                       : qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+#else
     auto [q, k, v] = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+#endif
 
-    q = q_norm_->forward(*forward_context.runtime, q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
-    k = k_norm_->forward(*forward_context.runtime, k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
+    if (!use_merged_qk_norm_) {
+        q = q_norm_->forward(*forward_context.runtime, q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
+        k = k_norm_->forward(*forward_context.runtime, k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
+    }
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({batch_size, seq_len, num_attention_heads_, head_dim_});
@@ -139,14 +186,24 @@ infinilm::runtime::Tensor Qwen3Attention::forward_paged_(const infinilm::runtime
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
+#ifdef INFINILM_HAS_NINETOOTHED_MERGED_QK_RMS_NORM
+    auto [q, k, v] = use_merged_qk_norm_
+                       ? forward_split_merged_qk_(*forward_context.runtime,
+                                                  qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                                  seq_len)
+                       : qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+#else
     auto [q, k, v] = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
+#endif
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-    q_reshaped = q_norm_->forward(*forward_context.runtime, q_reshaped);
-    k_reshaped = k_norm_->forward(*forward_context.runtime, k_reshaped);
+    if (!use_merged_qk_norm_) {
+        q_reshaped = q_norm_->forward(*forward_context.runtime, q_reshaped);
+        k_reshaped = k_norm_->forward(*forward_context.runtime, k_reshaped);
+    }
 
     // 3. Prepare position_ids for RoPE
     auto pos_shape = position_ids->shape();
@@ -171,4 +228,26 @@ infinilm::runtime::Tensor Qwen3Attention::forward_paged_(const infinilm::runtime
     auto output = o_proj_->forward(*forward_context.runtime, attn_output);
     return output;
 }
+
+#ifdef INFINILM_HAS_NINETOOTHED_MERGED_QK_RMS_NORM
+std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+Qwen3Attention::forward_split_merged_qk_(infinilm::runtime::Runtime &runtime,
+                                         const infinilm::runtime::Tensor &qkv,
+                                         size_t token_count) const {
+    const size_t packed_heads = num_attention_heads_ + num_key_value_heads_;
+    const size_t q_width = num_attention_heads_ * head_dim_;
+    const size_t k_width = num_key_value_heads_ * head_dim_;
+
+    auto qk = qkv->narrow({{2, 0, q_width + k_width}})->view({token_count, packed_heads, head_dim_});
+    auto normalized = infinilm::runtime::Tensor::empty(runtime, qk->shape(), qk->dtype());
+    infinilm::execution::submit<infini::ops::MergedQkRmsNorm>(
+        runtime, infini::ops::MergedQkRmsNorm::DefaultConfig(runtime.device().type()),
+        qk, merged_qk_norm_weight_, static_cast<float>(q_norm_->eps()), normalized);
+
+    auto q = normalized->narrow({{1, 0, num_attention_heads_}});
+    auto k = normalized->narrow({{1, num_attention_heads_, num_key_value_heads_}});
+    auto v = qkv->narrow({{2, q_width + k_width, qkv->shape()[2] - q_width - k_width}});
+    return {q, k, v};
+}
+#endif
 } // namespace infinilm::models::qwen3
