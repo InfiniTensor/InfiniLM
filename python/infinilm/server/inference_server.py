@@ -500,7 +500,9 @@ class InferenceServer:
                         token_output.finish_reason
                     )
                     if parser:
-                        for delta in parser.feed("", final=True):
+                        for delta in parser.feed(
+                            "", final=True, finish_reason=finish_reason or "stop"
+                        ):
                             last = chunk_json(request_id, model=self.model_id)
                             last["choices"][0]["delta"] = delta
                             yield sse_json(last)
@@ -625,7 +627,9 @@ class InferenceServer:
             parser = self._agent_parser(data, req)
             if parser:
                 response["choices"][0]["message"] = collect_message(
-                    parser.feed(output_text, final=True)
+                    parser.feed(
+                        output_text, final=True, finish_reason=finish_reason or "stop"
+                    )
                 )
                 response["choices"][0]["finish_reason"] = parser.finish_reason(
                     finish_reason or "stop"

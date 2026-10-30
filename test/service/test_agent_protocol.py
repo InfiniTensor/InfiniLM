@@ -15,30 +15,32 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 SERVER = Path(__file__).resolve().parents[2] / "python/infinilm/server"
-spec = importlib.util.spec_from_file_location(
+
+
+def load_module(name, path, stubs=None):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    if stubs is None:
+        spec.loader.exec_module(module)
+    else:
+        with patch.dict(sys.modules, {name: module, **stubs}):
+            spec.loader.exec_module(module)
+    return module
+
+
+history_encoding = load_module(
     "history_encoding_under_test", SERVER.parent / "processors/history_encoding.py"
 )
-history_encoding = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(history_encoding)
-spec = importlib.util.spec_from_file_location(
-    "agent_protocol_under_test", SERVER / "agent_protocol.py"
-)
-protocol = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(protocol)
-with patch.dict(
-    sys.modules,
+protocol = load_module("agent_protocol_under_test", SERVER / "agent_protocol.py")
+parsers = load_module(
+    "infinilm.server.tool_parsers",
+    SERVER / "tool_parsers/__init__.py",
     {
         "infinilm": types.ModuleType("infinilm"),
         "infinilm.server": types.ModuleType("infinilm.server"),
         "infinilm.server.agent_protocol": protocol,
     },
-):
-    spec = importlib.util.spec_from_file_location(
-        "infinilm.server.tool_parsers", SERVER / "tool_parsers/__init__.py"
-    )
-    parsers = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = parsers
-    spec.loader.exec_module(parsers)
+)
 ToolCallParser = parsers.ToolCallParser
 Error = protocol.AgentProtocolError
 TOOLS = [
@@ -120,6 +122,26 @@ def sse_chunks(response):
     ]
 
 
+def read_completion(response):
+    assert response.status_code == 200, response.text
+    if response.headers["content-type"].startswith("text/event-stream"):
+        chunks = sse_chunks(response)
+        assert not any("error" in chunk for chunk in chunks)
+        assert response.text.count("data: [DONE]") == 1
+        choices = [c["choices"][0] for c in chunks if c.get("choices")]
+        return (
+            protocol.collect_message([c["delta"] for c in choices]),
+            choices[-1]["finish_reason"],
+            chunks[-1].get("usage"),
+        )
+    body = response.json()
+    return (
+        body["choices"][0]["message"],
+        body["choices"][0]["finish_reason"],
+        body.get("usage"),
+    )
+
+
 def tools_with(**fields):
     tools = copy.deepcopy(TOOLS)
     tools[0]["function"].update(fields)
@@ -191,7 +213,7 @@ def test_tool_choice_and_parallel_contract():
     _, schemas, choice = prepared(
         tool_choice={"type": "function", "function": {"name": "compute"}}
     )
-    assert choice == "compute" and list(schemas) == ["compute"]
+    assert choice == "required" and list(schemas) == ["compute"]
     with pytest.raises(Error):
         ToolCallParser(schemas, thinking=False, choice="required").feed(
             "answer", final=True
@@ -281,14 +303,18 @@ def test_string_parameter_schema_integration(spec):
     )
 
 
-def test_unresolved_parameter_reference_is_a_protocol_error():
-    _, schemas, _ = prepared()
-    schemas["compute"]["properties"]["label"] = {"$ref": "#/$defs/missing"}
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"properties": {"label": {"$ref": "#/$defs/missing"}}},
+        {"$ref": "#/default", "default": {"$ref": "https://example.invalid/schema"}},
+    ],
+)
+def test_unresolved_parameter_reference_is_a_protocol_error(schema):
     with pytest.raises(Error):
-        ToolCallParser(schemas, thinking=False).feed(XML, final=True)
+        ToolCallParser({"compute": schema}).feed(XML, final=True)
 
 
-@pytest.mark.parametrize("parser_name", ["qwen3_coder", "minicpm5", "glm5"])
 @pytest.mark.parametrize(
     "shape",
     [
@@ -305,7 +331,7 @@ def test_unresolved_parameter_reference_is_a_protocol_error():
         "global-preference",
     ],
 )
-def test_xml_object_schema_string_coercion(parser_name, shape):
+def test_xml_object_schema_string_coercion(shape):
     base = copy.deepcopy(TOOLS[0]["function"]["parameters"])
     if shape == "root-ref":
         schema = {"$ref": "#/$defs/Args", "$defs": {"Args": base}}
@@ -371,33 +397,18 @@ def test_xml_object_schema_string_coercion(parser_name, shape):
                 {"properties": {"n": {"type": "integer"}, "label": {"type": "string"}}},
             ]
         }
-    wire = WIRES[parser_name]
+    wire = XML
     expected_args = {"n": 42, "label": "123"}
     if shape == "untyped-nested":
         wire = wire.replace("123", '{"nested":123}')
         expected_args["label"] = '{"nested":123}'
     elif shape == "global-preference":
         expected_args["label"] = 123
-    client, _ = make_client(wire, parser=parser_name)
-    for stream in (False, True):
-        response = post_chat(client, tools=tools_with(parameters=schema), stream=stream)
-        assert response.status_code == 200, response.text
-        if stream:
-            chunks = sse_chunks(response)
-            assert not any("error" in chunk for chunk in chunks)
-            message = protocol.collect_message(
-                [
-                    chunk["choices"][0]["delta"]
-                    for chunk in chunks
-                    if chunk.get("choices")
-                ]
-            )
-            assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
-        else:
-            message = response.json()["choices"][0]["message"]
-            assert response.json()["choices"][0]["finish_reason"] == "tool_calls"
-        args = json.loads(message["tool_calls"][0]["function"]["arguments"])
-        assert args == expected_args and type(args["n"]) is int
+    message = protocol.collect_message(
+        ToolCallParser({"compute": schema}).feed(wire, final=True)
+    )
+    args = json.loads(message["tool_calls"][0]["function"]["arguments"])
+    assert args == expected_args and type(args["n"]) is int
 
 
 def test_arbitrary_precision_integer_arguments():
@@ -417,6 +428,7 @@ class FinishReason(Enum):
     CANCELED = "canceled"
     ERROR = "error"
     TIMEOUT = "timeout"
+    LENGTH = "length"
 
 
 class FakeRequest:
@@ -440,11 +452,13 @@ class FakeEngine:
         self.text = text
         self.requests = []
         self.prompt = ""
+        self.finish_reason = FinishReason.EOS_TOKEN
 
     def add_chat_request(self, **kwargs):
         self.requests.append(kwargs)
         request = FakeRequest()
         request.prompt = self.prompt
+        request.finish_reason = self.finish_reason
         return request
 
     async def stream_request(self, *args, **kwargs):
@@ -453,7 +467,7 @@ class FakeEngine:
                 token_text=char, finished=False, finish_reason=None
             )
         yield types.SimpleNamespace(
-            token_text="", finished=True, finish_reason=FinishReason.EOS_TOKEN
+            token_text="", finished=True, finish_reason=self.finish_reason
         )
 
 
@@ -476,12 +490,9 @@ def make_client(text=XML, parser="qwen3_coder"):
     stubs["infinilm.moe_config"].configure_moe_ep_backend = lambda *a: None
     stubs["infinilm.server.agent_protocol"] = protocol
     stubs["infinilm.server.tool_parsers"] = parsers
-    with patch.dict(sys.modules, stubs):
-        spec = importlib.util.spec_from_file_location(
-            "inference_server_under_test", SERVER / "inference_server.py"
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+    module = load_module(
+        "inference_server_under_test", SERVER / "inference_server.py", stubs
+    )
     server = module.InferenceServer("/models/Qwen3.8-27B", tool_call_parser=parser)
     server.engine = FakeEngine(text)
     app = FastAPI()
@@ -493,28 +504,31 @@ def make_client(text=XML, parser="qwen3_coder"):
 @pytest.mark.parametrize("parser_name", WIRES)
 def test_http_tool_call_and_history_replay(stream, parser_name):
     client, server = make_client(WIRES[parser_name], parser=parser_name)
+    # XML formats share type inference; exercise root schemas through every route.
+    tools = TOOLS
+    if parser_name in {"qwen3_coder", "minicpm5", "glm5"}:
+        tools = tools_with(
+            parameters={
+                "$ref": "#/$defs/Args",
+                "$defs": {"Args": TOOLS[0]["function"]["parameters"]},
+            }
+        )
     body = {
         "messages": [{"role": "user", "content": "compute"}],
-        "tools": TOOLS,
+        "tools": tools,
         "stream": stream,
         "max_completion_tokens": 7,
         "chat_template_kwargs": {"enable_thinking": False},
         "stream_options": {"include_usage": True},
     }
     response = post_chat(client, **body)
-    assert response.status_code == 200, response.text
-    if stream:
-        chunks = sse_chunks(response)
-        message = protocol.collect_message(
-            [c["choices"][0]["delta"] for c in chunks if c.get("choices")]
-        )
-        assert chunks[-1]["usage"]["total_tokens"] == 17
-        assert chunks[-2]["choices"][0]["finish_reason"] == "tool_calls"
-        assert response.text.count("data: [DONE]") == 1
-    else:
-        message = response.json()["choices"][0]["message"]
-        assert response.json()["choices"][0]["finish_reason"] == "tool_calls"
-    assert server.engine.requests[0]["chat_template_kwargs"]["tools"] == TOOLS
+    message, finish, usage = read_completion(response)
+    assert finish == "tool_calls" and usage["total_tokens"] == 17
+    assert (
+        json.loads(message["tool_calls"][0]["function"]["arguments"])
+        == JSON_CALL["arguments"]
+    )
+    assert server.engine.requests[0]["chat_template_kwargs"]["tools"] == tools
     assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 7
     call_id = message["tool_calls"][0]["id"]
     body["messages"] += [
@@ -635,18 +649,9 @@ def test_http_truncated_model_output(stream, parser_name):
 def test_disabled_parser_preserves_plain_chat(stream):
     client, server = make_client("plain answer", parser="none")
     response = post_chat(client, stream=stream)
-    assert response.status_code == 200
     assert "tools" not in server.engine.requests[0]["chat_template_kwargs"]
-    if stream:
-        chunks = sse_chunks(response)
-        assert (
-            "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
-            == "plain answer"
-        )
-        assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
-        assert response.text.count("data: [DONE]") == 1
-    else:
-        assert response.json()["choices"][0]["message"]["content"] == "plain answer"
+    message, finish, _ = read_completion(response)
+    assert message["content"] == "plain answer" and finish == "stop"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -672,6 +677,85 @@ def test_completion_token_alias_precedence():
     response = post_chat(client, max_tokens=3, max_completion_tokens=7)
     assert response.status_code == 200
     assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 3
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("name", [None, "compute", "auto", "none"])
+def test_required_calls_preserve_length_but_reject_normal_text(stream, name):
+    client, server = make_client("<think>budget exhausted")
+    fields = dict(
+        tools=tools_with(name=name or "compute"),
+        tool_choice={"type": "function", "function": {"name": name}}
+        if name
+        else "required",
+        stream=stream,
+        stream_options={"include_usage": True},
+    )
+    server.engine.finish_reason = FinishReason.LENGTH
+    response = post_chat(client, **fields)
+    message, finish, usage = read_completion(response)
+    assert finish == "length" and usage["total_tokens"] == 17
+    assert message["reasoning_content"] == "budget exhausted" and not message.get(
+        "tool_calls"
+    )
+    server.engine.finish_reason = FinishReason.EOS_TOKEN
+    response = post_chat(client, **fields)
+    assert "invalid_model_output" in response.text
+    assert stream or response.status_code == 502
+    server.engine.text = XML.replace("compute", name or "compute")
+    message, finish, _ = read_completion(post_chat(client, **fields))
+    assert finish == "tool_calls"
+    assert message["tool_calls"][0]["function"]["name"] == (name or "compute")
+
+
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize(
+    "parser,text",
+    [
+        ("qwen3_coder", "The operator is <"),
+        ("llama3_json", '{"answer":42}\nThat is the result.'),
+        (
+            "hermes",
+            "<tool_call>"
+            + json.dumps(
+                {
+                    "name": "compute",
+                    "arguments": {
+                        "n": 42,
+                        "label": 'insert </tool_call> and "quotes" here',
+                    },
+                }
+            )
+            + "</tool_call>",
+        ),
+    ],
+)
+def test_http_preserves_literal_content(stream, parser, text):
+    client, _ = make_client(text, parser=parser)
+    response = post_chat(client, tools=TOOLS, stream=stream)
+    message, finish, _ = read_completion(response)
+    assert finish == ("tool_calls" if parser == "hermes" else "stop")
+    if parser == "hermes":
+        assert (
+            json.loads(message["tool_calls"][0]["function"]["arguments"])["label"]
+            == 'insert </tool_call> and "quotes" here'
+        )
+    else:
+        assert message["content"] == text and not message.get("tool_calls")
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"properties": {"$ref": {"type": "string"}}, "required": ["$ref"]},
+        {"default": {"$ref": "https://example.org/resource"}},
+        {"const": {"$dynamicRef": "https://example.org/resource"}},
+    ],
+)
+def test_schema_reference_names_in_instance_data(schema):
+    protocol.prepare_agent_request(
+        {"tools": tools_with(parameters=schema)}, "qwen3_coder"
+    )
 
 
 def test_minicpm_cdata_preserves_literal_tags():
@@ -730,9 +814,7 @@ def test_http_reasoning_starts_from_rendered_prompt(thinking, parser_name):
         reasoning_effort="low",
         chat_template_kwargs={"enable_thinking": thinking},
     )
-    message = protocol.collect_message(
-        [c["choices"][0]["delta"] for c in sse_chunks(response) if c.get("choices")]
-    )
+    message, _, _ = read_completion(response)
     assert message["content"] == "42"
     assert message.get("reasoning_content") == ("reason" if thinking else None)
     if parser_name == "kimi_k3":
@@ -782,21 +864,16 @@ def test_kimi_json_block_and_response_channels():
 def test_deepseek_processor_supplies_native_encoder_contract():
     base = types.ModuleType("infinilm.processors.basic_llm_processor")
     base.BasicLLMProcessor = object
-    with patch.dict(
-        sys.modules,
+    module = load_module(
+        "infinilm.processors.deepseek_v4_processor",
+        SERVER.parent / "processors/deepseek_v4_processor.py",
         {
             "infinilm": types.ModuleType("infinilm"),
             "infinilm.processors": types.ModuleType("infinilm.processors"),
             "infinilm.processors.basic_llm_processor": base,
             "infinilm.processors.history_encoding": history_encoding,
         },
-    ):
-        spec = importlib.util.spec_from_file_location(
-            "infinilm.processors.deepseek_v4_processor",
-            SERVER.parent / "processors/deepseek_v4_processor.py",
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+    )
     processor = object.__new__(module.DeepSeekV4Processor)
     captured = {}
 
@@ -945,7 +1022,7 @@ def test_turn_constraints_reach_model_without_changing_caller_history(parser):
     system = data["messages"][-1 if parser == "kimi_k3" else 0]["content"]
     assert 'function "compute"' in system
     assert "at most one real tool call" in system
-    assert choice == "compute" and set(schemas) == {"compute"}
+    assert choice == "required" and set(schemas) == {"compute"}
     disabled, _, _ = protocol.prepare_agent_request(
         dict(request, tool_choice="none"), parser
     )

@@ -10,6 +10,8 @@ import re
 import uuid
 
 from jsonschema import Draft202012Validator, SchemaError, ValidationError
+from referencing import Registry
+from referencing.exceptions import Unresolvable
 
 
 class AgentProtocolError(ValueError):
@@ -27,16 +29,45 @@ def _object(value, label):
     return value
 
 
-def _check_refs(value):
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key in ("$ref", "$dynamicRef") and not str(child).startswith("#"):
-                raise AgentProtocolError(
-                    "Only local JSON Schema references are supported"
-                )
-            _check_refs(child)
-    elif isinstance(value, list):
-        for child in value:
+def schema_validator(schema):
+    # Local references may target annotations, which must never fetch resources.
+    return Draft202012Validator(schema, registry=Registry())
+
+
+def _check_refs(schema):
+    if not isinstance(schema, dict):
+        return
+    for key, child in schema.items():
+        if key in {"$ref", "$dynamicRef"} and not str(child).startswith("#"):
+            raise AgentProtocolError("Only local JSON Schema references are supported")
+        if key in {
+            "$defs",
+            "definitions",
+            "properties",
+            "patternProperties",
+            "dependentSchemas",
+            "dependencies",
+        } and isinstance(child, dict):
+            for subschema in child.values():
+                _check_refs(subschema)
+        elif key in {"allOf", "anyOf", "oneOf", "prefixItems"} and isinstance(
+            child, list
+        ):
+            for subschema in child:
+                _check_refs(subschema)
+        elif key in {
+            "items",
+            "contains",
+            "additionalProperties",
+            "unevaluatedProperties",
+            "unevaluatedItems",
+            "propertyNames",
+            "not",
+            "if",
+            "then",
+            "else",
+            "contentSchema",
+        }:
             _check_refs(child)
 
 
@@ -247,7 +278,7 @@ def prepare_agent_request(data, parser="none"):
                     content + "\n\n[Request tool-call constraints]\n" + "\n".join(rules)
                 )
     data["chat_template_kwargs"] = kwargs
-    return data, schemas, selected or choice
+    return data, schemas, "required" if selected else choice
 
 
 def make_tool_call(name, args, schemas, parser="qwen3_coder"):
@@ -255,11 +286,13 @@ def make_tool_call(name, args, schemas, parser="qwen3_coder"):
         raise AgentProtocolError("Unknown tool call")
     args = _object(args, "tool arguments")
     try:
-        Draft202012Validator(schemas[name]).validate(args)
+        schema_validator(schemas[name]).validate(args)
     except ValidationError as exc:
         raise AgentProtocolError(
             f"Invalid arguments for {name}: {exc.message}"
         ) from exc
+    except Unresolvable as exc:
+        raise AgentProtocolError("Unresolved local tool parameter reference") from exc
     try:
         encoded_args = json.dumps(args, ensure_ascii=False, allow_nan=False)
     except ValueError as exc:

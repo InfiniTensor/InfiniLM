@@ -4,11 +4,10 @@ import html
 import json
 import re
 
-from jsonschema import Draft202012Validator
 from referencing.exceptions import Unresolvable
 
-from ..agent_protocol import AgentProtocolError, make_tool_call
-from .structured import parse_structured_calls
+from ..agent_protocol import AgentProtocolError, make_tool_call, schema_validator
+from .structured import members, parse_structured_calls
 
 TOOL_CALL_FORMATS = {
     "qwen3_coder": ("<tool_call>", "</tool_call>"),
@@ -31,7 +30,7 @@ def _accepts_string(spec, root, raw):
     if not isinstance(spec, dict) or not spec:
         return False
     try:
-        return Draft202012Validator(root).evolve(schema=spec).is_valid(raw)
+        return schema_validator(root).evolve(schema=spec).is_valid(raw)
     except Unresolvable:
         # A property's own resource scope may be needed; defer to the full schema.
         return False
@@ -40,7 +39,7 @@ def _accepts_string(spec, root, raw):
 def _resolve_xml_arguments(args, raw_args, schema):
     # Object constraints may couple fields. Keep alternatives independent and
     # bound the search instead of committing a failed branch's conversions.
-    validator = Draft202012Validator(schema)
+    validator = schema_validator(schema)
     values = {}
     for key, value in args.items():
         if value != raw_args[key]:
@@ -120,10 +119,10 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         raise AgentProtocolError("Malformed or unknown tool call")
     name, body = match[1], match[2]
     schema = schemas[name]
-    args, raw_args, offset = {}, {}, 0
-    for param in re.finditer(parameter, body, re.S):
-        if body[offset : param.start()].strip() or param[1] in args:
-            raise AgentProtocolError("Malformed or duplicate tool parameter")
+    args, raw_args = {}, {}
+    for param in members(body, parameter):
+        if param[1] in args:
+            raise AgentProtocolError("Duplicate tool parameter")
         key, raw = param[1], param[2]
         if parser == "minicpm5" and raw.startswith("<![CDATA[") and raw.endswith("]]>"):
             raw = raw[9:-3]
@@ -141,9 +140,6 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
                 args[key] = json.loads(raw)
             except ValueError:
                 pass
-        offset = param.end()
-    if body[offset:].strip():
-        raise AgentProtocolError("Malformed tool parameters")
     _resolve_xml_arguments(args, raw_args, schema)
     return make_tool_call(name, args, schemas)
 
@@ -191,18 +187,20 @@ class ToolCallParser:
                 body, self.schemas, self.parser, len(self.calls)
             )
         try:
+            if self.parser == "llama3_json" and not block.startswith(self.start):
+                try:
+                    calls, _ = json.JSONDecoder().raw_decode(body.lstrip())
+                except ValueError:
+                    return None
+                if (
+                    not isinstance(calls, dict)
+                    or "name" not in calls
+                    or not ({"arguments", "parameters"} & calls.keys())
+                ):
+                    return None
             calls = json.loads(body)
         except ValueError as exc:
             raise AgentProtocolError("Malformed or truncated JSON tool call") from exc
-        if (
-            self.parser == "llama3_json"
-            and not block.startswith(self.start)
-            and isinstance(calls, dict)
-            and (
-                "name" not in calls or not ({"arguments", "parameters"} & calls.keys())
-            )
-        ):
-            return None
         calls = calls if isinstance(calls, list) else [calls]
         if not calls:
             raise AgentProtocolError("Empty tool calls")
@@ -218,7 +216,7 @@ class ToolCallParser:
             for c in calls
         ]
 
-    def feed(self, text, final=False):
+    def feed(self, text, final=False, finish_reason="stop"):
         self.buffer += text
         events = []
         while self.buffer:
@@ -229,7 +227,6 @@ class ToolCallParser:
                 and self.schemas
                 and self.buffer.lstrip().startswith("{")
             ):
-                self.buffer = self.buffer.lstrip()
                 self.mode = "tool"
             if self.mode == "tool":
                 end = (
@@ -237,6 +234,26 @@ class ToolCallParser:
                     if self.end
                     else len(self.buffer)
                 )
+                if self.parser == "hermes":
+                    body = self.buffer[len(self.start) :].lstrip()
+                    try:
+                        _, size = json.JSONDecoder().raw_decode(body)
+                    except ValueError:
+                        if not final:
+                            break
+                        raise AgentProtocolError(
+                            "Malformed or truncated JSON tool call"
+                        )
+                    end = len(self.buffer) - len(body) + size
+                    tail = self.buffer[end:].lstrip()
+                    end = len(self.buffer) - len(tail)
+                    if not tail.startswith(self.end):
+                        if not final and self.end.startswith(tail):
+                            break
+                        raise AgentProtocolError(
+                            "Malformed or truncated JSON tool call"
+                        )
+                    end += len(self.end)
                 if self.parser == "minicpm5":
                     matches = re.finditer(
                         r"<!\[CDATA\[.*?(?:\]\]>|$)|</function>", self.buffer, re.S
@@ -302,14 +319,16 @@ class ToolCallParser:
                 self.buffer = self.buffer[count:]
             break
         if final:
-            if self.mode == "tool" or (
-                self.buffer and self.schemas and self.start.startswith(self.buffer)
-            ):
+            if self.mode == "tool":
                 raise AgentProtocolError("Truncated tool call")
             if self.buffer:
                 events.append({self.mode: self.buffer})
                 self.buffer = ""
-            if self.choice not in ("auto", "none") and not self.calls:
+            if (
+                finish_reason in ("stop", "eos_token", "stop_string")
+                and self.choice not in ("auto", "none")
+                and not self.calls
+            ):
                 raise AgentProtocolError("Model did not satisfy tool_choice")
         return events
 

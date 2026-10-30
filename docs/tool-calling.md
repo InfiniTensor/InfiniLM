@@ -59,13 +59,17 @@ final usage chunk before `[DONE]`.
 
 `tool_choice` supports `auto`, `none`, `required` and a named function. Required
 and named choices are checked against the generated result; they do not enable
-constrained decoding. `parallel_tool_calls: false` rejects multiple calls.
+constrained decoding. This check applies to normal stops: exhausting the output
+budget before a call retains `length`, generated content and usage. An incomplete
+tool structure still fails validation. `parallel_tool_calls: false` rejects multiple calls.
 XML arguments retain schema-declared strings, including object-level references
 and applicators. Ambiguous string/JSON assignments are checked against the whole
 schema with at most 256 candidate validations; exceeding this bound fails with a
 protocol error. A candidate is never emitted without full schema validation.
 
-`strict: true` and non-local JSON Schema references are rejected. Malformed
+`strict: true` and non-local JSON Schema references are rejected. Property names
+and instance data such as `default` or `const` are not reference keywords; schema
+validation never retrieves remote resources. Malformed
 generated calls return HTTP 502 for ordinary responses, or an error event for
 an already-open SSE response. Clients should execute tools only after a
 successful completed turn, and handle tool permissions and side effects in the
@@ -83,7 +87,10 @@ An open `<think>` at the end of the rendered generation prompt starts reasoning
 mode; explicit `<think>`/`</think>` output is also recognized. Thinking controls
 and `reasoning_effort` are passed to the native template, whose accepted values
 can differ between models. MiniCPM5 CDATA string parameters preserve literal XML
-tags and newlines. Ordinary Llama JSON objects without a call shape stay text.
+tags and newlines. Hermes JSON strings preserve literal closing tags and escaped
+quotes. Ordinary Llama JSON objects without a call shape stay text, including
+objects followed by explanation text. A trailing marker prefix such as `<` in
+ordinary text is preserved until an actual tool structure has started.
 
 Kimi K3 uses XTML think/response channels, rather than K2's tool-section tokens.
 `enable_thinking` and `reasoning_effort` are translated to its native `thinking`
