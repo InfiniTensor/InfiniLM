@@ -154,7 +154,11 @@ class Qwen35Processor(BasicLLMProcessor):
                     )
 
             normalized_conversation.append(
-                {"role": message.get("role", "user"), "content": normalized_content}
+                {
+                    **message,
+                    "role": message.get("role", "user"),
+                    "content": normalized_content,
+                }
             )
 
         template_owner = (

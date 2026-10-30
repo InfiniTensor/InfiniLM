@@ -9,6 +9,7 @@ from .. import _core as infinicore
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
+from .history_encoding import kimi_history_template
 
 
 class KimiK3Processor(BasicLLMProcessor):
@@ -25,6 +26,9 @@ class KimiK3Processor(BasicLLMProcessor):
             self.processor,
             "tokenizer",
             AutoTokenizer.from_pretrained(model_dir_path, trust_remote_code=True),
+        )
+        self._history_template = kimi_history_template(
+            self.tokenizer.apply_chat_template
         )
 
     @override
@@ -84,7 +88,15 @@ class KimiK3Processor(BasicLLMProcessor):
 
     @override
     def apply_chat_template(self, conversation, **kwargs):
-        return self.processor.apply_chat_template(conversation, **kwargs)
+        return self._history_template(conversation, **kwargs)
+
+    def encode_chat_inputs(self, conversation, **kwargs):
+        # Preserve the checkpoint's structural/ordinary BPE segment distinction.
+        # Re-tokenizing the rendered string would treat literal control-looking
+        # user or tool text as structural tokens.
+        return self._history_template(
+            conversation, tokenize=True, return_dict=True, **kwargs
+        )
 
     @override
     def build_model_inputs(
