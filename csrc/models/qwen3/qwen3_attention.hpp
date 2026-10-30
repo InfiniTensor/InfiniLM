@@ -25,6 +25,9 @@ public:
         return result;
     }
 
+    void process_weights_after_loading(infinilm::runtime::Runtime &runtime,
+                                       bool pre_transpose) override;
+
     size_t layer_idx() const { return layer_idx_; }
     size_t num_heads() const { return num_attention_heads_; }
     size_t num_kv_heads() const { return num_key_value_heads_; }
@@ -40,6 +43,11 @@ private:
                                              const infinilm::runtime::Tensor &hidden_states,
                                              infinilm::global_state::ForwardContext &forward_context) const;
 
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+    forward_split_merged_qk_(infinilm::runtime::Runtime &runtime,
+                             const infinilm::runtime::Tensor &qkv,
+                             size_t token_count) const;
+
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
@@ -54,6 +62,9 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    infinilm::runtime::Device device_;
+    bool use_merged_qk_norm_{false};
+    infinilm::runtime::Tensor merged_qk_norm_weight_;
 
     // For off-line kv cache quantization
     infinilm::weights::Weight kv_cache_k_scale_;
