@@ -288,6 +288,118 @@ def test_unresolved_parameter_reference_is_a_protocol_error():
         ToolCallParser(schemas, thinking=False).feed(XML, final=True)
 
 
+@pytest.mark.parametrize("parser_name", ["qwen3_coder", "minicpm5", "glm5"])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "root-ref",
+        "allOf",
+        "additional-properties",
+        "const",
+        "enum",
+        "anyOf",
+        "oneOf",
+        "conditional",
+        "property-resource",
+        "untyped-nested",
+        "global-preference",
+    ],
+)
+def test_xml_object_schema_string_coercion(parser_name, shape):
+    base = copy.deepcopy(TOOLS[0]["function"]["parameters"])
+    if shape == "root-ref":
+        schema = {"$ref": "#/$defs/Args", "$defs": {"Args": base}}
+    elif shape == "allOf":
+        schema = {"allOf": [base]}
+    elif shape == "additional-properties":
+        schema = {
+            "type": "object",
+            "properties": {"n": {"type": "integer"}},
+            "additionalProperties": {"type": "string"},
+            "required": ["n", "label"],
+        }
+    elif shape in {"const", "enum"}:
+        expected = {"n": 42, "label": "123"}
+        schema = {shape: [expected] if shape == "enum" else expected}
+    elif shape == "conditional":
+        schema = {
+            "properties": {"n": {"type": "integer"}},
+            "if": {"properties": {"label": {"type": "integer"}}},
+            "then": {"required": ["absent"]},
+            "else": {"properties": {"label": {"type": "string"}}},
+        }
+    elif shape == "property-resource":
+        schema = {
+            "properties": {
+                "n": {"type": "integer"},
+                "label": {
+                    "$id": "urn:infinilm:label",
+                    "$defs": {"S": {"type": "string"}},
+                    "$ref": "#/$defs/S",
+                },
+            }
+        }
+    elif shape == "untyped-nested":
+        schema = {
+            "allOf": [
+                {
+                    "properties": {
+                        "n": {"type": "integer"},
+                        "label": {"properties": {"nested": {"type": "string"}}},
+                    }
+                }
+            ]
+        }
+    elif shape == "global-preference":
+        schema = {
+            "properties": {
+                "n": {"type": "integer"},
+                "label": {"type": ["string", "integer"]},
+            },
+            "allOf": [{"properties": {"label": {"type": "integer"}}}],
+        }
+    else:
+        schema = {
+            shape: [
+                {
+                    "properties": {
+                        "n": {"type": "string"},
+                        "label": {"type": "integer"},
+                    },
+                    "required": ["absent"],
+                },
+                {"properties": {"n": {"type": "integer"}, "label": {"type": "string"}}},
+            ]
+        }
+    wire = WIRES[parser_name]
+    expected_args = {"n": 42, "label": "123"}
+    if shape == "untyped-nested":
+        wire = wire.replace("123", '{"nested":123}')
+        expected_args["label"] = '{"nested":123}'
+    elif shape == "global-preference":
+        expected_args["label"] = 123
+    client, _ = make_client(wire, parser=parser_name)
+    for stream in (False, True):
+        response = post_chat(client, tools=tools_with(parameters=schema), stream=stream)
+        assert response.status_code == 200, response.text
+        if stream:
+            chunks = sse_chunks(response)
+            assert not any("error" in chunk for chunk in chunks)
+            message = protocol.collect_message(
+                [
+                    chunk["choices"][0]["delta"]
+                    for chunk in chunks
+                    if chunk.get("choices")
+                ]
+            )
+            assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+        else:
+            message = response.json()["choices"][0]["message"]
+            assert response.json()["choices"][0]["finish_reason"] == "tool_calls"
+        args = json.loads(message["tool_calls"][0]["function"]["arguments"])
+        assert args == expected_args and type(args["n"]) is int
+
+
 def test_arbitrary_precision_integer_arguments():
     _, schemas, _ = prepared()
     value = 10**400

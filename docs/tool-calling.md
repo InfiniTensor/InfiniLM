@@ -60,6 +60,11 @@ final usage chunk before `[DONE]`.
 `tool_choice` supports `auto`, `none`, `required` and a named function. Required
 and named choices are checked against the generated result; they do not enable
 constrained decoding. `parallel_tool_calls: false` rejects multiple calls.
+XML arguments retain schema-declared strings, including object-level references
+and applicators. Ambiguous string/JSON assignments are checked against the whole
+schema with at most 256 candidate validations; exceeding this bound fails with a
+protocol error. A candidate is never emitted without full schema validation.
+
 `strict: true` and non-local JSON Schema references are rejected. Malformed
 generated calls return HTTP 502 for ordinary responses, or an error event for
 an already-open SSE response. Clients should execute tools only after a

@@ -32,6 +32,76 @@ def _accepts_string(spec, root, raw):
         return False
     try:
         return Draft202012Validator(root).evolve(schema=spec).is_valid(raw)
+    except Unresolvable:
+        # A property's own resource scope may be needed; defer to the full schema.
+        return False
+
+
+def _resolve_xml_arguments(args, raw_args, schema):
+    # Object constraints may couple fields. Keep alternatives independent and
+    # bound the search instead of committing a failed branch's conversions.
+    validator = Draft202012Validator(schema)
+    values = {}
+    for key, value in args.items():
+        if value != raw_args[key]:
+            values[key] = raw_args[key]
+        else:
+            try:
+                values[key] = json.loads(raw_args[key])
+            except ValueError:
+                pass
+    bits = {key: 1 << index for index, key in enumerate(values)}
+
+    def error_keys(error):
+        path = list(error.absolute_path)
+        if path and path[0] in bits:
+            yield path[0]
+        elif not path:
+            yield from bits
+        for child in error.context:
+            yield from error_keys(child)
+
+    def alternatives(mask, keys):
+        combined = mask
+        for key in keys:
+            combined |= bits[key]
+        yield combined
+        for key in keys:
+            yield mask | bits[key]
+        # Conditionals can depend on a different field than the error names.
+        for key in bits:
+            yield mask | bits[key]
+
+    try:
+        pending, seen = [iter((0,))], set()
+        while pending:
+            mask = next(pending[-1], None)
+            if mask is None:
+                pending.pop()
+                continue
+            if mask in seen:
+                continue
+            if len(seen) >= 256:
+                raise AgentProtocolError(
+                    "XML argument type inference exceeded its schema search limit"
+                )
+            seen.add(mask)
+            candidate = {
+                key: values[key] if mask & bits.get(key, 0) else value
+                for key, value in args.items()
+            }
+            errors = list(validator.iter_errors(candidate))
+            if not errors:
+                try:
+                    json.dumps(candidate, allow_nan=False)
+                except ValueError:
+                    pass
+                else:
+                    args.update(candidate)
+                    return
+            keys = dict.fromkeys(key for error in errors for key in error_keys(error))
+            # Try the combined correction first, then backtrack to individual fields.
+            pending.append(alternatives(mask, keys))
     except Unresolvable as exc:
         raise AgentProtocolError("Unresolved local tool parameter reference") from exc
 
@@ -50,7 +120,7 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         raise AgentProtocolError("Malformed or unknown tool call")
     name, body = match[1], match[2]
     schema = schemas[name]
-    args, offset = {}, 0
+    args, raw_args, offset = {}, {}, 0
     for param in re.finditer(parameter, body, re.S):
         if body[offset : param.start()].strip() or param[1] in args:
             raise AgentProtocolError("Malformed or duplicate tool parameter")
@@ -62,6 +132,7 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
                 raw = _trim_newline(raw)
             if parser == "minicpm5":
                 raw = html.unescape(raw)
+        raw_args[key] = raw
         spec = schema.get("properties", {}).get(key, {})
         # The template writes strings verbatim and all other values as JSON.
         args[key] = raw
@@ -73,6 +144,7 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         offset = param.end()
     if body[offset:].strip():
         raise AgentProtocolError("Malformed tool parameters")
+    _resolve_xml_arguments(args, raw_args, schema)
     return make_tool_call(name, args, schemas)
 
 
