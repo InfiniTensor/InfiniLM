@@ -9,6 +9,8 @@ from .. import _core as infinicore
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
+from .history_encoding import kimi_history_template
+from .recurrent_inputs import append_recurrent_state_inputs
 
 
 class KimiK3Processor(BasicLLMProcessor):
@@ -21,10 +23,13 @@ class KimiK3Processor(BasicLLMProcessor):
         self.processor = AutoProcessor.from_pretrained(
             model_dir_path, trust_remote_code=True
         )
-        self.tokenizer = getattr(
-            self.processor,
-            "tokenizer",
-            AutoTokenizer.from_pretrained(model_dir_path, trust_remote_code=True),
+        self.tokenizer = getattr(self.processor, "tokenizer", None)
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                model_dir_path, trust_remote_code=True
+            )
+        self._history_template = kimi_history_template(
+            self.tokenizer.apply_chat_template
         )
 
     @override
@@ -84,7 +89,15 @@ class KimiK3Processor(BasicLLMProcessor):
 
     @override
     def apply_chat_template(self, conversation, **kwargs):
-        return self.processor.apply_chat_template(conversation, **kwargs)
+        return self._history_template(conversation, **kwargs)
+
+    def encode_chat_inputs(self, conversation, **kwargs):
+        # Preserve the checkpoint's structural/ordinary BPE segment distinction.
+        # Re-tokenizing the rendered string would treat literal control-looking
+        # user or tool text as structural tokens.
+        return self._history_template(
+            conversation, tokenize=True, return_dict=True, **kwargs
+        )
 
     @override
     def build_model_inputs(
@@ -101,23 +114,7 @@ class KimiK3Processor(BasicLLMProcessor):
         if isinstance(scheduler_output, SchedulerOutput):
             self._append_multimodal_inputs(model_inputs, scheduler_output)
 
-        init_indices = []
-        final_indices = []
-        for request in scheduler_output.scheduled_requests:
-            if request.mamba_cache_index is None:
-                raise RuntimeError(
-                    f"Request {request.request_id} has no mamba cache index"
-                )
-            init_indices.append(
-                0 if scheduler_output.is_prefill else request.mamba_cache_index
-            )
-            final_indices.append(request.mamba_cache_index)
-        model_inputs["mamba_init_state_indices"] = infinicore.from_list(
-            init_indices, dtype=infinicore.int32
-        )
-        model_inputs["mamba_final_state_indices"] = infinicore.from_list(
-            final_indices, dtype=infinicore.int32
-        )
+        append_recurrent_state_inputs(model_inputs, scheduler_output)
         return model_inputs
 
     def _append_multimodal_inputs(

@@ -453,8 +453,31 @@ class LLMEngine:
         """Detokenize token IDs to text."""
         return self.tokenizer.decode(token_ids)
 
-    def process(self, prompt, images, videos, audios, **kwargs) -> dict:
+    def process(
+        self,
+        prompt,
+        images,
+        videos,
+        audios,
+        *,
+        chat_messages=None,
+        chat_template_kwargs=None,
+        add_generation_prompt=True,
+        **kwargs,
+    ) -> dict:
         """Process the input prompt and media into final model inputs."""
+        encode_chat = getattr(self.processor, "encode_chat_inputs", None)
+        if (
+            chat_messages is not None
+            and not (images or videos or audios)
+            and encode_chat
+        ):
+            return encode_chat(
+                chat_messages,
+                add_generation_prompt=add_generation_prompt,
+                **(chat_template_kwargs or {}),
+                **kwargs,
+            )
         return self.processor(
             prompt, images=images, videos=videos, audios=audios, **kwargs
         )
@@ -620,6 +643,7 @@ class LLM:
                     mm_inputs["images"],
                     mm_inputs["videos"],
                     mm_inputs["audios"],
+                    chat_messages=content,
                     return_tensors=_chat_tensor_mode(
                         self.engine.processor, has_multimodal_inputs
                     ),
@@ -1110,6 +1134,9 @@ class AsyncLLMEngine:
                 mm_inputs["images"],
                 mm_inputs["videos"],
                 mm_inputs["audios"],
+                chat_messages=messages,
+                chat_template_kwargs=chat_template_kwargs,
+                add_generation_prompt=add_generation_prompt,
                 return_tensors=_chat_tensor_mode(
                     self.engine.processor, has_multimodal_inputs
                 ),

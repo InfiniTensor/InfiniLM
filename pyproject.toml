@@ -28,6 +28,7 @@ classifiers = [
 
 [project.optional-dependencies]
 torch-compat = ["torch"]
+server = ["fastapi", "uvicorn", "jsonschema>=4.18"]
 
 [project.urls]
 Homepage = "https://github.com/InfiniTensor/InfiniLM"

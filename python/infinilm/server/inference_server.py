@@ -20,11 +20,32 @@ from infinilm.base_config import BaseConfig
 from infinilm.config import KVTransferConfig
 from infinilm.llm import AsyncLLMEngine, FinishReason, SamplingParams
 from infinilm.moe_config import configure_moe_ep_backend
+from infinilm.server.agent_protocol import (
+    AgentProtocolError,
+    collect_message,
+    prepare_agent_request,
+)
+from infinilm.server.tool_parsers import TOOL_CALL_FORMATS, ToolCallParser
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
 DEFAULT_REQUEST_TIMEOUT = 1000.0
+
+
+def sse_json(payload):
+    return "data: " + json.dumps(payload, ensure_ascii=False) + "\n\n"
+
+
+def error_json(exc):
+    return {
+        "error": {
+            "message": str(exc),
+            "type": "invalid_model_output"
+            if isinstance(exc, AgentProtocolError)
+            else "server_error",
+        }
+    }
 
 
 def chunk_json(
@@ -125,6 +146,7 @@ class InferenceServer:
         kv_transfer_config: Optional[KVTransferConfig] = None,
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
+        tool_call_parser: str = "none",
     ):
         """Initialize inference server.
 
@@ -186,6 +208,9 @@ class InferenceServer:
         self.kv_transfer_config = kv_transfer_config
         self.enable_prefix_caching = enable_prefix_caching
         self.pre_transpose = pre_transpose
+        if tool_call_parser != "none" and tool_call_parser not in TOOL_CALL_FORMATS:
+            raise ValueError("Unsupported tool call parser")
+        self.tool_call_parser = tool_call_parser
 
         self.engine: AsyncLLMEngine = None
 
@@ -255,6 +280,11 @@ class InferenceServer:
                 logger.error(f"Failed to parse request JSON: {e}")
                 return JSONResponse(content={"error": "Invalid JSON"}, status_code=400)
 
+            if not isinstance(data, dict):
+                return JSONResponse(
+                    content={"error": "Request must be an object"}, status_code=400
+                )
+
             if not data.get("messages"):
                 if not data.get("prompt"):
                     return JSONResponse(
@@ -265,6 +295,22 @@ class InferenceServer:
 
             # Normalize messages to handle multimodal content (list format)
             data["messages"] = data.get("messages", [])
+
+            try:
+                data, schemas, choice = prepare_agent_request(
+                    data, self.tool_call_parser
+                )
+                data["_agent_schemas"] = schemas
+                data["_agent_choice"] = choice
+                # Validate sampling before starting an SSE response.
+                self._build_sampling_params(data)
+            except (ValueError, TypeError) as e:
+                return JSONResponse(
+                    content={
+                        "error": {"message": str(e), "type": "invalid_request_error"}
+                    },
+                    status_code=400,
+                )
 
             stream = data.get("stream", False)
             request_id = f"cmpl-{uuid.uuid4().hex}"
@@ -364,7 +410,7 @@ class InferenceServer:
             return default
 
         # Accept common alias
-        max_tokens = pick("max_tokens", self.max_tokens)
+        max_tokens = pick("max_tokens", pick("max_completion_tokens", self.max_tokens))
         if max_tokens is None:
             # Some clients use max_new_tokens
             max_tokens = pick("max_new_tokens", self.max_tokens)
@@ -386,6 +432,7 @@ class InferenceServer:
         """Handle streaming chat request."""
         req = None
         _abort_reason = FinishReason.CANCELED
+        parser = None
 
         try:
             messages = data.get("messages", [])
@@ -399,6 +446,11 @@ class InferenceServer:
                 add_generation_prompt=bool(data.get("add_generation_prompt", True)),
                 chat_template_kwargs=data.get("chat_template_kwargs") or {},
             )
+            parser = self._agent_parser(data, req)
+
+            yield sse_json(
+                chunk_json(request_id, role="assistant", model=self.model_id)
+            )
 
             async for token_output in self.engine.stream_request(
                 req,
@@ -411,44 +463,70 @@ class InferenceServer:
                     break
 
                 if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(
-                        f"Request {request_id} timed out after {DEFAULT_REQUEST_TIMEOUT}s"
+                    _abort_reason = FinishReason.TIMEOUT
+                    logger.warning(f"Request {request_id} exceeded its deadline")
+                    if req and not req.is_finished():
+                        self.engine.add_aborted_req(req, FinishReason.TIMEOUT)
+                    yield sse_json(
+                        {
+                            "error": {
+                                "message": "Request deadline exceeded",
+                                "type": "timeout_error",
+                            }
+                        }
                     )
-                    error_chunk = json.dumps(
+                    yield sse_json(
                         chunk_json(
                             request_id,
-                            content="[Request timeout]",
                             finish_reason="timeout",
                             model=self.model_id,
-                        ),
-                        ensure_ascii=False,
+                        )
                     )
-                    yield f"data: {error_chunk}\n\n"
                     break
 
                 if token_output.token_text:
-                    # Send token
-                    chunk = json.dumps(
-                        chunk_json(
-                            request_id,
-                            content=token_output.token_text,
-                            model=self.model_id,
-                        ),
-                        ensure_ascii=False,
+                    events = (
+                        parser.feed(token_output.token_text)
+                        if parser
+                        else [{"content": token_output.token_text}]
                     )
-                    yield f"data: {chunk}\n\n"
+                    for delta in events:
+                        chunk = chunk_json(request_id, model=self.model_id)
+                        chunk["choices"][0]["delta"] = delta
+                        yield sse_json(chunk)
 
                 if token_output.finished:
                     finish_reason = self._convert_finish_reason(
                         token_output.finish_reason
                     )
-                    chunk = json.dumps(
+                    if parser:
+                        for delta in parser.feed(
+                            "", final=True, finish_reason=finish_reason or "stop"
+                        ):
+                            last = chunk_json(request_id, model=self.model_id)
+                            last["choices"][0]["delta"] = delta
+                            yield sse_json(last)
+                        finish_reason = parser.finish_reason(finish_reason)
+                    yield sse_json(
                         chunk_json(
                             request_id, finish_reason=finish_reason, model=self.model_id
-                        ),
-                        ensure_ascii=False,
+                        )
                     )
-                    yield f"data: {chunk}\n\n"
+                    if data.get("stream_options", {}).get("include_usage"):
+                        yield sse_json(
+                            {
+                                "id": request_id,
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": self.model_id,
+                                "choices": [],
+                                "usage": {
+                                    "prompt_tokens": req.get_prompt_length(),
+                                    "completion_tokens": req.get_num_generated_tokens(),
+                                    "total_tokens": req.get_total_length(),
+                                },
+                            }
+                        )
                     break
 
         except asyncio.CancelledError:
@@ -462,16 +540,17 @@ class InferenceServer:
             _abort_reason = FinishReason.ERROR
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
-            error_chunk = json.dumps(
-                chunk_json(
+            error_chunk = (
+                error_json(e)
+                if self.tool_call_parser != "none"
+                else chunk_json(
                     request_id,
                     content=f"[Error: {str(e)}]",
                     finish_reason="error",
                     model=self.model_id,
-                ),
-                ensure_ascii=False,
+                )
             )
-            yield f"data: {error_chunk}\n\n"
+            yield sse_json(error_chunk)
 
         finally:
             # Unified abort: reason is ERROR if we got here via Exception, else CANCELED.
@@ -512,8 +591,19 @@ class InferenceServer:
 
                 # Request-level timeout is handled inside stream_request.
                 if token_output.finish_reason == FinishReason.TIMEOUT:
-                    logger.warning(f"Request {request_id} timed out")
-                    break
+                    _abort_reason = FinishReason.TIMEOUT
+                    logger.warning(f"Request {request_id} exceeded its deadline")
+                    if req and not req.is_finished():
+                        self.engine.add_aborted_req(req, FinishReason.TIMEOUT)
+                    return JSONResponse(
+                        content={
+                            "error": {
+                                "message": "Request deadline exceeded",
+                                "type": "timeout_error",
+                            }
+                        },
+                        status_code=504,
+                    )
 
                 if token_output.token_text:
                     output_text += token_output.token_text
@@ -534,6 +624,16 @@ class InferenceServer:
                 completion_tokens=req.get_num_generated_tokens(),
                 total_tokens=req.get_total_length(),
             )
+            parser = self._agent_parser(data, req)
+            if parser:
+                response["choices"][0]["message"] = collect_message(
+                    parser.feed(
+                        output_text, final=True, finish_reason=finish_reason or "stop"
+                    )
+                )
+                response["choices"][0]["finish_reason"] = parser.finish_reason(
+                    finish_reason or "stop"
+                )
             return response
 
         except asyncio.CancelledError:
@@ -543,13 +643,31 @@ class InferenceServer:
         except Exception as e:
             logger.error(f"Chat error for {request_id}: {e}", exc_info=True)
             _abort_reason = FinishReason.ERROR
-            return JSONResponse(content={"error": str(e)}, status_code=500)
+            if self.tool_call_parser == "none":
+                return JSONResponse(content={"error": str(e)}, status_code=500)
+            return JSONResponse(
+                content=error_json(e),
+                status_code=502 if isinstance(e, AgentProtocolError) else 500,
+            )
 
         finally:
             # Unified abort: reason is ERROR if we got here via Exception, else CANCELED.
             # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
+
+    def _agent_parser(self, data, req):
+        if self.tool_call_parser == "none":
+            return None
+        return ToolCallParser(
+            data.get("_agent_schemas", {}),
+            thinking=(getattr(req, "prompt", None) or "")
+            .rstrip()
+            .endswith(("<think>", "<|open|>think<|sep|>")),
+            choice=data.get("_agent_choice", "auto"),
+            parallel=data.get("parallel_tool_calls", True),
+            parser=self.tool_call_parser,
+        )
 
     def _convert_finish_reason(self, reason: FinishReason) -> str:
         """Convert FinishReason enum to string."""
@@ -648,6 +766,7 @@ def main():
         kv_transfer_config=kv_transfer_config,
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
+        tool_call_parser=cfg.tool_call_parser,
     )
     server.start()
 

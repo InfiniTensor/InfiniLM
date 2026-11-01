@@ -1,11 +1,11 @@
-import asyncio
-from pathlib import Path
-import time
-from openai import AsyncOpenAI
 import argparse
+import asyncio
 import random
 import subprocess
+import time
+from pathlib import Path
 
+from openai import AsyncOpenAI
 
 PROMPTS = [
     "如果猫能写诗，它们会写些什么？",
@@ -161,10 +161,12 @@ async def benchmark_user(
                 answer_chunks = []
 
                 async for chunk in stream:
-                    if first_token_time is None:
-                        first_token_time = time.time()
+                    if not chunk.choices:
+                        continue
                     delta = chunk.choices[0].delta.content
                     if delta:
+                        if first_token_time is None:
+                            first_token_time = time.time()
                         answer_chunks.append(delta)
                         total_tokens += 1
                     if chunk.choices[0].finish_reason is not None:
@@ -200,7 +202,7 @@ async def benchmark_user(
                     if ms_per_token is not None:
                         print(f"  📏 平均 token 解码时间: {ms_per_token:.2f} ms/token")
                     else:
-                        print(f"  📏 平均 token 解码时间: N/A (no token generated)")
+                        print("  📏 平均 token 解码时间: N/A (no token generated)")
                     print(f"  ❓ 提问: {messages}")
                     print(f"  💬 回答: {answer}\n")
 

@@ -41,6 +41,13 @@ InfinilmModel::Output Qwen35ForCausalLM::forward(
         throw std::invalid_argument("Qwen3.5 forward requires an explicit Runtime");
     }
     auto hidden_states = model_->forward(input, forward_context);
+    // Ordinary single-request generation only samples the final input position.
+    if (!input.sample_all_positions && input.input_offsets.has_value()
+        && input.input_offsets.value()->numel() == 2
+        && hidden_states->ndim() == 3 && hidden_states->size(0) == 1
+        && hidden_states->size(1) > 1) {
+        hidden_states = hidden_states->narrow({{1, hidden_states->size(1) - 1, 1}});
+    }
     return {lm_head_->forward(*forward_context.runtime, hidden_states)};
 }
 

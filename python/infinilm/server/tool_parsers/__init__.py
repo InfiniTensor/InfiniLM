@@ -1,0 +1,434 @@
+"""Shared scanners for native tool-call formats; no tool execution."""
+
+import ast
+import heapq
+import json
+import re
+
+from referencing.exceptions import Unresolvable
+
+from ..agent_protocol import AgentProtocolError, make_tool_call, schema_validator
+from .structured import members, parse_structured_calls
+
+TOOL_CALL_FORMATS = {
+    "qwen3_coder": ("<tool_call>", "</tool_call>"),
+    "hermes": ("<tool_call>", "</tool_call>"),
+    "llama3_json": ("<|python_tag|>", ""),
+    "mistral": ("[TOOL_CALLS]", ""),
+    "minicpm5": ("<function", "</function>"),
+    "glm5": ("<tool_call>", "</tool_call>"),
+    "deepseek_v4": ("<｜DSML｜tool_calls>", "</｜DSML｜tool_calls>"),
+    "kimi_k3": ("<|open|>tools<|sep|>", "<|close|>tools<|sep|>"),
+}
+
+_PARAMETER_BLOCKS = {
+    "minicpm5": r'<param\s+name="[^"<>]+"\s*>(?:<!\[CDATA\[.*?(?:\]\]>|$)|.*?)(?:</param>|$)',
+    "qwen3_coder": r"<parameter=[^<>\s]+>.*?(?:</parameter>|$)",
+    "glm5": r"<arg_value>.*?(?:</arg_value>|$)",
+    "deepseek_v4": r"<｜DSML｜parameter\s[^>]*>.*?(?:</｜DSML｜parameter>|$)",
+    "kimi_k3": (
+        r"<\|open\|>argument\s[^<>]*<\|sep\|>.*?(?:<\|close\|>argument<\|sep\|>|$)"
+        r'|<\|open\|>json\s+type="object"<\|sep\|>.*?(?:<\|close\|>json<\|sep\|>|$)'
+    ),
+}
+
+
+def _trim_newline(text):
+    return re.sub(r"\r?\n$", "", re.sub(r"^\r?\n", "", text))
+
+
+def _accepts_string(spec, root, raw):
+    # Preserve numeric-looking strings, including local references and unions.
+    if not isinstance(spec, dict) or not spec:
+        return False
+    try:
+        return schema_validator(root).evolve(schema=spec).is_valid(raw)
+    except Unresolvable:
+        # A property's own resource scope may be needed; defer to the full schema.
+        return False
+
+
+def _xml_value(raw, parser):
+    if parser == "qwen3_coder" and raw in {"True", "False", "None"}:
+        return {"True": True, "False": False, "None": None}[raw]
+    try:
+        return json.loads(raw)
+    except ValueError:
+        if parser != "minicpm5":
+            raise
+    try:
+        value = ast.literal_eval(raw)
+    except (ValueError, SyntaxError) as exc:
+        raise ValueError("Invalid MiniCPM literal.") from exc
+
+    def check_json(item):
+        if isinstance(item, dict):
+            if not all(isinstance(key, str) for key in item):
+                raise ValueError("MiniCPM object keys must be strings.")
+            for child in item.values():
+                check_json(child)
+        elif isinstance(item, list):
+            for child in item:
+                check_json(child)
+        elif item is not None and type(item) not in (str, bool, int, float):
+            raise ValueError("MiniCPM literals must contain JSON-compatible values.")
+
+    check_json(value)
+    return value
+
+
+def _resolve_xml_arguments(
+    args, raw_args, schema, parser="qwen3_coder", string_keys=()
+):
+    # Object constraints may couple fields. Keep alternatives independent and
+    # bound the search instead of committing a failed branch's conversions.
+    validator = schema_validator(schema)
+    values = {}
+    for key, value in args.items():
+        if key in string_keys:
+            continue
+        if value != raw_args[key]:
+            values[key] = raw_args[key]
+        else:
+            try:
+                values[key] = _xml_value(raw_args[key], parser)
+            except ValueError:
+                pass
+    # Direct property types are mandatory even when other object branches exist.
+    for key, alternative in list(values.items()):
+        spec = schema.get("properties", {}).get(key, {})
+        kinds = spec.get("type") if isinstance(spec, dict) else None
+        if kinds is None:
+            continue
+        kinds = [kinds] if isinstance(kinds, str) else kinds
+        if not any(validator.is_type(alternative, kind) for kind in kinds):
+            del values[key]
+        elif not any(validator.is_type(args[key], kind) for kind in kinds):
+            args[key] = alternative
+            del values[key]
+    bits = {key: 1 << index for index, key in enumerate(values)}
+    native_bits = sum(
+        bit
+        for key, bit in bits.items()
+        if parser == "qwen3_coder" and raw_args[key] in {"True", "False", "None"}
+    )
+
+    def error_keys(error):
+        path = list(error.absolute_path)
+        if path and path[0] in bits:
+            yield path[0]
+        elif not path:
+            yield from bits
+        for child in error.context:
+            yield from error_keys(child)
+
+    def alternatives(mask, keys):
+        combined = mask
+        for key in keys:
+            combined |= bits[key]
+        yield combined
+        for key in keys:
+            yield mask | bits[key]
+        # Conditionals can depend on a different field than the error names.
+        for key in bits:
+            yield mask | bits[key]
+
+    try:
+        pending, seen = [iter((0,))], set()
+        deferred, queued, priority = [], set(), 0
+        while pending or deferred:
+            if not pending:
+                priority, mask = heapq.heappop(deferred)
+                pending.append(iter((mask,)))
+            mask = next(pending[-1], None)
+            if mask is None:
+                pending.pop()
+                continue
+            if mask in seen:
+                continue
+            # Exhaust less destructive interpretations before scalar fallbacks.
+            cost = (mask & native_bits).bit_count()
+            if cost > priority:
+                if mask not in queued:
+                    heapq.heappush(deferred, (cost, mask))
+                    queued.add(mask)
+                continue
+            if len(seen) >= 256:
+                raise AgentProtocolError(
+                    "XML argument type inference exceeded its schema search limit"
+                )
+            seen.add(mask)
+            candidate = {
+                key: values[key] if mask & bits.get(key, 0) else value
+                for key, value in args.items()
+            }
+            errors = list(validator.iter_errors(candidate))
+            if not errors:
+                try:
+                    json.dumps(candidate, allow_nan=False)
+                except ValueError:
+                    pass
+                else:
+                    args.update(candidate)
+                    return
+            keys = dict.fromkeys(key for error in errors for key in error_keys(error))
+            # Try the combined correction first, then backtrack to individual fields.
+            pending.append(alternatives(mask, keys))
+    except Unresolvable as exc:
+        raise AgentProtocolError("Unresolved local tool parameter reference") from exc
+
+
+def parse_xml_call(block, schemas, parser="qwen3_coder"):
+    function = r"<tool_call>\s*<function=([^<>\s]+)>(.*?)</function>\s*</tool_call>"
+    parameter = r"<parameter=([^<>\s]+)>(.*?)</parameter>"
+    if parser == "minicpm5":
+        function = r'<function\s+name="([^"<>]+)"\s*>(.*?)</function>'
+        parameter = r'<param\s+name="([^"<>]+)"\s*>(<!\[CDATA\[.*?\]\]>|.*?)</param>'
+    elif parser == "glm5":
+        function = r"<tool_call>\s*([^<>\s]+)\s*(.*?)</tool_call>"
+        parameter = r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>"
+    match = re.fullmatch(function, block, re.S)
+    if not match or match[1] not in schemas:
+        raise AgentProtocolError("Malformed or unknown tool call")
+    name, body = match[1], match[2]
+    schema = schemas[name]
+    args, raw_args, string_keys = {}, {}, set()
+    for param in members(body, parameter):
+        if param[1] in args:
+            raise AgentProtocolError("Duplicate tool parameter")
+        key, raw = param[1], param[2]
+        if parser == "minicpm5" and raw.startswith("<![CDATA[") and raw.endswith("]]>"):
+            raw = raw[9:-3]
+            string_keys.add(key)
+        else:
+            if parser != "glm5":
+                raw = _trim_newline(raw)
+        raw_args[key] = raw
+        spec = schema.get("properties", {}).get(key, {})
+        # Qwen's template writes native scalar spellings and JSON containers.
+        args[key] = raw
+        if key not in string_keys and (
+            (parser == "qwen3_coder" and raw in {"True", "False", "None"})
+            or not _accepts_string(spec, schema, raw)
+        ):
+            try:
+                args[key] = _xml_value(raw, parser)
+            except ValueError:
+                pass
+    _resolve_xml_arguments(args, raw_args, schema, parser, string_keys)
+    return make_tool_call(name, args, schemas)
+
+
+class ToolCallParser:
+    """A bounded-prefix scanner; accepts arbitrary token/chunk boundaries."""
+
+    def __init__(
+        self,
+        schemas,
+        thinking=False,
+        choice="auto",
+        parallel=True,
+        parser="qwen3_coder",
+    ):
+        self.schemas = schemas
+        self.mode = "reasoning_content" if thinking else "content"
+        self.buffer = ""
+        self.calls = []
+        self.choice = choice
+        self.parallel = parallel
+        self.parser = parser
+        self.start, self.end = TOOL_CALL_FORMATS[parser]
+        self.at_start = True
+        self.think_start, self.think_end = "<think>", "</think>"
+        self.ignored = []
+        if parser == "kimi_k3":
+            self.think_start = "<|open|>think<|sep|>"
+            self.think_end = "<|close|>think<|sep|>"
+            self.ignored = [
+                "<|open|>response<|sep|>",
+                "<|close|>response<|sep|>",
+                "<|close|>message<|sep|>",
+                "<|end_of_msg|>",
+            ]
+
+    def _parse_calls(self, block):
+        if self.parser in ("qwen3_coder", "minicpm5", "glm5"):
+            return [parse_xml_call(block, self.schemas, self.parser)]
+        body = block.removeprefix(self.start)
+        if self.end:
+            body = body.removesuffix(self.end)
+        if self.parser in ("deepseek_v4", "kimi_k3"):
+            return parse_structured_calls(
+                body, self.schemas, self.parser, len(self.calls)
+            )
+        try:
+            if self.parser == "llama3_json" and not block.startswith(self.start):
+                try:
+                    calls, _ = json.JSONDecoder().raw_decode(body.lstrip())
+                except ValueError:
+                    return None
+                if (
+                    not isinstance(calls, dict)
+                    or "name" not in calls
+                    or not ({"arguments", "parameters"} & calls.keys())
+                ):
+                    return None
+            calls = json.loads(body)
+        except ValueError as exc:
+            raise AgentProtocolError("Malformed or truncated JSON tool call") from exc
+        calls = calls if isinstance(calls, list) else [calls]
+        if not calls:
+            raise AgentProtocolError("Empty tool calls")
+        if not all(isinstance(c, dict) for c in calls):
+            raise AgentProtocolError("Tool calls must be objects")
+        return [
+            make_tool_call(
+                c.get("name"),
+                c.get("arguments", c.get("parameters", {})),
+                self.schemas,
+                self.parser,
+            )
+            for c in calls
+        ]
+
+    def feed(self, text, final=False, finish_reason="stop"):
+        self.buffer += text
+        events = []
+        while self.buffer:
+            if (
+                self.parser == "llama3_json"
+                and self.at_start
+                and self.mode == "content"
+                and self.schemas
+                and self.buffer.lstrip().startswith("{")
+            ):
+                self.mode = "tool"
+            if self.mode == "tool":
+                end = (
+                    self.buffer.find(self.end) + len(self.end)
+                    if self.end
+                    else len(self.buffer)
+                )
+                if self.parser == "hermes":
+                    body = self.buffer[len(self.start) :].lstrip()
+                    try:
+                        _, size = json.JSONDecoder().raw_decode(body)
+                    except ValueError:
+                        if not final:
+                            break
+                        raise AgentProtocolError(
+                            "Malformed or truncated JSON tool call"
+                        )
+                    end = len(self.buffer) - len(body) + size
+                    tail = self.buffer[end:].lstrip()
+                    end = len(self.buffer) - len(tail)
+                    if not tail.startswith(self.end):
+                        if not final and self.end.startswith(tail):
+                            break
+                        raise AgentProtocolError(
+                            "Malformed or truncated JSON tool call"
+                        )
+                    end += len(self.end)
+                if self.parser in _PARAMETER_BLOCKS:
+                    parameter = _PARAMETER_BLOCKS[self.parser]
+                    matches = re.finditer(
+                        parameter + "|" + re.escape(self.end), self.buffer, re.S
+                    )
+                    end, covered = 0, 0
+                    for match in matches:
+                        if match.start() < covered:
+                            continue
+                        if self.parser == "kimi_k3" and match[0].startswith(
+                            "<|open|>json "
+                        ):
+                            body = (
+                                self.buffer[match.start() :]
+                                .split("<|sep|>", 1)[1]
+                                .lstrip()
+                            )
+                            try:
+                                _, size = json.JSONDecoder().raw_decode(body)
+                            except ValueError:
+                                break
+                            covered = len(self.buffer) - len(body) + size
+                        elif match[0] == self.end:
+                            end = match.end()
+                            break
+                if (self.end and end < len(self.end)) or (not self.end and not final):
+                    break
+                calls = self._parse_calls(self.buffer[:end])
+                if calls is None:
+                    events.append({"content": self.buffer[:end]})
+                    calls = []
+                if len(self.calls) + len(calls) > 1 and not self.parallel:
+                    raise AgentProtocolError(
+                        "Multiple calls with parallel_tool_calls=false"
+                    )
+                for call in calls:
+                    self.calls.append(call)
+                    events.append(
+                        {"tool_calls": [dict(index=len(self.calls) - 1, **call)]}
+                    )
+                self.buffer = self.buffer[end:]
+                self.mode = "content"
+                self.at_start = False
+                continue
+            markers = [self.think_start, self.think_end, *self.ignored]
+            if self.schemas:
+                markers.append(self.start)
+            found = [(self.buffer.find(m), m) for m in markers if m in self.buffer]
+            if found:
+                pos, marker = min(found)
+                if pos:
+                    events.append({self.mode: self.buffer[:pos]})
+                    if self.buffer[:pos].strip():
+                        self.at_start = False
+                self.buffer = self.buffer[pos:]
+                if marker == self.start:
+                    if self.mode == "reasoning_content":
+                        raise AgentProtocolError("Tool call inside reasoning")
+                    self.mode = "tool"
+                else:
+                    self.buffer = self.buffer[len(marker) :]
+                    if marker in self.ignored:
+                        continue
+                    self.mode = (
+                        "reasoning_content" if marker == self.think_start else "content"
+                    )
+                continue
+            # Hold only a suffix which could become a split marker.
+            keep = max(
+                [
+                    n
+                    for m in markers
+                    for n in range(1, len(m))
+                    if self.buffer.endswith(m[:n])
+                ]
+                or [0]
+            )
+            count = len(self.buffer) - keep
+            if count:
+                events.append({self.mode: self.buffer[:count]})
+                if self.buffer[:count].strip():
+                    self.at_start = False
+                self.buffer = self.buffer[count:]
+            break
+        if final:
+            if self.mode == "tool":
+                raise AgentProtocolError("Truncated tool call")
+            if self.buffer:
+                events.append({self.mode: self.buffer})
+                self.buffer = ""
+            if (
+                finish_reason in ("stop", "eos_token", "stop_string")
+                and self.choice not in ("auto", "none")
+                and not self.calls
+            ):
+                raise AgentProtocolError("Model did not satisfy tool_choice")
+        return events
+
+    def finish_reason(self, original):
+        # Length/error/timeout always override a successfully parsed earlier call.
+        if original in ("stop", "eos_token", "stop_string") and self.calls:
+            return "tool_calls"
+        return original

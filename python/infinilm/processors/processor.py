@@ -2,6 +2,13 @@ import importlib
 
 
 class InfinilmProcessor:
+    """Model input adapter.
+
+    A processor may additionally implement ``encode_chat_inputs(messages, **kwargs)``
+    to return tokenized text-chat inputs directly. The engine uses this optional
+    hook only for text conversations; raw prompts and media use ``__call__``.
+    """
+
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
         raise NotImplementedError("ModelInputProcessor is not implemented yet")
@@ -57,6 +64,7 @@ _BUILTIN_PROCESSORS = {
     "chatglm": ("chatglm_processor", "ChatGLMProcessor"),
     "deepseek": ("deepseek_processor", "DeepSeekProcessor"),
     "deepseek_v2": ("sentencepiece_processor", "DeepSeekV2Processor"),
+    "deepseek_v4": ("deepseek_v4_processor", "DeepSeekV4Processor"),
     "ernie4_5_moe_vl": ("ernie4_5_vl_processor", "Ernie45VLProcessor"),
     "fm9g": ("sentencepiece_processor", "FM9GProcessor"),
     "gpt2": ("gpt2_processor", "GPT2Processor"),

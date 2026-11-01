@@ -118,6 +118,7 @@ class BaseConfig:
         self.port = self.args.port
         self.endpoint = self.args.endpoint
         self.ignore_eos = self.args.ignore_eos
+        self.tool_call_parser = self.args.tool_call_parser
         # PD separation (KV transfer)
         self.kv_transfer_config = self.args.kv_transfer_config
 
@@ -376,6 +377,22 @@ class BaseConfig:
             "--host", type=str, default="0.0.0.0", help="server host"
         )
         self.parser.add_argument("--port", type=int, default=8000, help="server port")
+        self.parser.add_argument(
+            "--tool-call-parser",
+            choices=[
+                "none",
+                "qwen3_coder",
+                "hermes",
+                "llama3_json",
+                "mistral",
+                "minicpm5",
+                "glm5",
+                "deepseek_v4",
+                "kimi_k3",
+            ],
+            default="none",
+            help="Select the model's native tool-call format",
+        )
         self.parser.add_argument(
             "--endpoint", type=str, default="/completions", help="API endpoint"
         )

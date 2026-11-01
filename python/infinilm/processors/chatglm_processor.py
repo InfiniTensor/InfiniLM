@@ -1,9 +1,9 @@
 # python/infinilm/processors/chatglm_processor.py
 
-import re
 import types
 
 from .basic_llm_processor import BasicLLMProcessor
+from .sentencepiece_processor import _decode_sentencepiece_tokens
 
 
 class ChatGLMProcessor(BasicLLMProcessor):
@@ -31,17 +31,7 @@ class ChatGLMProcessor(BasicLLMProcessor):
         """
 
         def patched_convert_tokens_to_string(self_tok, tokens):
-            # 1. Join tokens + replace ▁ (U+2581) with space
-            text = "".join(tokens).replace("\u2581", " ")
-
-            # 2. Handle SentencePiece byte fallback: consecutive <0xHH> → UTF-8
-            def byte_fallback_replace(match):
-                hex_strs = re.findall(r"<0x([0-9A-Fa-f]{2})>", match.group(0))
-                byte_values = bytes([int(h, 16) for h in hex_strs])
-                return byte_values.decode("utf-8", errors="replace")
-
-            text = re.sub(r"(<0x[0-9A-Fa-f]{2}>)+", byte_fallback_replace, text)
-            return text
+            return _decode_sentencepiece_tokens(tokens)
 
         tokenizer.convert_tokens_to_string = types.MethodType(
             patched_convert_tokens_to_string, tokenizer
