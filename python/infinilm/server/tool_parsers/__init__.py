@@ -2,7 +2,6 @@
 
 import ast
 import heapq
-import html
 import json
 import re
 
@@ -27,7 +26,10 @@ _PARAMETER_BLOCKS = {
     "qwen3_coder": r"<parameter=[^<>\s]+>.*?(?:</parameter>|$)",
     "glm5": r"<arg_value>.*?(?:</arg_value>|$)",
     "deepseek_v4": r"<｜DSML｜parameter\s[^>]*>.*?(?:</｜DSML｜parameter>|$)",
-    "kimi_k3": r'<\|open\|>(?:argument\s[^<>]*|json\s+type="object")<\|sep\|>.*?(?:<\|close\|>(?:argument|json)<\|sep\|>|$)',
+    "kimi_k3": (
+        r"<\|open\|>argument\s[^<>]*<\|sep\|>.*?(?:<\|close\|>argument<\|sep\|>|$)"
+        r'|<\|open\|>json\s+type="object"<\|sep\|>.*?(?:<\|close\|>json<\|sep\|>|$)'
+    ),
 }
 
 
@@ -201,8 +203,6 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         else:
             if parser != "glm5":
                 raw = _trim_newline(raw)
-            if parser == "minicpm5":
-                raw = html.unescape(raw)
         raw_args[key] = raw
         spec = schema.get("properties", {}).get(key, {})
         # Qwen's template writes native scalar spellings and JSON containers.

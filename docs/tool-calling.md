@@ -105,6 +105,8 @@ MiniCPM5 also accepts its template's Python-style boolean/null, dictionary and
 list literals, limited to JSON-compatible values and string object keys. Declared
 strings and CDATA retain their text. DeepSeek/Kimi parameter bodies and Kimi JSON
 blocks may contain literal outer tool-container closing markers.
+MiniCPM native values are not HTML-unescaped, preserving entity text inside
+containers. Kimi argument and JSON blocks close only with their matching tags.
 
 Kimi K3 uses XTML think/response channels, rather than K2's tool-section tokens.
 `enable_thinking` and `reasoning_effort` are translated to its native `thinking`
