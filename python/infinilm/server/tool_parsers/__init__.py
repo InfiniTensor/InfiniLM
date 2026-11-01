@@ -36,7 +36,13 @@ def _accepts_string(spec, root, raw):
         return False
 
 
-def _resolve_xml_arguments(args, raw_args, schema):
+def _xml_value(raw, parser):
+    if parser == "qwen3_coder" and raw in {"True", "False", "None"}:
+        return {"True": True, "False": False, "None": None}[raw]
+    return json.loads(raw)
+
+
+def _resolve_xml_arguments(args, raw_args, schema, parser="qwen3_coder"):
     # Object constraints may couple fields. Keep alternatives independent and
     # bound the search instead of committing a failed branch's conversions.
     validator = schema_validator(schema)
@@ -46,7 +52,7 @@ def _resolve_xml_arguments(args, raw_args, schema):
             values[key] = raw_args[key]
         else:
             try:
-                values[key] = json.loads(raw_args[key])
+                values[key] = _xml_value(raw_args[key], parser)
             except ValueError:
                 pass
     bits = {key: 1 << index for index, key in enumerate(values)}
@@ -133,14 +139,16 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
                 raw = html.unescape(raw)
         raw_args[key] = raw
         spec = schema.get("properties", {}).get(key, {})
-        # The template writes strings verbatim and all other values as JSON.
+        # Qwen's template writes native scalar spellings and JSON containers.
         args[key] = raw
-        if not _accepts_string(spec, schema, raw):
+        if (
+            parser == "qwen3_coder" and raw in {"True", "False", "None"}
+        ) or not _accepts_string(spec, schema, raw):
             try:
-                args[key] = json.loads(raw)
+                args[key] = _xml_value(raw, parser)
             except ValueError:
                 pass
-    _resolve_xml_arguments(args, raw_args, schema)
+    _resolve_xml_arguments(args, raw_args, schema, parser)
     return make_tool_call(name, args, schemas)
 
 
@@ -257,6 +265,16 @@ class ToolCallParser:
                 if self.parser == "minicpm5":
                     matches = re.finditer(
                         r"<!\[CDATA\[.*?(?:\]\]>|$)|</function>", self.buffer, re.S
+                    )
+                    end = next((m.end() for m in matches if m[0] == self.end), 0)
+                elif self.parser in {"qwen3_coder", "glm5"}:
+                    parameter = (
+                        r"<parameter=[^<>\s]+>.*?(?:</parameter>|$)"
+                        if self.parser == "qwen3_coder"
+                        else r"<arg_value>.*?(?:</arg_value>|$)"
+                    )
+                    matches = re.finditer(
+                        parameter + r"|</tool_call>", self.buffer, re.S
                     )
                     end = next((m.end() for m in matches if m[0] == self.end), 0)
                 if (self.end and end < len(self.end)) or (not self.end and not final):

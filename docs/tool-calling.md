@@ -66,6 +66,12 @@ XML arguments retain schema-declared strings, including object-level references
 and applicators. Ambiguous string/JSON assignments are checked against the whole
 schema with at most 256 candidate validations; exceeding this bound fails with a
 protocol error. A candidate is never emitted without full schema validation.
+Qwen XML accepts its official template's `True`, `False` and `None` spellings.
+For these ambiguous scalars, the native boolean/null interpretation takes
+precedence when the whole schema accepts it, including `string | null`; a
+string-only constraint retains the literal text. Other XML formats keep their
+existing JSON/string preference. Qwen/GLM parameter bodies may contain literal
+`</tool_call>` text; the parameter's own closing delimiter remains structural.
 
 `strict: true` and non-local JSON Schema references are rejected. Property names
 and instance data such as `default` or `const` are not reference keywords; schema
@@ -140,3 +146,8 @@ the MiniCPM5 XML format; vision/audio MiniCPM support is also a separate claim.
 
 This layer provides text/tool protocol adaptation. Admission quotas, gateway
 authentication, embeddings and durable memory are separate components.
+
+The text benchmark clients measure TTFT at the first nonempty `delta.content`,
+ignoring role-only, usage and finish chunks. Reasoning/tool events do not start
+this text-content clock. Their existing output counts are content chunks, not
+tokenizer-verified token counts; ITL and throughput remain chunk-based estimates.

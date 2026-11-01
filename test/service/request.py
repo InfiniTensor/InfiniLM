@@ -88,10 +88,12 @@ async def benchmark_user(client, messages, model_name):
         answer_chunks = []
 
         async for chunk in stream:
-            if first_token_time is None:
-                first_token_time = time.time()
+            if not chunk.choices:
+                continue
             delta = chunk.choices[0].delta.content
             if delta:
+                if first_token_time is None:
+                    first_token_time = time.time()
                 answer_chunks.append(delta)
                 total_tokens += 1
             if chunk.choices[0].finish_reason is not None:
@@ -110,8 +112,16 @@ async def benchmark_user(client, messages, model_name):
         answer = "".join(answer_chunks)
         print(f"  💬 回答: {answer}\n")
         print(f"  总耗时: {elapsed_time:.3f}s")
-        print(f"  首字延迟 TTFT: {ttft:.3f}s")
-        print(f"  Token间延迟 ITL: {ms_per_token_decode:.2f} ms")
+        print(
+            f"  首字延迟 TTFT: {ttft:.3f}s"
+            if ttft is not None
+            else "  首字延迟 TTFT: N/A"
+        )
+        print(
+            f"  Token间延迟 ITL: {ms_per_token_decode:.2f} ms"
+            if ms_per_token_decode is not None
+            else "  Token间延迟 ITL: N/A"
+        )
         print(
             f"  Decode吞吐: {1000 / ms_per_token_decode:.2f} tokens/s"
             if ms_per_token_decode

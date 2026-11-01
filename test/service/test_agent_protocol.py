@@ -1,6 +1,7 @@
 """Protocol and real HTTP-route tests; fake inference is explicitly scoped here."""
 
 import ast
+import asyncio
 import copy
 import importlib.util
 import json
@@ -13,6 +14,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from jinja2 import Environment
 
 SERVER = Path(__file__).resolve().parents[2] / "python/infinilm/server"
 
@@ -420,6 +422,120 @@ def test_arbitrary_precision_integer_arguments():
         )
     )
     assert json.loads(message["tool_calls"][0]["function"]["arguments"])["n"] == value
+
+
+@pytest.mark.parametrize(
+    "value,kind,expected",
+    [
+        (True, "boolean", True),
+        (False, "boolean", False),
+        (None, "null", None),
+        (None, ["string", "null"], None),
+        ("None", "string", "None"),
+        ({"enabled": True, "value": None}, "object", {"enabled": True, "value": None}),
+    ],
+)
+def test_qwen_template_scalar_roundtrip(value, kind, expected):
+    # Match the scalar/container rendering contract of Qwen's official templates.
+    template = Environment().from_string(
+        "<tool_call><function=probe><parameter=value>\n"
+        "{{ value | tojson if value is mapping or (value is sequence and value is not string) else value | string }}"
+        "\n</parameter></function></tool_call>"
+    )
+    schema = {"properties": {"value": {"type": kind}}}
+    message = protocol.collect_message(
+        ToolCallParser({"probe": schema}).feed(template.render(value=value), final=True)
+    )
+    actual = json.loads(message["tool_calls"][0]["function"]["arguments"])["value"]
+    assert actual == expected and type(actual) is type(expected)
+
+
+@pytest.mark.parametrize("parser", ["qwen3_coder", "glm5"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_xml_literal_tool_close_inside_parameter(parser, stream):
+    text = 'print("</tool_call>")'
+    client, _ = make_client(WIRES[parser].replace("123", text), parser=parser)
+    message, finish, _ = read_completion(post_chat(client, tools=TOOLS, stream=stream))
+    assert finish == "tool_calls"
+    assert (
+        json.loads(message["tool_calls"][0]["function"]["arguments"])["label"] == text
+    )
+
+
+@pytest.mark.parametrize("path", ["scripts/test_perf.py", "test/service/request.py"])
+@pytest.mark.parametrize("content", [True, False])
+def test_benchmark_clocks_ignore_metadata(path, content, capsys):
+    tree = ast.parse((SERVER.parents[2] / path).read_text(encoding="utf-8"))
+    method = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "benchmark_user"
+    )
+    now = [100.0]
+
+    async def stream():
+        for timestamp, choices in [
+            (
+                0.01,
+                [
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(content=None), finish_reason=None
+                    )
+                ],
+            ),
+            (0.04, []),
+        ] + [
+            (
+                timestamp,
+                [
+                    types.SimpleNamespace(
+                        delta=types.SimpleNamespace(content=value if content else None),
+                        finish_reason=reason,
+                    )
+                ],
+            )
+            for timestamp, value, reason in [
+                (0.08, "a", None),
+                (0.09, "b", None),
+                (0.10, None, "stop"),
+            ]
+        ]:
+            now[0] = 100.0 + timestamp
+            yield types.SimpleNamespace(choices=choices)
+
+    async def create(**kwargs):
+        return stream()
+
+    namespace = dict(
+        time=types.SimpleNamespace(time=lambda: now[0]),
+        PROMPTS=["hi"],
+        MODEL="model",
+        random=types.SimpleNamespace(choice=lambda values: values[0]),
+    )
+    exec(compile(ast.Module(body=[method], type_ignores=[]), path, "exec"), namespace)
+    client = types.SimpleNamespace(
+        chat=types.SimpleNamespace(completions=types.SimpleNamespace(create=create))
+    )
+    if path.startswith("scripts/"):
+        queue, results = asyncio.Queue(), []
+        queue.put_nowait(1)
+        queue.put_nowait(None)
+        asyncio.run(
+            namespace["benchmark_user"](
+                client, asyncio.Semaphore(1), queue, results, 0, False
+            )
+        )
+        assert len(results) == 1
+        assert results[0][0] == (2 if content else 0)
+        assert (
+            results[0][3] == pytest.approx(0.08) if content else results[0][3] is None
+        )
+    else:
+        asyncio.run(namespace["benchmark_user"](client, [], "model"))
+        output = capsys.readouterr().out
+        assert "❌" not in output
+        assert ("TTFT: 0.080s" if content else "TTFT: N/A") in output
+        assert ("ITL: 20.00 ms" if content else "ITL: N/A") in output
 
 
 class FinishReason(Enum):
