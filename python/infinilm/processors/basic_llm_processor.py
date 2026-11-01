@@ -45,6 +45,16 @@ class BasicLLMProcessor(InfinilmProcessor):
         tokenize: bool = True,
         **kwargs,
     ):
+        normalized_conversation = self._normalize_text_messages(conversation)
+        return self.tokenizer.apply_chat_template(
+            conversation=normalized_conversation,
+            add_generation_prompt=add_generation_prompt,
+            tokenize=tokenize,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _normalize_text_messages(conversation):
         normalized_conversation = []
         for message in conversation:
             if isinstance(message["content"], list):
@@ -60,12 +70,7 @@ class BasicLLMProcessor(InfinilmProcessor):
                 )
             else:
                 normalized_conversation.append(message)
-        return self.tokenizer.apply_chat_template(
-            conversation=normalized_conversation,
-            add_generation_prompt=add_generation_prompt,
-            tokenize=tokenize,
-            **kwargs,
-        )
+        return normalized_conversation
 
     @override
     def build_model_inputs(

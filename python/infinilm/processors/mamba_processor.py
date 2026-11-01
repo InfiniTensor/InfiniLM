@@ -12,21 +12,7 @@ class MambaProcessor(BasicLLMProcessor):
         tokenize: bool = True,
         **kwargs,
     ):
-        normalized_conversation = []
-        for message in conversation:
-            if isinstance(message["content"], list):
-                assert len(message["content"]) == 1, (
-                    "Only one content item supported in list"
-                )
-                content_item = message["content"][0]
-                assert "type" in content_item and "text" in content_item, (
-                    "Content dict must have 'type' and 'text' keys"
-                )
-                normalized_conversation.append(
-                    {"role": message["role"], "content": content_item["text"]}
-                )
-            else:
-                normalized_conversation.append(message)
+        normalized_conversation = self._normalize_text_messages(conversation)
 
         if getattr(self.tokenizer, "chat_template", None):
             return self.tokenizer.apply_chat_template(

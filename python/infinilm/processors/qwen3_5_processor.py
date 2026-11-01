@@ -7,6 +7,7 @@ from typing_extensions import override
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
+from .recurrent_inputs import append_recurrent_state_inputs
 
 
 class Qwen35Processor(BasicLLMProcessor):
@@ -196,27 +197,7 @@ class Qwen35Processor(BasicLLMProcessor):
                 "scheduler_output must be an instance of SchedulerOutput or StaticSchedulerOutput"
             )
 
-        init_indices = []
-        final_indices = []
-        for req in scheduler_output.scheduled_requests:
-            if req.mamba_cache_index is None:
-                raise RuntimeError(
-                    f"Request {req.request_id} has no assigned mamba cache index"
-                )
-            if scheduler_output.is_prefill:
-                init_indices.append(0)
-            else:
-                init_indices.append(req.mamba_cache_index)
-            final_indices.append(req.mamba_cache_index)
-
-        from .. import _core as infinicore
-
-        model_inputs["mamba_init_state_indices"] = infinicore.from_list(
-            init_indices, dtype=infinicore.int32
-        )
-        model_inputs["mamba_final_state_indices"] = infinicore.from_list(
-            final_indices, dtype=infinicore.int32
-        )
+        append_recurrent_state_inputs(model_inputs, scheduler_output)
         return model_inputs
 
     def _request_uses_mrope(self, req) -> bool:
@@ -427,21 +408,6 @@ class Qwen35Processor(BasicLLMProcessor):
         image_bound = []
         image_req_ids = []
 
-        def as_grid_list(grid_thw):
-            if isinstance(grid_thw, list):
-                return [
-                    g if isinstance(g, torch.Tensor) else torch.as_tensor(g)
-                    for g in grid_thw
-                ]
-            grid_tensor = (
-                grid_thw
-                if isinstance(grid_thw, torch.Tensor)
-                else torch.as_tensor(grid_thw)
-            )
-            if grid_tensor.ndim == 1:
-                return [grid_tensor]
-            return [grid_tensor[i] for i in range(grid_tensor.shape[0])]
-
         def split_pixel_values(pixel_value, grids):
             if isinstance(pixel_value, list):
                 return [
@@ -474,7 +440,7 @@ class Qwen35Processor(BasicLLMProcessor):
                     "Qwen3.5 image input requires image_grid_thw and image_bound"
                 )
 
-            grids = as_grid_list(grid_thw)
+            grids = self._as_grid_list(grid_thw)
             pixels = split_pixel_values(processed_inputs["pixel_values"], grids)
             bounds = (
                 bounds if isinstance(bounds, torch.Tensor) else torch.as_tensor(bounds)

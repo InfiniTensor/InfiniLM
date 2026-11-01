@@ -101,6 +101,10 @@ tags and newlines. Hermes JSON strings preserve literal closing tags and escaped
 quotes. Ordinary Llama JSON objects without a call shape stay text, including
 objects followed by explanation text. A trailing marker prefix such as `<` in
 ordinary text is preserved until an actual tool structure has started.
+MiniCPM5 also accepts its template's Python-style boolean/null, dictionary and
+list literals, limited to JSON-compatible values and string object keys. Declared
+strings and CDATA retain their text. DeepSeek/Kimi parameter bodies and Kimi JSON
+blocks may contain literal outer tool-container closing markers.
 
 Kimi K3 uses XTML think/response channels, rather than K2's tool-section tokens.
 `enable_thinking` and `reasoning_effort` are translated to its native `thinking`
@@ -123,6 +127,8 @@ generation prefix follows the requested mode. Hooks use per-processor function
 globals, without modifying checkpoint files or shared module state. These paths
 require the checkpoint's Python encoders (`render_message` for DeepSeek and
 `build_chat_segments` for K3); custom tokenizer replacements need separate tests.
+DeepSeek's `apply_chat_template(tokenize=True)` returns an unbatched token-ID list;
+tensor formatting belongs to the separate input-processing step.
 Text-only K3 chat inputs use that tokenizer's segment-aware encoding directly,
 so literal special-token-looking user/tool text is not reinterpreted as a
 structural marker. Raw text prompts and multimodal encoding retain their

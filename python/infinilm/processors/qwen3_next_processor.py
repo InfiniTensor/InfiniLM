@@ -1,9 +1,9 @@
 from typing_extensions import override
 
-from .. import _core as infinicore
 from ..llm.scheduler import SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .basic_llm_processor import BasicLLMProcessor
+from .recurrent_inputs import append_recurrent_state_inputs
 
 
 class Qwen3NextProcessor(BasicLLMProcessor):
@@ -24,22 +24,5 @@ class Qwen3NextProcessor(BasicLLMProcessor):
             **kwargs,
         )
 
-        init_indices = []
-        final_indices = []
-        for req in scheduler_output.scheduled_requests:
-            if req.mamba_cache_index is None:
-                raise RuntimeError(
-                    f"Request {req.request_id} has no assigned mamba cache index"
-                )
-            init_indices.append(
-                0 if scheduler_output.is_prefill else req.mamba_cache_index
-            )
-            final_indices.append(req.mamba_cache_index)
-
-        model_inputs["mamba_init_state_indices"] = infinicore.from_list(
-            init_indices, dtype=infinicore.int32
-        )
-        model_inputs["mamba_final_state_indices"] = infinicore.from_list(
-            final_indices, dtype=infinicore.int32
-        )
+        append_recurrent_state_inputs(model_inputs, scheduler_output)
         return model_inputs

@@ -2,6 +2,13 @@ import importlib
 
 
 class InfinilmProcessor:
+    """Model input adapter.
+
+    A processor may additionally implement ``encode_chat_inputs(messages, **kwargs)``
+    to return tokenized text-chat inputs directly. The engine uses this optional
+    hook only for text conversations; raw prompts and media use ``__call__``.
+    """
+
     def __init__(self, model_dir_path: str):
         """Initialize the processor with the model directory path."""
         raise NotImplementedError("ModelInputProcessor is not implemented yet")

@@ -150,6 +150,52 @@ def tools_with(**fields):
     return tools
 
 
+NATIVE_FIXTURES = json.loads(
+    (Path(__file__).parent / "fixtures/native_tool_calls.json").read_text(
+        encoding="utf-8"
+    )
+)["cases"]
+
+
+@pytest.mark.parametrize("case", NATIVE_FIXTURES, ids=lambda case: case["name"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_pinned_native_template_contracts(case, stream):
+    client, _ = make_client(case["wire"], parser=case["parser"])
+    message, finish, _ = read_completion(
+        post_chat(
+            client, tools=tools_with(parameters=case["parameters"]), stream=stream
+        )
+    )
+    assert finish == "tool_calls"
+    assert (
+        json.loads(message["tool_calls"][0]["function"]["arguments"])
+        == case["arguments"]
+    )
+
+
+@pytest.mark.parametrize(
+    "literal",
+    ["(1, 2)", "{1, 2}", "{1: 'value'}", "b'bytes'", "__import__('os').getcwd()"],
+)
+def test_minicpm_literals_reject_non_json_values(literal):
+    with pytest.raises(ValueError):
+        parsers._xml_value(literal, "minicpm5")
+
+
+def test_cli_parser_names_match_formats_without_importing_server():
+    tree = ast.parse((SERVER.parent / "base_config.py").read_text(encoding="utf-8"))
+    option = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value == "--tool-call-parser"
+    )
+    choices = next(field.value for field in option.keywords if field.arg == "choices")
+    assert set(ast.literal_eval(choices)) == {"none", *parsers.TOOL_CALL_FORMATS}
+
+
 @pytest.mark.parametrize("parser_name", WIRES)
 def test_stream_protocol_across_boundaries(parser_name):
     _, schemas, _ = prepared()

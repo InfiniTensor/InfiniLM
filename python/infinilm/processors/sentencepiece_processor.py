@@ -4,6 +4,18 @@ import types
 from .basic_llm_processor import BasicLLMProcessor
 
 
+def _decode_sentencepiece_tokens(tokens):
+    text = "".join(tokens).replace("\u2581", " ")
+
+    def replace_bytes(match):
+        values = re.findall(r"<0x([0-9A-Fa-f]{2})>", match.group(0))
+        return bytes(int(value, 16) for value in values).decode(
+            "utf-8", errors="replace"
+        )
+
+    return re.sub(r"(<0x[0-9A-Fa-f]{2}>)+", replace_bytes, text)
+
+
 class SentencePieceProcessor(BasicLLMProcessor):
     """Generic processor for models using SentencePiece tokenizer
     (InternLM, Mistral, FM9G, etc.).
@@ -43,18 +55,7 @@ class SentencePieceProcessor(BasicLLMProcessor):
                 special = set(self_tok.all_special_tokens)
                 tokens = [t for t in tokens if t not in special]
 
-            # 4. Join and replace ▁ (U+2581) with space
-            text = "".join(tokens).replace("\u2581", " ")
-
-            # 5. Handle SentencePiece byte fallback: consecutive <0xHH> → UTF-8
-            def byte_fallback_replace(match):
-                hex_strs = re.findall(r"<0x([0-9A-Fa-f]{2})>", match.group(0))
-                byte_values = bytes([int(h, 16) for h in hex_strs])
-                return byte_values.decode("utf-8", errors="replace")
-
-            text = re.sub(r"(<0x[0-9A-Fa-f]{2}>)+", byte_fallback_replace, text)
-
-            return text
+            return _decode_sentencepiece_tokens(tokens)
 
         tokenizer.decode = types.MethodType(patched_decode, tokenizer)
 

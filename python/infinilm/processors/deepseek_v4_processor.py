@@ -21,6 +21,7 @@ class DeepSeekV4Processor(BasicLLMProcessor):
     def apply_chat_template(
         self, conversation, add_generation_prompt=False, tokenize=True, **kwargs
     ):
+        """Render official text, or return an unbatched token-ID list when tokenized."""
         messages = copy.deepcopy(conversation)
         tools = kwargs.get("tools")
         if tools:

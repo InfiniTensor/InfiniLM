@@ -1,5 +1,6 @@
 """Shared scanners for native tool-call formats; no tool execution."""
 
+import ast
 import heapq
 import html
 import json
@@ -21,6 +22,14 @@ TOOL_CALL_FORMATS = {
     "kimi_k3": ("<|open|>tools<|sep|>", "<|close|>tools<|sep|>"),
 }
 
+_PARAMETER_BLOCKS = {
+    "minicpm5": r'<param\s+name="[^"<>]+"\s*>(?:<!\[CDATA\[.*?(?:\]\]>|$)|.*?)(?:</param>|$)',
+    "qwen3_coder": r"<parameter=[^<>\s]+>.*?(?:</parameter>|$)",
+    "glm5": r"<arg_value>.*?(?:</arg_value>|$)",
+    "deepseek_v4": r"<｜DSML｜parameter\s[^>]*>.*?(?:</｜DSML｜parameter>|$)",
+    "kimi_k3": r'<\|open\|>(?:argument\s[^<>]*|json\s+type="object")<\|sep\|>.*?(?:<\|close\|>(?:argument|json)<\|sep\|>|$)',
+}
+
 
 def _trim_newline(text):
     return re.sub(r"\r?\n$", "", re.sub(r"^\r?\n", "", text))
@@ -40,15 +49,42 @@ def _accepts_string(spec, root, raw):
 def _xml_value(raw, parser):
     if parser == "qwen3_coder" and raw in {"True", "False", "None"}:
         return {"True": True, "False": False, "None": None}[raw]
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except ValueError:
+        if parser != "minicpm5":
+            raise
+    try:
+        value = ast.literal_eval(raw)
+    except (ValueError, SyntaxError) as exc:
+        raise ValueError("Invalid MiniCPM literal.") from exc
+
+    def check_json(item):
+        if isinstance(item, dict):
+            if not all(isinstance(key, str) for key in item):
+                raise ValueError("MiniCPM object keys must be strings.")
+            for child in item.values():
+                check_json(child)
+        elif isinstance(item, list):
+            for child in item:
+                check_json(child)
+        elif item is not None and type(item) not in (str, bool, int, float):
+            raise ValueError("MiniCPM literals must contain JSON-compatible values.")
+
+    check_json(value)
+    return value
 
 
-def _resolve_xml_arguments(args, raw_args, schema, parser="qwen3_coder"):
+def _resolve_xml_arguments(
+    args, raw_args, schema, parser="qwen3_coder", string_keys=()
+):
     # Object constraints may couple fields. Keep alternatives independent and
     # bound the search instead of committing a failed branch's conversions.
     validator = schema_validator(schema)
     values = {}
     for key, value in args.items():
+        if key in string_keys:
+            continue
         if value != raw_args[key]:
             values[key] = raw_args[key]
         else:
@@ -154,13 +190,14 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         raise AgentProtocolError("Malformed or unknown tool call")
     name, body = match[1], match[2]
     schema = schemas[name]
-    args, raw_args = {}, {}
+    args, raw_args, string_keys = {}, {}, set()
     for param in members(body, parameter):
         if param[1] in args:
             raise AgentProtocolError("Duplicate tool parameter")
         key, raw = param[1], param[2]
         if parser == "minicpm5" and raw.startswith("<![CDATA[") and raw.endswith("]]>"):
             raw = raw[9:-3]
+            string_keys.add(key)
         else:
             if parser != "glm5":
                 raw = _trim_newline(raw)
@@ -170,14 +207,15 @@ def parse_xml_call(block, schemas, parser="qwen3_coder"):
         spec = schema.get("properties", {}).get(key, {})
         # Qwen's template writes native scalar spellings and JSON containers.
         args[key] = raw
-        if (
-            parser == "qwen3_coder" and raw in {"True", "False", "None"}
-        ) or not _accepts_string(spec, schema, raw):
+        if key not in string_keys and (
+            (parser == "qwen3_coder" and raw in {"True", "False", "None"})
+            or not _accepts_string(spec, schema, raw)
+        ):
             try:
                 args[key] = _xml_value(raw, parser)
             except ValueError:
                 pass
-    _resolve_xml_arguments(args, raw_args, schema, parser)
+    _resolve_xml_arguments(args, raw_args, schema, parser, string_keys)
     return make_tool_call(name, args, schemas)
 
 
@@ -291,21 +329,31 @@ class ToolCallParser:
                             "Malformed or truncated JSON tool call"
                         )
                     end += len(self.end)
-                if self.parser == "minicpm5":
+                if self.parser in _PARAMETER_BLOCKS:
+                    parameter = _PARAMETER_BLOCKS[self.parser]
                     matches = re.finditer(
-                        r"<!\[CDATA\[.*?(?:\]\]>|$)|</function>", self.buffer, re.S
+                        parameter + "|" + re.escape(self.end), self.buffer, re.S
                     )
-                    end = next((m.end() for m in matches if m[0] == self.end), 0)
-                elif self.parser in {"qwen3_coder", "glm5"}:
-                    parameter = (
-                        r"<parameter=[^<>\s]+>.*?(?:</parameter>|$)"
-                        if self.parser == "qwen3_coder"
-                        else r"<arg_value>.*?(?:</arg_value>|$)"
-                    )
-                    matches = re.finditer(
-                        parameter + r"|</tool_call>", self.buffer, re.S
-                    )
-                    end = next((m.end() for m in matches if m[0] == self.end), 0)
+                    end, covered = 0, 0
+                    for match in matches:
+                        if match.start() < covered:
+                            continue
+                        if self.parser == "kimi_k3" and match[0].startswith(
+                            "<|open|>json "
+                        ):
+                            body = (
+                                self.buffer[match.start() :]
+                                .split("<|sep|>", 1)[1]
+                                .lstrip()
+                            )
+                            try:
+                                _, size = json.JSONDecoder().raw_decode(body)
+                            except ValueError:
+                                break
+                            covered = len(self.buffer) - len(body) + size
+                        elif match[0] == self.end:
+                            end = match.end()
+                            break
                 if (self.end and end < len(self.end)) or (not self.end and not final):
                     break
                 calls = self._parse_calls(self.buffer[:end])
