@@ -450,6 +450,40 @@ def test_qwen_template_scalar_roundtrip(value, kind, expected):
     assert actual == expected and type(actual) is type(expected)
 
 
+@pytest.mark.parametrize("shape", ["anyOf", "oneOf"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_qwen_native_scalar_precedence_in_schema_branches(shape, stream):
+    schema = {
+        shape: [
+            {
+                "type": "object",
+                "properties": {
+                    "cursor": {"type": ["string", "null"]},
+                    "query": {"type": "string"},
+                },
+                "required": ["cursor", "query"],
+                "additionalProperties": False,
+            },
+            {
+                "type": "object",
+                "properties": {"id": {"type": "string"}},
+                "required": ["id"],
+                "additionalProperties": False,
+            },
+        ]
+    }
+    wire = "<tool_call><function=compute><parameter=cursor>None</parameter><parameter=query>123</parameter></function></tool_call>"
+    client, _ = make_client(wire)
+    message, finish, _ = read_completion(
+        post_chat(client, tools=tools_with(parameters=schema), stream=stream)
+    )
+    assert finish == "tool_calls"
+    assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == {
+        "cursor": None,
+        "query": "123",
+    }
+
+
 @pytest.mark.parametrize("parser", ["qwen3_coder", "glm5"])
 @pytest.mark.parametrize("stream", [False, True])
 def test_xml_literal_tool_close_inside_parameter(parser, stream):

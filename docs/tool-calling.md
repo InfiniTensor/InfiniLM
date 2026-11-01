@@ -69,8 +69,10 @@ protocol error. A candidate is never emitted without full schema validation.
 Qwen XML accepts its official template's `True`, `False` and `None` spellings.
 For these ambiguous scalars, the native boolean/null interpretation takes
 precedence when the whole schema accepts it, including `string | null`; a
-string-only constraint retains the literal text. Other XML formats keep their
-existing JSON/string preference. Qwen/GLM parameter bodies may contain literal
+string-only constraint retains the literal text. Candidate search first exhausts
+interpretations retaining all native scalars, then permits the fewest scalar-to-string
+fallbacks within the same 256-check budget. Other XML formats keep their existing
+JSON/string preference. Qwen/GLM parameter bodies may contain literal
 `</tool_call>` text; the parameter's own closing delimiter remains structural.
 
 `strict: true` and non-local JSON Schema references are rejected. Property names

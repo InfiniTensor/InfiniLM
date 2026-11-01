@@ -1,5 +1,6 @@
 """Shared scanners for native tool-call formats; no tool execution."""
 
+import heapq
 import html
 import json
 import re
@@ -56,6 +57,11 @@ def _resolve_xml_arguments(args, raw_args, schema, parser="qwen3_coder"):
             except ValueError:
                 pass
     bits = {key: 1 << index for index, key in enumerate(values)}
+    native_bits = sum(
+        bit
+        for key, bit in bits.items()
+        if parser == "qwen3_coder" and raw_args[key] in {"True", "False", "None"}
+    )
 
     def error_keys(error):
         path = list(error.absolute_path)
@@ -79,12 +85,23 @@ def _resolve_xml_arguments(args, raw_args, schema, parser="qwen3_coder"):
 
     try:
         pending, seen = [iter((0,))], set()
-        while pending:
+        deferred, queued, priority = [], set(), 0
+        while pending or deferred:
+            if not pending:
+                priority, mask = heapq.heappop(deferred)
+                pending.append(iter((mask,)))
             mask = next(pending[-1], None)
             if mask is None:
                 pending.pop()
                 continue
             if mask in seen:
+                continue
+            # Exhaust less destructive interpretations before scalar fallbacks.
+            cost = (mask & native_bits).bit_count()
+            if cost > priority:
+                if mask not in queued:
+                    heapq.heappush(deferred, (cost, mask))
+                    queued.add(mask)
                 continue
             if len(seen) >= 256:
                 raise AgentProtocolError(
