@@ -56,6 +56,18 @@ def _resolve_xml_arguments(args, raw_args, schema, parser="qwen3_coder"):
                 values[key] = _xml_value(raw_args[key], parser)
             except ValueError:
                 pass
+    # Direct property types are mandatory even when other object branches exist.
+    for key, alternative in list(values.items()):
+        spec = schema.get("properties", {}).get(key, {})
+        kinds = spec.get("type") if isinstance(spec, dict) else None
+        if kinds is None:
+            continue
+        kinds = [kinds] if isinstance(kinds, str) else kinds
+        if not any(validator.is_type(alternative, kind) for kind in kinds):
+            del values[key]
+        elif not any(validator.is_type(args[key], kind) for kind in kinds):
+            args[key] = alternative
+            del values[key]
     bits = {key: 1 << index for index, key in enumerate(values)}
     native_bits = sum(
         bit

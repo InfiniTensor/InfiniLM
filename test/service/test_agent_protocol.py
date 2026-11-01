@@ -484,6 +484,49 @@ def test_qwen_native_scalar_precedence_in_schema_branches(shape, stream):
     }
 
 
+@pytest.mark.parametrize("stream", [False, True])
+def test_explicit_types_prune_unrelated_xml_alternatives(stream):
+    expected = {"pattern": "None", **{f"n{i}": i for i in range(8)}}
+    schema = {
+        "type": "object",
+        "properties": {
+            key: {"type": "string" if key == "pattern" else "integer"}
+            for key in expected
+        },
+        "required": list(expected),
+        "additionalProperties": False,
+    }
+    wire = (
+        "<tool_call><function=compute>"
+        + "".join(
+            f"<parameter={key}>{value}</parameter>" for key, value in expected.items()
+        )
+        + "</function></tool_call>"
+    )
+    checks = []
+    create_validator = parsers.schema_validator
+
+    def counted_validator(schema):
+        validator = create_validator(schema)
+
+        def iter_errors(candidate):
+            checks.append(candidate.copy())
+            return validator.iter_errors(candidate)
+
+        return types.SimpleNamespace(
+            iter_errors=iter_errors, evolve=validator.evolve, is_type=validator.is_type
+        )
+
+    client, _ = make_client(wire)
+    with patch.object(parsers, "schema_validator", side_effect=counted_validator):
+        message, finish, _ = read_completion(
+            post_chat(client, tools=tools_with(parameters=schema), stream=stream)
+        )
+    assert finish == "tool_calls"
+    assert json.loads(message["tool_calls"][0]["function"]["arguments"]) == expected
+    assert len(checks) == 1
+
+
 @pytest.mark.parametrize("parser", ["qwen3_coder", "glm5"])
 @pytest.mark.parametrize("stream", [False, True])
 def test_xml_literal_tool_close_inside_parameter(parser, stream):

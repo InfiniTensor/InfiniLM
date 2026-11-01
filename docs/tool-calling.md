@@ -74,6 +74,8 @@ interpretations retaining all native scalars, then permits the fewest scalar-to-
 fallbacks within the same 256-check budget. Other XML formats keep their existing
 JSON/string preference. Qwen/GLM parameter bodies may contain literal
 `</tool_call>` text; the parameter's own closing delimiter remains structural.
+Direct property `type` constraints prune impossible alternatives before search;
+required string conversions do not compete with already-correct integer fields.
 
 `strict: true` and non-local JSON Schema references are rejected. Property names
 and instance data such as `default` or `const` are not reference keywords; schema
