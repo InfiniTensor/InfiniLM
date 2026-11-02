@@ -444,6 +444,7 @@ class TestModel:
         top_p=1.0,
         top_k=1,
         enable_prefix_caching=False,
+        chunked_prefill_size=0,
         processor=None,
         tokenizer=None,
         prompt_token_segments=None,
@@ -463,6 +464,7 @@ class TestModel:
         self.weight_load_mode = weight_load_mode
         self.skip_load = skip_load
         self.enable_prefix_caching = enable_prefix_caching
+        self.chunked_prefill_size = chunked_prefill_size
         self.processor = processor
         self.tokenizer = tokenizer
         self.prompt_token_segments = prompt_token_segments
@@ -472,6 +474,12 @@ class TestModel:
 
         if pp > 1 and draft_model_path is not None:
             raise ValueError("pipeline-parallel speculative decoding is not supported")
+
+        if draft_model_path is not None and chunked_prefill_size > 0:
+            raise ValueError(
+                "--chunked-prefill-size with speculative decoding is "
+                "untested; drop --chunked-prefill-size for --draft-model"
+            )
 
         if draft_model_path is not None:
             if processed_multimodal_inputs is not None:
@@ -489,7 +497,9 @@ class TestModel:
             self.model = None
             return
 
-        if pp > 1:
+        if pp > 1 or chunked_prefill_size > 0:
+            # Chunked prefill lives in the LLMEngine scheduler;
+            # the raw InferEngine path cannot chunk prefills.
             self.model = LLM(
                 model_path=model_path,
                 device=self.device_str,
@@ -516,6 +526,7 @@ class TestModel:
                 weight_load_mode=weight_load_mode,
                 skip_load=skip_load,
                 enable_prefix_caching=enable_prefix_caching,
+                chunked_prefill_size=chunked_prefill_size,
             )
             self.processor = self.model.engine.processor
             self.tokenizer = self.processor.get_tokenizer()
@@ -639,8 +650,15 @@ class TestModel:
     def uses_pipeline_parallel(self) -> bool:
         return self.pp > 1
 
+    @property
+    def uses_llm_engine(self) -> bool:
+        # The LLM engine (Python scheduler) is required for
+        # pipeline parallelism and for chunked prefill; the raw
+        # InferEngine generate loop cannot chunk prefills.
+        return self.pp > 1 or self.chunked_prefill_size > 0
+
     def close(self) -> None:
-        if self.uses_pipeline_parallel:
+        if self.uses_pipeline_parallel or self.uses_llm_engine:
             self.model.close()
 
     def run(
@@ -660,7 +678,7 @@ class TestModel:
         # ---------------------------------------------------------------------------- #
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
-        if self.draft_model_path is not None or self.uses_pipeline_parallel:
+        if self.draft_model_path is not None or self.uses_llm_engine:
             prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
             llm = self.model
             if self.draft_model_path is not None:
@@ -682,6 +700,7 @@ class TestModel:
                     weight_load_mode=self.weight_load_mode,
                     skip_load=self.skip_load,
                     enable_prefix_caching=self.enable_prefix_caching,
+                    chunked_prefill_size=self.chunked_prefill_size,
                 )
             t1 = time.time()
             print("=================== start generate ====================")
@@ -787,6 +806,12 @@ if __name__ == "__main__":
     enable_paged_attn = cfg.enable_paged_attn
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
+
+    if cfg.chunked_prefill_size and not enable_paged_attn:
+        raise ValueError(
+            "--chunked-prefill-size requires --enable-paged-attn; "
+            "the static cache path silently ignores chunking"
+        )
 
     if isinstance(batch_size, int):
         batch_size = [batch_size]
@@ -956,6 +981,7 @@ if __name__ == "__main__":
         prompt_token_segments=prompt_token_segments,
         processed_multimodal_inputs=processed_multimodal_inputs,
         prompt_text=benchmark_prompt,
+        chunked_prefill_size=cfg.chunked_prefill_size,
     )
 
     # ---------------------------------------------------------------------------- #
@@ -976,7 +1002,7 @@ if __name__ == "__main__":
         )
         print("=================== warmup start ===================")
 
-        if test.uses_pipeline_parallel:
+        if test.uses_llm_engine:
             for _ in range(warmup_steps):
                 test.run(
                     batch_size=warmup_batch,

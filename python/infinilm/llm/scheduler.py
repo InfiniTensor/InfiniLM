@@ -273,6 +273,10 @@ class Scheduler:
                     "chunked prefill"
                 )
             self.chunked_prefill_size = chunked_prefill_size
+        # When chunked prefill is enabled, alternate between
+        # prefill and decode batches so a long chunked prompt
+        # cannot starve decode work already in the running queue.
+        self._last_batch_was_prefill = False
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -432,8 +436,19 @@ class Scheduler:
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
 
+        # With chunked prefill enabled, a long prompt is split
+        # over several prefill batches. Always returning the
+        # prefill batch first would delay every running decode
+        # by one step per chunk. Alternate: after a prefill
+        # batch, run decode first if any decode work exists.
+        skip_waiting = (
+            self.chunked_prefill_size is not None
+            and self._last_batch_was_prefill
+            and self.running_queue.sync_q.qsize() > 0
+        )
+
         # Process Waiting queue (prefill phase)
-        waiting_to_inspect = self.waiting_queue.sync_q.qsize()
+        waiting_to_inspect = 0 if skip_waiting else self.waiting_queue.sync_q.qsize()
         while (
             waiting_to_inspect > 0
             and len(scheduled_requests) < self.max_batch_size
@@ -538,7 +553,11 @@ class Scheduler:
                     if num_local_computed_tokens > 0:
                         self.cache_manager.free_blocks(cached_block_table)
                     deferred_requests.append(req)
-                    break
+                    # Keep scanning: a queued chunked resume behind
+                    # this request may still fit, and blocking the
+                    # head would deadlock chunked requests that
+                    # already hold blocks.
+                    continue
 
                 allocation = self.cache_manager.allocate_slots(
                     num_scheduled_tokens
@@ -624,7 +643,11 @@ class Scheduler:
                         req.request_id,
                     )
                     deferred_requests.append(req)
-                    break
+                    # Same head-of-line reasoning as the
+                    # can_accept_request defer: a resume that
+                    # cannot grow must not block chunked
+                    # resumes behind it that can.
+                    continue
                 req.block_table, req.slot_mapping = allocation
                 req.num_blocks = len(req.block_table)
                 req.num_local_cached_tokens = computed_start
@@ -674,6 +697,7 @@ class Scheduler:
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
             is_prefill = True
+            self._last_batch_was_prefill = True
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
                     scheduled_requests, decode=not is_prefill
@@ -753,6 +777,7 @@ class Scheduler:
         # Return decode batch if any running requests were scheduled
         if scheduled_requests:
             is_prefill = False
+            self._last_batch_was_prefill = False
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
                     scheduled_requests, decode=not is_prefill
@@ -784,6 +809,7 @@ class Scheduler:
             scheduler_output.kv_connector_metadata = meta
             return scheduler_output
 
+        self._last_batch_was_prefill = False
         return None
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
@@ -977,6 +1003,28 @@ class Scheduler:
             ) // self.block_size
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
+
+        # Reserve capacity for incomplete chunked requests in the
+        # waiting queue: they already hold blocks for earlier chunks
+        # and will need more to finish their prompt and decode. Without
+        # this, several chunked requests can each pass admission and
+        # together hold every free block, deadlocking the scheduler.
+        waiting_queue_size = self.waiting_queue.sync_q.qsize()
+        for _ in range(waiting_queue_size):
+            other = self.waiting_queue.sync_q.get()
+            self.waiting_queue.sync_q.put(other)
+            if other is request or not other.chunked_prefill_pending:
+                continue
+            total_for_completion = (
+                other.get_prompt_length()
+                + other.sampling_params.max_tokens
+                + self.block_size
+                - 1
+            ) // self.block_size
+            total_required_blocks += max(
+                total_for_completion - len(other.block_table),
+                0,
+            )
 
         # Calculate blocks needed for the new request
         total_length = request.get_prompt_length() - num_local_computed_tokens
