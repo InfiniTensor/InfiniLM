@@ -14,6 +14,7 @@
 #include "runtime/tensor.hpp"
 #include <memory>
 #include <stdexcept>
+#include <unordered_map>
 #include <utility>
 
 namespace infinilm::layers::causal_lm_templates {
@@ -94,7 +95,8 @@ public:
         }
         auto positions = input.position_ids.value();
         auto hidden_states = initial_hidden_states(input, *forward_context.runtime);
-        return forward_hidden(positions, std::move(hidden_states), forward_context);
+        return forward_hidden(positions, std::move(hidden_states), forward_context,
+                              input.capture_layer_ids);
     }
 
     infinilm::runtime::Tensor forward_embeds(
@@ -109,7 +111,8 @@ public:
                                : recv_pipeline_hidden(inputs_embeds->shape()[0], inputs_embeds->shape()[1],
                                                       inputs_embeds->dtype(), inputs_embeds->device(),
                                                       *forward_context.runtime);
-        return forward_hidden(position_ids, std::move(hidden_states), forward_context);
+        return forward_hidden(position_ids, std::move(hidden_states), forward_context,
+                              std::nullopt);
     }
 
     infinilm::runtime::Tensor embed_tokens(
@@ -133,7 +136,34 @@ private:
     infinilm::runtime::Tensor forward_hidden(
         const infinilm::runtime::Tensor &positions,
         infinilm::runtime::Tensor hidden_states,
-        infinilm::global_state::ForwardContext &forward_context) const {
+        infinilm::global_state::ForwardContext &forward_context,
+        const std::optional<std::vector<size_t>> &capture_layer_ids) const {
+        forward_context.captured_hidden_states = {};
+        std::unordered_map<size_t, size_t> capture_slots;
+        if (capture_layer_ids.has_value()) {
+            if (pp_size_ != 1) {
+                throw std::runtime_error(
+                    "speculative layer capture does not support pipeline parallelism");
+            }
+            for (size_t slot = 0; slot < capture_layer_ids->size(); ++slot) {
+                const size_t layer_id = capture_layer_ids.value()[slot];
+                if (layer_id >= local_layer_end_
+                    || !capture_slots.emplace(layer_id, slot).second) {
+                    throw std::invalid_argument(
+                        "capture_layer_ids must contain unique in-range layer IDs");
+                }
+            }
+            if (!capture_slots.empty()) {
+                auto shape = hidden_states->shape();
+                if (shape.size() != 3 || shape[2] != hidden_size_) {
+                    throw std::runtime_error(
+                        "speculative layer capture expects rank-3 hidden states");
+                }
+                shape[2] = hidden_size_ * capture_slots.size();
+                forward_context.captured_hidden_states = infinilm::runtime::Tensor::empty(
+                    *forward_context.runtime, shape, hidden_states->dtype());
+            }
+        }
         infinilm::runtime::Tensor residual;
         // PP sends an already-rounded sum; retain the interior layer's
         // residual-present normalization path at the receiving stage.
@@ -148,6 +178,15 @@ private:
         for (size_t i = 0; i < layers_.size(); ++i) {
             layers_.at(i)->forward(
                 positions, hidden_states, residual, forward_context);
+            const size_t layer_id = local_layer_begin_ + i;
+            const auto slot = capture_slots.find(layer_id);
+            if (slot != capture_slots.end()) {
+                auto captured = materialize_hidden_states(
+                    hidden_states, residual, *forward_context.runtime);
+                auto destination = forward_context.captured_hidden_states->narrow(
+                    {{2, slot->second * hidden_size_, hidden_size_}});
+                destination->copy_from(*forward_context.runtime, captured);
+            }
         }
 
         if (!is_last_pp_stage()) {

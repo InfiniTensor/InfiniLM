@@ -67,6 +67,9 @@ inline void bind_hook_registry(py::module &m) {
 }
 
 inline void bind_infer_engine(py::module &m) {
+    py::class_<infinilm::runtime::StreamEvent,
+               std::shared_ptr<infinilm::runtime::StreamEvent>>(
+        m, "StreamEvent");
     py::class_<InferEngine, std::shared_ptr<InferEngine>> infer_engine(
         m, "InferEngine", py::release_gil_before_calling_cpp_dtor());
 
@@ -131,7 +134,8 @@ inline void bind_infer_engine(py::module &m) {
             return state_dict_tp_all;
         })
         .def("process_weights_after_loading", &InferEngine::process_weights_after_loading, py::call_guard<py::gil_scoped_release>(), "Process the weights after loading on all workers (e.g., for quantization)")
-        .def("forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
+        .def(
+            "forward", [](InferEngine &self, const InferEngine::Input &input) -> InferEngine::Output {
                 // IMPORTANT: Release the GIL before calling forward() to allow other Python threads
                 // to run concurrently during inference (which may block for a long time).
                 // Do NOT remove this — without it, the GIL is held throughout inference and will
@@ -139,9 +143,11 @@ inline void bind_infer_engine(py::module &m) {
                 const auto frozen_input = input; // copy native values/properties while GIL still held
                 py::gil_scoped_release release;
                 return self.forward(frozen_input); }, "Run inference on all ranks with arbitrary arguments")
-        .def("reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
+        .def(
+            "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
         .def("get_kv_cache", &InferEngine::get_kv_cache, py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
-        .def("get_nsa_pool_epoch", [](InferEngine &self) {
+        .def(
+            "get_nsa_pool_epoch", [](InferEngine &self) {
             py::gil_scoped_release release;
             return self.get_nsa_pool_epoch(); }, "Readonly native VideoNSA raw-pool lifetime stamp")
         .def("get_cache_config", [](const InferEngine &self) -> std::shared_ptr<cache::CacheConfig> {
@@ -233,6 +239,17 @@ inline void bind_infer_engine(py::module &m) {
                     "random_values",
                     "sampling_rows",
                     "nsa_owner_snapshot",
+                    "capture_layer_ids",
+                    "draft_base_logits",
+                    "draft_anchor_tokens",
+                    "target_hidden_position_ids",
+                    "target_hidden_slot_mapping",
+                    "cache_only",
+                    "skip_sampling",
+                    "output_ids_on_device",
+                    "output_token_prefix",
+                    "speculative_proposed_tokens",
+                    "dependency_event",
                 };
 
                 for (auto &item : kwargs) {
@@ -261,6 +278,44 @@ inline void bind_infer_engine(py::module &m) {
                     } else if (key == "sampling_rows") {
                         if (!item.second.is_none()) {
                             input.sampling_rows = py::cast<std::vector<std::tuple<float, float, int>>>(item.second);
+                        }
+                    } else if (key == "capture_layer_ids") {
+                        if (!item.second.is_none()) {
+                            input.capture_layer_ids = py::cast<std::vector<size_t>>(item.second);
+                        }
+                    } else if (key == "draft_base_logits") {
+                        if (!item.second.is_none()) {
+                            input.draft_base_logits = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "draft_anchor_tokens") {
+                        if (!item.second.is_none()) {
+                            input.draft_anchor_tokens = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "target_hidden_position_ids") {
+                        if (!item.second.is_none()) {
+                            input.target_hidden_position_ids = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "target_hidden_slot_mapping") {
+                        if (!item.second.is_none()) {
+                            input.target_hidden_slot_mapping = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "cache_only") {
+                        input.cache_only = py::cast<bool>(item.second);
+                    } else if (key == "skip_sampling") {
+                        input.skip_sampling = py::cast<bool>(item.second);
+                    } else if (key == "output_ids_on_device") {
+                        input.output_ids_on_device = py::cast<bool>(item.second);
+                    } else if (key == "output_token_prefix") {
+                        if (!item.second.is_none()) {
+                            input.output_token_prefix = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "speculative_proposed_tokens") {
+                        if (!item.second.is_none()) {
+                            input.speculative_proposed_tokens = py::cast<infinilm::runtime::Tensor>(item.second);
+                        }
+                    } else if (key == "dependency_event") {
+                        if (!item.second.is_none()) {
+                            input.dependency_event = py::cast<std::shared_ptr<infinilm::runtime::StreamEvent>>(item.second);
                         }
                     }
                 }
@@ -303,6 +358,17 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("visual_token_ranges", &InferEngine::Input::visual_token_ranges)
         .def_readwrite("target_hidden_states", &InferEngine::Input::target_hidden_states)
         .def_readwrite("sample_all_positions", &InferEngine::Input::sample_all_positions)
+        .def_readwrite("capture_layer_ids", &InferEngine::Input::capture_layer_ids)
+        .def_readwrite("draft_base_logits", &InferEngine::Input::draft_base_logits)
+        .def_readwrite("draft_anchor_tokens", &InferEngine::Input::draft_anchor_tokens)
+        .def_readwrite("target_hidden_position_ids", &InferEngine::Input::target_hidden_position_ids)
+        .def_readwrite("target_hidden_slot_mapping", &InferEngine::Input::target_hidden_slot_mapping)
+        .def_readwrite("cache_only", &InferEngine::Input::cache_only)
+        .def_readwrite("skip_sampling", &InferEngine::Input::skip_sampling)
+        .def_readwrite("output_ids_on_device", &InferEngine::Input::output_ids_on_device)
+        .def_readwrite("output_token_prefix", &InferEngine::Input::output_token_prefix)
+        .def_readwrite("speculative_proposed_tokens", &InferEngine::Input::speculative_proposed_tokens)
+        .def_readwrite("dependency_event", &InferEngine::Input::dependency_event)
         .def_readwrite("temperature", &InferEngine::Input::temperature)
         .def_readwrite("top_k", &InferEngine::Input::top_k)
         .def_readwrite("top_p", &InferEngine::Input::top_p)
@@ -313,6 +379,8 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("output_ids", &InferEngine::Output::output_ids, "Sampled token IDs")
         .def_readwrite("logits", &InferEngine::Output::logits, "Raw logits tensor")
         .def_readwrite("hidden_states", &InferEngine::Output::hidden_states, "Raw hidden states tensor")
+        .def_readwrite("completion_event", &InferEngine::Output::completion_event,
+                       "Device completion fence for asynchronous consumers")
         .def_property_readonly("execution_report", [](const InferEngine::Output &output) {
             py::dict result;
             const auto *graph = output.graph_execution ? &*output.graph_execution : nullptr;

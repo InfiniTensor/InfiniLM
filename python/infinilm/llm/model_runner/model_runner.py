@@ -87,6 +87,15 @@ class ModelRunner:
         else:
             raise ValueError(f"Unsupported cache_type: {config.cache_type}")
 
+        target_config_overrides = None
+        if config.draft_model_path is not None:
+            draft_config = read_hf_config(config.draft_model_path)
+            if draft_config.get("model_type") == "qwen3_dspark":
+                target_config_overrides = {
+                    "speculative_capture_layer_ids": draft_config["target_layer_ids"],
+                    "speculative_verify_width": config.num_draft_tokens,
+                }
+
         # InferEngine creates the per-node TP communicator first. For PP it then
         # uses the short-lived C++ TCP rendezvous to bootstrap one global
         # InfiniCCL communicator spanning every (PP stage, TP rank) pair.
@@ -108,6 +117,7 @@ class ModelRunner:
             use_mla=config.use_mla,
             weight_load_mode=config.weight_load_mode,
             pre_transpose=config.pre_transpose,
+            config_overrides=target_config_overrides,
         )
 
         if self.model_engine.model_type == "minicpm_eagle":
@@ -115,6 +125,12 @@ class ModelRunner:
                 "MiniCPM4 Eagle-vLLM is a speculative draft head, not a standalone "
                 "causal LM. Use the MiniCPM4-8B base model as --model and pass "
                 "this checkpoint through --draft-model for Eagle speculative decoding."
+            )
+        if self.model_engine.model_type == "qwen3_dspark":
+            raise RuntimeError(
+                "Qwen3 DSpark is a speculative draft model, not a standalone causal "
+                "LM. Use Qwen3-8B as --model and pass the DSpark checkpoint through "
+                "--draft-model."
             )
 
         # Load model weights

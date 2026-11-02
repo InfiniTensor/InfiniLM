@@ -56,6 +56,10 @@ public:
 private:
     const PagedGraphConfig graph_config_;
     std::vector<size_t> decode_batch_sizes_;
+    size_t speculative_verify_width_{0};
+    bool speculative_markov_fused_{false};
+    size_t speculative_target_hidden_width_{0};
+    size_t speculative_cache_injection_width_{0};
 
     infinilm::runtime::Tensor block_tables_holder_;
     infinilm::runtime::Tensor short_block_tables_holder_;
@@ -70,5 +74,7 @@ private:
         std::pair<size_t, size_t>, // (num_requests, logical KV bound; 0=legacy full width)
         CompiledResult>
         compiled_map_decode_;
+    std::map<size_t, CompiledResult> compiled_map_verify_;
+    std::map<size_t, CompiledResult> compiled_map_cache_injection_;
 };
 } // namespace infinilm::engine

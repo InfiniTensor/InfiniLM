@@ -147,6 +147,8 @@ class InferenceServer:
         enable_prefix_caching: bool = True,
         pre_transpose: bool = False,
         tool_call_parser: str = "none",
+        draft_model_path: Optional[str] = None,
+        num_draft_tokens: int = 4,
     ):
         """Initialize inference server.
 
@@ -211,6 +213,8 @@ class InferenceServer:
         if tool_call_parser != "none" and tool_call_parser not in TOOL_CALL_FORMATS:
             raise ValueError("Unsupported tool call parser")
         self.tool_call_parser = tool_call_parser
+        self.draft_model_path = draft_model_path
+        self.num_draft_tokens = num_draft_tokens
 
         self.engine: AsyncLLMEngine = None
 
@@ -254,6 +258,8 @@ class InferenceServer:
                 kv_transfer_config=self.kv_transfer_config,
                 enable_prefix_caching=self.enable_prefix_caching,
                 pre_transpose=self.pre_transpose,
+                draft_model_path=self.draft_model_path,
+                num_draft_tokens=self.num_draft_tokens,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -767,6 +773,8 @@ def main():
         enable_prefix_caching=cfg.enable_prefix_caching,
         pre_transpose=cfg.pre_transpose,
         tool_call_parser=cfg.tool_call_parser,
+        draft_model_path=cfg.draft_model,
+        num_draft_tokens=cfg.num_draft_tokens,
     )
     server.start()
 

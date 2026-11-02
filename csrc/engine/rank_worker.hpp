@@ -11,6 +11,7 @@
 #include "distributed/distributed.hpp"
 #include "nsa_owner_input.hpp"
 #include "rank_barrier.hpp"
+#include "runtime/event.hpp"
 #include "static_decode_metadata.hpp"
 
 #include <any>
@@ -82,6 +83,33 @@ public:
         std::optional<infinilm::runtime::Tensor> target_hidden_states;
         /// Sample logits at every packed input position instead of one token per request.
         bool sample_all_positions{false};
+        /// Decoder layer outputs to concatenate for speculative draft context.
+        std::optional<std::vector<size_t>> capture_layer_ids;
+        /// Precomputed base logits consumed by a draft-model correction head.
+        std::optional<infinilm::runtime::Tensor> draft_base_logits;
+        /// One anchor token per request for a fused speculative draft proposal.
+        std::optional<infinilm::runtime::Tensor> draft_anchor_tokens;
+        /// Target-token positions used when cache injection is fused with draft decode.
+        std::optional<infinilm::runtime::Tensor> target_hidden_position_ids;
+        /// Target-token slots used when cache injection is fused with draft decode.
+        std::optional<infinilm::runtime::Tensor> target_hidden_slot_mapping;
+        /// Run only draft-cache injection and skip the draft transformer body.
+        bool cache_only{false};
+        /// Return logits/hidden states without sampling or synchronizing token IDs.
+        bool skip_sampling{false};
+        /// Keep sampled token IDs on the worker device. The worker still drains
+        /// its stream before publishing the output so another engine may safely
+        /// consume the tensor.
+        bool output_ids_on_device{false};
+        /// Optional per-request prefix prepended to sampled IDs. Speculative
+        /// draft execution uses this to return [anchor, proposals] without a
+        /// host round trip.
+        std::optional<infinilm::runtime::Tensor> output_token_prefix;
+        /// Optional packed proposals paired with sampled verification IDs.
+        /// The result is returned row-wise as [proposals, verification].
+        std::optional<infinilm::runtime::Tensor> speculative_proposed_tokens;
+        /// Device completion fence that must precede this forward.
+        std::shared_ptr<infinilm::runtime::StreamEvent> dependency_event;
 
         float temperature{1};
 
@@ -115,6 +143,7 @@ public:
         // Present only after this forward actually submitted the selected plan.
         std::optional<infinilm::execution::graph::Graph::ExecutionReport> graph_execution;
         const char *eager_reason = "graphs_disabled";
+        std::shared_ptr<infinilm::runtime::StreamEvent> completion_event;
     };
 
     RankWorker(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,

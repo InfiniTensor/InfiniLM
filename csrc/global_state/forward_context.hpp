@@ -119,6 +119,8 @@ struct ForwardContext {
     AttentionMetadata attn_metadata;
     MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;
+    // Set by text models only for an explicitly requested speculative capture.
+    infinilm::runtime::Tensor captured_hidden_states;
     std::vector<infinilm::runtime::Tensor> kv_cache_vec;
     std::vector<infinilm::runtime::Tensor> conv_state_vec;
     std::vector<infinilm::runtime::Tensor> ssm_state_vec;

@@ -135,7 +135,14 @@ public:
         }
 
         auto logits = lm_head_->forward(*forward_context.runtime, lm_head_input);
-        return {logits, hidden_states};
+        auto returned_hidden_states = input.capture_layer_ids.has_value()
+                                        ? forward_context.captured_hidden_states
+                                        : hidden_states;
+        if (input.capture_layer_ids.has_value() && !returned_hidden_states) {
+            throw std::runtime_error(
+                "requested speculative layer capture produced no hidden states");
+        }
+        return {logits, returned_hidden_states};
     }
 
     bool supports_kv_only_prepare() const override {

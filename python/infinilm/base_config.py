@@ -163,13 +163,13 @@ class BaseConfig:
             "--draft-model",
             type=str,
             default=None,
-            help="optional Eagle/MTP draft model directory",
+            help="optional Eagle/MTP/DSpark draft model directory",
         )
         self.parser.add_argument(
             "--num-draft-tokens",
             type=int,
             default=1,
-            help="number of Eagle draft tokens to verify per target step",
+            help="number of speculative draft tokens to verify per target step",
         )
         self.parser.add_argument(
             "--device",

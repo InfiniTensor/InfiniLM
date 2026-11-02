@@ -141,6 +141,15 @@ def read_hf_config(model_path):
             f"`model_type` is not specified in the config file `{config_path}`."
         )
 
+    architectures = config_dict.get("architectures") or []
+    if "Qwen3DSparkModel" in architectures:
+        config_dict["original_model_type"] = config_dict["model_type"]
+        config_dict["model_type"] = "qwen3_dspark"
+        rope_parameters = config_dict.get("rope_parameters") or {}
+        config_dict.setdefault("rope_theta", rope_parameters.get("rope_theta", 10000.0))
+        config_dict.setdefault("attention_output_bias", False)
+        config_dict.setdefault("mlp_bias", False)
+
     if config_dict.get("model_type") == "minicpm":
         model_dir_name = os.path.basename(os.path.normpath(model_path)).lower()
         if "eagle" in model_dir_name:
@@ -229,8 +238,11 @@ class InferEngine(_infinilm.InferEngine):
         moe_ep_backend="disabled",
         moe_ep_size=1,
         pre_transpose=False,
+        config_overrides=None,
     ):
         self.hf_config = read_hf_config(model_path)
+        if config_overrides:
+            self.hf_config.update(config_overrides)
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
         self.hf_config["position_id_axes"] = self.position_id_axes
@@ -338,6 +350,17 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=False,
+        capture_layer_ids=None,
+        draft_base_logits=None,
+        draft_anchor_tokens=None,
+        target_hidden_position_ids=None,
+        target_hidden_slot_mapping=None,
+        cache_only=False,
+        skip_sampling=False,
+        output_ids_on_device=False,
+        output_token_prefix=None,
+        speculative_proposed_tokens=None,
+        dependency_event=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -361,6 +384,12 @@ class InferEngine(_infinilm.InferEngine):
         mamba_init_state_indices = unwrap_tensor(mamba_init_state_indices)
         mamba_final_state_indices = unwrap_tensor(mamba_final_state_indices)
         target_hidden_states = unwrap_tensor(target_hidden_states)
+        draft_base_logits = unwrap_tensor(draft_base_logits)
+        draft_anchor_tokens = unwrap_tensor(draft_anchor_tokens)
+        target_hidden_position_ids = unwrap_tensor(target_hidden_position_ids)
+        target_hidden_slot_mapping = unwrap_tensor(target_hidden_slot_mapping)
+        output_token_prefix = unwrap_tensor(output_token_prefix)
+        speculative_proposed_tokens = unwrap_tensor(speculative_proposed_tokens)
 
         def convert_tensor_list(tensor_list_):
             if tensor_list_ is None:
@@ -399,6 +428,17 @@ class InferEngine(_infinilm.InferEngine):
             visual_token_ranges=visual_token_ranges,
             target_hidden_states=target_hidden_states,
             sample_all_positions=sample_all_positions,
+            capture_layer_ids=capture_layer_ids,
+            draft_base_logits=draft_base_logits,
+            draft_anchor_tokens=draft_anchor_tokens,
+            target_hidden_position_ids=target_hidden_position_ids,
+            target_hidden_slot_mapping=target_hidden_slot_mapping,
+            cache_only=cache_only,
+            skip_sampling=skip_sampling,
+            output_ids_on_device=output_ids_on_device,
+            output_token_prefix=output_token_prefix,
+            speculative_proposed_tokens=speculative_proposed_tokens,
+            dependency_event=dependency_event,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
@@ -534,6 +574,17 @@ class InferEngine(_infinilm.InferEngine):
         visual_token_ranges=None,
         target_hidden_states=None,
         sample_all_positions=True,
+        capture_layer_ids=None,
+        draft_base_logits=None,
+        draft_anchor_tokens=None,
+        target_hidden_position_ids=None,
+        target_hidden_slot_mapping=None,
+        cache_only=False,
+        skip_sampling=False,
+        output_ids_on_device=False,
+        output_token_prefix=None,
+        speculative_proposed_tokens=None,
+        dependency_event=None,
         temperature=None,
         top_k=None,
         top_p=None,
@@ -557,6 +608,17 @@ class InferEngine(_infinilm.InferEngine):
                     visual_token_ranges=visual_token_ranges,
                     target_hidden_states=target_hidden_states,
                     sample_all_positions=sample_all_positions,
+                    capture_layer_ids=capture_layer_ids,
+                    draft_base_logits=draft_base_logits,
+                    draft_anchor_tokens=draft_anchor_tokens,
+                    target_hidden_position_ids=target_hidden_position_ids,
+                    target_hidden_slot_mapping=target_hidden_slot_mapping,
+                    cache_only=cache_only,
+                    skip_sampling=skip_sampling,
+                    output_ids_on_device=output_ids_on_device,
+                    output_token_prefix=output_token_prefix,
+                    speculative_proposed_tokens=speculative_proposed_tokens,
+                    dependency_event=dependency_event,
                     temperature=temperature,
                     top_k=top_k,
                     top_p=top_p,
@@ -568,6 +630,7 @@ class InferEngine(_infinilm.InferEngine):
                 "logits": infinicore.Tensor(output.logits),
                 "hidden_states": infinicore.Tensor(output.hidden_states),
                 "execution_report": output.execution_report,
+                "completion_event": output.completion_event,
             }
         except BaseException as e:
             handle_oom_and_exit(e)

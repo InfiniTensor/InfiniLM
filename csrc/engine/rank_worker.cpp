@@ -6,6 +6,7 @@
 #include "compiler/paged_compiler.hpp"
 #include "compiler/paged_decode_bucket.hpp"
 #include "compiler/static_batching_compiler.hpp"
+#include "execution/submit.hpp"
 #include "nsa_run_failure.hpp"
 #include "request_sampling.hpp"
 #include "runtime/runtime.hpp"
@@ -18,6 +19,40 @@
 namespace infinilm::engine {
 
 namespace {
+infinilm::runtime::Tensor concatenate_token_rows(
+    infinilm::runtime::Runtime &runtime,
+    const infinilm::runtime::Tensor &left,
+    size_t left_width,
+    const infinilm::runtime::Tensor &right,
+    size_t right_width,
+    size_t batch_size) {
+    if (!left || !right || batch_size == 0
+        || left->numel() != batch_size * left_width
+        || right->numel() != batch_size * right_width
+        || left->dtype() != right->dtype()
+        || left->device() != runtime.device()
+        || right->device() != runtime.device()
+        || !left->is_contiguous() || !right->is_contiguous()) {
+        throw std::invalid_argument("invalid token tensors for row concatenation");
+    }
+    auto output = infinilm::runtime::Tensor::empty(
+        runtime, {batch_size, left_width + right_width}, left->dtype());
+    const size_t element_size = left->element_size();
+    const size_t output_width = left_width + right_width;
+    for (size_t row = 0; row < batch_size; ++row) {
+        auto *destination = output->data() + row * output_width * element_size;
+        runtime.memcpyD2D(
+            destination,
+            left->data() + row * left_width * element_size,
+            left_width * element_size, true);
+        runtime.memcpyD2D(
+            destination + left_width * element_size,
+            right->data() + row * right_width * element_size,
+            right_width * element_size, true);
+    }
+    return output->view({batch_size * (left_width + right_width)});
+}
+
 infinilm::runtime::Tensor clone_nsa_cpu(const std::optional<infinilm::runtime::Tensor> &value,
                                         infinilm::runtime::DataType dtype, std::size_t rank) {
     if (!value || !value.value() || value.value()->device().type() != infinilm::runtime::Device::Type::kCpu
@@ -743,9 +778,14 @@ void RankWorker::thread_loop() {
                         // These retained RUN locals are OUTSIDE the inner try.
                         // Its catch sees the real exception before these locals unwind.
                         try {
+                            if (local_args.dependency_event) {
+                                local_args.dependency_event->wait(*runtime_);
+                            }
                             if (nsa_pool_epoch_) {
                                 if (runtime_->isGraphRecording() || rank_info_.pp_size != 1
-                                    || local_args.sample_all_positions || local_args.target_hidden_states || local_args.pixel_values
+                                    || local_args.sample_all_positions || local_args.target_hidden_states
+                                    || local_args.capture_layer_ids || local_args.draft_base_logits
+                                    || local_args.cache_only || local_args.pixel_values
                                     || local_args.image_bound || local_args.tgt_sizes || local_args.image_grid_thw
                                     || local_args.image_req_ids || local_args.visual_token_ranges
                                     || local_args.mamba_init_state_indices || local_args.mamba_final_state_indices
@@ -833,13 +873,12 @@ void RankWorker::thread_loop() {
                                 forward_context_.nsa_owner = proof;
                                 model_->prepare_paged_owner(forward_context_); // all layers BEFORE any input/device/raw write
                             }
-                            const char *eager_reason = !enable_graph_compiling_        ? "graphs_disabled"
-                                                     : rank_info_.pp_size != 1         ? "pipeline_graph_not_supported"
-                                                     : local_args.sample_all_positions ? "all_positions_not_compiled"
-                                                                                       : "no_matching_plan";
-                            // Packed all-position runs do not match the one-token-per-request
-                            // output shape captured by the compiled decode graphs.
-                            if (!local_args.sample_all_positions && enable_graph_compiling_ && rank_info_.pp_size == 1) {
+                            const char *eager_reason = !enable_graph_compiling_     ? "graphs_disabled"
+                                                     : rank_info_.pp_size != 1      ? "pipeline_graph_not_supported"
+                                                     : local_args.draft_base_logits ? "draft_logits_not_compiled"
+                                                                                    : "no_matching_plan";
+                            if (!local_args.draft_base_logits
+                                && enable_graph_compiling_ && rank_info_.pp_size == 1) {
                                 GraphCompiler::Compiled compiled{nullptr, nullptr};
                                 {
                                     const auto lookup_input = effective_args.to_model_input(
@@ -966,94 +1005,134 @@ void RankWorker::thread_loop() {
 
                             // Random sampling (rank 0 only)
                             if (rank_info_.tp_rank == 0) {
-                                auto temperature{local_args.temperature};
-                                auto top_p{local_args.top_p};
-                                auto top_k{local_args.top_k};
-
-                                const auto &logits_shape{logits->shape()};
-                                const auto &vocab_size{logits_shape[2]};
-                                const auto &total_len{logits_shape[1]};
-                                const auto &batch_size{logits_shape[0]};
-
-                                auto n_req = effective_args.input_offsets.value()->size(0) - 1;
-                                int32_t *input_offsets = (int32_t *)effective_args.input_offsets.value()->data();
-
-                                const bool sample_all_positions = local_args.sample_all_positions;
-                                const size_t logits_positions = batch_size * total_len;
-                                const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
-                                const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                                auto output_ids{infinilm::runtime::Tensor::empty(*runtime_, {n_out}, infinilm::runtime::DataType::kInt64)};
-
-                                const bool parameter_greedy = local_args.sampling_rows.has_value()
-                                                                ? std::all_of(local_args.sampling_rows->begin(),
-                                                                              local_args.sampling_rows->end(),
-                                                                              [](const auto &row) {
-                                                                                  return std::get<1>(row) == 0.0f
-                                                                                      || std::get<2>(row) == 1
-                                                                                      || std::get<0>(row) == 0.0f;
-                                                                              })
-                                                                : top_p == 0.0f || top_k == 1 || temperature == 0.0f;
-                                const bool batch_greedy = parameter_greedy
-                                                       && n_out > 0
-                                                       && logits_positions == n_out
-                                                       && logits->is_contiguous()
-                                                       && (sample_all_positions || logits_are_last_token_only);
-                                if (batch_greedy) {
-                                    float random_val = 0.0f;
-                                    if (!local_args.random_values.has_value()) {
-                                        for (size_t i{0}; i < n_out; ++i) {
-                                            random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
-                                        }
-                                    }
-                                    sample_request_token(
-                                        *runtime_,
-                                        output_ids,
-                                        logits->view({logits_positions, vocab_size}),
-                                        random_val,
-                                        1.0f,
-                                        1,
-                                        1.0f);
+                                if (local_args.skip_sampling) {
+                                    output_ = Output{
+                                        infinilm::runtime::Tensor::empty(
+                                            *runtime_, {0}, infinilm::runtime::DataType::kInt64),
+                                        logits,
+                                        hidden_states,
+                                        std::move(graph_execution),
+                                        eager_reason};
                                 } else {
-                                    for (size_t i{0}; i < n_out; ++i) {
-                                        size_t score_idx = i;
-                                        if (!sample_all_positions && !logits_are_last_token_only) {
-                                            score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
-                                        }
-                                        auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
-                                        auto out{output_ids->narrow({{0, i, 1}})->view({})};
-                                        float random_val = local_args.random_values.has_value()
-                                                             ? local_args.random_values.value()[i]
-                                                             : std::uniform_real_distribution<float>(0, 1)(rng_);
-                                        if (local_args.sampling_rows.has_value()) {
-                                            std::tie(temperature, top_p, top_k) = local_args.sampling_rows.value()[i];
+                                    auto temperature{local_args.temperature};
+                                    auto top_p{local_args.top_p};
+                                    auto top_k{local_args.top_k};
+
+                                    const auto &logits_shape{logits->shape()};
+                                    const auto &vocab_size{logits_shape[2]};
+                                    const auto &total_len{logits_shape[1]};
+                                    const auto &batch_size{logits_shape[0]};
+
+                                    auto n_req = effective_args.input_offsets.value()->size(0) - 1;
+                                    int32_t *input_offsets = (int32_t *)effective_args.input_offsets.value()->data();
+
+                                    const bool sample_all_positions = local_args.sample_all_positions;
+                                    const size_t logits_positions = batch_size * total_len;
+                                    const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
+                                    const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
+                                    auto output_ids{infinilm::runtime::Tensor::empty(*runtime_, {n_out}, infinilm::runtime::DataType::kInt64)};
+
+                                    const bool parameter_greedy = local_args.sampling_rows.has_value()
+                                                                    ? std::all_of(local_args.sampling_rows->begin(),
+                                                                                  local_args.sampling_rows->end(),
+                                                                                  [](const auto &row) {
+                                                                                      return std::get<1>(row) == 0.0f
+                                                                                          || std::get<2>(row) == 1
+                                                                                          || std::get<0>(row) == 0.0f;
+                                                                                  })
+                                                                    : top_p == 0.0f || top_k == 1 || temperature == 0.0f;
+                                    const bool batch_greedy = parameter_greedy
+                                                           && n_out > 0
+                                                           && logits_positions == n_out
+                                                           && logits->is_contiguous()
+                                                           && (sample_all_positions || logits_are_last_token_only);
+                                    if (batch_greedy) {
+                                        float random_val = 0.0f;
+                                        if (!local_args.random_values.has_value()) {
+                                            for (size_t i{0}; i < n_out; ++i) {
+                                                random_val = std::uniform_real_distribution<float>(0, 1)(rng_);
+                                            }
                                         }
                                         sample_request_token(
                                             *runtime_,
-                                            out, score, random_val, top_p, top_k, temperature);
+                                            output_ids,
+                                            logits->view({logits_positions, vocab_size}),
+                                            random_val,
+                                            1.0f,
+                                            1,
+                                            1.0f);
+                                    } else {
+                                        for (size_t i{0}; i < n_out; ++i) {
+                                            size_t score_idx = i;
+                                            if (!sample_all_positions && !logits_are_last_token_only) {
+                                                score_idx = static_cast<size_t>(input_offsets[i + 1] - 1);
+                                            }
+                                            auto score{logits->view({logits_positions, vocab_size})->narrow({{0, score_idx, 1}})->view({vocab_size})};
+                                            auto out{output_ids->narrow({{0, i, 1}})->view({})};
+                                            float random_val = local_args.random_values.has_value()
+                                                                 ? local_args.random_values.value()[i]
+                                                                 : std::uniform_real_distribution<float>(0, 1)(rng_);
+                                            if (local_args.sampling_rows.has_value()) {
+                                                std::tie(temperature, top_p, top_k) = local_args.sampling_rows.value()[i];
+                                            }
+                                            sample_request_token(
+                                                *runtime_,
+                                                out, score, random_val, top_p, top_k, temperature);
+                                        }
                                     }
+
+                                    if (rank_info_.pp_size > 1) {
+                                        infinilm::engine::distributed::send(
+                                            *runtime_,
+                                            output_ids,
+                                            0,
+                                            rank_info_.world_comm);
+                                    }
+
+                                    if (local_args.output_token_prefix.has_value()) {
+                                        const size_t prefix_batch = local_args.output_token_prefix.value()->numel();
+                                        if (prefix_batch != n_req || n_out % prefix_batch != 0) {
+                                            throw std::invalid_argument(
+                                                "output token prefix does not match sampled token rows");
+                                        }
+                                        output_ids = concatenate_token_rows(
+                                            *runtime_, local_args.output_token_prefix.value(), 1,
+                                            output_ids, n_out / prefix_batch, prefix_batch);
+                                    }
+                                    if (local_args.speculative_proposed_tokens.has_value()) {
+                                        const auto &proposed = local_args.speculative_proposed_tokens.value();
+                                        if (proposed->numel() != output_ids->numel()
+                                            || proposed->numel() % n_req != 0) {
+                                            throw std::invalid_argument(
+                                                "speculative proposals do not match verification output");
+                                        }
+                                        const size_t width = proposed->numel() / n_req;
+                                        output_ids = concatenate_token_rows(
+                                            *runtime_, proposed, width, output_ids, width, n_req);
+                                    }
+
+                                    std::shared_ptr<infinilm::runtime::StreamEvent> completion_event;
+                                    if (!local_args.output_ids_on_device) {
+                                        output_ids = output_ids->to(
+                                            *runtime_, infinilm::runtime::Device{
+                                                           infinilm::runtime::Device::Type::kCpu});
+                                        runtime_->syncStream();
+                                    } else {
+                                        completion_event = infinilm::runtime::StreamEvent::create(*runtime_);
+                                        completion_event->record(*runtime_);
+                                    }
+                                    if (nsa_pool_epoch_) {
+                                        model_->finish_paged_owner(true);
+                                        forward_context_.nsa_owner.reset();
+                                        nsa_drain_required_ = false;
+                                    }
+
+                                    auto out{Output{output_ids, logits, hidden_states,
+                                                    std::move(graph_execution), eager_reason,
+                                                    std::move(completion_event)}};
+
+                                    output_ = std::move(out);
                                 }
-
-                                if (rank_info_.pp_size > 1) {
-                                    infinilm::engine::distributed::send(
-                                        *runtime_,
-                                        output_ids,
-                                        0,
-                                        rank_info_.world_comm);
-                                }
-
-                                output_ids = output_ids->to(*runtime_, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
-
-                                runtime_->syncStream();
-                                if (nsa_pool_epoch_) {
-                                    model_->finish_paged_owner(true);
-                                    forward_context_.nsa_owner.reset();
-                                    nsa_drain_required_ = false;
-                                }
-
-                                auto out{Output{output_ids, logits, hidden_states,
-                                                std::move(graph_execution), eager_reason}};
-
-                                output_ = std::move(out);
                             }
 
                             if (nsa_pool_epoch_ && rank_info_.tp_rank != 0) {
@@ -1064,7 +1143,8 @@ void RankWorker::thread_loop() {
                         } catch (...) {
                             const auto run_error = std::current_exception(); // active catch, never destructor
                             if (nsa_pool_epoch_) {
-                                nsa::retire_caught_run_failure(run_error, [&](std::exception_ptr error) {
+                                nsa::retire_caught_run_failure(
+                                    run_error, [&](std::exception_ptr error) {
                                         if (barrier_){ barrier_->abort(error);
 } }, [&] {
                                         model_->invalidate_paged_owner();

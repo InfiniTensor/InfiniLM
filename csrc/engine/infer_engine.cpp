@@ -447,6 +447,12 @@ InferEngine::Input::to_model_input(
             ? target_hidden_states
             : to_device(target_hidden_states),
         sample_all_positions};
+    input.capture_layer_ids = capture_layer_ids;
+    input.draft_base_logits = to_device(draft_base_logits);
+    input.draft_anchor_tokens = to_device(draft_anchor_tokens);
+    input.target_hidden_position_ids = to_device(target_hidden_position_ids);
+    input.target_hidden_slot_mapping = to_device(target_hidden_slot_mapping);
+    input.cache_only = cache_only;
     input.logical_kv_upper_bound = logical_kv_upper_bound;
 
     auto &attn_metadata = forward_context.attn_metadata;
@@ -481,6 +487,11 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
         || weight_state_ == WeightState::Finalizing
         || (weight_state_ == WeightState::Loading && weight_load_started_)) {
         throw std::logic_error("cannot execute an incomplete or failed weight load");
+    }
+    if (input.skip_sampling
+        && (communication_group_.get_dist_config().pp_size > 1 || nsa_pool_epoch_)) {
+        throw std::invalid_argument(
+            "skip_sampling is only supported by non-NSA engines without pipeline parallelism");
     }
     if (input.random_values.has_value()) {
         if (input.sample_all_positions || !input.input_offsets.has_value()

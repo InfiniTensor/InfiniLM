@@ -1,8 +1,11 @@
 #include "attention_layer.hpp"
+#include "../../../execution/paged_cache_checks.hpp"
 #include "../../../execution/submit.hpp"
 #include "runtime/owner_drain_fail_stop.hpp"
 #include "runtime/utils.hpp"
+#include <algorithm>
 #include <base/flash_attn_varlen_func.h>
+#include <base/reshape_and_cache_flash.h>
 #include <limits>
 #include <stdexcept>
 #include <utility>
@@ -70,6 +73,46 @@ infinilm::runtime::Tensor AttentionLayer::forward(
                                      attn_metadata, runtime);
         },
         attn_backend_impl_);
+}
+
+void AttentionLayer::write_kv_cache(
+    const infinilm::runtime::Tensor &key,
+    const infinilm::runtime::Tensor &value,
+    const infinilm::runtime::Tensor &slot_mapping,
+    infinilm::global_state::ForwardContext &forward_context) const {
+    if (layer_idx_ >= forward_context.kv_cache_vec.size()
+        || !forward_context.kv_cache_vec[layer_idx_]) {
+        throw std::runtime_error("AttentionLayer: KV cache is missing for this layer");
+    }
+    auto &runtime = forward_context.require_runtime();
+    auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
+    if (kv_cache->ndim() != 5 || kv_cache->size(0) != 2) {
+        throw std::invalid_argument(
+            "draft KV injection requires a paged [2, blocks, block, heads, dim] cache");
+    }
+    auto k_cache = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
+    auto v_cache = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    const auto config = infinilm::execution::paged_cache_checks::validate(
+        runtime, k_cache, v_cache, key, value, slot_mapping);
+    if (!config) {
+        return;
+    }
+
+    const infini::ops::Tensor scale{
+        nullptr, {1}, infinilm::runtime::DataType::kFloat32, runtime.device()};
+    const std::string mode{"auto"};
+    const auto tokens = slot_mapping->size(0);
+    for (infinilm::runtime::Size start = 0; start < tokens;) {
+        const auto count = std::min<infinilm::runtime::Size>(32768, tokens - start);
+        auto key_rows = key->narrow({{0, start, count}});
+        auto value_rows = value->narrow({{0, start, count}});
+        auto slots = slot_mapping->narrow({{0, start, count}});
+        infinilm::execution::submit<infini::ops::ReshapeAndCacheFlash>(
+            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay, *config,
+            key_rows, value_rows, slots, scale, scale, mode, k_cache, v_cache);
+        INFINILM_TRACE_OP(PagedCaching, k_cache);
+        start += count;
+    }
 }
 
 void AttentionLayer::prefill_paged(

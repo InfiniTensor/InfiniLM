@@ -44,6 +44,15 @@ public:
         infinilm::runtime::Tensor &value,
         infinilm::global_state::ForwardContext &forward_context) const;
 
+    /// Write projected K/V rows into this layer's paged cache without running
+    /// attention. DSpark uses this to seed every draft layer from target
+    /// hidden states before evaluating its masked query block.
+    void write_kv_cache(
+        const infinilm::runtime::Tensor &key,
+        const infinilm::runtime::Tensor &value,
+        const infinilm::runtime::Tensor &slot_mapping,
+        infinilm::global_state::ForwardContext &forward_context) const;
+
     // LM composition for eager prefill with live device KV lengths.
     void prefill_paged(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor out,
                        const infinilm::runtime::Tensor &q, const infinilm::runtime::Tensor &k_cache,

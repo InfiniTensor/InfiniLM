@@ -66,6 +66,18 @@ public:
         std::optional<infinilm::runtime::Tensor> target_hidden_states;
         /// Preserve logits for every packed position for speculative/MTP callers.
         bool sample_all_positions{false};
+        /// Decoder layer outputs to concatenate for speculative draft context.
+        std::optional<std::vector<size_t>> capture_layer_ids;
+        /// Precomputed base logits consumed by a draft-model correction head.
+        std::optional<infinilm::runtime::Tensor> draft_base_logits;
+        /// One anchor token per request for a fused speculative draft proposal.
+        std::optional<infinilm::runtime::Tensor> draft_anchor_tokens;
+        /// Target-token positions used when cache injection is fused with draft decode.
+        std::optional<infinilm::runtime::Tensor> target_hidden_position_ids;
+        /// Target-token slots used when cache injection is fused with draft decode.
+        std::optional<infinilm::runtime::Tensor> target_hidden_slot_mapping;
+        /// Run only draft-cache injection and skip the draft transformer body.
+        bool cache_only{false};
         size_t logical_kv_upper_bound{0};
     };
 

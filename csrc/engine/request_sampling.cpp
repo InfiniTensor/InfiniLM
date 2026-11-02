@@ -14,8 +14,8 @@
 
 namespace infinilm::engine {
 
-// Request composition for the rank worker. RNG is supplied
-// by the caller after forward; sampling remains outside graph recording.
+// Request composition for the rank worker. Greedy argmax is graph-safe; RNG for
+// stochastic sampling is supplied by the caller after forward.
 void sample_request_token(
     infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor indices,
     infinilm::runtime::Tensor logits, float random_value,
@@ -28,31 +28,31 @@ void sample_request_token(
     if (runtime.device() != logits->device()) {
         throw std::invalid_argument("sampling runtime and tensor devices differ");
     }
-    if (runtime.isGraphRecording()) {
-        throw std::invalid_argument("sampling cannot be recorded before request RNG is explicit");
-    }
-
     const auto dtype = logits->dtype();
     const auto device_type = logits->device().type();
     const bool batched = logits->ndim() == 2;
     const size_t num_rows = batched ? logits->size(0) : 1;
     const bool greedy = random_value == 0.0f || top_p == 0.0f
                      || top_k == 1 || temperature == 0.0f;
+    if (runtime.isGraphRecording() && !greedy) {
+        throw std::invalid_argument(
+            "stochastic sampling cannot be recorded before request RNG is explicit");
+    }
     if (greedy) {
         INFINILM_ASSERT((logits->ndim() == 1 || batched) && logits->numel() > 0);
         INFINILM_ASSERT(indices->numel() == num_rows);
-        // Provider Argmax supports the common one-dimensional reduction. Keep
-        // each result scalar (including B=1), matching a full-row reduction.
         auto flat_indices = indices->view({num_rows});
-        for (size_t row = 0; row < num_rows; ++row) {
-            auto row_logits = batched
-                                ? logits->narrow({{0, row, 1}})->view({logits->size(1)})
-                                : logits;
-            auto row_index = flat_indices->narrow({{0, row, 1}})->view({});
+        if (batched) {
             execution::submit<infini::ops::Argmax>(
                 runtime, execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::Argmax::DefaultConfig(device_type),
-                row_logits, std::optional<int64_t>{}, false, row_index);
+                logits, std::optional<int64_t>{1}, false, flat_indices);
+        } else {
+            execution::submit<infini::ops::Argmax>(
+                runtime, execution::RecordingPolicy::AllowHostReplay,
+                infini::ops::Argmax::DefaultConfig(device_type),
+                logits, std::optional<int64_t>{}, false,
+                flat_indices->view({}));
         }
         return;
     }
