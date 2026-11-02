@@ -12,6 +12,7 @@ from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
 from infinilm.infer_engine import GenerationConfig, InferEngine
 from infinilm.llm.llm import LLM
+from infinilm.llm.request import InferenceRequest
 from infinilm.llm.sampling_params import SamplingParams
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.moe_config import configure_moe_ep_backend
@@ -679,7 +680,10 @@ class TestModel:
         #                        自回归生成
         # ---------------------------------------------------------------------------- #
         if self.draft_model_path is not None or self.uses_llm_engine:
-            prompt_text = self.tokenizer.decode(input_ids, skip_special_tokens=False)
+            # Submit the exact pre-tokenized IDs: a decode ->
+            # re-tokenize round-trip changes the prompt length
+            # (tokenizer is not bijective), so the benchmarked
+            # workload would differ from the requested input_len.
             llm = self.model
             if self.draft_model_path is not None:
                 llm = LLM(
@@ -704,17 +708,30 @@ class TestModel:
                 )
             t1 = time.time()
             print("=================== start generate ====================")
-            outputs = llm.generate(
-                prompts=[prompt_text] * batch_size,
-                sampling_params=SamplingParams(
-                    max_tokens=output_len,
-                    temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    ignore_eos=True,
-                ),
-                use_tqdm=False,
+            engine = llm.engine
+            sampling = SamplingParams(
+                max_tokens=output_len,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                ignore_eos=True,
             )
+            requests = [
+                InferenceRequest(
+                    request_id=f"bench-{i}",
+                    prompt_token_ids=list(input_ids),
+                    sampling_params=sampling,
+                    eos_token_ids=engine.eos_token_ids,
+                )
+                for i in range(batch_size)
+            ]
+            for req in requests:
+                engine.add_request(req)
+            finished = 0
+            while finished < len(requests):
+                engine.step()
+                finished = sum(1 for req in requests if req.is_finished())
+            outputs = [req.to_request_output() for req in requests]
             t2 = time.time()
             if cfg.verbose and not skip_load:
                 if output_len <= 256:
