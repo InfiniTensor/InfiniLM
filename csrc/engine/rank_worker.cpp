@@ -1,9 +1,11 @@
 #include "rank_worker.hpp"
 #include "../models/model_factory.hpp"
+#include "ascend_token_output.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
-#include <spdlog/spdlog.h>
 #include <cstdlib>
+#include <cstring>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace infinilm::engine {
@@ -490,8 +492,7 @@ void RankWorker::thread_loop() {
                             // greedy, so one device-side argmax over the whole
                             // batch is equivalent and avoids |batch| D2H syncs.
                             infinicore::Tensor output_ids;
-                            const bool greedy_sample =
-                                top_k <= 1 || temperature == 0.0f || top_p == 0.0f;
+                            const bool greedy_sample = top_k <= 1 || temperature == 0.0f || top_p == 0.0f;
                             if (greedy_sample && logits_are_last_token_only
                                 && logits->is_contiguous()
                                 && logits->device().getType()
@@ -522,17 +523,11 @@ void RankWorker::thread_loop() {
                                     rank_info_.world_comm);
                             }
 
-                            // The aclnn sampling ops (cast/argmax) are enqueued on the
-                            // compute stream and may still be in flight when this
-                            // worker returns. aclrtMemcpy does NOT wait for those
-                            // aclnn tasks, so without a sync first the D2H copy
-                            // reads the PREVIOUS step's token (stale buffer) and
-                            // decode output repeats forever. Sync the stream first,
-                            // then copy, then sync again for the host read.
-                            infinicore::context::syncStream();
-                            output_ids = output_ids->to(infinicore::Device::cpu());
-
-                            infinicore::context::syncStream();
+                            const char *async_tokens = std::getenv("INFINILM_ASCEND_ASYNC_TOKEN_D2H");
+                            const bool enable_async_tokens = rank_info_.pp_size == 1
+                                                          && greedy_sample && async_tokens
+                                                          && std::strcmp(async_tokens, "1") == 0;
+                            output_ids = copy_sampled_tokens_to_host(output_ids, enable_async_tokens);
 
                             auto out{Output{output_ids, logits, hidden_states}};
 

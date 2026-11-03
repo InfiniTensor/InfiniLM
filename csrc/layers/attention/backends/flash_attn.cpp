@@ -1,4 +1,6 @@
 #include "flash_attn.hpp"
+#include <cstdlib>
+#include <cstring>
 
 #include "../../../utils.hpp"
 #include "infinicore/ops.hpp"
@@ -57,14 +59,25 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         const size_t max_sequence_length = attn_metadata.max_sequence_length > 0
                                              ? attn_metadata.max_sequence_length
                                              : max_position_embeddings_;
+        // A fresh prefill already has every K/V token in the packed input.
+        // Attend directly to it, while retaining the cache write above for
+        // later decode. Prefix hits and mixed batches keep the paged path.
+        const char *dense_flag = std::getenv("INFINILM_ASCEND_DENSE_PREFILL");
+        bool fresh_prefill = dense_flag && std::strcmp(dense_flag, "1") == 0
+            && query->device().getType() == infinicore::Device::Type::ASCEND;
+        if (fresh_prefill) {
+            const auto *q_offsets = infinicore::graph::lookup_bound_host_int_array(input_offsets.value());
+            const auto *kv_offsets = infinicore::graph::lookup_bound_host_int_array(cu_seqlens.value());
+            fresh_prefill = q_offsets && kv_offsets && *q_offsets == *kv_offsets;
+        }
         infinicore::op::mha_varlen_(
             attn_output,
             query,
-            k_total,
-            v_total,
+            fresh_prefill ? key : k_total,
+            fresh_prefill ? value : v_total,
             input_offsets.value(),
             cu_seqlens.value(),
-            block_tables.value(),
+            fresh_prefill ? std::nullopt : block_tables,
             max_query_length,
             max_sequence_length,
             std::nullopt,

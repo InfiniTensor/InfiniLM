@@ -279,6 +279,15 @@ InferEngine::Input::to_model_input(infinicore::Device device) const {
     bind_host_i32(input_offsets, input.input_offsets);
     bind_host_i32(cu_seqlens, input.cu_seqlens);
     bind_host_i32(total_sequence_lengths, input.total_sequence_lengths);
+    if (slot_mapping && input.slot_mapping
+        && slot_mapping.value()->device().getType() == infinicore::Device::Type::CPU
+        && slot_mapping.value()->dtype() == infinicore::DataType::I64) {
+        infinicore::graph::bind_eager_host_int_array(
+            input.slot_mapping.value(),
+            reinterpret_cast<const int64_t *>(slot_mapping.value()->data()),
+            slot_mapping.value()->numel());
+    }
+
 
     infinilm::global_state::get_forward_context().mamba_metadata = {
         input.input_offsets,

@@ -3,12 +3,26 @@
 #include "../../utils.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <infinicore/ops/distributed/allreduce.hpp>
 #include <stdexcept>
+#include <unordered_set>
 #include <vector>
 
 namespace infinilm::engine {
 namespace {
+
+bool validated_decode_cache(size_t batch_size) {
+    const char *cache = std::getenv("INFINICORE_ASCEND_ACLNN_CACHE");
+    const char *decode = std::getenv("INFINICORE_ASCEND_DECODE_CACHE");
+    return cache && std::strcmp(cache, "1") == 0
+        && decode && std::strcmp(decode, "1") == 0
+        && infinicore::context::getDevice().getType() == infinicore::Device::Type::ASCEND
+        && batch_size >= 4 && batch_size <= 16;
+}
 
 bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_context) {
     auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
@@ -70,6 +84,34 @@ void PagedCompiler::compile() {
             throw std::runtime_error("PagedCompiler: position_id_axes must be positive");
         }
 
+        // AIV can lazily initialize its large-payload communication path on
+        // the first prefill. Complete that setup before accepting requests.
+        const char *warmup = std::getenv("INFINILM_ASCEND_WARMUP_LARGE_ALLREDUCE");
+        const auto &rank_info = global_state::get_tensor_model_parallel_rank_info();
+        if (warmup && std::strcmp(warmup, "1") == 0
+            && infinicore::context::getDevice().getType() == infinicore::Device::Type::ASCEND
+            && rank_info.tp_size > 1 && rank_info.comm != nullptr && model_config
+            && model_config->get_dtype() == infinicore::DataType::BF16) {
+            const size_t hidden_size = model_config->get_or<size_t>("hidden_size", 0);
+            const auto *paged = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+            const size_t tokens = std::min<size_t>(2048, paged->num_blocks() * paged->block_size());
+            // Bound the optional setup buffer to 64 MiB per rank.
+            if (tokens > 0 && hidden_size > 0 && hidden_size <= (32 * 1024 * 1024) / tokens) {
+                auto buffer = infinicore::Tensor::empty({tokens, hidden_size},
+                                                        infinicore::DataType::BF16, infinicore::context::getDevice());
+                set_zeros(buffer);
+                infinicore::context::syncStream();
+                barrier_->wait();
+                const auto begin = std::chrono::steady_clock::now();
+                infinicore::op::distributed::allreduce_(buffer, buffer, INFINICCL_SUM, rank_info.comm);
+                infinicore::context::syncStream();
+                barrier_->wait();
+                spdlog::info("Ascend large allreduce ready: bytes={}, setup_ms={}",
+                             tokens * hidden_size * 2,
+                             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count());
+            }
+        }
+
         size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
         compiled_map_decode_.clear();
         block_tables_holder_ = infinicore::Tensor::empty(
@@ -102,6 +144,14 @@ void PagedCompiler::compile() {
             input.block_tables = block_tables_holder_->as_strided({b, block_per_req}, {(ptrdiff_t)block_per_req, 1});
             input.slot_mapping = infinicore::Tensor::empty({b}, infinicore::DataType::I64, infinicore::context::getDevice());
             set_zeros(input.slot_mapping.value());
+            if (validated_decode_cache(b)) {
+                // Capture unique slots, then replace and validate them on every
+                // replay. Duplicate capture slots cannot use ACLNN's Norm path.
+                std::vector<int64_t> slots(b);
+                for (size_t i = 0; i < b; ++i) { slots[i] = i; }
+                infinicore::context::memcpyH2D(input.slot_mapping.value()->data(), slots.data(), b * sizeof(int64_t), false);
+                infinicore::graph::bind_eager_host_int_array(input.slot_mapping.value(), slots.data(), b);
+            }
 
             if (has_mamba_state) {
                 input.mamba_init_state_indices = infinicore::Tensor::empty(
@@ -169,6 +219,12 @@ void PagedCompiler::compile() {
             infinicore::context::startGraphRecording();
             auto output = model_->forward(input);
             auto graph = infinicore::context::stopGraphRecording();
+            if (validated_decode_cache(b)) {
+                std::vector<int64_t> slots(b);
+                for (size_t i = 0; i < b; ++i) { slots[i] = i; }
+                graph->bind_host_int_array(input.slot_mapping.value(), slots.data(), b);
+            }
+
             barrier_->wait();
 
             auto shared_output = std::shared_ptr<InfinilmModel::Output>(
@@ -193,6 +249,31 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 return {nullptr, nullptr};
             }
             auto &graph_input = result->second.input;
+
+            const int64_t *runtime_slots = nullptr;
+            if (validated_decode_cache(batch_size)) {
+                if (!input.slot_mapping) {
+                    return {nullptr, nullptr};
+                }
+                const auto &slots = input.slot_mapping.value();
+                if (slots->device().getType() != infinicore::Device::Type::CPU
+                    || slots->dtype() != infinicore::DataType::I64
+                    || slots->shape() != std::vector<size_t>{batch_size}
+                    || !slots->is_contiguous()) {
+                    return {nullptr, nullptr};
+                }
+                runtime_slots = reinterpret_cast<const int64_t *>(slots->data());
+                const auto *config = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+                const size_t capacity = config->num_blocks() * config->block_size();
+                std::unordered_set<int64_t> seen;
+                seen.reserve(batch_size);
+                for (size_t i = 0; i < batch_size; ++i) {
+                    if (runtime_slots[i] < 0 || static_cast<uint64_t>(runtime_slots[i]) >= capacity
+                        || !seen.insert(runtime_slots[i]).second) {
+                        return {nullptr, nullptr};
+                    }
+                }
+            }
 
             graph_input.input_ids.value()->copy_from(input.input_ids.value());
             graph_input.position_ids.value()->copy_from(input.position_ids.value());
@@ -234,6 +315,9 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
 
             auto graph = std::get<0>(result->second.compiled);
             if (graph != nullptr) {
+                if (runtime_slots) {
+                    graph->bind_host_int_array(graph_input.slot_mapping.value(), runtime_slots, batch_size);
+                }
                 const auto &runtime_seq_lens = input.total_sequence_lengths.value();
                 if (runtime_seq_lens->device().getType()
                         != infinicore::Device::Type::CPU

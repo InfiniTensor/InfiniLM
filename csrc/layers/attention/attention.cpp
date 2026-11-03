@@ -1,6 +1,8 @@
 #include "attention.hpp"
 #include "../../utils.hpp"
 #include "../rotary_embedding/rotary_embedding.hpp"
+#include <cstdlib>
+#include <cstring>
 
 namespace infinilm::layers::attention {
 
@@ -85,7 +87,18 @@ infinicore::Tensor Attention::forward_static_(const infinicore::Tensor &position
     }
 
     // 4. Apply RoPE to QK (q+k fused; q/k views share the buffer, updated in place)
-    rotary_emb_->forward(qk_reshaped, pos_ids_for_rope, true);
+    const char *apply_rope = std::getenv("INFINICORE_ASCEND_APPLY_ROPE");
+    if (q_reshaped->device().getType() == infinicore::Device::Type::ASCEND
+        && apply_rope && std::strcmp(apply_rope, "1") == 0
+        && (!infinicore::context::isGraphRecording()
+            || (infinilm::global_state::get_forward_context().attn_metadata.total_sequence_lengths
+                && pos_ids_for_rope->numel()
+                       > infinilm::global_state::get_forward_context().attn_metadata.total_sequence_lengths.value()->numel()))) {
+        std::tie(q_reshaped, k_reshaped) = rotary_emb_->forward(
+            q_reshaped, k_reshaped, pos_ids_for_rope);
+    } else {
+        rotary_emb_->forward(qk_reshaped, pos_ids_for_rope, true);
+    }
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);
@@ -130,7 +143,18 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
     }
 
     // 4. Apply RoPE to QK (q+k fused; q/k views share the buffer, updated in place)
-    rotary_emb_->forward(qk_reshaped, pos_ids_for_rope, true);
+    const char *apply_rope = std::getenv("INFINICORE_ASCEND_APPLY_ROPE");
+    if (q_reshaped->device().getType() == infinicore::Device::Type::ASCEND
+        && apply_rope && std::strcmp(apply_rope, "1") == 0
+        && (!infinicore::context::isGraphRecording()
+            || (infinilm::global_state::get_forward_context().attn_metadata.total_sequence_lengths
+                && pos_ids_for_rope->numel()
+                       > infinilm::global_state::get_forward_context().attn_metadata.total_sequence_lengths.value()->numel()))) {
+        std::tie(q_reshaped, k_reshaped) = rotary_emb_->forward(
+            q_reshaped, k_reshaped, pos_ids_for_rope);
+    } else {
+        rotary_emb_->forward(qk_reshaped, pos_ids_for_rope, true);
+    }
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped);

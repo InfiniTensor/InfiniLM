@@ -1,5 +1,10 @@
 #include "fused_linear.hpp"
 
+#include "../../global_state/global_state.hpp"
+#include <cstdlib>
+#include <cstring>
+#include <infinicore/ops/ascend_format_cast.hpp>
+#include <infinicore/ops/cat.hpp>
 #include <spdlog/spdlog.h>
 
 namespace infinilm::layers::linear {
@@ -31,14 +36,14 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
                                      const infinicore::Device &device,
                                      engine::distributed::RankInfo rank_info)
     : infinilm::nn::ColumnParallelLinear(
-        hidden_size,
-        calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        (q_bias || k_bias || v_bias),
-        dtype,
-        device,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          hidden_size,
+          calculate_out_feature_size(num_q_head, q_dim, num_k_head, k_dim, num_v_head, v_dim, rank_info),
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          (q_bias || k_bias || v_bias),
+          dtype,
+          device,
+          rank_info.tp_rank,
+          rank_info.tp_size),
       q_dim_(q_dim),
       k_dim_(k_dim),
       v_dim_(v_dim),
@@ -61,7 +66,7 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
 
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 QKVParallelLinear::forward_split(infinicore::Tensor &input) {
-    auto output = this->forward(input);
+    auto output = forward_shared_kv(input);
 
     auto q_out = output->narrow({{2, 0, q_out_size_}});
     auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
@@ -72,7 +77,7 @@ QKVParallelLinear::forward_split(infinicore::Tensor &input) {
 
 std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
 QKVParallelLinear::forward_split_with_qk(infinicore::Tensor &input) {
-    auto output = this->forward(input);
+    auto output = forward_shared_kv(input);
 
     auto q_out = output->narrow({{2, 0, q_out_size_}});
     auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
@@ -124,7 +129,121 @@ QKVParallelLinear::QKVParallelLinear(size_t hidden_size,
     }
 }
 
+void QKVParallelLinear::prepare_shared_kv_projection() {
+    using namespace infinicore;
+    const char *flag = std::getenv("INFINILM_ASCEND_SHARE_KV_PROJECTION");
+    if (!flag || std::strcmp(flag, "1") != 0 || shared_kv_weight_
+        || device_.getType() != Device::Type::ASCEND || dtype_ != DataType::BF16
+        || !global_state::get_infinilm_config().pre_transpose
+        || !std::dynamic_pointer_cast<infinilm::quantization::NoneQuantization>(quantization_)
+        || q_dim_ != 128 || k_dim_ != q_dim_ || v_dim_ != q_dim_
+        || num_k_head_ != num_q_head_ || num_v_head_ != num_q_head_) {
+        return;
+    }
+    auto original = weight();
+    const size_t columns = q_out_size_ + k_out_size_ + v_out_size_;
+    if (original->shape() != Shape{columns, in_features_}
+        || !original->is_contiguous() || k_out_size_ != v_out_size_
+        || k_out_size_ % k_dim_ || k_out_size_ / k_dim_ < 2) {
+        return;
+    }
+    context::syncStream();
+    auto host_weight = original->to(Device::cpu());
+    std::optional<Tensor> host_bias;
+    if (has_bias_) {
+        auto b = bias();
+        if (b->shape() != Shape{columns} || !b->is_contiguous() || b->dtype() != dtype_) {
+            return;
+        }
+        host_bias = b->to(Device::cpu());
+    }
+    context::syncStream();
+    const auto *w = static_cast<const std::byte *>(host_weight->data());
+    const auto *b = host_bias ? static_cast<const std::byte *>(host_bias.value()->data()) : nullptr;
+    constexpr size_t bytes_per_value = 2;
+    const size_t heads = k_out_size_ / k_dim_;
+    size_t repeats = 1;
+    // Compare every byte of every head and bias, not a sampled hash. Unequal
+    // heads keep the original projection. This does not alter attention heads.
+    for (size_t candidate = heads; candidate >= 2; --candidate) {
+        if (heads % candidate) {
+            continue;
+        }
+        bool same = true;
+        for (size_t base : {q_out_size_, q_out_size_ + k_out_size_}) {
+            for (size_t group = 0; group < heads && same; group += candidate) {
+                const size_t first = base + group * k_dim_;
+                for (size_t i = 1; i < candidate; ++i) {
+                    const size_t row = first + i * k_dim_;
+                    if (std::memcmp(w + first * in_features_ * bytes_per_value,
+                                    w + row * in_features_ * bytes_per_value,
+                                    k_dim_ * in_features_ * bytes_per_value)
+                            != 0
+                        || (b && std::memcmp(b + first * bytes_per_value, b + row * bytes_per_value, k_dim_ * bytes_per_value) != 0)) {
+                        same = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (same) {
+            repeats = candidate;
+            break;
+        }
+    }
+    if (repeats == 1) {
+        return;
+    }
+    context::setDevice(device_);
+    std::vector<Tensor> rows{original->narrow({{0, 0, q_out_size_}})};
+    for (size_t base : {q_out_size_, q_out_size_ + k_out_size_}) {
+        for (size_t head = 0; head < heads; head += repeats) {
+            rows.push_back(original->narrow({{0, base + head * k_dim_, k_dim_}}));
+        }
+    }
+    auto selected = op::cat(rows, 0);
+    auto packed = selected->permute({1, 0})->contiguous();
+    shared_kv_weight_ = op::ascend_format_cast_nz(packed);
+    shared_kv_repeat_ = repeats;
+    context::syncStream();
+    spdlog::info("Ascend shared KV projection verified: rank={}, local_kv_heads={}, repeats={}, projected_features={}, restored_features={}",
+                 tp_rank_, heads, repeats, q_out_size_ + 2 * k_out_size_ / repeats, columns);
+}
+
+infinicore::Tensor QKVParallelLinear::forward_shared_kv(infinicore::Tensor &input) {
+    using namespace infinicore;
+    if (!shared_kv_weight_ || input->ndim() != 3 || input->size(0) != 1
+        || input->size(1) <= 16 || input->size(1) > 2048
+        || input->dtype() != dtype_ || input->device() != device_) {
+        return this->forward(input);
+    }
+    const size_t tokens = input->size(1);
+    const size_t compact_k = k_out_size_ / shared_kv_repeat_;
+    const size_t compact_columns = q_out_size_ + 2 * compact_k;
+    const size_t columns = q_out_size_ + k_out_size_ + v_out_size_;
+    auto projected = op::linear_packed_nz(input->contiguous(), shared_kv_weight_.value(), std::nullopt, alpha_);
+    auto output = Tensor::empty({1, tokens, columns}, dtype_, device_);
+    output->narrow({{2, 0, q_out_size_}})->copy_from(projected->narrow({{2, 0, q_out_size_}}));
+    // Expand only proven-identical linear results. All 64 logical MHA heads
+    // are present before bias, RoPE, cache writes and attention execute.
+    for (size_t part = 0; part < 2; ++part) {
+        auto source = projected->narrow({{2, q_out_size_ + part * compact_k, compact_k}})
+                          ->as_strided({tokens, compact_k / k_dim_, shared_kv_repeat_, k_dim_},
+                                       {static_cast<ptrdiff_t>(compact_columns), static_cast<ptrdiff_t>(k_dim_), 0, 1});
+        auto destination = output->narrow({{2, q_out_size_ + part * k_out_size_, k_out_size_}})
+                               ->as_strided(source->shape(),
+                                            {static_cast<ptrdiff_t>(columns), static_cast<ptrdiff_t>(shared_kv_repeat_ * k_dim_), static_cast<ptrdiff_t>(k_dim_), 1});
+        destination->copy_from(source);
+    }
+    if (has_bias_) {
+        auto matrix = output->view({tokens, columns});
+        op::add_(matrix, matrix, bias()->as_strided({tokens, columns}, {0, 1}));
+    }
+    return output;
+}
+
 void QKVParallelLinear::process_weights_after_loading() {
+    prepare_shared_kv_projection();
     // Split first, while the weight is still in the checkpoint [OC, IC]
     // layout: the split_infos_ offsets are only valid there, and narrow
     // must not run on the converted [IC, OC] / FRACTAL_NZ weight.
@@ -165,14 +284,14 @@ GateUpParallelLinear::GateUpParallelLinear(size_t hidden_size, size_t intermedia
                                            const infinicore::DataType &dtype, const infinicore::Device &device,
                                            engine::distributed::RankInfo rank_info)
     : infinilm::nn::ColumnParallelLinear(
-        hidden_size,
-        intermediate_size * 2,
-        quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
-        gate_bias || up_bias,
-        dtype,
-        device,
-        rank_info.tp_rank,
-        rank_info.tp_size),
+          hidden_size,
+          intermediate_size * 2,
+          quantization == nullptr ? std::make_shared<infinilm::quantization::NoneQuantization>() : quantization,
+          gate_bias || up_bias,
+          dtype,
+          device,
+          rank_info.tp_rank,
+          rank_info.tp_size),
       gate_bias_(gate_bias),
       up_bias_(up_bias) {
     if (gate_bias_ != up_bias_) {

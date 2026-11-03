@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import zipfile
 from typing import Dict, List, Optional, Tuple, Union
 
 import infinicore
@@ -295,7 +296,11 @@ def load_model_state_dict_by_file(
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = torch.load(
+            file_path, weights_only=True, map_location="cpu",
+            mmap=(os.environ.get("INFINILM_MMAP_WEIGHTS", "0") == "1"
+                  and zipfile.is_zipfile(file_path)),
+        )
 
         # Apply model-specific weight remapping
         remapper = _WEIGHT_REMAPPER.get(model_type)
@@ -404,7 +409,11 @@ def load_model_state_dict_by_tensor(
 
     elif os.path.exists(os.path.join(model_path, "pytorch_model.bin")):
         file_path = os.path.join(model_path, "pytorch_model.bin")
-        model_params = torch.load(file_path, weights_only=True, map_location="cpu")
+        model_params = torch.load(
+            file_path, weights_only=True, map_location="cpu",
+            mmap=(os.environ.get("INFINILM_MMAP_WEIGHTS", "0") == "1"
+                  and zipfile.is_zipfile(file_path)),
+        )
 
         for key in model_params.keys():
             tensor = model_params[key].to(dtype=torch_dtype)

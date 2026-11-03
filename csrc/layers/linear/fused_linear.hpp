@@ -80,6 +80,11 @@ private:
     }
 
 private:
+    void prepare_shared_kv_projection();
+    infinicore::Tensor forward_shared_kv(infinicore::Tensor &input);
+    std::optional<infinicore::Tensor> shared_kv_weight_;
+    size_t shared_kv_repeat_ = 1;
+
     size_t q_dim_;
     size_t k_dim_;
     size_t v_dim_;

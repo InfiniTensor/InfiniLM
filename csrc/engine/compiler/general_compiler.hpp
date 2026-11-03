@@ -1,6 +1,7 @@
 #pragma once
 
 #include "paged_compiler.hpp"
+#include "fresh_prefill_compiler.hpp"
 #include "static_batching_compiler.hpp"
 
 namespace infinilm::engine {
@@ -15,5 +16,6 @@ public:
 private:
     std::unique_ptr<StaticBatchingCompiler> static_batching_compiler_;
     std::unique_ptr<PagedCompiler> paged_compiler_;
+    std::unique_ptr<FreshPrefillCompiler> fresh_prefill_compiler_;
 };
 } // namespace infinilm::engine
