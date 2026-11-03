@@ -279,11 +279,15 @@ class ModelRunner:
         if self._nsa_paged_owner:
             freeze_model_input(self.model_engine, nsa_owner, model_input, infinicore)
 
-        if self.speculative_runner is not None and all(
-            request.sampling_params.top_k == 1
-            or request.sampling_params.top_p == 0.0
-            or request.sampling_params.temperature == 0.0
-            for request in requests
+        if (
+            self.speculative_runner is not None
+            and not any(request.chunked_prefill_pending for request in requests)
+            and all(
+                request.sampling_params.top_k == 1
+                or request.sampling_params.top_p == 0.0
+                or request.sampling_params.temperature == 0.0
+                for request in requests
+            )
         ):
             return self._model_forward_with_speculative(scheduler_output, model_input)
 

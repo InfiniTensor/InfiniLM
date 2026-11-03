@@ -189,6 +189,7 @@ class Scheduler:
         num_mamba_cache_blocks: int | None = None,
         enable_prefix_caching: bool = True,
         nsa_owner_pool_epoch: int | None = None,
+        chunked_prefill_size: int = 0,
     ):
         if nsa_owner_pool_epoch is not None and (
             connector is not None or has_mamba_cache
@@ -236,6 +237,46 @@ class Scheduler:
         self.max_num_batched_tokens = max_num_batched_tokens
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
+        # Chunked prefill: cap one request's prefill step at this many
+        # tokens (block aligned). 0 disables chunking, preserving the
+        # "a single request always makes progress" behavior. Disabled
+        # with KV connectors and NSA, whose resume paths assume whole
+        # -prompt prefills.
+        self.chunked_prefill_size = None
+        if chunked_prefill_size and (
+            connector is not None or nsa_owner_pool_epoch is not None
+        ):
+            logger.warning(
+                "chunked_prefill_size disabled: incompatible with "
+                "KV connectors and NSA owner pools"
+            )
+            chunked_prefill_size = 0
+        if chunked_prefill_size:
+            if chunked_prefill_size < block_size:
+                raise ValueError(
+                    f"chunked_prefill_size must be >= block_size "
+                    f"({block_size}), got {chunked_prefill_size}"
+                )
+            # Keep the chunk block-aligned even when the token budget
+            # is not: a resumed chunk reads KV back at the block-table
+            # boundary (allocate_slots requires num_computed_tokens to
+            # cover every fully cached block), so a misaligned chunk
+            # would make num_computed_tokens precede that boundary.
+            chunked_prefill_size = min(
+                chunked_prefill_size // block_size * block_size,
+                max_num_batched_tokens // block_size * block_size,
+            )
+            if chunked_prefill_size < block_size:
+                raise ValueError(
+                    f"max_num_batched_tokens ({max_num_batched_tokens}) "
+                    f"must be >= block_size ({block_size}) to use "
+                    "chunked prefill"
+                )
+            self.chunked_prefill_size = chunked_prefill_size
+        # When chunked prefill is enabled, alternate between
+        # prefill and decode batches so a long chunked prompt
+        # cannot starve decode work already in the running queue.
+        self._last_batch_was_prefill = False
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -395,8 +436,19 @@ class Scheduler:
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
 
+        # With chunked prefill enabled, a long prompt is split
+        # over several prefill batches. Always returning the
+        # prefill batch first would delay every running decode
+        # by one step per chunk. Alternate: after a prefill
+        # batch, run decode first if any decode work exists.
+        skip_waiting = (
+            self.chunked_prefill_size is not None
+            and self._last_batch_was_prefill
+            and self.running_queue.sync_q.qsize() > 0
+        )
+
         # Process Waiting queue (prefill phase)
-        waiting_to_inspect = self.waiting_queue.sync_q.qsize()
+        waiting_to_inspect = 0 if skip_waiting else self.waiting_queue.sync_q.qsize()
         while (
             waiting_to_inspect > 0
             and len(scheduled_requests) < self.max_batch_size
@@ -456,10 +508,28 @@ class Scheduler:
                 )
                 num_new_tokens = req.get_prompt_length() - num_computed_tokens
 
+                # Chunked prefill: cap this step's tokens at the
+                # chunk size (block aligned). The rest of the prompt
+                # is scheduled in later steps; blocks allocated here
+                # stay referenced by the request, so a resumed chunk
+                # attends to the KV of earlier chunks.
+                num_scheduled_tokens = None
+                if (
+                    self.chunked_prefill_size is not None
+                    and not load_kv_async
+                    and not req.has_multimodal_inputs
+                    and num_new_tokens > self.chunked_prefill_size
+                ):
+                    num_scheduled_tokens = self.chunked_prefill_size
+
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
-                    num_tokens_this_step = req.get_prompt_length() - num_computed_tokens
+                    num_tokens_this_step = (
+                        num_scheduled_tokens
+                        if num_scheduled_tokens is not None
+                        else req.get_prompt_length() - num_computed_tokens
+                    )
                     if self._exceeds_token_budget(
                         current_num_batched_tokens,
                         num_tokens_this_step,
@@ -483,10 +553,16 @@ class Scheduler:
                     if num_local_computed_tokens > 0:
                         self.cache_manager.free_blocks(cached_block_table)
                     deferred_requests.append(req)
-                    break
+                    # Keep scanning: a queued chunked resume behind
+                    # this request may still fit, and blocking the
+                    # head would deadlock chunked requests that
+                    # already hold blocks.
+                    continue
 
                 allocation = self.cache_manager.allocate_slots(
-                    num_new_tokens,
+                    num_scheduled_tokens
+                    if num_scheduled_tokens is not None
+                    else num_new_tokens,
                     num_computed_tokens=num_computed_tokens,
                     cached_block_table=cached_block_table,
                 )
@@ -521,6 +597,10 @@ class Scheduler:
                 )
                 req.num_cache_indexed_blocks = len(cached_block_table)
                 req.num_computed_tokens = num_computed_tokens
+                req.num_scheduled_tokens = num_scheduled_tokens
+                req.chunked_prefill_pending = num_scheduled_tokens is not None and (
+                    num_computed_tokens + num_scheduled_tokens < req.get_prompt_length()
+                )
 
                 if self.connector is not None:
                     self.connector.update_state_after_alloc(
@@ -529,6 +609,52 @@ class Scheduler:
                         num_external_computed_tokens,
                         self.block_size,
                     )
+            elif req.chunked_prefill_pending:
+                # Resume a chunked prefill: extend the request's
+                # block table for the next chunk. Blocks held from
+                # earlier chunks keep their KV, so later chunks
+                # attend to the full prefix. The mamba recurrent
+                # state row written by the previous chunk is picked
+                # up by the processor via num_local_cached_tokens.
+                load_kv_async = False
+                computed_start = req.num_computed_tokens
+                remaining = req.get_prompt_length() - computed_start
+                num_scheduled = (
+                    min(remaining, self.chunked_prefill_size)
+                    if self.chunked_prefill_size is not None
+                    else remaining
+                )
+                if self._exceeds_token_budget(
+                    current_num_batched_tokens,
+                    num_scheduled,
+                    len(scheduled_requests),
+                ):
+                    deferred_requests.append(req)
+                    break
+                allocation = self.cache_manager.allocate_slots(
+                    num_scheduled,
+                    num_computed_tokens=computed_start,
+                    cached_block_table=req.block_table,
+                )
+                if allocation is None:
+                    logger.warning(
+                        "Failed to allocate KV cache blocks for "
+                        "chunked request %s, deferring.",
+                        req.request_id,
+                    )
+                    deferred_requests.append(req)
+                    # Same head-of-line reasoning as the
+                    # can_accept_request defer: a resume that
+                    # cannot grow must not block chunked
+                    # resumes behind it that can.
+                    continue
+                req.block_table, req.slot_mapping = allocation
+                req.num_blocks = len(req.block_table)
+                req.num_local_cached_tokens = computed_start
+                req.num_scheduled_tokens = num_scheduled
+                req.chunked_prefill_pending = (
+                    computed_start + num_scheduled < req.get_prompt_length()
+                )
             else:
                 load_kv_async = False
                 num_tokens_this_step = (
@@ -554,7 +680,12 @@ class Scheduler:
             current_prefill_extra_blocks += self._get_prefill_extra_blocks(req)
             scheduled_requests.append(req)
 
-            num_tokens_this_step = req.get_prompt_length() - req.num_local_cached_tokens
+            if req.chunked_prefill_pending:
+                num_tokens_this_step = req.num_scheduled_tokens
+            else:
+                num_tokens_this_step = (
+                    req.get_prompt_length() - req.num_local_cached_tokens
+                )
             current_num_batched_tokens += num_tokens_this_step
 
             req.status = RequestStatus.RUNNING
@@ -566,6 +697,7 @@ class Scheduler:
         # Return prefill batch if any waiting requests were scheduled
         if scheduled_requests:
             is_prefill = True
+            self._last_batch_was_prefill = True
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
                     scheduled_requests, decode=not is_prefill
@@ -645,6 +777,7 @@ class Scheduler:
         # Return decode batch if any running requests were scheduled
         if scheduled_requests:
             is_prefill = False
+            self._last_batch_was_prefill = False
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
                     scheduled_requests, decode=not is_prefill
@@ -676,6 +809,7 @@ class Scheduler:
             scheduler_output.kv_connector_metadata = meta
             return scheduler_output
 
+        self._last_batch_was_prefill = False
         return None
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
@@ -771,8 +905,15 @@ class Scheduler:
                         f"Request {req.request_id[:8]}... timed out: {req.finish_reason}"
                     )
             else:
-                # Still running, put back in running queue
-                self.running_queue.sync_q.put(req)
+                # A chunked prefill continues in the waiting
+                # queue; remaining prompt chunks are scheduled
+                # as prefill, not decode.
+                if req.chunked_prefill_pending:
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                else:
+                    # Still running, put back in running queue
+                    self.running_queue.sync_q.put(req)
 
     def notify_failed_requests(self, finalize_request) -> None:
         """Notify after async fail-stop without retiring resource ownership."""
@@ -862,6 +1003,28 @@ class Scheduler:
             ) // self.block_size
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
+
+        # Reserve capacity for incomplete chunked requests in the
+        # waiting queue: they already hold blocks for earlier chunks
+        # and will need more to finish their prompt and decode. Without
+        # this, several chunked requests can each pass admission and
+        # together hold every free block, deadlocking the scheduler.
+        waiting_queue_size = self.waiting_queue.sync_q.qsize()
+        for _ in range(waiting_queue_size):
+            other = self.waiting_queue.sync_q.get()
+            self.waiting_queue.sync_q.put(other)
+            if other is request or not other.chunked_prefill_pending:
+                continue
+            total_for_completion = (
+                other.get_prompt_length()
+                + other.sampling_params.max_tokens
+                + self.block_size
+                - 1
+            ) // self.block_size
+            total_required_blocks += max(
+                total_for_completion - len(other.block_table),
+                0,
+            )
 
         # Calculate blocks needed for the new request
         total_length = request.get_prompt_length() - num_local_computed_tokens
