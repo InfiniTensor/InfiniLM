@@ -42,7 +42,14 @@ void sample_request_token(
         INFINILM_ASSERT((logits->ndim() == 1 || batched) && logits->numel() > 0);
         INFINILM_ASSERT(indices->numel() == num_rows);
         auto flat_indices = indices->view({num_rows});
-        if (batched) {
+        if (num_rows == 1 && logits->stride(logits->ndim() - 1) == 1) {
+            auto flat_logits = logits->as_strided({logits->numel()}, {1});
+            execution::submit<infini::ops::Argmax>(
+                runtime, execution::RecordingPolicy::AllowHostReplay,
+                infini::ops::Argmax::DefaultConfig(device_type),
+                flat_logits, std::optional<int64_t>{}, false,
+                flat_indices->view({}));
+        } else if (batched) {
             execution::submit<infini::ops::Argmax>(
                 runtime, execution::RecordingPolicy::AllowHostReplay,
                 infini::ops::Argmax::DefaultConfig(device_type),

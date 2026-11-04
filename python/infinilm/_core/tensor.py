@@ -37,8 +37,15 @@ class Tensor:
     def is_contiguous(self):
         return self._underlying.is_contiguous()
 
+    def is_pinned(self):
+        return self._underlying.is_pinned()
+
     def copy_(self, source):
         self._underlying.copy_(source._underlying)
+        return self
+
+    def copy_from_list_(self, data):
+        self._underlying.copy_from_list_(data)
         return self
 
     def to(self, target=None, *, device=None):
@@ -204,7 +211,9 @@ def from_numpy(array, *, dtype=None, device=None):
     return result if target == cpu else result.to(target)
 
 
-def from_list(data, *, dtype):
+def from_list(data, *, dtype, pin_memory=False):
     if dtype is None:
         raise TypeError("from_list() requires dtype")
-    return Tensor(_infinicore.from_list(data, dtype._underlying))
+    return Tensor(
+        _infinicore.from_list(data, dtype._underlying, pin_memory)
+    )

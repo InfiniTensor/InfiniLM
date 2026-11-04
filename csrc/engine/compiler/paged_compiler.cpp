@@ -255,8 +255,9 @@ void PagedCompiler::compile() {
             || nblocks > static_cast<size_t>(std::numeric_limits<ptrdiff_t>::max()) / max_batch_size) {
             throw std::invalid_argument("paged prepare block table size overflows");
         }
-        const size_t prepare_token_count
-            = std::max<size_t>(1, speculative_verify_width_);
+        const size_t prepare_token_count = std::max(
+            {size_t{1}, speculative_verify_width_,
+             speculative_cache_injection_width_});
         auto write_views = paged_prepare_views(
             runtime_, forward_context, nblocks, paged_config->block_size(),
             max_batch_size, prepare_token_count);
@@ -275,23 +276,29 @@ void PagedCompiler::compile() {
                               const infinilm::runtime::Tensor &block_tables_holder,
                               size_t logical_bound,
                               bool sample_all_positions,
-                              bool cache_only) {
+                              bool cache_only,
+                              size_t inline_target_hidden_width) {
             InfinilmModel::Input input;
             input.capture_layer_ids = capture_layer_ids;
             input.sample_all_positions = sample_all_positions;
             input.logical_kv_upper_bound = logical_bound;
             input.cache_only = cache_only;
             const size_t token_count = b * query_width;
-            if (speculative_markov_fused_ && !cache_only) {
+            if (speculative_markov_fused_ && !cache_only
+                && inline_target_hidden_width > 0) {
+                const size_t target_hidden_tokens
+                    = b * inline_target_hidden_width;
                 input.draft_anchor_tokens = infinilm::runtime::Tensor::empty(
                     runtime_, {b}, infinilm::runtime::DataType::kInt64);
                 input.target_hidden_states = infinilm::runtime::Tensor::empty(
-                    runtime_, {1, b, speculative_target_hidden_width_},
+                    runtime_, {1, target_hidden_tokens, speculative_target_hidden_width_},
                     model_config->get_dtype());
                 input.target_hidden_position_ids = infinilm::runtime::Tensor::empty(
-                    runtime_, {b}, infinilm::runtime::DataType::kInt64);
+                    runtime_, {target_hidden_tokens},
+                    infinilm::runtime::DataType::kInt64);
                 input.target_hidden_slot_mapping = infinilm::runtime::Tensor::empty(
-                    runtime_, {b}, infinilm::runtime::DataType::kInt64);
+                    runtime_, {target_hidden_tokens},
+                    infinilm::runtime::DataType::kInt64);
                 runtime_.setDeviceMemory(
                     input.draft_anchor_tokens.value()->data(), 0,
                     input.draft_anchor_tokens.value()->nbytes());
@@ -382,10 +389,12 @@ void PagedCompiler::compile() {
                            const infinilm::runtime::Tensor &block_tables_holder,
                            size_t logical_bound,
                            bool sample_all_positions,
-                           bool cache_only = false) {
+                           bool cache_only = false,
+                           size_t inline_target_hidden_width = 0) {
             auto input = make_input(
                 b, query_width, block_per_req, block_tables_holder,
-                logical_bound, sample_all_positions, cache_only);
+                logical_bound, sample_all_positions, cache_only,
+                inline_target_hidden_width);
 
             try {
                 barrier_->wait();
@@ -409,12 +418,27 @@ void PagedCompiler::compile() {
         for (size_t b : decode_batch_sizes_) {
             candidate_decode.emplace(
                 std::make_pair(b, size_t{0}),
-                capture(b, 1, nblocks, candidate_holder, 0, false));
+                capture(
+                    b, 1, nblocks, candidate_holder, 0, false, false,
+                    speculative_markov_fused_ ? 1 : 0));
             if (speculative_verify_width_ > 1) {
                 candidate_verify.emplace(
-                    b, capture(
-                           b, speculative_verify_width_, nblocks,
-                           candidate_holder, 0, true));
+                    std::make_pair(
+                        b, speculative_markov_fused_ ? size_t{1} : size_t{0}),
+                    capture(
+                        b, speculative_verify_width_, nblocks,
+                        candidate_holder, 0, true, false,
+                        speculative_markov_fused_ ? 1 : 0));
+                if (speculative_markov_fused_
+                    && speculative_cache_injection_width_ > 1) {
+                    candidate_verify.emplace(
+                        std::make_pair(
+                            b, speculative_cache_injection_width_),
+                        capture(
+                            b, speculative_verify_width_, nblocks,
+                            candidate_holder, 0, true, false,
+                            speculative_cache_injection_width_));
+                }
             }
             if (speculative_cache_injection_width_ > 0) {
                 candidate_cache_injection.emplace(
@@ -513,7 +537,20 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             if (input.logical_kv_upper_bound != 0) {
                 return {nullptr, nullptr};
             }
-            auto verify_result = compiled_map_verify_.find(batch_size);
+            size_t inline_target_hidden_width = 0;
+            if (input.target_hidden_states.has_value()) {
+                const auto &target_hidden = input.target_hidden_states.value();
+                if (!target_hidden || target_hidden->ndim() != 3
+                    || target_hidden->size(0) != 1
+                    || target_hidden->size(2) != speculative_target_hidden_width_
+                    || target_hidden->size(1) % batch_size != 0) {
+                    return {nullptr, nullptr};
+                }
+                inline_target_hidden_width
+                    = target_hidden->size(1) / batch_size;
+            }
+            auto verify_result = compiled_map_verify_.find(
+                std::make_pair(batch_size, inline_target_hidden_width));
             if (verify_result == compiled_map_verify_.end()) {
                 return {nullptr, nullptr};
             }

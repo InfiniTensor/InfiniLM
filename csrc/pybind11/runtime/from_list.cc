@@ -340,12 +340,28 @@ void write_with_dtype(const ListLayout &layout, DataType dtype, std::byte *dest)
 } // namespace
 
 // Entry (exported for pybind registration in tensor.hpp).
-Tensor from_list_py(py::handle data, DataType dtype) {
+Tensor from_list_py(py::handle data, DataType dtype, bool pin_memory) {
     const ListLayout layout(data);
-    auto runtime = context::resolveRuntime(Device(Device::Type::kCpu, 0));
-    auto tensor = Tensor::empty(*runtime, layout.shape, dtype);
+    auto runtime = pin_memory
+                     ? context::currentRuntime()
+                     : context::resolveRuntime(Device(Device::Type::kCpu, 0));
+    auto tensor = Tensor::empty(*runtime, layout.shape, dtype, pin_memory);
     write_with_dtype(layout, dtype, tensor->data());
     return tensor;
+}
+
+void copy_from_list_py(Tensor tensor, py::handle data) {
+    if (!tensor || tensor->device().type() != Device::Type::kCpu
+        || !tensor->is_contiguous()) {
+        throw py::value_error(
+            "copy_from_list_ requires a contiguous CPU tensor");
+    }
+    const ListLayout layout(data);
+    if (layout.shape != tensor->shape()) {
+        throw py::value_error(
+            "copy_from_list_ input shape does not match the tensor");
+    }
+    write_with_dtype(layout, tensor->dtype(), tensor->data());
 }
 
 } // namespace infinilm::runtime::tensor

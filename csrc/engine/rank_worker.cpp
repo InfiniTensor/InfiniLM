@@ -1090,13 +1090,27 @@ void RankWorker::thread_loop() {
                                     }
 
                                     if (local_args.output_token_prefix.has_value()) {
-                                        const size_t prefix_batch = local_args.output_token_prefix.value()->numel();
+                                        auto prefix = local_args.output_token_prefix.value();
+                                        if (prefix->device() != runtime_->device()) {
+                                            if (prefix->device().type()
+                                                != infinilm::runtime::Device::Type::kCpu) {
+                                                throw std::invalid_argument(
+                                                    "output token prefix must be on CPU or the worker device");
+                                            }
+                                            auto device_prefix = infinilm::runtime::Tensor::empty(
+                                                *runtime_, prefix->shape(), prefix->dtype());
+                                            // Sampling runs on the worker thread. Transfer a CPU
+                                            // prefix here so row assembly uses this worker's Runtime.
+                                            device_prefix->copy_from(*runtime_, prefix);
+                                            prefix = std::move(device_prefix);
+                                        }
+                                        const size_t prefix_batch = prefix->numel();
                                         if (prefix_batch != n_req || n_out % prefix_batch != 0) {
                                             throw std::invalid_argument(
                                                 "output token prefix does not match sampled token rows");
                                         }
                                         output_ids = concatenate_token_rows(
-                                            *runtime_, local_args.output_token_prefix.value(), 1,
+                                            *runtime_, prefix, 1,
                                             output_ids, n_out / prefix_batch, prefix_batch);
                                     }
                                     if (local_args.speculative_proposed_tokens.has_value()) {

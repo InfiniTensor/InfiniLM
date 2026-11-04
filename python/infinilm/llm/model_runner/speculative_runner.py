@@ -1,4 +1,5 @@
 import logging
+import weakref
 
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -374,6 +375,10 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
         self.mask_token_id = int(draft_config["mask_token_id"])
         self.eagle_accept_count = 0
         self.eagle_total_count = 0
+        self._stateful_requests = weakref.WeakSet()
+        self._pinned_metadata = {}
+        self._pending_target_hidden = None
+        self._verify_metadata_slot = 0
 
         draft_cache_config = PagedKVCacheConfig(
             num_blocks=config.num_blocks,
@@ -433,19 +438,39 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             for remaining in remaining_by_req
         )
 
+        stateful_device_cycle = (
+            device_token_path
+            and not scheduler_output.is_prefill
+            and all(req in self._stateful_requests for req in requests)
+        )
+        if self._pending_target_hidden is not None and not (
+            stateful_device_cycle and self._pending_matches(requests)
+        ):
+            self._flush_pending_target_hidden()
+
+        if stateful_device_cycle:
+            return self._forward_stateful_device_token_cycle(
+                scheduler_output,
+                model_input,
+                remaining_by_req,
+                cache_ops,
+            )
+
         target_input = dict(model_input)
         target_input["sample_all_positions"] = False
         target_input["capture_layer_ids"] = self.target_layer_ids
         target_input["output_ids_on_device"] = device_token_path
         target_output = self.target_model_engine.forward_raw(**target_input)
         if device_token_path:
-            return self._forward_device_token_cycle(
+            result = self._forward_device_token_cycle(
                 scheduler_output,
                 model_input,
                 target_output,
                 remaining_by_req,
                 cache_ops,
             )
+            self._stateful_requests.update(requests)
+            return result
 
         anchors = [
             int(token) for token in target_output["output_ids"].to_numpy().tolist()
@@ -659,9 +684,6 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             paired_tokens = verify_output["output_ids"].to_numpy().reshape(
                 batch_size, 2 * self.verify_num_draft_tokens
             )
-            self._inject_target_hidden(
-                verify_input, verify_output["hidden_states"]
-            )
             reservation.mark_completed()
 
             output_tokens_by_req = [[] for _ in requests]
@@ -700,9 +722,187 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
                 output_tokens_by_req[candidate["req_idx"]] = output_tokens
 
             reservation.commit(keep_lengths)
+            self._defer_or_inject_target_hidden(
+                requests,
+                verify_input,
+                verify_output,
+                output_tokens_by_req,
+                remaining_by_req,
+            )
         return output_tokens_by_req
 
-    def _inject_target_hidden(self, model_input, hidden_states):
+    def _forward_stateful_device_token_cycle(
+        self,
+        scheduler_output,
+        model_input,
+        remaining_by_req,
+        cache_ops,
+    ):
+        # The last generated token is the previous verification's correction
+        # token. It is not in the target cache yet, but the draft cache already
+        # contains every accepted predecessor state. Query the draft from that
+        # token, then verify the token and its proposals in one target forward.
+        requests = scheduler_output.scheduled_requests
+        batch_size = len(requests)
+        candidates = [
+            {
+                "req_idx": req_idx,
+                "req": req,
+                "remaining": remaining,
+                "base_len": req.get_total_length(),
+                "draft_tokens": [0] * self.num_draft_tokens,
+            }
+            for req_idx, (req, remaining) in enumerate(
+                zip(requests, remaining_by_req)
+            )
+        ]
+
+        with cache_ops.verify_batch(candidates) as reservation:
+            draft_input = self._build_stateful_draft_query_input(candidates)
+            anchors = model_input["input_ids"].view([batch_size])
+            draft_input["draft_anchor_tokens"] = anchors
+            draft_input["output_token_prefix"] = anchors
+            draft_input["output_ids_on_device"] = True
+            self._attach_pending_target_hidden(requests, draft_input)
+            draft_output = self.draft_model_engine.forward_raw(**draft_input)
+            verify_tokens = draft_output["output_ids"]
+            expected_tokens = batch_size * self.verify_num_draft_tokens
+            if verify_tokens.numel() != expected_tokens:
+                raise RuntimeError(
+                    "DSpark stateful proposal output count does not match verify width"
+                )
+            self.eagle_total_count += batch_size * self.num_draft_tokens
+
+            verify_input = self._build_stateful_verify_batch_input(candidates)
+            verify_input["input_ids"] = verify_tokens.view([1, expected_tokens])
+            verify_input["capture_layer_ids"] = self.target_layer_ids
+            verify_input["speculative_proposed_tokens"] = verify_tokens
+            verify_input["dependency_event"] = draft_output["completion_event"]
+            reservation.mark_submitted()
+            verify_output = self.target_model_engine.forward_raw(**verify_input)
+            paired_tokens = verify_output["output_ids"].to_numpy().reshape(
+                batch_size, 2 * self.verify_num_draft_tokens
+            )
+            reservation.mark_completed()
+
+            output_tokens_by_req = [[] for _ in requests]
+            keep_lengths = []
+            width = self.verify_num_draft_tokens
+            for candidate, row in zip(candidates, paired_tokens):
+                req = candidate["req"]
+                proposed = row[:width].tolist()
+                segment = row[width:].tolist()
+                accepted = 0
+                correction = None
+                for draft_idx in range(1, width):
+                    expected = int(segment[draft_idx - 1])
+                    if int(proposed[draft_idx]) != expected:
+                        correction = expected
+                        break
+                    accepted += 1
+                if correction is None:
+                    correction = int(segment[-1])
+
+                output_tokens = [
+                    *[int(token) for token in proposed[1 : accepted + 1]],
+                    correction,
+                ]
+                remaining = candidate["remaining"]
+                if remaining is not None:
+                    output_tokens = output_tokens[:remaining]
+                if not req.sampling_params.ignore_eos:
+                    for index, token in enumerate(output_tokens):
+                        if token in req.eos_token_ids:
+                            output_tokens = output_tokens[: index + 1]
+                            break
+                accepted = min(accepted, len(output_tokens))
+                self.eagle_accept_count += accepted
+                keep_lengths.append(candidate["base_len"] + accepted)
+                output_tokens_by_req[candidate["req_idx"]] = output_tokens
+
+            reservation.commit(keep_lengths)
+            self._defer_or_inject_target_hidden(
+                requests,
+                verify_input,
+                verify_output,
+                output_tokens_by_req,
+                remaining_by_req,
+            )
+        return output_tokens_by_req
+
+    def _pending_matches(self, requests):
+        pending = self._pending_target_hidden
+        return pending is not None and len(pending["requests"]) == len(
+            requests
+        ) and all(
+            previous is current
+            for previous, current in zip(pending["requests"], requests)
+        )
+
+    def _attach_pending_target_hidden(self, requests, draft_input):
+        if not self._pending_matches(requests):
+            return
+        pending = self._pending_target_hidden
+        self._pending_target_hidden = None
+        source_input = pending["model_input"]
+        draft_input["target_hidden_states"] = pending["hidden_states"]
+        draft_input["target_hidden_position_ids"] = source_input["position_ids"]
+        draft_input["target_hidden_slot_mapping"] = source_input["slot_mapping"]
+        draft_input["dependency_event"] = pending["completion_event"]
+
+    def _flush_pending_target_hidden(self):
+        pending = self._pending_target_hidden
+        if pending is None:
+            return
+        self._pending_target_hidden = None
+        self._inject_target_hidden(
+            pending["model_input"],
+            pending["hidden_states"],
+            dependency_event=pending["completion_event"],
+        )
+
+    def _defer_or_inject_target_hidden(
+        self,
+        requests,
+        verify_input,
+        verify_output,
+        output_tokens_by_req,
+        remaining_by_req,
+    ):
+        can_defer = True
+        for req, tokens, remaining in zip(
+            requests, output_tokens_by_req, remaining_by_req
+        ):
+            if not req.sampling_params.ignore_eos and any(
+                token in req.eos_token_ids for token in tokens
+            ):
+                can_defer = False
+                break
+            if (
+                remaining is not None
+                and remaining - len(tokens) < self.verify_num_draft_tokens
+            ):
+                can_defer = False
+                break
+
+        if not can_defer:
+            self._inject_target_hidden(
+                verify_input,
+                verify_output["hidden_states"],
+                dependency_event=verify_output["completion_event"],
+            )
+            return
+
+        self._pending_target_hidden = {
+            "requests": tuple(requests),
+            "model_input": verify_input,
+            "hidden_states": verify_output["hidden_states"],
+            "completion_event": verify_output["completion_event"],
+        }
+
+    def _inject_target_hidden(
+        self, model_input, hidden_states, dependency_event=None
+    ):
         self.draft_model_engine.forward_raw(
             input_ids=model_input["input_ids"],
             position_ids=model_input["position_ids"],
@@ -713,6 +913,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             block_tables=model_input["block_tables"],
             slot_mapping=model_input["slot_mapping"],
             target_hidden_states=hidden_states,
+            dependency_event=dependency_event,
             sample_all_positions=False,
             cache_only=True,
             skip_sampling=True,
@@ -767,3 +968,135 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             "top_p": 1.0,
             "sample_all_positions": True,
         }
+
+    def _build_stateful_draft_query_input(self, candidates):
+        tokens = []
+        positions = []
+        past_lens = []
+        total_lens = []
+        input_offsets = [0]
+        cu_seqlens = [0]
+        slot_mapping = []
+        block_width = max(len(candidate["block_table"]) for candidate in candidates)
+        for candidate in candidates:
+            req = candidate["req"]
+            base = candidate["base_len"]
+            if len(req.slot_mapping) != 1:
+                raise RuntimeError(
+                    "DSpark stateful decode requires one current-token cache slot"
+                )
+            tokens.extend([self.mask_token_id] * self.num_draft_tokens)
+            positions.extend(range(base - 1, base - 1 + self.num_draft_tokens))
+            past_lens.append(base - 1)
+            total_lens.append(base - 1 + self.num_draft_tokens)
+            input_offsets.append(input_offsets[-1] + self.num_draft_tokens)
+            cu_seqlens.append(cu_seqlens[-1] + total_lens[-1])
+            slot_mapping.append(req.slot_mapping[0])
+            slot_mapping.extend(
+                candidate["slot_mapping"][: self.num_draft_tokens - 1]
+            )
+            block_tables = candidate["block_table"] + [-1] * (
+                block_width - len(candidate["block_table"])
+            )
+            candidate["stateful_block_table"] = block_tables
+
+        return {
+            "input_ids": self._pinned_from_list(
+                "draft_input_ids", [tokens], infinicore.int64
+            ),
+            "position_ids": self._pinned_from_list(
+                "draft_position_ids", positions, infinicore.int64
+            ),
+            "past_kv_lengths": self._pinned_from_list(
+                "draft_past_kv_lengths", past_lens, infinicore.int32
+            ),
+            "total_kv_lengths": self._pinned_from_list(
+                "draft_total_kv_lengths", total_lens, infinicore.int32
+            ),
+            "input_offsets": self._pinned_from_list(
+                "draft_input_offsets", input_offsets, infinicore.int32
+            ),
+            "cu_seqlens": self._pinned_from_list(
+                "draft_cu_seqlens", cu_seqlens, infinicore.int32
+            ),
+            "block_tables": self._pinned_from_list(
+                "draft_block_tables",
+                [candidate["stateful_block_table"] for candidate in candidates],
+                infinicore.int32,
+            ),
+            "slot_mapping": self._pinned_from_list(
+                "draft_slot_mapping", slot_mapping, infinicore.int64
+            ),
+            "temperature": 1.0,
+            "top_k": 1,
+            "top_p": 1.0,
+            "sample_all_positions": True,
+        }
+
+    def _build_stateful_verify_batch_input(self, candidates):
+        metadata_slot = self._verify_metadata_slot
+        self._verify_metadata_slot ^= 1
+        positions = []
+        past_lens = []
+        total_lens = []
+        input_offsets = [0]
+        cu_seqlens = [0]
+        slot_mapping = []
+        for candidate in candidates:
+            req = candidate["req"]
+            base = candidate["base_len"]
+            positions.extend(range(base - 1, base - 1 + self.verify_num_draft_tokens))
+            past_lens.append(base - 1)
+            total_lens.append(base - 1 + self.verify_num_draft_tokens)
+            input_offsets.append(input_offsets[-1] + self.verify_num_draft_tokens)
+            cu_seqlens.append(cu_seqlens[-1] + total_lens[-1])
+            slot_mapping.append(req.slot_mapping[0])
+            slot_mapping.extend(candidate["slot_mapping"])
+
+        return {
+            "position_ids": self._pinned_from_list(
+                f"verify_position_ids_{metadata_slot}",
+                positions,
+                infinicore.int64,
+            ),
+            "past_kv_lengths": self._pinned_from_list(
+                "verify_past_kv_lengths", past_lens, infinicore.int32
+            ),
+            "total_kv_lengths": self._pinned_from_list(
+                "verify_total_kv_lengths", total_lens, infinicore.int32
+            ),
+            "input_offsets": self._pinned_from_list(
+                "verify_input_offsets", input_offsets, infinicore.int32
+            ),
+            "cu_seqlens": self._pinned_from_list(
+                "verify_cu_seqlens", cu_seqlens, infinicore.int32
+            ),
+            "block_tables": self._pinned_from_list(
+                "verify_block_tables",
+                [candidate["stateful_block_table"] for candidate in candidates],
+                infinicore.int32,
+            ),
+            "slot_mapping": self._pinned_from_list(
+                f"verify_slot_mapping_{metadata_slot}",
+                slot_mapping,
+                infinicore.int64,
+            ),
+            "temperature": 1.0,
+            "top_k": 1,
+            "top_p": 1.0,
+            "sample_all_positions": True,
+        }
+
+    def _pinned_from_list(self, name, values, dtype):
+        shape = [len(values)]
+        if values and isinstance(values[0], (list, tuple)):
+            shape.append(len(values[0]))
+        tensor = self._pinned_metadata.get(name)
+        if tensor is None or tensor.shape != shape:
+            tensor = infinicore.from_list(
+                values, dtype=dtype, pin_memory=True
+            )
+            self._pinned_metadata[name] = tensor
+        else:
+            tensor.copy_from_list_(values)
+        return tensor

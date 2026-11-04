@@ -74,7 +74,10 @@ private:
         std::pair<size_t, size_t>, // (num_requests, logical KV bound; 0=legacy full width)
         CompiledResult>
         compiled_map_decode_;
-    std::map<size_t, CompiledResult> compiled_map_verify_;
+    std::map<
+        std::pair<size_t, size_t>, // (num_requests, inline target-hidden tokens per request)
+        CompiledResult>
+        compiled_map_verify_;
     std::map<size_t, CompiledResult> compiled_map_cache_injection_;
 };
 } // namespace infinilm::engine

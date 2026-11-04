@@ -2,6 +2,13 @@
 .xmake/
 build/
 python/infinilm/lib/*.so
+/python/_infinilm*.so
+/python/_infinilm*.dylib
+/python/_infinilm*.pyd
+/python/infinilm/_lib/*.so
+/python/infinilm/_lib/*.dylib
+/python/infinilm/_lib/*.dll
+/python/infinilm/licenses/InfiniOps/
 
 # MacOS Cache
 .DS_Store

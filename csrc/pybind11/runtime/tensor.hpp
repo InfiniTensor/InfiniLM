@@ -12,7 +12,8 @@ namespace py = pybind11;
 
 namespace infinilm::runtime::tensor {
 
-Tensor from_list_py(py::handle data, DataType dtype);
+Tensor from_list_py(py::handle data, DataType dtype, bool pin_memory);
+void copy_from_list_py(Tensor tensor, py::handle data);
 
 inline std::shared_ptr<void> retain_python_owner(const py::object &owner) {
     if (owner.is_none()) {
@@ -39,8 +40,10 @@ inline void bind(py::module &m) {
         .def("data_ptr", [](const Tensor &tensor) { return reinterpret_cast<std::uintptr_t>(tensor->data()); })
         .def("numel", [](const Tensor &tensor) { return tensor->numel(); })
         .def("is_contiguous", [](const Tensor &tensor) { return tensor->is_contiguous(); })
+        .def("is_pinned", [](const Tensor &tensor) { return tensor->is_pinned(); })
 
         .def("copy_", [](Tensor &tensor, const Tensor &other) { tensor->copy_from(other); })
+        .def("copy_from_list_", &copy_from_list_py)
         .def("to", [](const Tensor &tensor, const Device &device) { return tensor->to(device); })
         .def("contiguous", [](const Tensor &tensor) { return tensor->contiguous(); })
 
@@ -64,7 +67,8 @@ inline void bind(py::module &m) {
 
     using EmptyFuncType = Tensor (*)(const Shape &, const DataType &, const Device &, bool);
 
-    m.def("empty", [](const Shape &shape, const DataType &dtype, const Device &device, bool pin_memory) {
+    m.def(
+        "empty", [](const Shape &shape, const DataType &dtype, const Device &device, bool pin_memory) {
               const bool pinned_host = pin_memory && device.type() == Device::Type::kCpu;
               auto runtime = pinned_host ? context::currentRuntime() : context::resolveRuntime(device);
               return Tensor::empty(*runtime, shape, dtype, pinned_host); }, py::arg("shape"), py::arg("dtype"), py::arg("device"), py::arg("pin_memory") = false);
@@ -119,7 +123,8 @@ inline void bind(py::module &m) {
         },
         pybind11::arg("raw_ptr"), pybind11::arg("shape"), pybind11::arg("dtype"), pybind11::arg("device"), pybind11::arg("owner") = pybind11::none());
 
-    m.def("from_list", &from_list_py, py::arg("data"), py::arg("dtype"));
+    m.def("from_list", &from_list_py, py::arg("data"), py::arg("dtype"),
+          py::arg("pin_memory") = false);
 }
 
 } // namespace infinilm::runtime::tensor
