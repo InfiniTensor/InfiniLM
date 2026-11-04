@@ -33,6 +33,7 @@ using ForwardContext = infinilm::global_state::ForwardContext;
 class RankWorker {
     enum class Command {
         INIT,
+        ATTACH_DRAFT,
         LOAD,
         LOAD_BATCH,
         PREPROCESS,
@@ -111,6 +112,9 @@ public:
         /// Device completion fence that must precede this forward.
         std::shared_ptr<infinilm::runtime::StreamEvent> dependency_event;
 
+        /// Execute the attached speculative draft model instead of the target model.
+        bool use_draft_model{false};
+
         float temperature{1};
 
         int top_k{50};
@@ -154,6 +158,10 @@ public:
                backends::AttentionBackend attention_backend,
                std::uint64_t nsa_pool_epoch = 0);
 
+    void attach_draft(std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
+                      const cache::CacheConfig *cache_config,
+                      backends::AttentionBackend attention_backend);
+
     void wait_for_init();
 
     ~RankWorker();
@@ -163,8 +171,10 @@ public:
                     const infinilm::runtime::Tensor &param);
 
     void load_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict = true);
+    void load_draft_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict = true);
 
     void process_weights_after_loading();
+    void process_draft_weights_after_loading();
     void validate_w4_weights();
     void prepare_w4_weights();
     void commit_w4_weights();
@@ -174,6 +184,9 @@ public:
 
     std::vector<std::string> state_dict_keys();
     std::vector<std::string> state_required_keys();
+    std::unordered_map<std::string, infinilm::weights::Weight> draft_state_dict();
+    std::vector<std::string> draft_state_dict_keys();
+    std::vector<std::string> draft_state_required_keys();
 
     // Submit a run (forward + sampling) job.
     void run(const Input &args);
@@ -186,6 +199,7 @@ public:
 
     // Compile the model graph if enabled.
     void compile();
+    void compile_draft();
 
     // Wait until run job completes. The result can be retrieved with get_output().
     void wait();
@@ -202,9 +216,14 @@ public:
 
 private:
     void thread_loop();
+    void submit_load_batch(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params,
+                           bool strict,
+                           bool draft);
+    void submit_preprocess(bool draft);
     void submit_w4_phase(Command command);
     void fail(const char *operation, std::exception_ptr error) noexcept;
     void refresh_finite_paged_decode_profile();
+    void refresh_draft_finite_paged_decode_profile();
     bool drain_nsa_owner_noexcept() noexcept;
 
 private:
@@ -223,6 +242,17 @@ private:
     // Declared after model/runtime; retained owners retire before those members.
     std::unique_ptr<quantization::W4ModelPlan> w4_plan_;
     std::shared_ptr<cache::Cache> cache_;
+
+    // Target and draft share this worker's Runtime and stream. Their caches,
+    // forward metadata and captured graphs remain independent.
+    std::shared_ptr<infinilm::global_state::InfinilmConfig> draft_infinilm_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> draft_model_config_;
+    ForwardContext draft_forward_context_;
+    std::shared_ptr<InfinilmModel> draft_model_;
+    backends::AttentionBackend draft_attention_backend_{backends::AttentionBackend::Default};
+    std::unique_ptr<GraphCompiler> draft_compiler_;
+    StaticDecodeMetadata draft_static_decode_metadata_;
+    std::optional<FinitePagedDecodeProfile> draft_finite_paged_decode_profile_;
 
     // Backends
     backends::AttentionBackend attention_backend_;
@@ -249,8 +279,12 @@ private:
     infinilm::runtime::Tensor pending_param_;
     std::unordered_map<std::string, infinilm::runtime::Tensor> pending_params_;
     bool pending_params_strict_ = true;
+    bool pending_draft_ = false;
     Input pending_args_;
     std::unique_ptr<cache::CacheConfig> pending_cache_config_;
+    std::shared_ptr<infinilm::global_state::InfinilmConfig> pending_draft_infinilm_config_;
+    std::unique_ptr<cache::CacheConfig> pending_draft_cache_config_;
+    backends::AttentionBackend pending_draft_attention_backend_{backends::AttentionBackend::Default};
 
     // Output (protected by mutex)
     Output output_;

@@ -119,6 +119,42 @@ RankWorker::RankWorker(
     thread_ = std::thread(&RankWorker::thread_loop, this);
 }
 
+void RankWorker::attach_draft(
+    std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
+    const cache::CacheConfig *cache_config,
+    backends::AttentionBackend attention_backend) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (should_exit_) {
+            if (failure_) {
+                std::rethrow_exception(failure_);
+            }
+            throw std::runtime_error("RankWorker is closing; cannot attach draft model");
+        }
+        if (draft_model_ || pending_draft_infinilm_config_) {
+            throw std::logic_error("RankWorker already has a draft model");
+        }
+        pending_draft_infinilm_config_ = std::move(infinilm_config);
+        pending_draft_cache_config_ = cache_config ? cache_config->unique_copy() : nullptr;
+        pending_draft_attention_backend_ = attention_backend;
+        job_cmd_ = Command::ATTACH_DRAFT;
+        has_job_ = true;
+        job_done_ = false;
+    }
+    cv_.notify_all();
+
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [&] { return job_done_ || should_exit_; });
+    if (should_exit_) {
+        auto failure = failure_;
+        lock.unlock();
+        if (failure) {
+            std::rethrow_exception(failure);
+        }
+        throw std::runtime_error("RankWorker stopped while attaching draft model");
+    }
+}
+
 void RankWorker::refresh_finite_paged_decode_profile() {
     finite_paged_decode_profile_.reset();
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
@@ -132,6 +168,25 @@ void RankWorker::refresh_finite_paged_decode_profile() {
         PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
     if (supports_finite_paged_decode_bucket(profile)) {
         finite_paged_decode_profile_ = profile;
+    }
+}
+
+void RankWorker::refresh_draft_finite_paged_decode_profile() {
+    draft_finite_paged_decode_profile_.reset();
+    if (!draft_model_) {
+        return;
+    }
+    const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
+        draft_model_->get_cache_config());
+    if (paged_config == nullptr) {
+        return;
+    }
+    const auto profile = make_finite_paged_decode_profile(
+        *paged_config, draft_model_config_.get(), draft_model_->supports_kv_only_prepare(),
+        rank_info_.device.type(),
+        PagedGraphConfig{draft_attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+    if (supports_finite_paged_decode_bucket(profile)) {
+        draft_finite_paged_decode_profile_ = profile;
     }
 }
 
@@ -217,6 +272,17 @@ void RankWorker::load_param(const std::string &name,
 // load_params -- synchronous batch load
 //------------------------------------------------------
 void RankWorker::load_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict) {
+    submit_load_batch(params, strict, false);
+}
+
+void RankWorker::load_draft_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict) {
+    submit_load_batch(params, strict, true);
+}
+
+void RankWorker::submit_load_batch(
+    const std::unordered_map<std::string, infinilm::runtime::Tensor> &params,
+    bool strict,
+    bool draft) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         if (should_exit_) {
@@ -228,6 +294,7 @@ void RankWorker::load_params(const std::unordered_map<std::string, infinilm::run
 
         pending_params_ = params;
         pending_params_strict_ = strict;
+        pending_draft_ = draft;
         job_cmd_ = Command::LOAD_BATCH;
         has_job_ = true;
         job_done_ = false;
@@ -251,6 +318,14 @@ void RankWorker::load_params(const std::unordered_map<std::string, infinilm::run
 // process_weights_after_loading -- asynchronous
 //------------------------------------------------------
 void RankWorker::process_weights_after_loading() {
+    submit_preprocess(false);
+}
+
+void RankWorker::process_draft_weights_after_loading() {
+    submit_preprocess(true);
+}
+
+void RankWorker::submit_preprocess(bool draft) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         // If the worker is stopping, don't submit new jobs.
@@ -261,6 +336,7 @@ void RankWorker::process_weights_after_loading() {
             throw std::runtime_error("RankWorker is closing; cannot process_weights_after_loading");
         }
 
+        pending_draft_ = draft;
         job_cmd_ = Command::PREPROCESS;
         has_job_ = true;
         job_done_ = false;
@@ -359,6 +435,39 @@ std::vector<std::string> RankWorker::state_required_keys() {
     return model_->state_required_keys();
 }
 
+std::unordered_map<std::string, infinilm::weights::Weight> RankWorker::draft_state_dict() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (failure_) {
+        std::rethrow_exception(failure_);
+    }
+    if (!draft_model_) {
+        throw std::runtime_error("draft_state_dict called before draft model attachment");
+    }
+    return draft_model_->state_dict();
+}
+
+std::vector<std::string> RankWorker::draft_state_dict_keys() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (failure_) {
+        std::rethrow_exception(failure_);
+    }
+    if (!draft_model_) {
+        throw std::runtime_error("draft_state_dict_keys called before draft model attachment");
+    }
+    return draft_model_->state_dict_keys();
+}
+
+std::vector<std::string> RankWorker::draft_state_required_keys() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (failure_) {
+        std::rethrow_exception(failure_);
+    }
+    if (!draft_model_) {
+        throw std::runtime_error("draft_state_required_keys called before draft model attachment");
+    }
+    return draft_model_->state_required_keys();
+}
+
 //------------------------------------------------------
 // run -- asynchronous
 //------------------------------------------------------
@@ -384,6 +493,14 @@ void RankWorker::run(const Input &args) {
 // compile -- asynchronous
 //------------------------------------------------------
 void RankWorker::compile() {
+    compile_model(false);
+}
+
+void RankWorker::compile_draft() {
+    compile_model(true);
+}
+
+void RankWorker::compile_model(bool draft) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (should_exit_) {
         if (failure_) {
@@ -392,9 +509,10 @@ void RankWorker::compile() {
         throw std::runtime_error("RankWorker is closing; cannot run");
     }
 
-    if (nsa_pool_epoch_) {
+    if (!draft && nsa_pool_epoch_) {
         throw std::invalid_argument("NSA owner slice excludes COMPILE before command mutation");
     }
+    pending_draft_ = draft;
     job_cmd_ = Command::COMPILE;
     has_job_ = true;
     job_done_ = false;
@@ -619,9 +737,13 @@ void RankWorker::thread_loop() {
             infinilm::runtime::Tensor local_param;
             std::unordered_map<std::string, infinilm::runtime::Tensor> local_params;
             bool local_params_strict = true;
+            bool local_draft = false;
             Input local_args;
             std::unique_ptr<cache::CacheConfig> local_cache_config;
             std::uint64_t local_nsa_pool_epoch = 0;
+            std::shared_ptr<infinilm::global_state::InfinilmConfig> local_draft_infinilm_config;
+            std::unique_ptr<cache::CacheConfig> local_draft_cache_config;
+            backends::AttentionBackend local_draft_attention_backend = backends::AttentionBackend::Default;
 
             // Wait for a job or exit
             {
@@ -634,7 +756,11 @@ void RankWorker::thread_loop() {
 
                 // capture job data and clear has_job_
                 local_cmd = job_cmd_;
-                if (local_cmd == Command::LOAD) {
+                if (local_cmd == Command::ATTACH_DRAFT) {
+                    local_draft_infinilm_config = std::move(pending_draft_infinilm_config_);
+                    local_draft_cache_config = std::move(pending_draft_cache_config_);
+                    local_draft_attention_backend = pending_draft_attention_backend_;
+                } else if (local_cmd == Command::LOAD) {
                     local_param_name = pending_param_name_;
                     local_param = std::move(pending_param_);
                 } else if (local_cmd == Command::LOAD_BATCH) {
@@ -642,10 +768,16 @@ void RankWorker::thread_loop() {
                     // strict is copied with the batch because loading runs on
                     // the worker thread after the caller releases the mutex.
                     local_params_strict = pending_params_strict_;
+                    local_draft = pending_draft_;
                     pending_params_strict_ = true;
+                    pending_draft_ = false;
                     pending_params_.clear();
                 } else if (local_cmd == Command::PREPROCESS) {
-
+                    local_draft = pending_draft_;
+                    pending_draft_ = false;
+                } else if (local_cmd == Command::COMPILE) {
+                    local_draft = pending_draft_;
+                    pending_draft_ = false;
                 } else if (local_cmd == Command::RUN) {
                     local_args = pending_args_;
                 } else if (local_cmd == Command::RESET_CACHE) {
@@ -661,7 +793,45 @@ void RankWorker::thread_loop() {
             } // unlock mutex while executing the job
 
             // Execute job outside the lock
-            if (local_cmd == Command::LOAD) {
+            if (local_cmd == Command::ATTACH_DRAFT) {
+                try {
+                    if (!local_draft_infinilm_config) {
+                        throw std::invalid_argument("draft attachment requires model configuration");
+                    }
+                    if (nsa_pool_epoch_) {
+                        throw std::invalid_argument("NSA workers do not support speculative draft attachment");
+                    }
+                    draft_infinilm_config_ = std::move(local_draft_infinilm_config);
+                    draft_model_config_ = draft_infinilm_config_->model_config;
+                    draft_attention_backend_ = local_draft_attention_backend;
+                    draft_forward_context_.runtime = runtime_.get();
+                    const auto construction_ep = layers::moe::make_ep_config(
+                        draft_infinilm_config_->moe_ep_backend,
+                        draft_infinilm_config_->moe_ep_size,
+                        rank_info_.tp_size,
+                        rank_info_.tp_rank);
+                    draft_model_ = InfinilmModelFactory::createModel(
+                        draft_model_config_, *runtime_, rank_info_, draft_attention_backend_,
+                        construction_ep,
+                        local_draft_cache_config ? local_draft_cache_config.get() : nullptr,
+                        draft_forward_context_, draft_infinilm_config_->use_mla);
+                    refresh_draft_finite_paged_decode_profile();
+                    if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
+                        PagedGraphConfig{
+                            draft_attention_backend_, rank_info_.tp_size,
+                            rank_info_.tp_rank, rank_info_.pp_size}
+                            .validate();
+                    }
+                } catch (...) {
+                    fail("attach_draft", std::current_exception());
+                    break;
+                }
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    job_done_ = true;
+                }
+                cv_.notify_all();
+            } else if (local_cmd == Command::LOAD) {
                 try {
                     if (nsa_pool_epoch_) {
                         nsa_drain_required_ = true;
@@ -685,7 +855,11 @@ void RankWorker::thread_loop() {
                     if (nsa_pool_epoch_) {
                         nsa_drain_required_ = true;
                     }
-                    model_->load_parameters_no_sync(*runtime_, local_params, local_params_strict);
+                    auto &load_model = local_draft ? draft_model_ : model_;
+                    if (!load_model) {
+                        throw std::logic_error("parameter load selected an unavailable model");
+                    }
+                    load_model->load_parameters_no_sync(*runtime_, local_params, local_params_strict);
                     runtime_->syncStream();
                     // Completion includes releasing the source owners, not only H2D.
                     local_params.clear();
@@ -748,7 +922,13 @@ void RankWorker::thread_loop() {
                     if (nsa_pool_epoch_) {
                         nsa_drain_required_ = true;
                     }
-                    model_->process_weights_after_loading(*runtime_, infinilm_config_->pre_transpose);
+                    auto &preprocess_model = local_draft ? draft_model_ : model_;
+                    auto &preprocess_config = local_draft ? draft_infinilm_config_ : infinilm_config_;
+                    if (!preprocess_model || !preprocess_config) {
+                        throw std::logic_error("weight preprocessing selected an unavailable model");
+                    }
+                    preprocess_model->process_weights_after_loading(
+                        *runtime_, preprocess_config->pre_transpose);
                     runtime_->syncStream();
                     runtime_->trimMemory();
                 } catch (...) {
@@ -764,7 +944,23 @@ void RankWorker::thread_loop() {
                 cv_.notify_all();
             } else if (local_cmd == Command::RUN) {
                 try {
-                    if (nsa_pool_epoch_) {
+                    const bool use_draft = local_args.use_draft_model;
+                    if (use_draft && !draft_model_) {
+                        throw std::logic_error("draft forward requested before draft model attachment");
+                    }
+                    auto &active_model = use_draft ? draft_model_ : model_;
+                    auto &active_model_config = use_draft ? draft_model_config_ : model_config_;
+                    auto &active_forward_context = use_draft ? draft_forward_context_ : forward_context_;
+                    auto &active_static_decode_metadata = use_draft ? draft_static_decode_metadata_ : static_decode_metadata_;
+                    auto &active_finite_paged_decode_profile = use_draft
+                                                                 ? draft_finite_paged_decode_profile_
+                                                                 : finite_paged_decode_profile_;
+                    GraphCompiler *active_compiler = use_draft ? draft_compiler_.get() : compiler_.get();
+                    const auto active_attention_backend = use_draft
+                                                            ? draft_attention_backend_
+                                                            : attention_backend_;
+                    const auto active_nsa_pool_epoch = use_draft ? 0 : nsa_pool_epoch_;
+                    if (active_nsa_pool_epoch) {
                         nsa_drain_required_ = true;
                     }
                     {
@@ -781,7 +977,7 @@ void RankWorker::thread_loop() {
                             if (local_args.dependency_event) {
                                 local_args.dependency_event->wait(*runtime_);
                             }
-                            if (nsa_pool_epoch_) {
+                            if (active_nsa_pool_epoch) {
                                 if (runtime_->isGraphRecording() || rank_info_.pp_size != 1
                                     || local_args.sample_all_positions || local_args.target_hidden_states
                                     || local_args.capture_layer_ids || local_args.draft_base_logits
@@ -789,7 +985,7 @@ void RankWorker::thread_loop() {
                                     || local_args.image_bound || local_args.tgt_sizes || local_args.image_grid_thw
                                     || local_args.image_req_ids || local_args.visual_token_ranges
                                     || local_args.mamba_init_state_indices || local_args.mamba_final_state_indices
-                                    || !local_args.nsa_owner_snapshot || local_args.nsa_owner_snapshot->pool_epoch != nsa_pool_epoch_) {
+                                    || !local_args.nsa_owner_snapshot || local_args.nsa_owner_snapshot->pool_epoch != active_nsa_pool_epoch) {
                                     throw std::invalid_argument("NSA RUN requires current ordinary text owner DTO and eager worker");
                                 }
                                 freeze_nsa_cpu(effective_args);
@@ -806,7 +1002,7 @@ void RankWorker::thread_loop() {
                                 }
                             }
                             size_t logical_kv_upper_bound = 0;
-                            if (finite_paged_decode_profile_
+                            if (active_finite_paged_decode_profile
                                 && !local_args.sample_all_positions
                                 && effective_args.input_ids && *effective_args.input_ids
                                 && effective_args.input_ids.value()->ndim() == 2
@@ -848,8 +1044,8 @@ void RankWorker::thread_loop() {
                                     const auto *block_data = reinterpret_cast<const int32_t *>(blocks->data());
                                     auto choice = choose_paged_decode_bucket(
                                         length_data, batch, block_data, blocks->numel(), source_width,
-                                        finite_paged_decode_profile_->block_size,
-                                        finite_paged_decode_profile_->num_blocks);
+                                        active_finite_paged_decode_profile->block_size,
+                                        active_finite_paged_decode_profile->num_blocks);
                                     auto storage = std::make_shared<std::vector<int32_t>>(std::move(choice.block_table));
                                     auto normalized = infinilm::runtime::Tensor::from_blob(storage->data(),
                                                                                            {choice.batch_size, choice.table_width}, infinilm::runtime::DataType::kInt32,
@@ -858,7 +1054,7 @@ void RankWorker::thread_loop() {
                                     logical_kv_upper_bound = choice.logical_kv_upper_bound;
                                 }
                             }
-                            if (nsa_pool_epoch_) {
+                            if (active_nsa_pool_epoch) {
                                 auto proof = std::make_shared<nsa::Proof>();
                                 proof->owner = *local_args.nsa_owner_snapshot;
                                 proof->owner.upload = nsa_upload(effective_args); // actual normalized CPU tensor
@@ -870,8 +1066,8 @@ void RankWorker::thread_loop() {
                                 proof->worker = static_cast<std::uint64_t>(rank_info_.tp_rank) + 1;
                                 proof->invocation = ++nsa_run_serial_;
                                 nsa_proof = proof;
-                                forward_context_.nsa_owner = proof;
-                                model_->prepare_paged_owner(forward_context_); // all layers BEFORE any input/device/raw write
+                                active_forward_context.nsa_owner = proof;
+                                active_model->prepare_paged_owner(active_forward_context); // all layers BEFORE any input/device/raw write
                             }
                             const char *eager_reason = !enable_graph_compiling_     ? "graphs_disabled"
                                                      : rank_info_.pp_size != 1      ? "pipeline_graph_not_supported"
@@ -883,12 +1079,12 @@ void RankWorker::thread_loop() {
                                 {
                                     const auto lookup_input = effective_args.to_model_input(
                                         infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu},
-                                        forward_context_,
+                                        active_forward_context,
                                         false,
                                         true,
                                         logical_kv_upper_bound, nsa_proof);
-                                    if (compiler_) {
-                                        compiled = compiler_->get_compiled(lookup_input);
+                                    if (active_compiler) {
+                                        compiled = active_compiler->get_compiled(lookup_input);
                                     }
                                 }
                                 auto [graph, output] = std::move(compiled);
@@ -903,18 +1099,18 @@ void RankWorker::thread_loop() {
                             if (!logits) {
                                 auto model_args = effective_args.to_model_input(
                                     rank_info_.device,
-                                    forward_context_,
-                                    attention_backend_ == backends::AttentionBackend::STATIC_ATTN,
+                                    active_forward_context,
+                                    active_attention_backend == backends::AttentionBackend::STATIC_ATTN,
                                     false,
                                     logical_kv_upper_bound, nsa_proof);
-                                if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN
-                                    && model_config_->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE
+                                if (active_attention_backend == backends::AttentionBackend::STATIC_ATTN
+                                    && active_model_config->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE
                                     && model_args.input_ids && model_args.input_ids.value()->ndim() == 2
                                     && model_args.input_ids.value()->size(1) == 1) {
                                     const auto cache = std::find_if(
-                                        forward_context_.kv_cache_vec.begin(), forward_context_.kv_cache_vec.end(),
+                                        active_forward_context.kv_cache_vec.begin(), active_forward_context.kv_cache_vec.end(),
                                         [](const infinilm::runtime::Tensor &t) { return static_cast<bool>(t); });
-                                    if (cache != forward_context_.kv_cache_vec.end() && (*cache)->ndim() == 5) {
+                                    if (cache != active_forward_context.kv_cache_vec.end() && (*cache)->ndim() == 5) {
                                         const auto batch = model_args.input_ids.value()->size(0);
                                         const auto capacity = (*cache)->size(1);
                                         if (batch == 0 || batch > capacity
@@ -922,53 +1118,53 @@ void RankWorker::thread_loop() {
                                             || !effective_args.total_sequence_lengths) {
                                             throw std::invalid_argument("Static decode requires one valid cache row and length pair per request");
                                         }
-                                        for (const auto &layer_cache : forward_context_.kv_cache_vec) {
+                                        for (const auto &layer_cache : active_forward_context.kv_cache_vec) {
                                             if (layer_cache && (layer_cache->ndim() != 5 || layer_cache->size(1) != capacity || layer_cache->size(3) != (*cache)->size(3))) {
                                                 throw std::invalid_argument("Static decode requires matching cache row layouts");
                                             }
                                         }
-                                        static_decode_metadata_.prepare(
+                                        active_static_decode_metadata.prepare(
                                             *runtime_, batch, capacity, (*cache)->size(3));
-                                        auto description = static_decode_metadata_.update(
+                                        auto description = active_static_decode_metadata.update(
                                             *runtime_, *effective_args.past_sequence_lengths,
                                             *effective_args.total_sequence_lengths,
                                             effective_args.block_tables, local_args.slot_mapping);
-                                        model_args.block_tables = static_decode_metadata_.block_tables();
-                                        model_args.slot_mapping = static_decode_metadata_.slot_mapping();
-                                        forward_context_.attn_metadata.block_tables = model_args.block_tables;
-                                        forward_context_.attn_metadata.slot_mapping = model_args.slot_mapping;
-                                        forward_context_.attn_metadata.static_decode_host = description;
+                                        model_args.block_tables = active_static_decode_metadata.block_tables();
+                                        model_args.slot_mapping = active_static_decode_metadata.slot_mapping();
+                                        active_forward_context.attn_metadata.block_tables = model_args.block_tables;
+                                        active_forward_context.attn_metadata.slot_mapping = model_args.slot_mapping;
+                                        active_forward_context.attn_metadata.static_decode_host = description;
                                     }
                                 }
-                                if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN
-                                    && model_->supports_kv_only_prepare()
-                                    && model_config_->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE
+                                if (active_attention_backend == backends::AttentionBackend::STATIC_ATTN
+                                    && active_model->supports_kv_only_prepare()
+                                    && active_model_config->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE
                                     && model_args.input_ids && model_args.input_ids.value()->ndim() == 2
                                     && model_args.input_ids.value()->size(1) > 1) {
                                     const auto batch = model_args.input_ids.value()->size(0);
                                     const auto query_length = model_args.input_ids.value()->size(1);
                                     const auto cache = std::find_if(
-                                        forward_context_.kv_cache_vec.begin(), forward_context_.kv_cache_vec.end(),
+                                        active_forward_context.kv_cache_vec.begin(), active_forward_context.kv_cache_vec.end(),
                                         [](const infinilm::runtime::Tensor &t) { return static_cast<bool>(t); });
-                                    if (cache == forward_context_.kv_cache_vec.end() || (*cache)->ndim() != 5
+                                    if (cache == active_forward_context.kv_cache_vec.end() || (*cache)->ndim() != 5
                                         || !effective_args.past_sequence_lengths || !effective_args.total_sequence_lengths) {
                                         throw std::invalid_argument("Static prefill requires an ordinary 5D KV cache and CPU lengths");
                                     }
                                     const auto capacity = (*cache)->size(1);
                                     const auto page_size = (*cache)->size(3);
-                                    for (const auto &layer_cache : forward_context_.kv_cache_vec) {
+                                    for (const auto &layer_cache : active_forward_context.kv_cache_vec) {
                                         if (layer_cache && (layer_cache->ndim() != 5 || layer_cache->size(1) != capacity || layer_cache->size(3) != page_size)) {
                                             throw std::invalid_argument("Static prefill requires matching cache row layouts");
                                         }
                                     }
-                                    forward_context_.attn_metadata.static_prefill_host = describe_static_prefill(
+                                    active_forward_context.attn_metadata.static_prefill_host = describe_static_prefill(
                                         batch, query_length, capacity, page_size,
                                         *effective_args.past_sequence_lengths,
                                         *effective_args.total_sequence_lengths,
                                         effective_args.input_offsets, local_args.cu_seqlens,
                                         effective_args.block_tables, local_args.slot_mapping);
                                 }
-                                auto model_output = model_->forward(model_args, forward_context_);
+                                auto model_output = active_model->forward(model_args, active_forward_context);
                                 logits = model_output.logits;
                                 hidden_states = model_output.hidden_states;
                             }
@@ -1131,13 +1327,13 @@ void RankWorker::thread_loop() {
                                             *runtime_, infinilm::runtime::Device{
                                                            infinilm::runtime::Device::Type::kCpu});
                                         runtime_->syncStream();
-                                    } else {
+                                    } else if (!draft_model_) {
                                         completion_event = infinilm::runtime::StreamEvent::create(*runtime_);
                                         completion_event->record(*runtime_);
                                     }
-                                    if (nsa_pool_epoch_) {
-                                        model_->finish_paged_owner(true);
-                                        forward_context_.nsa_owner.reset();
+                                    if (active_nsa_pool_epoch) {
+                                        active_model->finish_paged_owner(true);
+                                        active_forward_context.nsa_owner.reset();
                                         nsa_drain_required_ = false;
                                     }
 
@@ -1149,20 +1345,20 @@ void RankWorker::thread_loop() {
                                 }
                             }
 
-                            if (nsa_pool_epoch_ && rank_info_.tp_rank != 0) {
-                                model_->finish_paged_owner(false); // host success remains Queued, never Completed
-                                forward_context_.nsa_owner.reset();
+                            if (active_nsa_pool_epoch && rank_info_.tp_rank != 0) {
+                                active_model->finish_paged_owner(false); // host success remains Queued, never Completed
+                                active_forward_context.nsa_owner.reset();
                             }
                             job_done_ = true;
                         } catch (...) {
                             const auto run_error = std::current_exception(); // active catch, never destructor
-                            if (nsa_pool_epoch_) {
+                            if (active_nsa_pool_epoch) {
                                 nsa::retire_caught_run_failure(
                                     run_error, [&](std::exception_ptr error) {
                                         if (barrier_){ barrier_->abort(error);
 } }, [&] {
-                                        model_->invalidate_paged_owner();
-                                        forward_context_.nsa_owner.reset(); }, [&] { return drain_nsa_owner_noexcept(); });
+                                        active_model->invalidate_paged_owner();
+                                        active_forward_context.nsa_owner.reset(); }, [&] { return drain_nsa_owner_noexcept(); });
                             }
                             throw; // ordinary model path preserves its existing outer catch
                         }
@@ -1171,7 +1367,7 @@ void RankWorker::thread_loop() {
 
                 } catch (...) {
                     const auto error = std::current_exception();
-                    if (nsa_pool_epoch_) {
+                    if (!local_args.use_draft_model && nsa_pool_epoch_) {
                         if (barrier_) {
                             barrier_->abort(error); // unblock peers before owner drain
                         }
@@ -1229,20 +1425,30 @@ void RankWorker::thread_loop() {
                 }
             } else if (local_cmd == Command::COMPILE) {
                 try {
-                    if (nsa_pool_epoch_) {
+                    if (!local_draft && nsa_pool_epoch_) {
                         throw std::invalid_argument("NSA COMPILE rejected before compiler/cache touch");
                     }
+                    auto &compile_model = local_draft ? draft_model_ : model_;
+                    auto &compile_context = local_draft ? draft_forward_context_ : forward_context_;
+                    auto &compile_slot = local_draft ? draft_compiler_ : compiler_;
+                    const auto compile_backend = local_draft
+                                                   ? draft_attention_backend_
+                                                   : attention_backend_;
+                    if (!compile_model) {
+                        throw std::logic_error("graph compile selected an unavailable model");
+                    }
                     if (enable_graph_compiling_ && rank_info_.pp_size == 1) {
-                        compiler_.reset();
-                        if (dynamic_cast<const cache::StaticKVCacheConfig *>(model_->get_cache_config())) {
-                            compiler_ = std::make_unique<StaticBatchingCompiler>(model_, barrier_, *runtime_, forward_context_);
-                        } else if (dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config())) {
-                            compiler_ = std::make_unique<PagedCompiler>(
-                                model_, barrier_, *runtime_, forward_context_,
-                                PagedGraphConfig{attention_backend_, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
+                        compile_slot.reset();
+                        if (dynamic_cast<const cache::StaticKVCacheConfig *>(compile_model->get_cache_config())) {
+                            compile_slot = std::make_unique<StaticBatchingCompiler>(
+                                compile_model, barrier_, *runtime_, compile_context);
+                        } else if (dynamic_cast<const cache::PagedKVCacheConfig *>(compile_model->get_cache_config())) {
+                            compile_slot = std::make_unique<PagedCompiler>(
+                                compile_model, barrier_, *runtime_, compile_context,
+                                PagedGraphConfig{compile_backend, rank_info_.tp_size, rank_info_.tp_rank, rank_info_.pp_size});
                         }
-                        if (compiler_) {
-                            compiler_->compile();
+                        if (compile_slot) {
+                            compile_slot->compile();
                         }
                     }
                     {
@@ -1269,6 +1475,7 @@ void RankWorker::thread_loop() {
         }
         if (drain_nsa_owner_noexcept()) {
             compiler_.reset();
+            draft_compiler_.reset();
         }
     } catch (...) {
         const auto error = std::current_exception();

@@ -2,8 +2,7 @@ import logging
 import weakref
 
 from infinilm.cache.cache import PagedKVCacheConfig, StaticKVCacheConfig
-from infinilm.distributed import DistConfig
-from infinilm.infer_engine import InferEngine, read_hf_config
+from infinilm.infer_engine import read_hf_config
 from infinilm.modeling_utils import load_model_state_dict_by_file
 
 from ... import _core as infinicore
@@ -34,15 +33,11 @@ class EagleSpeculativeRunner:
         draft_cache_config = StaticKVCacheConfig(
             max_batch_size=config.max_batch_size, max_cache_len=config.max_cache_len
         )
-        self.draft_model_engine = InferEngine(
-            model_path=config.draft_model_path,
-            device=device,
-            distributed_config=DistConfig(config.tensor_parallel_size),
+        self.draft_model_engine = target_model_engine.attach_draft(
+            config.draft_model_path,
             cache_config=draft_cache_config,
-            enable_graph_compiling=config.enable_graph,
             attention_backend="default",
             use_mla=False,
-            weight_load_mode=config.weight_load_mode,
         )
         if self.draft_model_engine.model_type != "minicpm_eagle":
             raise RuntimeError(
@@ -385,15 +380,11 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             block_size=config.block_size,
             max_batch_size=config.max_batch_size,
         )
-        self.draft_model_engine = InferEngine(
-            model_path=config.draft_model_path,
-            device=device,
-            distributed_config=DistConfig(1),
+        self.draft_model_engine = target_model_engine.attach_draft(
+            config.draft_model_path,
             cache_config=draft_cache_config,
-            enable_graph_compiling=config.enable_graph,
             attention_backend=config.attn_backend,
             use_mla=False,
-            weight_load_mode=config.weight_load_mode,
             config_overrides={
                 "speculative_verify_width": self.num_draft_tokens,
                 "speculative_markov_fused": True,
@@ -632,9 +623,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
                 "remaining": remaining,
                 "base_len": req.get_total_length(),
             }
-            for req_idx, (req, remaining) in enumerate(
-                zip(requests, remaining_by_req)
-            )
+            for req_idx, (req, remaining) in enumerate(zip(requests, remaining_by_req))
         ]
         candidates = [
             {
@@ -654,15 +643,10 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             draft_input["draft_anchor_tokens"] = anchors
             draft_input["output_token_prefix"] = anchors
             draft_input["output_ids_on_device"] = True
-            draft_input["dependency_event"] = target_output["completion_event"]
             if fuse_target_hidden:
                 draft_input["target_hidden_states"] = target_output["hidden_states"]
-                draft_input["target_hidden_position_ids"] = model_input[
-                    "position_ids"
-                ]
-                draft_input["target_hidden_slot_mapping"] = model_input[
-                    "slot_mapping"
-                ]
+                draft_input["target_hidden_position_ids"] = model_input["position_ids"]
+                draft_input["target_hidden_slot_mapping"] = model_input["slot_mapping"]
             draft_output = self.draft_model_engine.forward_raw(**draft_input)
             proposed_tokens = draft_output["output_ids"]
             expected_proposals = batch_size * self.verify_num_draft_tokens
@@ -673,16 +657,15 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             self.eagle_total_count += batch_size * self.num_draft_tokens
 
             verify_input = self._build_paged_verify_batch_input(candidates)
-            verify_input["input_ids"] = proposed_tokens.view(
-                [1, expected_proposals]
-            )
+            verify_input["input_ids"] = proposed_tokens.view([1, expected_proposals])
             verify_input["capture_layer_ids"] = self.target_layer_ids
             verify_input["speculative_proposed_tokens"] = proposed_tokens
-            verify_input["dependency_event"] = draft_output["completion_event"]
             reservation.mark_submitted()
             verify_output = self.target_model_engine.forward_raw(**verify_input)
-            paired_tokens = verify_output["output_ids"].to_numpy().reshape(
-                batch_size, 2 * self.verify_num_draft_tokens
+            paired_tokens = (
+                verify_output["output_ids"]
+                .to_numpy()
+                .reshape(batch_size, 2 * self.verify_num_draft_tokens)
             )
             reservation.mark_completed()
 
@@ -752,9 +735,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
                 "base_len": req.get_total_length(),
                 "draft_tokens": [0] * self.num_draft_tokens,
             }
-            for req_idx, (req, remaining) in enumerate(
-                zip(requests, remaining_by_req)
-            )
+            for req_idx, (req, remaining) in enumerate(zip(requests, remaining_by_req))
         ]
 
         with cache_ops.verify_batch(candidates) as reservation:
@@ -777,11 +758,12 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             verify_input["input_ids"] = verify_tokens.view([1, expected_tokens])
             verify_input["capture_layer_ids"] = self.target_layer_ids
             verify_input["speculative_proposed_tokens"] = verify_tokens
-            verify_input["dependency_event"] = draft_output["completion_event"]
             reservation.mark_submitted()
             verify_output = self.target_model_engine.forward_raw(**verify_input)
-            paired_tokens = verify_output["output_ids"].to_numpy().reshape(
-                batch_size, 2 * self.verify_num_draft_tokens
+            paired_tokens = (
+                verify_output["output_ids"]
+                .to_numpy()
+                .reshape(batch_size, 2 * self.verify_num_draft_tokens)
             )
             reservation.mark_completed()
 
@@ -832,11 +814,13 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
 
     def _pending_matches(self, requests):
         pending = self._pending_target_hidden
-        return pending is not None and len(pending["requests"]) == len(
-            requests
-        ) and all(
-            previous is current
-            for previous, current in zip(pending["requests"], requests)
+        return (
+            pending is not None
+            and len(pending["requests"]) == len(requests)
+            and all(
+                previous is current
+                for previous, current in zip(pending["requests"], requests)
+            )
         )
 
     def _attach_pending_target_hidden(self, requests, draft_input):
@@ -848,7 +832,6 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
         draft_input["target_hidden_states"] = pending["hidden_states"]
         draft_input["target_hidden_position_ids"] = source_input["position_ids"]
         draft_input["target_hidden_slot_mapping"] = source_input["slot_mapping"]
-        draft_input["dependency_event"] = pending["completion_event"]
 
     def _flush_pending_target_hidden(self):
         pending = self._pending_target_hidden
@@ -858,7 +841,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
         self._inject_target_hidden(
             pending["model_input"],
             pending["hidden_states"],
-            dependency_event=pending["completion_event"],
+            dependency_event=None,
         )
 
     def _defer_or_inject_target_hidden(
@@ -889,7 +872,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             self._inject_target_hidden(
                 verify_input,
                 verify_output["hidden_states"],
-                dependency_event=verify_output["completion_event"],
+                dependency_event=None,
             )
             return
 
@@ -900,9 +883,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             "completion_event": verify_output["completion_event"],
         }
 
-    def _inject_target_hidden(
-        self, model_input, hidden_states, dependency_event=None
-    ):
+    def _inject_target_hidden(self, model_input, hidden_states, dependency_event=None):
         self.draft_model_engine.forward_raw(
             input_ids=model_input["input_ids"],
             position_ids=model_input["position_ids"],
@@ -992,9 +973,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             input_offsets.append(input_offsets[-1] + self.num_draft_tokens)
             cu_seqlens.append(cu_seqlens[-1] + total_lens[-1])
             slot_mapping.append(req.slot_mapping[0])
-            slot_mapping.extend(
-                candidate["slot_mapping"][: self.num_draft_tokens - 1]
-            )
+            slot_mapping.extend(candidate["slot_mapping"][: self.num_draft_tokens - 1])
             block_tables = candidate["block_table"] + [-1] * (
                 block_width - len(candidate["block_table"])
             )
@@ -1093,9 +1072,7 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             shape.append(len(values[0]))
         tensor = self._pinned_metadata.get(name)
         if tensor is None or tensor.shape != shape:
-            tensor = infinicore.from_list(
-                values, dtype=dtype, pin_memory=True
-            )
+            tensor = infinicore.from_list(values, dtype=dtype, pin_memory=True)
             self._pinned_metadata[name] = tensor
         else:
             tensor.copy_from_list_(values)

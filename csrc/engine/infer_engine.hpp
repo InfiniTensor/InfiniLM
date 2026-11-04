@@ -45,6 +45,17 @@ public:
     // Load a batch of parameters to all workers, syncing each worker once after the batch.
     void load_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict = true);
 
+    // Attach and load a speculative draft model into the existing workers.
+    // Both models then execute on the same worker Runtime and stream.
+    void attach_draft(
+        const std::string &config_str,
+        const cache::CacheConfig *cache_config,
+        backends::AttentionBackend attention_backend = backends::AttentionBackend::Default,
+        bool use_mla = false,
+        bool pre_transpose = false);
+    void load_draft_params(const std::unordered_map<std::string, infinilm::runtime::Tensor> &params, bool strict = true);
+    void process_draft_weights_after_loading();
+
     // process the weights after loading on all workers (e.g., for quantization)
     void process_weights_after_loading();
 
@@ -52,9 +63,12 @@ public:
     std::vector<std::unordered_map<std::string, infinilm::weights::Weight>> state_dict();
 
     std::vector<std::string> state_dict_keys();
+    std::vector<std::unordered_map<std::string, infinilm::weights::Weight>> draft_state_dict();
+    std::vector<std::string> draft_state_dict_keys();
 
     // Run a single forward pass on all workers and return sampled token IDs.
     Output forward(const Input &input);
+    Output forward_draft(const Input &input);
 
     void compile();
 
@@ -95,6 +109,13 @@ protected:
     mutable std::mutex submission_mutex_;
     bool use_mla_{false};
     std::uint64_t nsa_pool_epoch_{0};
+
+    std::unique_ptr<cache::CacheConfig> draft_cache_config_;
+    std::shared_ptr<infinilm::config::ModelConfig> draft_model_config_;
+    WeightState draft_weight_state_ = WeightState::Loading;
+    bool draft_weight_load_started_ = false;
+    std::unordered_set<std::string> loaded_draft_weight_keys_;
+    bool has_draft_model_ = false;
 };
 
 } // namespace infinilm::engine

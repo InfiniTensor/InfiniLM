@@ -263,6 +263,132 @@ void InferEngine::load_params(const std::unordered_map<std::string, infinilm::ru
     }
 }
 
+void InferEngine::attach_draft(
+    const std::string &config_str,
+    const cache::CacheConfig *cache_config,
+    backends::AttentionBackend attention_backend,
+    bool use_mla,
+    bool pre_transpose) {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    if (has_draft_model_) {
+        throw std::logic_error("InferEngine already has an attached draft model");
+    }
+    if (communication_group_.get_dist_config().pp_size != 1) {
+        throw std::invalid_argument("attached speculative draft models do not support pipeline parallelism");
+    }
+    draft_model_config_ = infinilm::config::ConfigFactory::createConfig(config_str);
+    draft_cache_config_ = cache_config ? cache_config->unique_copy() : nullptr;
+    auto draft_config = std::make_shared<infinilm::global_state::InfinilmConfig>(
+        attention_backend,
+        draft_model_config_,
+        use_mla,
+        communication_group_.get_dist_config().moe_ep_backend,
+        communication_group_.get_dist_config().moe_ep_size,
+        pre_transpose);
+    try {
+        for (auto &worker : workers_) {
+            worker->attach_draft(
+                draft_config,
+                draft_cache_config_ ? draft_cache_config_.get() : nullptr,
+                attention_backend);
+        }
+        has_draft_model_ = true;
+    } catch (...) {
+        draft_weight_state_ = WeightState::Failed;
+        throw;
+    }
+}
+
+void InferEngine::load_draft_params(
+    const std::unordered_map<std::string, infinilm::runtime::Tensor> &params,
+    bool strict) {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    if (!has_draft_model_ || draft_weight_state_ != WeightState::Loading) {
+        throw std::logic_error("draft weights require an attached Loading draft model");
+    }
+    if (!params.empty()) {
+        draft_weight_load_started_ = true;
+    }
+    try {
+        std::vector<std::string> duplicates;
+        for (const auto &[key, _] : params) {
+            if (loaded_draft_weight_keys_.count(key)) {
+                duplicates.push_back(key);
+            }
+        }
+        if (!duplicates.empty()) {
+            throw std::runtime_error(weight_key_error("Duplicate draft", std::move(duplicates)));
+        }
+        for (auto &worker : workers_) {
+            worker->load_draft_params(params, strict);
+        }
+        for (const auto &[key, _] : params) {
+            loaded_draft_weight_keys_.insert(key);
+        }
+    } catch (...) {
+        draft_weight_state_ = WeightState::Failed;
+        throw;
+    }
+}
+
+void InferEngine::process_draft_weights_after_loading() {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    if (!has_draft_model_ || draft_weight_state_ != WeightState::Loading) {
+        throw std::logic_error("draft weights can only be finalized once from Loading");
+    }
+    draft_weight_state_ = WeightState::Finalizing;
+    try {
+        const auto expected_keys = draft_state_dict_keys();
+        const std::unordered_set<std::string> expected(expected_keys.begin(), expected_keys.end());
+        std::unordered_set<std::string> required;
+        for (auto &worker : workers_) {
+            for (const auto &key : worker->draft_state_required_keys()) {
+                required.insert(key);
+            }
+        }
+        std::vector<std::string> missing;
+        std::vector<std::string> unexpected;
+        for (const auto &key : required) {
+            if (!loaded_draft_weight_keys_.count(key)) {
+                missing.push_back(key);
+            }
+        }
+        for (const auto &key : loaded_draft_weight_keys_) {
+            if (!expected.count(key)) {
+                unexpected.push_back(key);
+            }
+        }
+        if (!missing.empty() || !unexpected.empty()) {
+            std::string message = "Error(s) in loading draft state_dict";
+            if (!unexpected.empty()) {
+                message += "\n" + weight_key_error("Unexpected", std::move(unexpected));
+            }
+            if (!missing.empty()) {
+                message += "\n" + weight_key_error("Missing", std::move(missing));
+            }
+            throw std::runtime_error(message);
+        }
+        const auto scheme = draft_model_config_->get_quant_scheme();
+        if (scheme == infinilm::quantization::QuantScheme::AWQ_W4A16
+            || scheme == infinilm::quantization::QuantScheme::GPTQ_W4A16) {
+            throw std::invalid_argument("attached draft models do not yet support staged W4 finalization");
+        }
+        for (auto &worker : workers_) {
+            worker->process_draft_weights_after_loading();
+        }
+        for (auto &worker : workers_) {
+            worker->compile_draft();
+        }
+        for (auto &worker : workers_) {
+            worker->wait();
+        }
+        draft_weight_state_ = WeightState::Ready;
+    } catch (...) {
+        draft_weight_state_ = WeightState::Failed;
+        throw;
+    }
+}
+
 //------------------------------------------------------
 // load_param
 //------------------------------------------------------
@@ -353,6 +479,34 @@ std::vector<std::string> InferEngine::state_dict_keys() {
     for (auto &worker : workers_) {
         for (const auto &key : worker->state_dict_keys()) {
             // Preserve first-seen worker order while removing duplicate TP keys.
+            if (seen_keys.emplace(key).second) {
+                ordered_keys.push_back(key);
+            }
+        }
+    }
+    return ordered_keys;
+}
+
+std::vector<std::unordered_map<std::string, infinilm::weights::Weight>> InferEngine::draft_state_dict() {
+    if (!has_draft_model_) {
+        throw std::logic_error("draft_state_dict requires an attached draft model");
+    }
+    std::vector<std::unordered_map<std::string, infinilm::weights::Weight>> results;
+    results.reserve(workers_.size());
+    for (auto &worker : workers_) {
+        results.push_back(worker->draft_state_dict());
+    }
+    return results;
+}
+
+std::vector<std::string> InferEngine::draft_state_dict_keys() {
+    if (!has_draft_model_) {
+        throw std::logic_error("draft_state_dict_keys requires an attached draft model");
+    }
+    std::vector<std::string> ordered_keys;
+    std::unordered_set<std::string> seen_keys;
+    for (auto &worker : workers_) {
+        for (const auto &key : worker->draft_state_dict_keys()) {
             if (seen_keys.emplace(key).second) {
                 ordered_keys.push_back(key);
             }
@@ -483,9 +637,16 @@ InferEngine::Input::to_model_input(
 
 InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     std::lock_guard<std::mutex> submission_lock(submission_mutex_);
-    if (weight_state_ == WeightState::Failed
-        || weight_state_ == WeightState::Finalizing
-        || (weight_state_ == WeightState::Loading && weight_load_started_)) {
+    const auto selected_state = input.use_draft_model ? draft_weight_state_ : weight_state_;
+    const auto selected_load_started = input.use_draft_model
+                                         ? draft_weight_load_started_
+                                         : weight_load_started_;
+    if (input.use_draft_model && !has_draft_model_) {
+        throw std::logic_error("draft forward requires an attached draft model");
+    }
+    if (selected_state == WeightState::Failed
+        || selected_state == WeightState::Finalizing
+        || (selected_state == WeightState::Loading && selected_load_started)) {
         throw std::logic_error("cannot execute an incomplete or failed weight load");
     }
     if (input.skip_sampling
@@ -546,6 +707,12 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     output.logits = completed_view(output.logits);
     output.hidden_states = completed_view(output.hidden_states);
     return output;
+}
+
+InferEngine::Output InferEngine::forward_draft(const InferEngine::Input &input) {
+    auto draft_input = input;
+    draft_input.use_draft_model = true;
+    return forward(draft_input);
 }
 
 void InferEngine::compile() {

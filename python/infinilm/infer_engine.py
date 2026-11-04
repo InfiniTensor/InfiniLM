@@ -223,6 +223,46 @@ def _infer_position_id_axes(hf_config: dict) -> int:
     return 1
 
 
+class _AttachedDraftEngine:
+    """Python loading/forward view over a draft model owned by an InferEngine."""
+
+    def __init__(self, owner, model_path, hf_config):
+        self._owner = owner
+        self.hf_config = hf_config
+        self.hf_generation_config = read_hf_generation_config(model_path)
+        self.distributed_config = owner.distributed_config
+        self.position_id_axes = _infer_position_id_axes(hf_config)
+
+    @property
+    def dtype(self):
+        config = self.hf_config.get("text_config", self.hf_config)
+        return parse_dtype(
+            config.get("torch_dtype")
+            or config.get("dtype")
+            or self.hf_config.get("torch_dtype")
+            or self.hf_config.get("dtype")
+        )
+
+    @property
+    def model_type(self):
+        return self.hf_config["model_type"]
+
+    def state_dict_keyname(self):
+        return self._owner.draft_state_dict_keyname()
+
+    def state_dict(self):
+        return self._owner.draft_state_dict()
+
+    def load_state_dict(self, state_dict, strict=None):
+        self._owner.load_draft_state_dict(state_dict, strict=strict)
+
+    def process_weights_after_loading(self):
+        self._owner.process_draft_weights_after_loading()
+
+    def forward_raw(self, **kwargs):
+        return self._owner.forward_raw(_draft=True, **kwargs)
+
+
 class InferEngine(_infinilm.InferEngine):
     def __init__(
         self,
@@ -287,6 +327,33 @@ class InferEngine(_infinilm.InferEngine):
 
         self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
         self.has_mamba_cache = model_uses_mamba_cache(self.hf_config)
+
+    def attach_draft(
+        self,
+        model_path,
+        *,
+        cache_config=None,
+        attention_backend="default",
+        use_mla=False,
+        pre_transpose=False,
+        config_overrides=None,
+    ):
+        hf_config = read_hf_config(model_path)
+        if config_overrides:
+            hf_config.update(config_overrides)
+        position_id_axes = _infer_position_id_axes(hf_config)
+        hf_config["position_id_axes"] = position_id_axes
+        text_config = hf_config.get("text_config")
+        if isinstance(text_config, dict):
+            text_config.setdefault("position_id_axes", position_id_axes)
+        super().attach_draft(
+            json.dumps(hf_config),
+            cache_config,
+            attention_backend,
+            use_mla,
+            pre_transpose,
+        )
+        return _AttachedDraftEngine(self, model_path, hf_config)
 
     @property
     def dtype(self):
@@ -589,9 +656,11 @@ class InferEngine(_infinilm.InferEngine):
         top_k=None,
         top_p=None,
         nsa_owner_snapshot=None,
+        _draft=False,
     ):
         try:
-            output = super().forward(
+            native_forward = super().forward_draft if _draft else super().forward
+            output = native_forward(
                 self._build_input(
                     input_ids,
                     position_ids=position_ids,
@@ -910,6 +979,12 @@ class InferEngine(_infinilm.InferEngine):
     def state_dict_keyname(self):
         return list(super().state_dict_keyname())
 
+    def draft_state_dict_keyname(self):
+        return list(super().draft_state_dict_keyname())
+
+    def draft_state_dict(self):
+        return super().draft_state_dict()
+
     def load_state_dict(self, state_dict, strict=None):
         # MoE/quantized paths may register internal packed tensors that are not
         # present in the HF checkpoint, so callers can request non-strict loads.
@@ -918,8 +993,17 @@ class InferEngine(_infinilm.InferEngine):
             strict=True if strict is None else strict,
         )
 
+    def load_draft_state_dict(self, state_dict, strict=None):
+        super().load_draft_params(
+            {name: param._underlying for name, param in state_dict.items()},
+            strict=True if strict is None else strict,
+        )
+
     def process_weights_after_loading(self):
         super().process_weights_after_loading()
+
+    def process_draft_weights_after_loading(self):
+        super().process_draft_weights_after_loading()
 
     def get_kv_cache(self) -> list[list[infinicore.Tensor]]:
         """
