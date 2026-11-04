@@ -192,6 +192,18 @@ inline void bind_infer_engine(py::module &m) {
                 py::gil_scoped_release release;
                 return self.forward_draft(frozen_input); }, "Run the attached draft model on the same rank workers")
         .def(
+            "forward_speculative_cycle", [](InferEngine &self, const InferEngine::Input &draft_input, const InferEngine::Input &verify_input, std::size_t verify_width, bool stateful) {
+                const auto frozen_draft_input = draft_input;
+                const auto frozen_verify_input = verify_input;
+                py::gil_scoped_release release;
+                return self.forward_speculative_cycle(
+                    frozen_draft_input,
+                    frozen_verify_input,
+                    verify_width,
+                    stateful);
+            },
+            py::arg("draft_input"), py::arg("verify_input"), py::arg("verify_width"), py::arg("stateful") = false, "Run draft, target verification, and greedy acceptance as one native cycle")
+        .def(
             "reset_cache", [](InferEngine &self, std::shared_ptr<cache::CacheConfig> cfg) { self.reset_cache(cfg ? cfg.get() : nullptr); }, py::arg("cache_config") = py::none(), py::call_guard<py::gil_scoped_release>())
         .def("get_kv_cache", &InferEngine::get_kv_cache, py::call_guard<py::gil_scoped_release>(), "Get per-rank kv cache list")
         .def(
@@ -444,6 +456,11 @@ inline void bind_infer_engine(py::module &m) {
             result["fallback_reason"] = graph ? graph->fallback_reason : output.eager_reason;
             return result;
         });
+
+    py::class_<InferEngine::SpeculativeCycleOutput>(infer_engine, "SpeculativeCycleOutput")
+        .def_readonly("output_tokens", &InferEngine::SpeculativeCycleOutput::output_tokens)
+        .def_readonly("accepted_counts", &InferEngine::SpeculativeCycleOutput::accepted_counts)
+        .def_readonly("hidden_states", &InferEngine::SpeculativeCycleOutput::hidden_states);
 }
 
 } // namespace infinilm::engine

@@ -705,6 +705,35 @@ class InferEngine(_infinilm.InferEngine):
             handle_oom_and_exit(e)
             raise
 
+    def forward_speculative_cycle(
+        self,
+        draft_input,
+        verify_input,
+        verify_width,
+        *,
+        stateful=False,
+    ):
+        def build_input(values):
+            values = dict(values)
+            input_ids = values.pop("input_ids", None)
+            return self._build_input(input_ids, **values)
+
+        try:
+            output = super().forward_speculative_cycle(
+                build_input(draft_input),
+                build_input(verify_input),
+                verify_width,
+                stateful,
+            )
+            return {
+                "output_tokens": output.output_tokens,
+                "accepted_counts": output.accepted_counts,
+                "hidden_states": infinicore.Tensor(output.hidden_states),
+            }
+        except BaseException as e:
+            handle_oom_and_exit(e)
+            raise
+
     def generate(
         self,
         input_ids,

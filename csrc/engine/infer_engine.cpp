@@ -635,8 +635,7 @@ InferEngine::Input::to_model_input(
     return input;
 }
 
-InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
-    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+InferEngine::Output InferEngine::forward_locked(const InferEngine::Input &input) {
     const auto selected_state = input.use_draft_model ? draft_weight_state_ : weight_state_;
     const auto selected_load_started = input.use_draft_model
                                          ? draft_weight_load_started_
@@ -709,10 +708,103 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     return output;
 }
 
+InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    return forward_locked(input);
+}
+
 InferEngine::Output InferEngine::forward_draft(const InferEngine::Input &input) {
     auto draft_input = input;
     draft_input.use_draft_model = true;
     return forward(draft_input);
+}
+
+InferEngine::SpeculativeCycleOutput InferEngine::forward_speculative_cycle(
+    const InferEngine::Input &draft_input,
+    const InferEngine::Input &verify_input,
+    std::size_t verify_width,
+    bool stateful) {
+    std::lock_guard<std::mutex> submission_lock(submission_mutex_);
+    if (!has_draft_model_) {
+        throw std::logic_error("speculative cycle requires an attached draft model");
+    }
+    if (communication_group_.get_dist_config().tp_size != 1
+        || communication_group_.get_dist_config().pp_size != 1) {
+        throw std::invalid_argument(
+            "native speculative cycles currently require TP=1 and PP=1");
+    }
+    if (verify_width < 2) {
+        throw std::invalid_argument("speculative verify width must be at least two");
+    }
+
+    auto effective_draft_input = draft_input;
+    effective_draft_input.use_draft_model = true;
+    effective_draft_input.output_ids_on_device = true;
+    auto draft_output = forward_locked(effective_draft_input);
+    if (!draft_output.output_ids
+        || draft_output.output_ids->dtype() != infinilm::runtime::DataType::kInt64
+        || !draft_output.output_ids->is_contiguous()
+        || draft_output.output_ids->numel() % verify_width != 0) {
+        throw std::runtime_error(
+            "speculative draft output must be contiguous int64 rows of verify width");
+    }
+
+    const std::size_t batch_size = draft_output.output_ids->numel() / verify_width;
+    if (batch_size == 0) {
+        throw std::runtime_error("speculative cycle received an empty draft batch");
+    }
+
+    auto effective_verify_input = verify_input;
+    effective_verify_input.use_draft_model = false;
+    effective_verify_input.input_ids = draft_output.output_ids->view({1, batch_size * verify_width});
+    effective_verify_input.speculative_proposed_tokens = draft_output.output_ids;
+    effective_verify_input.output_ids_on_device = false;
+    auto verify_output = forward_locked(effective_verify_input);
+
+    const auto &paired = verify_output.output_ids;
+    if (!paired
+        || paired->device().type() != infinilm::runtime::Device::Type::kCpu
+        || paired->dtype() != infinilm::runtime::DataType::kInt64
+        || !paired->is_contiguous()
+        || paired->numel() != batch_size * verify_width * 2) {
+        throw std::runtime_error(
+            "speculative verification must return contiguous paired int64 rows on CPU");
+    }
+
+    SpeculativeCycleOutput result;
+    result.output_tokens.resize(batch_size);
+    result.accepted_counts.resize(batch_size);
+    result.hidden_states = verify_output.hidden_states;
+
+    const auto *paired_tokens = reinterpret_cast<const std::int64_t *>(paired->data());
+    for (std::size_t row_idx = 0; row_idx < batch_size; ++row_idx) {
+        const auto *row = paired_tokens + row_idx * verify_width * 2;
+        const auto *proposed = row;
+        const auto *verified = row + verify_width;
+        std::size_t accepted = stateful ? 0 : 1;
+        std::int64_t correction = verified[verify_width - 1];
+        for (std::size_t draft_idx = 1; draft_idx < verify_width; ++draft_idx) {
+            const auto expected = verified[draft_idx - 1];
+            if (proposed[draft_idx] != expected) {
+                correction = expected;
+                break;
+            }
+            ++accepted;
+        }
+
+        auto &tokens = result.output_tokens[row_idx];
+        tokens.reserve(accepted + 1);
+        const std::size_t first_proposal = stateful ? 1 : 0;
+        const std::size_t proposal_end = stateful ? accepted + 1 : accepted;
+        for (std::size_t token_idx = first_proposal;
+             token_idx < proposal_end;
+             ++token_idx) {
+            tokens.push_back(proposed[token_idx]);
+        }
+        tokens.push_back(correction);
+        result.accepted_counts[row_idx] = accepted;
+    }
+    return result;
 }
 
 void InferEngine::compile() {

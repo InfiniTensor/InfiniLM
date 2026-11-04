@@ -647,50 +647,28 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
                 draft_input["target_hidden_states"] = target_output["hidden_states"]
                 draft_input["target_hidden_position_ids"] = model_input["position_ids"]
                 draft_input["target_hidden_slot_mapping"] = model_input["slot_mapping"]
-            draft_output = self.draft_model_engine.forward_raw(**draft_input)
-            proposed_tokens = draft_output["output_ids"]
-            expected_proposals = batch_size * self.verify_num_draft_tokens
-            if proposed_tokens.numel() != expected_proposals:
-                raise RuntimeError(
-                    "DSpark proposal output count does not match draft width"
-                )
             self.eagle_total_count += batch_size * self.num_draft_tokens
 
             verify_input = self._build_paged_verify_batch_input(candidates)
-            verify_input["input_ids"] = proposed_tokens.view([1, expected_proposals])
             verify_input["capture_layer_ids"] = self.target_layer_ids
-            verify_input["speculative_proposed_tokens"] = proposed_tokens
             reservation.mark_submitted()
-            verify_output = self.target_model_engine.forward_raw(**verify_input)
-            paired_tokens = (
-                verify_output["output_ids"]
-                .to_numpy()
-                .reshape(batch_size, 2 * self.verify_num_draft_tokens)
+            cycle_output = self.target_model_engine.forward_speculative_cycle(
+                draft_input,
+                verify_input,
+                self.verify_num_draft_tokens,
             )
             reservation.mark_completed()
 
             output_tokens_by_req = [[] for _ in requests]
             keep_lengths = []
-            width = self.verify_num_draft_tokens
-            for candidate, row in zip(candidates, paired_tokens):
+            for candidate, native_tokens, native_accepted in zip(
+                candidates,
+                cycle_output["output_tokens"],
+                cycle_output["accepted_counts"],
+            ):
                 req = candidate["req"]
-                proposed = row[:width].tolist()
-                segment = row[width:].tolist()
-                accepted = 1
-                correction = None
-                for draft_idx in range(1, width):
-                    expected = int(segment[draft_idx - 1])
-                    if int(proposed[draft_idx]) != expected:
-                        correction = expected
-                        break
-                    accepted += 1
-                if correction is None:
-                    correction = int(segment[-1])
-
-                output_tokens = [
-                    *[int(token) for token in proposed[:accepted]],
-                    correction,
-                ]
+                output_tokens = [int(token) for token in native_tokens]
+                accepted = int(native_accepted)
                 remaining = candidate["remaining"]
                 if remaining is not None:
                     output_tokens = output_tokens[:remaining]
@@ -708,7 +686,10 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             self._defer_or_inject_target_hidden(
                 requests,
                 verify_input,
-                verify_output,
+                {
+                    "hidden_states": cycle_output["hidden_states"],
+                    "completion_event": None,
+                },
                 output_tokens_by_req,
                 remaining_by_req,
             )
@@ -745,50 +726,29 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             draft_input["output_token_prefix"] = anchors
             draft_input["output_ids_on_device"] = True
             self._attach_pending_target_hidden(requests, draft_input)
-            draft_output = self.draft_model_engine.forward_raw(**draft_input)
-            verify_tokens = draft_output["output_ids"]
-            expected_tokens = batch_size * self.verify_num_draft_tokens
-            if verify_tokens.numel() != expected_tokens:
-                raise RuntimeError(
-                    "DSpark stateful proposal output count does not match verify width"
-                )
             self.eagle_total_count += batch_size * self.num_draft_tokens
 
             verify_input = self._build_stateful_verify_batch_input(candidates)
-            verify_input["input_ids"] = verify_tokens.view([1, expected_tokens])
             verify_input["capture_layer_ids"] = self.target_layer_ids
-            verify_input["speculative_proposed_tokens"] = verify_tokens
             reservation.mark_submitted()
-            verify_output = self.target_model_engine.forward_raw(**verify_input)
-            paired_tokens = (
-                verify_output["output_ids"]
-                .to_numpy()
-                .reshape(batch_size, 2 * self.verify_num_draft_tokens)
+            cycle_output = self.target_model_engine.forward_speculative_cycle(
+                draft_input,
+                verify_input,
+                self.verify_num_draft_tokens,
+                stateful=True,
             )
             reservation.mark_completed()
 
             output_tokens_by_req = [[] for _ in requests]
             keep_lengths = []
-            width = self.verify_num_draft_tokens
-            for candidate, row in zip(candidates, paired_tokens):
+            for candidate, native_tokens, native_accepted in zip(
+                candidates,
+                cycle_output["output_tokens"],
+                cycle_output["accepted_counts"],
+            ):
                 req = candidate["req"]
-                proposed = row[:width].tolist()
-                segment = row[width:].tolist()
-                accepted = 0
-                correction = None
-                for draft_idx in range(1, width):
-                    expected = int(segment[draft_idx - 1])
-                    if int(proposed[draft_idx]) != expected:
-                        correction = expected
-                        break
-                    accepted += 1
-                if correction is None:
-                    correction = int(segment[-1])
-
-                output_tokens = [
-                    *[int(token) for token in proposed[1 : accepted + 1]],
-                    correction,
-                ]
+                output_tokens = [int(token) for token in native_tokens]
+                accepted = int(native_accepted)
                 remaining = candidate["remaining"]
                 if remaining is not None:
                     output_tokens = output_tokens[:remaining]
@@ -806,7 +766,10 @@ class DSparkSpeculativeRunner(EagleSpeculativeRunner):
             self._defer_or_inject_target_hidden(
                 requests,
                 verify_input,
-                verify_output,
+                {
+                    "hidden_states": cycle_output["hidden_states"],
+                    "completion_event": None,
+                },
                 output_tokens_by_req,
                 remaining_by_req,
             )

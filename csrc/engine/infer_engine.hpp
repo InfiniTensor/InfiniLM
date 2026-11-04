@@ -26,6 +26,12 @@ public:
 
     using Output = RankWorker::Output;
 
+    struct SpeculativeCycleOutput {
+        std::vector<std::vector<std::int64_t>> output_tokens;
+        std::vector<std::size_t> accepted_counts;
+        infinilm::runtime::Tensor hidden_states;
+    };
+
     // Updated constructor: accept CacheConfig instead of CacheType
     InferEngine(
         const std::string &config_str,
@@ -69,6 +75,11 @@ public:
     // Run a single forward pass on all workers and return sampled token IDs.
     Output forward(const Input &input);
     Output forward_draft(const Input &input);
+    SpeculativeCycleOutput forward_speculative_cycle(
+        const Input &draft_input,
+        const Input &verify_input,
+        std::size_t verify_width,
+        bool stateful);
 
     void compile();
 
@@ -91,6 +102,7 @@ protected:
                              Ready,
                              Failed };
     void compile_workers();
+    Output forward_locked(const Input &input);
 
     std::vector<std::unique_ptr<RankWorker>> workers_;
     std::unique_ptr<RankBarrier> barrier_;
