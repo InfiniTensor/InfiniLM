@@ -220,6 +220,7 @@ private:
                            bool strict,
                            bool draft);
     void submit_preprocess(bool draft);
+    void compile_model(bool draft);
     void submit_w4_phase(Command command);
     void fail(const char *operation, std::exception_ptr error) noexcept;
     void refresh_finite_paged_decode_profile();
