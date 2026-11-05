@@ -1,7 +1,7 @@
 """Private, read-only safetensors byte views for checkpoint copies.
 
 This is deliberately not a general tensor loader. ``tensor_bytes`` returns a
-NumPy integer bit-view whose base keeps the read-only mmap alive; the caller
+NumPy integer bit-view whose base keeps a private mmap alive; the caller
 must supply the checked safetensors dtype when borrowing it with from_blob.
 """
 
@@ -72,7 +72,10 @@ class SafeTensorsMmap:
         with open(path, "rb") as file:
             if os.fstat(file.fileno()).st_size < 10:
                 raise ValueError("safetensors file is too short")
-            mapping = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
+            # COREX rejects large H2D copies from read-only OS mappings. A private
+            # writable mapping permits driver registration without changing the
+            # checkpoint; NumPy views remain read-only below.
+            mapping = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_COPY)
         try:
             tensors, metadata, data_start = self._validate(mapping)
         except BaseException:
@@ -196,6 +199,7 @@ class SafeTensorsMmap:
             count=(info.end - info.begin) // itemsize,
             offset=self._data_start + info.begin,
         )
+        array.setflags(write=False)
         return array.reshape(info.shape)
 
     def close(self) -> None:
