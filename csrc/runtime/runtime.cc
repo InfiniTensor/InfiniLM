@@ -42,7 +42,10 @@ void initializeOperatorTuning() {
     // The InfiniOps Python bindings initialize tuning at import time; native
     // InfiniLM embedders do not import that module, so initialize it once here.
     static const bool initialized = [] {
-        infini::ops::TuningManager::Instance().InitializeFromEnvironment();
+        auto &manager = infini::ops::TuningManager::Instance();
+        if (!manager.IsEnabled()) {
+            manager.InitializeFromEnvironment();
+        }
         return true;
     }();
     (void)initialized;

@@ -145,7 +145,7 @@ target("test_rank_barrier")
     end
 target_end()
 
-for _, name in ipairs({"tensor_empty_view"}) do
+for _, name in ipairs({"operator_tuning", "tensor_empty_view"}) do
     target("test_" .. name)
         set_default(false)
         set_kind("binary")
