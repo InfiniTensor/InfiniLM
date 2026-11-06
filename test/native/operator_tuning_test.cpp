@@ -1,3 +1,4 @@
+#include "execution/submit.hpp"
 #include "runtime/runtime.hpp"
 
 #include <tuning.h>
@@ -25,6 +26,9 @@ int main() {
     auto &manager = infini::ops::TuningManager::Instance();
     manager.LoadTuningCache(cache_path.string());
     require(manager.IsEnabled());
+    const auto tuned_config = infinilm::execution::implicit_config<infini::ops::RmsNorm>(
+        infinilm::runtime::Device::Type::kCpu);
+    require(tuned_config.needs_implementation_resolution());
 
     const auto runtime = infinilm::runtime::Runtime::create(
         {infinilm::runtime::Device::Type::kCpu, 0});
