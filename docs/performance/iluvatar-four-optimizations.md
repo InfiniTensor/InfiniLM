@@ -81,23 +81,47 @@ grew from 57 to 238 tokens and its answer became correct. Token differences and
 correctness are recorded separately. Finite sample accuracy is not a claim of
 universal per-task non-regression.
 
-## Current submission and remaining validation
+## Current-source CoreX build and GPU validation
 
-This PR is rebased on main `cc6d52ae04f4c9ff17229bc7fc13a9ad105aca6d`,
-which adds automatic operator-tuning initialization after the measured baseline.
-The companion InfiniOps PRs are based on master
-`1a68b261d19f0ed6f76bbabeab7a25f479f05e07`. The original GPU results apply
-to the recorded private builds; this revised normal-dispatch integration still
-needs a current-base Iluvatar smoke build and the same two-task application
-regression. It is submitted as a draft with the flag off by default.
+CoreX current-code validation completed on 2026-11-06 against InfiniLM
+`12a4492f70dd33235e3d142e333ad4a9629d3b7b` and InfiniOps
+`1a68b261d19f0ed6f76bbabeab7a25f479f05e07`. Both complete SDKs compiled
+and imported. Both roles used the identical documented CoreX validation adapter
+and ABI0, with automatic tuning disabled. The adapter includes existing CUDA
+Argmax/Triu/Tril registrations, unchanged rejecting unavailable factories, a
+copy-on-write read-only-view loader, and the existing paged-only FlashVarlen
+provider's metadata gate. See the companion InfiniLM
+`docs/performance/corex-validation/README.md` for exact scope.
 
-Focused host check:
+The affected native GPU tests passed without skips: GEMV 4, causal Softmax 8,
+Decode Attention 8, plus 7 common Argmax/mask checks. The submitted device tests
+now explicitly bind implementation index 0. GEMV fallback uses the supported
+no-C, alpha=0.5 contract; this backend rejects C/bias at its base operator.
 
-```sh
-c++ -std=c++17 -I. test/runtime/causal_prefill_policy_test.cpp -o /tmp/causal-prefill-policy
-/tmp/causal-prefill-policy
-```
+Original tasks 554/172 ran on one TG-V200 in forward and reverse role order.
+Each of the four model processes used one simultaneous two-request warmup wave
+and one simultaneous two-request measured wave: 16 requests total, 8 measured.
+All 16 answers were correct with natural EOS, zero errors/truncations, normal
+scope return, final library maps, atexit and actual OS exit0. The original
+512-token greedy budget, EOS=[2,73440], strict last-#### numeric scorer, inputs
+and weights were unchanged. Two physical rows, full Prefill and graph off were
+held fixed. No new independent quality questions were added.
 
-The companion provider includes focused device tests for masked values,
-rectangular masks and in-place/out-of-place output. No dataset expansion is
-needed to validate this integration.
+Mean two-request measured-wave time was **14.976775177 ->
+9.782192262 seconds (-34.6843%)**.
+Completed request throughput was **0.133540096 -> 0.204453148
+requests/s (+53.1024%)**. Published token throughput
+was 20.631944884 -> 31.588011330 tokens/s and is reported separately.
+The time denominator includes queue and text processing and excludes loading,
+warmup and final shutdown. Both role orders reduced application time; this is
+the combined four-optimization gain, not an individual-PR or component sum.
+
+| Order | Official wave, s | Combined wave, s | Time reduction |
+| --- | ---: | ---: | ---: |
+| forward | 14.973374084 | 9.782256734 | 34.6690% |
+| reverse | 14.980176271 | 9.782127790 | 34.6995% |
+
+Token-different task IDs across the two measured orders: none. Answers and token differences are recorded separately.
+Raw clocks, output IDs, strict scores, native receipts and ordinary exits were independently recomputed. This two-question integration check is kept separate from the historical 100-question experiment above.
+
+The Prefill flag remains off by default and requires the companion provider.

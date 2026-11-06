@@ -45,7 +45,7 @@
     "request_throughput_change_pct": 48.26130137248717,
     "token_throughput_change_pct": 51.66531426566574
   },
-  "measurement_scope": "Historical four-item private combination; cumulative per-version same-card formal wave makespans",
+  "measurement_scope": "Historical 100-target private combination; current submitted-code two-task validation is recorded separately",
   "token_different_questions": 34,
   "regression_ids": [
     1097
@@ -55,6 +55,7 @@
     1259,
     1203
   ],
-  "current_pr_revision_gpu_tested": false,
-  "original_summary_sha256": "6dfa8dbd43c100ec45b27886edb5294c7a8eb15e03578a9388862add06567ea9"
+  "current_pr_revision_gpu_tested": true,
+  "original_summary_sha256": "6dfa8dbd43c100ec45b27886edb5294c7a8eb15e03578a9388862add06567ea9",
+  "current_revision_evidence": "iluvatar-current-corex-validation.json"
 }
