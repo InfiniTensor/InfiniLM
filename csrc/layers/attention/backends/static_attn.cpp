@@ -4,11 +4,14 @@
 #include "../../../utils.hpp"
 #include "../attention_checks.hpp"
 #include "attention_layer.hpp"
+#include "causal_prefill_policy.hpp"
 #include "runtime/runtime.hpp"
 #include <algorithm>
+#include <base/causal_softmax_infinilm.h>
 #include <base/flash_attn_varlen_func.h>
 #include <base/gemm.h>
 #include <base/reshape_and_cache_flash.h>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <stdexcept>
@@ -268,34 +271,47 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
         if (seq_len > total_seq_len) {
             throw std::invalid_argument("causal_softmax has unsupported shape or dtype");
         }
-        std::optional<infinilm::runtime::Tensor> causal_mask;
-        if (seq_len != 1) {
-            causal_mask = infinilm::runtime::Tensor::empty(
-                runtime, {seq_len, total_seq_len}, attn_weight_softmax->dtype());
-        }
         const auto causal_device = runtime.device().type();
         constexpr auto causal_policy = infinilm::execution::RecordingPolicy::DeviceOnly;
-        if (causal_mask) {
-            const auto &mask = *causal_mask;
-            const auto rows = static_cast<int64_t>(seq_len);
-            const auto columns = static_cast<int64_t>(total_seq_len);
-            infinilm::execution::submit<infini::ops::Fill>(
-                runtime, causal_policy, infini::ops::Fill::DefaultConfig(causal_device),
-                mask, -std::numeric_limits<double>::infinity(), mask);
-            infinilm::execution::submit<infini::ops::Triu>(
-                runtime, causal_policy, infini::ops::Triu::DefaultConfig(causal_device),
-                mask, columns - rows + 1, mask);
-            infinilm::execution::submit<infini::ops::Tril>(
-                runtime, causal_policy, infini::ops::Tril::DefaultConfig(causal_device),
-                attn_weight_softmax, columns - rows, attn_weight_softmax);
-            infinilm::execution::submit<infini::ops::Add>(
-                runtime, causal_policy, infini::ops::Add::DefaultConfig(causal_device),
-                attn_weight_softmax, mask, attn_weight_softmax);
+        const bool fused = detail::UseFusedCausalPrefill(
+            std::getenv("INFINILM_ILUVATAR_FUSED_CAUSAL_PREFILL"),
+            causal_device == infinilm::runtime::Device::Type::kIluvatar,
+            attn_weight_softmax->dtype() == infinilm::runtime::DataType::kBFloat16,
+            attn_weight_softmax->is_contiguous(), attn_weight_softmax->ndim(),
+            batch_size * num_heads_, seq_len, total_seq_len);
+        if (fused) {
+            infinilm::execution::submit<infini::ops::CausalSoftmaxInfinilm>(
+                runtime, causal_policy,
+                infini::ops::CausalSoftmaxInfinilm::DefaultConfig(causal_device),
+                attn_weight_softmax, attn_weight_softmax);
+        } else {
+            std::optional<infinilm::runtime::Tensor> causal_mask;
+            if (seq_len != 1) {
+                causal_mask = infinilm::runtime::Tensor::empty(
+                    runtime, {seq_len, total_seq_len}, attn_weight_softmax->dtype());
+            }
+            if (causal_mask) {
+                const auto &mask = *causal_mask;
+                const auto rows = static_cast<int64_t>(seq_len);
+                const auto columns = static_cast<int64_t>(total_seq_len);
+                infinilm::execution::submit<infini::ops::Fill>(
+                    runtime, causal_policy, infini::ops::Fill::DefaultConfig(causal_device),
+                    mask, -std::numeric_limits<double>::infinity(), mask);
+                infinilm::execution::submit<infini::ops::Triu>(
+                    runtime, causal_policy, infini::ops::Triu::DefaultConfig(causal_device),
+                    mask, columns - rows + 1, mask);
+                infinilm::execution::submit<infini::ops::Tril>(
+                    runtime, causal_policy, infini::ops::Tril::DefaultConfig(causal_device),
+                    attn_weight_softmax, columns - rows, attn_weight_softmax);
+                infinilm::execution::submit<infini::ops::Add>(
+                    runtime, causal_policy, infini::ops::Add::DefaultConfig(causal_device),
+                    attn_weight_softmax, mask, attn_weight_softmax);
+            }
+            infinilm::execution::submit<infini::ops::Softmax>(
+                runtime, causal_policy, infini::ops::Softmax::DefaultConfig(causal_device),
+                attn_weight_softmax, int64_t{-1}, std::optional<infini::ops::DataType>{},
+                attn_weight_softmax);
         }
-        infinilm::execution::submit<infini::ops::Softmax>(
-            runtime, causal_policy, infini::ops::Softmax::DefaultConfig(causal_device),
-            attn_weight_softmax, int64_t{-1}, std::optional<infini::ops::DataType>{},
-            attn_weight_softmax);
         INFINILM_TRACE_OP(CausalSoftmax, attn_weight_softmax);
     }
 
