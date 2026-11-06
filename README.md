@@ -95,10 +95,10 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
 
       ```bash
       # Terminal 1: stage 0 / coordinator (--node-rank=0)
-      CUDA_VISIBLE_DEVICES=0 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128
+      CUDA_VISIBLE_DEVICES=0 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-cache --num-blocks=128
 
       # Terminal 2: stage 1 / worker
-      CUDA_VISIBLE_DEVICES=1 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128
+      CUDA_VISIBLE_DEVICES=1 python examples/test_infer.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=127.0.0.1 --master-port=29500 --enable-paged-cache --num-blocks=128
       ```
 
       跨节点运行时，每个节点的命令中的 `--master-addr` 和 `--master-port` 设置为 stage 0 节点的 IP 地址和通信端口。
@@ -120,9 +120,9 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
       CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --max-new-tokens=100 --max-batch-size=32 --tp=4 --temperature=1.0 --top-p=0.8 --top-k=1
       ```
     
-    - 使用paged attention, flash attention后端，cuda graph等功能：
+    - 使用 paged cache、Flash Attention 和 CUDA Graph：
       ```bash
-      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-attn --attn=flash-attn --enable-graph
+      CUDA_VISIBLE_DEVICES=0,1,2,3 python python/infinilm/server/inference_server.py --device nvidia --model=/models/9G7B_MHA/ --enable-paged-cache --enable-graph
       ```
 
     - PP=2 推理服务示例：
@@ -131,10 +131,10 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
 
       ```bash
       # Terminal 1: stage 0 / coordinator and HTTP server
-      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128 --max-batch-size=32 --port=8000
+      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=0 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-cache --num-blocks=128 --max-batch-size=32 --port=8000
 
       # Terminal 2: stage 1 / worker
-      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-attn --attn=flash-attn --num-blocks=128 --max-batch-size=32 --port=8000
+      python python/infinilm/server/inference_server.py --device=nvidia --model=<path/to/model> --tp=1 --pp=2 --node-rank=1 --master-addr=<HOST.IP> --master-port=29500 --enable-paged-cache --num-blocks=128 --max-batch-size=32 --port=8000
       ```
     
     - 测试推理服务性能：
@@ -197,15 +197,17 @@ LM 不隐式构建依赖栈，也不安装 Core 的独立 Python runtime。
       ```bash
       python examples/bench.py --device nvidia --model=<model-path> --warmup
       ```
-    - Paged Attention
+    - Flash Attention 与 Paged Cache
       ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn
+      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-cache
       ```
     - CUDA Graph
       ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn --enable-graph
+      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-cache --enable-graph
       ```
-    - 选择attention后端 (使用flash attention后端需要先在InfiniCore完成相关配置和编译)
+    - Deprecated 兼容参数（均按 `--enable-paged-cache` 处理并产生警告）
       ```bash
-      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn [--attn=default | --attn=flash-attn]
+      python examples/bench.py --device nvidia --model=<model-path> --enable-paged-attn
+      python examples/bench.py --device nvidia --model=<model-path> --attn=flash-attn
+      python examples/bench.py --device nvidia --model=<model-path> --attn=paged-attn
       ```

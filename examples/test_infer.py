@@ -23,7 +23,7 @@ def test(
     master_port=29500,
     moe_ep_backend="disabled",
     ep=1,
-    enable_paged_attn=False,
+    enable_paged_cache=False,
     enable_graph=False,
     num_blocks=512,
     block_size=256,
@@ -47,8 +47,8 @@ def test(
     # ---------------------------------------------------------------------------- #
     #                        Create Model
     # ---------------------------------------------------------------------------- #
-    if enable_paged_attn and attn_backend == "default":
-        attn_backend = "paged-attn"
+    if enable_paged_cache and attn_backend == "default":
+        attn_backend = "flash-attn"
 
     model = LLM(
         model_path=model_path,
@@ -62,7 +62,7 @@ def test(
         master_port=master_port,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
-        cache_type="paged" if enable_paged_attn else "static",
+        cache_type="paged" if enable_paged_cache else "static",
         max_batch_size=len(prompts),
         max_tokens=max_new_tokens,
         num_blocks=num_blocks,
@@ -143,7 +143,7 @@ if __name__ == "__main__":
 
     tp = cfg.tp
 
-    enable_paged_attn = cfg.enable_paged_attn
+    enable_paged_cache = cfg.enable_paged_cache
 
     enable_graph = cfg.enable_graph
 
@@ -165,7 +165,7 @@ if __name__ == "__main__":
         master_port=cfg.master_port,
         moe_ep_backend=moe_ep_backend,
         ep=ep,
-        enable_paged_attn=enable_paged_attn,
+        enable_paged_cache=enable_paged_cache,
         enable_graph=enable_graph,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,

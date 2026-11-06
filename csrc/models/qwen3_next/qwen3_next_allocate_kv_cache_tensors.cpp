@@ -133,9 +133,6 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             break;
         }
         case backends::AttentionBackend::FLASH_ATTN: {
-            ;
-        }
-        case backends::AttentionBackend::PAGED_ATTN: {
             auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
             if (nullptr == paged_kv_cache_config) {
                 throw std::runtime_error("infinilm::models::qwen3_next::qwen3_next_allocate_kv_cache_tensors: invalid paged kv cache config type");

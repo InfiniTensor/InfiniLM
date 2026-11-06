@@ -60,7 +60,6 @@ KimiK3MLAAttention::KimiK3MLAAttention(
         throw std::invalid_argument("Invalid explicit KimiK3MLAAttention construction resources");
     }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
-        && attention_backend != backends::AttentionBackend::PAGED_ATTN
         && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Invalid KimiK3MLAAttention attention backend");
     }

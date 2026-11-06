@@ -30,7 +30,6 @@ KimiK25Attention::KimiK25Attention(
         throw std::invalid_argument("Invalid explicit KimiK25Attention construction resources");
     }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
-        && attention_backend != backends::AttentionBackend::PAGED_ATTN
         && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Invalid KimiK25Attention attention backend");
     }
