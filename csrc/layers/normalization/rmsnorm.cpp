@@ -64,7 +64,8 @@ void RMSNorm::forward_inplace(Runtime &runtime, Tensor &x, Tensor &residual) con
             infinilm::layers::check_add_rms_norm(runtime, x, residual, x, residual, weight);
             const std::optional<Tensor> ops_weight{weight};
             infinilm::execution::submit<infini::ops::FusedAddRmsNorm>(runtime,
-                                                                      infini::ops::FusedAddRmsNorm::DefaultConfig(runtime.device().type()),
+                                                                      infinilm::execution::implicit_config<infini::ops::FusedAddRmsNorm>(
+                                                                          runtime.device().type()),
                                                                       x, residual, ops_weight, epsilon);
             INFINILM_TRACE_OP(AddRMSNorm, x);
         } else {
