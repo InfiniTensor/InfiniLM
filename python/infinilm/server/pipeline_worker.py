@@ -23,7 +23,7 @@ def run_worker(cfg: BaseConfig) -> None:
         pipeline_parallel_stage=cfg.node_rank,
         master_addr=cfg.master_addr,
         master_port=cfg.master_port,
-        cache_type="paged" if cfg.enable_paged_attn else "static",
+        cache_type="paged" if cfg.enable_paged_cache else "static",
         max_batch_size=cfg.max_batch_size,
         max_tokens=cfg.max_new_tokens,
         num_blocks=cfg.num_blocks,

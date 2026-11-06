@@ -273,7 +273,7 @@ class InferEngine(_infinilm.InferEngine):
         )
         self.use_cache = False
 
-        self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+        self.enable_paged_cache = isinstance(cache_config, PagedKVCacheConfig)
         self.has_mamba_cache = model_uses_mamba_cache(self.hf_config)
 
     @property
@@ -601,7 +601,7 @@ class InferEngine(_infinilm.InferEngine):
             )
 
         if prompt_position_ids is not None:
-            if not self.enable_paged_attn:
+            if not self.enable_paged_cache:
                 raise ValueError(
                     "Custom prompt position IDs currently require paged attention"
                 )
@@ -619,7 +619,7 @@ class InferEngine(_infinilm.InferEngine):
         block_tables = None
         max_blocks_per_batch = 0
         mamba_state_indices = None
-        if self.has_mamba_cache and not self.enable_paged_attn:
+        if self.has_mamba_cache and not self.enable_paged_cache:
             if self.model_type != "mamba":
                 raise RuntimeError(
                     "Low-level generate for mamba-cache models currently requires paged attention"
@@ -636,7 +636,7 @@ class InferEngine(_infinilm.InferEngine):
                 )
             mamba_state_indices = list(range(1, batch_size + 1))
 
-        if self.enable_paged_attn:
+        if self.enable_paged_cache:
             paged_block_size = self.get_cache_config().block_size()
             max_blocks_per_batch = (
                 initial_seqlen + generation_config.max_new_tokens + paged_block_size - 1
@@ -659,7 +659,7 @@ class InferEngine(_infinilm.InferEngine):
 
             batch_size, seq_len = input_ids.shape[:2]
             reuse_decode_metadata = (
-                self.enable_paged_attn
+                self.enable_paged_cache
                 and iter > 0
                 and seq_len == 1
                 and prompt_position_ids is None
@@ -667,7 +667,7 @@ class InferEngine(_infinilm.InferEngine):
                 and mamba_state_indices is None
             )
 
-            if self.enable_paged_attn:
+            if self.enable_paged_cache:
                 input_ids = input_ids.view([1, batch_size * seq_len])
                 if reuse_decode_metadata:
                     if decode_metadata is None:
@@ -841,7 +841,7 @@ class InferEngine(_infinilm.InferEngine):
         if self.model_type != "kimi_k3":
             infinicore.sync_device()
         # K3 native RESET_CACHE drains each existing worker-owned stream.
-        self.enable_paged_attn = isinstance(cache_config, PagedKVCacheConfig)
+        self.enable_paged_cache = isinstance(cache_config, PagedKVCacheConfig)
         super().reset_cache(cache_config)
 
     def state_dict_keyname(self):

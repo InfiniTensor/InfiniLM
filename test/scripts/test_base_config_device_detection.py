@@ -45,6 +45,38 @@ class BaseConfigDeviceDetectionTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return config.get_device_str(config.device)
 
+    def test_deprecated_attention_options_enable_paged_cache(self):
+        options = (
+            "--enable-paged-attn",
+            "--attn=flash-attn",
+            "--attn=paged-attn",
+        )
+        for option in options:
+            with (
+                self.subTest(option=option),
+                warnings.catch_warnings(record=True) as seen,
+            ):
+                warnings.simplefilter("always")
+                config = self.config(option)
+                self.assertTrue(config.enable_paged_cache)
+                self.assertEqual(config.attn, "flash-attn")
+                self.assertTrue(
+                    any(
+                        issubclass(item.category, FutureWarning)
+                        and "deprecated" in str(item.message)
+                        and "--enable-paged-cache" in str(item.message)
+                        for item in seen
+                    )
+                )
+
+    def test_enable_paged_cache_is_not_deprecated(self):
+        with warnings.catch_warnings(record=True) as seen:
+            warnings.simplefilter("always")
+            config = self.config("--enable-paged-cache")
+        self.assertTrue(config.enable_paged_cache)
+        self.assertEqual(config.attn, "flash-attn")
+        self.assertFalse(any("deprecated" in str(item.message) for item in seen))
+
     def test_native_priority_and_single_auto_probe(self):
         order = (
             "cambricon",

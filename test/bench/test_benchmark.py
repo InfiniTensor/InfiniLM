@@ -610,7 +610,7 @@ def main():
             device_str,
             cfg.tp,
             cfg.bench,
-            cfg.enable_paged_attn,
+            cfg.enable_paged_cache,
             cfg.enable_graph,
             cfg.attn,
         )

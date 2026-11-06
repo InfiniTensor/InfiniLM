@@ -1,5 +1,5 @@
 """
-Scheduler - Request scheduling and batch management with Paged Attention KV Cache.
+Scheduler - Request scheduling and batch management with Flash Attention KV Cache.
 """
 
 import logging

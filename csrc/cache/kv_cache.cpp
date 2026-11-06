@@ -57,10 +57,9 @@ void validate_backend_cache_config(const CacheConfig *config,
             throw std::invalid_argument("static attention requires StaticKVCacheConfig");
         }
         return;
-    case backends::AttentionBackend::PAGED_ATTN:
     case backends::AttentionBackend::FLASH_ATTN:
         if (dynamic_cast<const PagedKVCacheConfig *>(config) == nullptr) {
-            throw std::invalid_argument("paged/flash attention requires PagedKVCacheConfig");
+            throw std::invalid_argument("flash attention requires PagedKVCacheConfig");
         }
         return;
     default:

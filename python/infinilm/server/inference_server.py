@@ -749,7 +749,7 @@ def main():
         master_port=cfg.master_port,
         moe_ep_backend=moe_ep_backend,
         moe_ep_size=ep,
-        cache_type="paged" if cfg.enable_paged_attn else "static",
+        cache_type="paged" if cfg.enable_paged_cache else "static",
         max_tokens=cfg.max_new_tokens,
         max_batch_size=cfg.max_batch_size,
         num_blocks=cfg.num_blocks,

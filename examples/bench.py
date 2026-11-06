@@ -5,8 +5,8 @@ import sys
 import time
 from collections import OrderedDict
 
-import infinicore
 import numpy as np
+from infinilm import _core as infinicore
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
@@ -820,13 +820,13 @@ if __name__ == "__main__":
     batch_size = cfg.batch_size
     input_len = cfg.input_len
     output_len = cfg.output_len
-    enable_paged_attn = cfg.enable_paged_attn
+    enable_paged_cache = cfg.enable_paged_cache
     enable_graph = cfg.enable_graph
     attn_backend = cfg.attn
 
-    if cfg.chunked_prefill_size and not enable_paged_attn:
+    if cfg.chunked_prefill_size and not enable_paged_cache:
         raise ValueError(
-            "--chunked-prefill-size requires --enable-paged-attn; "
+            "--chunked-prefill-size requires --enable-paged-cache; "
             "the static cache path silently ignores chunking"
         )
 
@@ -898,7 +898,7 @@ if __name__ == "__main__":
     # -------------------------------------------------------- #
     #             测试
     # -------------------------------------------------------- #
-    if enable_paged_attn:
+    if enable_paged_cache:
         paged_kv_block_size = _PAGED_KV_BLOCK_SIZE
         max_num_blocks = max(
             [
@@ -932,8 +932,8 @@ if __name__ == "__main__":
     else:
         cache_config = None
 
-    if enable_paged_attn and attn_backend == "default":
-        attn_backend = "paged-attn"
+    if enable_paged_cache and attn_backend == "default":
+        attn_backend = "flash-attn"
 
     if cfg.pp > 1:
         cfg.max_batch_size = max_benchmark_batch_size
@@ -948,7 +948,7 @@ if __name__ == "__main__":
             else 0,
         )
         cfg.attn = attn_backend
-        if enable_paged_attn:
+        if enable_paged_cache:
             cfg.num_blocks = max_num_blocks
 
         if cfg.node_rank > 0:
@@ -981,7 +981,7 @@ if __name__ == "__main__":
             max_benchmark_tokens,
             _WARMUP_DECODE_LEN if cfg.warmup else 0,
         ),
-        num_blocks=max_num_blocks if enable_paged_attn else cfg.num_blocks,
+        num_blocks=max_num_blocks if enable_paged_cache else cfg.num_blocks,
         block_size=cfg.block_size,
         max_cache_len=max(
             max_benchmark_cache_len,
@@ -1030,7 +1030,7 @@ if __name__ == "__main__":
                     temperature=cfg.temperature,
                 )
         else:
-            if not enable_paged_attn:
+            if not enable_paged_cache:
                 warmup_cache_config = StaticKVCacheConfig(
                     max_batch_size=warmup_batch,
                     max_cache_len=warmup_input_len + warmup_decode_len,
@@ -1061,7 +1061,7 @@ if __name__ == "__main__":
         # Paged warmup reuses the benchmark cache; static warmup uses a
         # smaller temporary cache and must restore the benchmark dimensions.
         if (
-            not enable_paged_attn
+            not enable_paged_cache
             and cache_config is not None
             and not test.uses_pipeline_parallel
         ):
@@ -1078,7 +1078,7 @@ if __name__ == "__main__":
         input_len = case["input_len"]
         output_len = case["output_len"]
 
-        if not test.uses_pipeline_parallel and not enable_paged_attn:
+        if not test.uses_pipeline_parallel and not enable_paged_cache:
             # reset cache if static kvcache is used
             initial_capacity = input_len + output_len
             test.model.reset_cache(

@@ -4,7 +4,6 @@
 #include "../../../global_state/forward_context.hpp"
 #include "../../../global_state/global_state.hpp"
 #include "flash_attn.hpp"
-#include "paged_attn.hpp"
 #include "runtime/tensor.hpp"
 #include "static_attn.hpp"
 #include <cstdint>
@@ -13,7 +12,7 @@
 #include <vector>
 
 namespace infinilm::layers::attention {
-using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl>, std::shared_ptr<backends::PagedAttentionImpl>, std::shared_ptr<backends::FlashAttentionImpl>>;
+using AttentionImpl = std::variant<std::shared_ptr<backends::StaticAttentionImpl>, std::shared_ptr<backends::FlashAttentionImpl>>;
 
 /**
  * @brief Attention layer.

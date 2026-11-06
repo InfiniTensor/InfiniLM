@@ -32,12 +32,6 @@ AttentionLayer::AttentionLayer(size_t num_heads,
     case ::infinilm::backends::AttentionBackend::STATIC_ATTN:
         attn_backend_impl_ = std::make_shared<backends::StaticAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx, kv_quant_scheme);
         break;
-    case ::infinilm::backends::AttentionBackend::PAGED_ATTN:
-        if (kv_quant_scheme != infinilm::quantization::KVQuantAlgo::NONE) {
-            throw std::invalid_argument("Paged Attention has no quantized-cache conversion path");
-        }
-        attn_backend_impl_ = std::make_shared<backends::PagedAttentionImpl>(num_heads, head_size, scale, num_kv_heads, layer_idx);
-        break;
     case ::infinilm::backends::AttentionBackend::FLASH_ATTN:
         if (kv_quant_scheme != infinilm::quantization::KVQuantAlgo::NONE) {
             throw std::invalid_argument("Flash Attention has no quantized-cache conversion path");

@@ -28,7 +28,6 @@ DeepseekV2Attention::DeepseekV2Attention(infinilm::runtime::Runtime &runtime,
         throw std::invalid_argument("Invalid explicit Deepseek construction resources");
     }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
-        && attention_backend != backends::AttentionBackend::PAGED_ATTN
         && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit Deepseek attention backend");
     }

@@ -46,7 +46,7 @@ platforms:
           shm_size: 64g
           timeout: 3600
         env:
-          TEST_PARAM: ['default', '--enable-paged-attn', '--enable-paged-attn --enable-graph', '--enable-paged-attn --enable-graph --attn=flash-attn']
+          TEST_PARAM: ['default', '--enable-paged-cache', '--enable-paged-cache --enable-graph']
         stages:
           - name: test
             run: python InfiniLM/examples/bench.py --device nvidia --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 --batch-size=8 <TEST_PARAM>
@@ -57,7 +57,7 @@ platforms:
           shm_size: 64g
           timeout: 3600
         env:
-          TEST_PARAM: ['--bench mmlu', '--bench ceval --enable-paged-attn --enable-graph']
+          TEST_PARAM: ['--bench mmlu', '--bench ceval --enable-paged-cache --enable-graph']
         stages:
           - name: test
             run: python InfiniLM/test/bench/test_benchmark.py --device nvidia --model /data-aisoft/mechdancer/models/9g_8b_thinking/ --bench mmlu --backend cpp --max-new-tokens 5 --cache-dir /data-aisoft/pepe/datasets/ --split=val <TEST_PARAM>
@@ -68,7 +68,7 @@ platforms:
         env:
           MODEL_LIST: 9g_8b_thinking
           ENGINE: InfiniLM
-          TEST_PARAM: ['default', '--enable-paged-attn --cache-type=paged', '--enable-paged-attn --cache-type=paged --enable-graph']
+          TEST_PARAM: ['default', '--enable-paged-cache', '--enable-paged-cache --enable-graph']
         stages:
           - name: test
             run: python InfiniLM/scripts/test_perf.py --verbose
@@ -106,7 +106,7 @@ platforms:
           timeout: 3600
         env:
           MODEL_LIST: 9g_8b_thinking
-          TEST_PARAM: ['--attn=default', '--attn=paged-attn --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256', '--attn=paged-attn --enable-paged-attn --cache-type=paged --block-size=256 --max-new-tokens=256 --weight-load=sync']
+          TEST_PARAM: ['--attn=default', '--enable-paged-cache --block-size=256 --max-new-tokens=256', '--enable-paged-cache --block-size=256 --max-new-tokens=256 --weight-load=sync']
         stages:
           - name: test
             run: python -u "InfiniLM/examples/test_infer.py" --device metax --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --backend cpp --prompt "Hello" <TEST_PARAM>
@@ -150,7 +150,7 @@ platforms:
           shm_size: 64g
           timeout: 3600
         env:
-          TEST_PARAM: ['--batch-size=1', '--enable-paged-attn --batch-size=1', '--enable-paged-attn --enable-graph --batch-size=8']
+          TEST_PARAM: ['--batch-size=1', '--enable-paged-cache --batch-size=1', '--enable-paged-cache --enable-graph --batch-size=8']
         stages:
           - name: test
             run: python InfiniLM/examples/bench.py --device moore --model=/data-aisoft/mechdancer/models/9g_8b_thinking/ --input-len=256,1024 --output-len=256,1024 <TEST_PARAM>
@@ -164,7 +164,7 @@ platforms:
           TEST_PARAM: ['--bench ceval', '--bench mmlu']
         stages:
           - name: test
-            run: python InfiniLM/test/bench/test_benchmark.py --device moore --model /data-aisoft/zhushuang/models/9g_8b_thinking_llama/ --subject all --backend cpp --tp 1 --output_csv 8b_mmlu_paged_results.csv --split val --enable-paged-attn <TEST_PARAM>
+            run: python InfiniLM/test/bench/test_benchmark.py --device moore --model /data-aisoft/zhushuang/models/9g_8b_thinking_llama/ --subject all --backend cpp --tp 1 --output_csv 8b_mmlu_paged_results.csv --split val --enable-paged-cache <TEST_PARAM>
       gpu_servicetest:
         type: servicetest
         resources:
@@ -174,7 +174,7 @@ platforms:
         env:
           MODEL_LIST: 9g_8b_thinking
           ENGINE: InfiniLM
-          TEST_PARAM: ['default', '--num-blocks=1024 --block-size=256', '--enable-graph --enable-paged-attn --num-blocks=1024 --block-size=256']
+          TEST_PARAM: ['default', '--num-blocks=1024 --block-size=256', '--enable-graph --enable-paged-cache --num-blocks=1024 --block-size=256']
         stages:
           - name: test
             run: python InfiniLM/scripts/test_perf.py --verbose

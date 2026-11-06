@@ -51,6 +51,7 @@ class BaseConfig:
         self.parser = argparse.ArgumentParser(description="InfiniLM Unified Config")
         self._add_common_args()
         self.args, self.extra = self.parser.parse_known_args()
+        self._normalize_deprecated_attention_args()
 
         if self.extra:
             warnings.warn(
@@ -73,7 +74,7 @@ class BaseConfig:
 
         self.attn = self.args.attn
         self.enable_graph = self.args.enable_graph
-        self.enable_paged_attn = self.args.enable_paged_attn
+        self.enable_paged_cache = self.args.enable_paged_cache
         self.enable_prefix_caching = self.args.enable_prefix_caching
         self.use_mla = self.args.use_mla
         self.pre_transpose = self.args.pre_transpose
@@ -154,8 +155,30 @@ class BaseConfig:
                 self.video_min_pixels
             )
 
-        if self.enable_paged_attn and self.attn == "default":
-            self.attn = "paged-attn"
+        if self.enable_paged_cache and self.attn == "default":
+            self.attn = "flash-attn"
+
+    def _normalize_deprecated_attention_args(self):
+        deprecated_paged_attn = self.args.enable_paged_attn_deprecated
+        deprecated_attn_backend = self.args.attn in {"flash-attn", "paged-attn"}
+
+        if deprecated_paged_attn:
+            warnings.warn(
+                "--enable-paged-attn is deprecated; use --enable-paged-cache instead.",
+                FutureWarning,
+                stacklevel=3,
+            )
+        if deprecated_attn_backend:
+            warnings.warn(
+                f"--attn={self.args.attn} is deprecated; "
+                "use --enable-paged-cache instead.",
+                FutureWarning,
+                stacklevel=3,
+            )
+
+        if deprecated_paged_attn or deprecated_attn_backend:
+            self.args.enable_paged_cache = True
+            self.args.attn = "flash-attn"
 
     def _add_common_args(self):
         # --- base configuration ---
@@ -222,7 +245,11 @@ class BaseConfig:
             "--attn",
             type=str,
             default="default",
-            choices=["default", "paged-attn", "flash-attn"],
+            choices=["default", "flash-attn", "paged-attn"],
+            help=(
+                "attention backend compatibility selector; flash-attn and "
+                "paged-attn are deprecated, use --enable-paged-cache"
+            ),
         )
         self.parser.add_argument("--enable-graph", action="store_true")
         self.parser.add_argument(
@@ -236,9 +263,15 @@ class BaseConfig:
             help="use DeepSeek V2 MLA attention when supported",
         )
         self.parser.add_argument(
-            "--enable-paged-attn",
+            "--enable-paged-cache",
             action="store_true",
-            help="use paged cache",
+            help="use paged cache with the Flash Attention backend",
+        )
+        self.parser.add_argument(
+            "--enable-paged-attn",
+            dest="enable_paged_attn_deprecated",
+            action="store_true",
+            help="deprecated alias for --enable-paged-cache",
         )
         self.parser.add_argument(
             "--disable-prefix-caching",
