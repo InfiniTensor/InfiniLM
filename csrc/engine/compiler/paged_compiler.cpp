@@ -11,6 +11,7 @@
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -126,6 +127,26 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
         }
     };
 
+    if (const char *configured = std::getenv("INFINILM_GRAPH_BATCH_SIZES")) {
+        std::stringstream stream(configured);
+        std::string item;
+        while (std::getline(stream, item, ',')) {
+            size_t consumed = 0;
+            const size_t batch = std::stoul(item, &consumed);
+            if (consumed != item.size() || batch == 0 || batch > max_batch_size) {
+                throw std::runtime_error("Invalid INFINILM_GRAPH_BATCH_SIZES");
+            }
+            append_batch_size(batch);
+        }
+        if (decode_batch_sizes_.empty()) {
+            throw std::runtime_error("Empty INFINILM_GRAPH_BATCH_SIZES");
+        }
+        std::sort(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        decode_batch_sizes_.erase(std::unique(decode_batch_sizes_.begin(), decode_batch_sizes_.end()),
+                                  decode_batch_sizes_.end());
+        return;
+    }
+
     for (size_t b = 1; b < 64; ++b) {
         append_batch_size(b);
     }
@@ -153,6 +174,15 @@ void PagedCompiler::compile() {
         short_block_tables_holder_.reset();
 
         const size_t nblocks = paged_config->num_blocks();
+        size_t graph_blocks_per_request = nblocks;
+        if (const char *configured = std::getenv("INFINILM_GRAPH_MAX_BLOCKS_PER_REQUEST")) {
+            size_t consumed = 0;
+            const size_t value = std::stoul(configured, &consumed);
+            if (consumed != std::string(configured).size() || value == 0 || value > nblocks) {
+                throw std::runtime_error("Invalid INFINILM_GRAPH_MAX_BLOCKS_PER_REQUEST");
+            }
+            graph_blocks_per_request = value;
+        }
         auto &forward_context = forward_context_;
         const bool has_mamba_state = has_mamba_cache(forward_context);
 
@@ -188,7 +218,7 @@ void PagedCompiler::compile() {
         decltype(compiled_short_decode_b1_) candidate_short_decode;
         infinilm::runtime::Tensor candidate_short_holder;
         auto candidate_holder = infinilm::runtime::Tensor::empty(
-            runtime_, {nblocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+            runtime_, {graph_blocks_per_request * max_batch_size}, infinilm::runtime::DataType::kInt32);
 
         auto make_decode_input = [&](size_t b,
                                      size_t block_per_req,
@@ -283,7 +313,7 @@ void PagedCompiler::compile() {
         for (size_t b : decode_batch_sizes_) {
             candidate_decode.emplace(
                 std::make_pair(b, size_t{0}),
-                capture_decode(b, nblocks, candidate_holder, 0));
+                capture_decode(b, graph_blocks_per_request, candidate_holder, 0));
         }
 
         const auto finite_profile = make_finite_paged_decode_profile(
