@@ -162,6 +162,11 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
     auto [k_total, v_total] = do_kv_cache_update(
         layer, k_permuted, v_permuted, cache_for_update, cache_pos, runtime);
 
+#ifdef INFINILM_FM9G_ONLY
+    if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
+        throw std::runtime_error("INT8 static KV cache is unavailable in the FM9G-only build");
+    }
+#else
     if (infinilm::quantization::KVQuantAlgo::NONE != this->kv_quant_scheme_) {
         infinilm::KVQuantUtils::dequantize(
             runtime, k_total, v_total,
@@ -170,6 +175,7 @@ infinilm::runtime::Tensor StaticAttentionImpl::forward(const AttentionLayer &lay
             v_scale,
             q_reshaped);
     }
+#endif
 
     k_total = k_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]
     v_total = v_total->narrow({{2, 0, total_seq_len}}); // [bs, n_kv_head, total_seq_len, head_dim]

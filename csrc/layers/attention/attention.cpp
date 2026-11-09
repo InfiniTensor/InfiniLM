@@ -11,8 +11,17 @@
 
 namespace infinilm::layers::attention {
 
-void detail::apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &output,
-                               const infinilm::runtime::Tensor &gate, bool view_sigmoid_output) {
+void detail::apply_output_gate(infinilm::runtime::Runtime &runtime,
+                               infinilm::runtime::Tensor &output,
+                               const infinilm::runtime::Tensor &gate,
+                               bool view_sigmoid_output) {
+#ifdef INFINILM_FM9G_ONLY
+    (void)runtime;
+    (void)output;
+    (void)gate;
+    (void)view_sigmoid_output;
+    throw std::runtime_error("attention output gating is unavailable in the FM9G-only build");
+#else
     const auto sigmoid = [&]() {
         auto packed_gate = gate->contiguous(runtime);
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate->shape(), gate->dtype());
@@ -21,12 +30,14 @@ void detail::apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::ru
         INFINILM_TRACE_OP(Sigmoid, ops_output);
         return ops_output;
     };
+
     const auto ops_other = view_sigmoid_output ? sigmoid()->view(output->shape()) : sigmoid();
     auto ops_output = infinilm::runtime::Tensor::empty(runtime, output->shape(), output->dtype());
     infinilm::execution::submit<infini::ops::Mul>(
         runtime, infini::ops::Mul::DefaultConfig(runtime.device().type()), output, ops_other, ops_output);
     INFINILM_TRACE_OP(Mul, ops_output);
     output = std::move(ops_output);
+#endif
 }
 
 Attention::Attention(infinilm::runtime::Runtime &runtime,
