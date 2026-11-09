@@ -30,7 +30,9 @@ from infinilm.server.tool_parsers import TOOL_CALL_FORMATS, ToolCallParser
 logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+DEFAULT_REQUEST_TIMEOUT = float(
+    os.environ.get("INFINILM_SERVER_REQUEST_TIMEOUT", "1000.0")
+)
 
 
 def sse_json(payload):
