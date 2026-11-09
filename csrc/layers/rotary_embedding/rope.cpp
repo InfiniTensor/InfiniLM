@@ -317,6 +317,9 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, const Tensor &q, const
         auto k_out = Tensor::empty(runtime, k->shape(), k->dtype());
         return forward(runtime, q_out, k_out, q, k, positions);
     }
+#ifdef INFINILM_FM9G_ONLY
+    throw std::runtime_error("MRoPE is unavailable in the FM9G-only build");
+#else
     auto q_flat = mrope_flatten_input(q, head_dim_, "q");
     auto k_flat = mrope_flatten_input(k, head_dim_, "k");
     auto q_out = Tensor::empty(runtime, q_flat->shape(), q_flat->dtype());
@@ -330,6 +333,7 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, const Tensor &q, const
         section[0], section[1], section[2], mrope_interleaved_, q_out, k_out);
     INFINILM_TRACE_OP(MRoPE, q_out);
     return {q_out->view(q->shape()), k_out->view(k->shape())};
+#endif
 }
 
 std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
@@ -383,6 +387,9 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
         apply_standard(k_out, k);
         return {q_out, k_out};
     }
+#ifdef INFINILM_FM9G_ONLY
+    throw std::runtime_error("MRoPE is unavailable in the FM9G-only build");
+#else
     auto q_flat = mrope_flatten_input(q, head_dim_, "q");
     auto k_flat = mrope_flatten_input(k, head_dim_, "k");
     auto q_out_flat = mrope_flatten_output(q_out, head_dim_, "q_out");
@@ -396,6 +403,7 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
         section[0], section[1], section[2], mrope_interleaved_, q_out_flat, k_out_flat);
     INFINILM_TRACE_OP(MRoPE, q_out_flat);
     return {q_out, k_out};
+#endif
 }
 
 std::string RoPE::extra_repr() const {

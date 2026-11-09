@@ -68,6 +68,9 @@ void KVQuantUtils::dequantize(
     if (algo != infinilm::quantization::KVQuantAlgo::INT8) {
         throw std::invalid_argument("unsupported KV quantization algorithm");
     }
+#ifdef INFINILM_FM9G_ONLY
+    throw std::runtime_error("INT8 KV dequantization is unavailable in the FM9G-only build");
+#else
     validate_kv(runtime, k, v, k_scale, v_scale);
     if (!reference || reference->device() != runtime.device()) {
         throw std::invalid_argument("KV dequantization reference must belong to Runtime device");
@@ -90,6 +93,7 @@ void KVQuantUtils::dequantize(
 
     k = std::move(k_dequant);
     v = std::move(v_dequant);
+#endif
 }
 
 } // namespace infinilm
