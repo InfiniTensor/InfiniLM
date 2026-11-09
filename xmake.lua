@@ -1,4 +1,6 @@
-add_requires("pybind11 3.0.4", {system = false})
+if os.getenv("INFINILM_FM9G_ONLY") ~= "1" then
+    add_requires("pybind11 3.0.4", {system = false})
+end
 
 -- Core owns SDK builds; LM consumes an explicitly installed prefix.
 local INFINI_ROOT = os.getenv("INFINI_ROOT")
@@ -104,7 +106,12 @@ target("infinilm_runtime")
 target_end()
 
 target("_infinilm")
-    add_packages("pybind11")
+    if os.getenv("INFINILM_FM9G_ONLY") == "1" then
+        add_includedirs("/usr/local/python3.12.13/lib/python3.12/site-packages/pybind11/include")
+        add_includedirs("/usr/local/python3.12.13/include/python3.12")
+    else
+        add_packages("pybind11")
+    end
     set_default(false)
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")
@@ -122,7 +129,20 @@ target("_infinilm")
     add_includedirs(INFINI_ROOT .. "/include")
     add_includedirs(INFINI_ROOT .. "/include/infiniccl")
 
-    add_files("csrc/**.cpp|runtime/**.cpp")
+    if os.getenv("INFINILM_FM9G_ONLY") == "1" then
+        add_defines("INFINILM_FM9G_ONLY=1")
+        add_files("csrc/**.cpp|runtime/**.cpp|models/**.cpp|layers/moe/**.cpp|layers/quantization/**.cpp|layers/normalization/**.cpp")
+        add_files(
+            "csrc/models/infinilm_model.cpp",
+            "csrc/models/model_factory.cpp",
+            "csrc/models/models_registry.cpp",
+            "csrc/models/fm9g/fm9g_for_causal_lm.cpp",
+            "csrc/layers/quantization/base_quantization.cpp",
+            "csrc/layers/quantization/none_quantization.cpp",
+            "csrc/layers/normalization/rmsnorm.cpp")
+    else
+        add_files("csrc/**.cpp|runtime/**.cpp")
+    end
     add_files("csrc/**.cc|runtime/**.cc|execution/graph/graph.cc|execution/trace/op_trace.cc")
 
     set_installdir("python")
