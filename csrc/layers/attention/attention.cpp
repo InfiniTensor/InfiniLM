@@ -11,8 +11,10 @@
 
 namespace infinilm::layers::attention {
 
-void detail::apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &output,
-                               const infinilm::runtime::Tensor &gate, bool view_sigmoid_output) {
+void detail::apply_output_gate(infinilm::runtime::Runtime &runtime,
+                               infinilm::runtime::Tensor &output,
+                               const infinilm::runtime::Tensor &gate,
+                               bool view_sigmoid_output) {
     const auto sigmoid = [&]() {
         auto packed_gate = gate->contiguous(runtime);
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate->shape(), gate->dtype());
@@ -21,6 +23,7 @@ void detail::apply_output_gate(infinilm::runtime::Runtime &runtime, infinilm::ru
         INFINILM_TRACE_OP(Sigmoid, ops_output);
         return ops_output;
     };
+
     const auto ops_other = view_sigmoid_output ? sigmoid()->view(output->shape()) : sigmoid();
     auto ops_output = infinilm::runtime::Tensor::empty(runtime, output->shape(), output->dtype());
     infinilm::execution::submit<infini::ops::Mul>(

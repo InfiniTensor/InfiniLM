@@ -1,4 +1,19 @@
-add_requires("pybind11 3.0.4", {system = false})
+-- Explicit include inputs let a provisioned environment supply system or pip
+-- installed pybind11 headers without re-downloading the pinned xrepo package.
+-- Leaving PYBIND11_INCLUDE unset preserves the default managed-package path.
+-- PYTHON_INCLUDE_DIR is consumed only in explicit-header mode and supplies the
+-- matching interpreter headers.
+local PYBIND11_INCLUDE = os.getenv("PYBIND11_INCLUDE")
+local PYTHON_INCLUDE_DIR = os.getenv("PYTHON_INCLUDE_DIR")
+if PYBIND11_INCLUDE and not os.isdir(PYBIND11_INCLUDE) then
+    raise("PYBIND11_INCLUDE does not exist: " .. PYBIND11_INCLUDE)
+end
+if PYTHON_INCLUDE_DIR and not os.isdir(PYTHON_INCLUDE_DIR) then
+    raise("PYTHON_INCLUDE_DIR does not exist: " .. PYTHON_INCLUDE_DIR)
+end
+if not PYBIND11_INCLUDE then
+    add_requires("pybind11 3.0.4", {system = false})
+end
 
 -- Core owns SDK builds; LM consumes an explicitly installed prefix.
 local INFINI_ROOT = os.getenv("INFINI_ROOT")
@@ -104,7 +119,14 @@ target("infinilm_runtime")
 target_end()
 
 target("_infinilm")
-    add_packages("pybind11")
+    if PYBIND11_INCLUDE then
+        add_includedirs(PYBIND11_INCLUDE)
+        if PYTHON_INCLUDE_DIR then
+            add_includedirs(PYTHON_INCLUDE_DIR)
+        end
+    else
+        add_packages("pybind11")
+    end
     set_default(false)
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")
