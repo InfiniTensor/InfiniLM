@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -183,7 +184,8 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
                                            recorded);
             std::apply([&](const auto &...args) { (*instance)(handle, args...); }, values);
         },
-        capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly));
+        capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly,
+        typeid(OpsKey).name()));
 }
 
 template <class OpsKey, class... Args>

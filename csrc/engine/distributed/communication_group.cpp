@@ -147,7 +147,8 @@ void submitNow(Runtime &runtime, Tensor output, const Tensor &input,
 // key, dispatcher, instance/cache, derived operator or computation policy.
 template <typename NativeCall>
 void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
-                      bool capture_safe, NativeCall native_call) {
+                      bool capture_safe, NativeCall native_call,
+                      const char *name) {
     requireSubmissionPolicy(runtime);
     if (!runtime.isGraphRecording()) {
         submitNow(runtime, output, input, native_call);
@@ -171,7 +172,7 @@ void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
                       recorded_input ? static_cast<const Tensor &>(*recorded_input) : Tensor{},
                       native_call);
         },
-        capture_safe));
+        capture_safe, true, name));
 }
 
 template <infini::rt::Device::Type... types>
@@ -304,10 +305,7 @@ void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireSubmissionPolicy(runtime);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, output, input, true,
-                     [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
-                         return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream);
-                     });
+    submitCollective(runtime, output, input, true, [count, dtype, op, communicator](const void *src, void *dst, void *stream) { return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream); }, "AllReduce");
     INFINILM_TRACE_OP(AllReduce, output);
 }
 
@@ -321,10 +319,7 @@ void allgather_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, output, input, false,
-                     [count, dtype, communicator](const void *src, void *dst, void *stream) {
-                         return infinicclAllGather(src, dst, count, dtype, communicator, stream);
-                     });
+    submitCollective(runtime, output, input, false, [count, dtype, communicator](const void *src, void *dst, void *stream) { return infinicclAllGather(src, dst, count, dtype, communicator, stream); }, "AllGather");
     INFINILM_TRACE_OP(AllGather, output);
 }
 
@@ -339,10 +334,7 @@ void reduce_scatter_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Ten
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = output->numel();
-    submitCollective(runtime, output, input, false,
-                     [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
-                         return infinicclReduceScatter(src, dst, count, dtype, op, communicator, stream);
-                     });
+    submitCollective(runtime, output, input, false, [count, dtype, op, communicator](const void *src, void *dst, void *stream) { return infinicclReduceScatter(src, dst, count, dtype, op, communicator, stream); }, "ReduceScatter");
     INFINILM_TRACE_OP(ReduceScatter, output);
 }
 
@@ -355,10 +347,7 @@ void send(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, {}, input, false,
-                     [count, dtype, peer, communicator](const void *src, void *, void *stream) {
-                         return infinicclSend(src, count, dtype, peer, communicator, stream);
-                     });
+    submitCollective(runtime, {}, input, false, [count, dtype, peer, communicator](const void *src, void *, void *stream) { return infinicclSend(src, count, dtype, peer, communicator, stream); }, "Send");
 }
 
 void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,
@@ -370,10 +359,7 @@ void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output
     requireCommunicator(communicator);
     const auto dtype = cclDataType(output->dtype());
     const auto count = output->numel();
-    submitCollective(runtime, output, {}, false,
-                     [count, dtype, peer, communicator](const void *, void *dst, void *stream) {
-                         return infinicclRecv(dst, count, dtype, peer, communicator, stream);
-                     });
+    submitCollective(runtime, output, {}, false, [count, dtype, peer, communicator](const void *, void *dst, void *stream) { return infinicclRecv(dst, count, dtype, peer, communicator, stream); }, "Recv");
 }
 
 void allgatherv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output,

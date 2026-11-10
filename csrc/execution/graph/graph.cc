@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cxxabi.h>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <utility>
 
@@ -348,12 +350,30 @@ void Graph::instantiate() {
 
     if (std::getenv("INFINICORE_GRAPH_DEBUG") != nullptr) {
         size_t host_segments = 0;
+        size_t operator_index = 0;
+        auto describe = [](const RecordedCall &op) {
+            const char *raw = op.name() != nullptr && *op.name() != '\0'
+                                ? op.name()
+                                : "RecordedCall";
+            int status = 0;
+            std::unique_ptr<char, void (*)(void *)> demangled(
+                abi::__cxa_demangle(raw, nullptr, nullptr, &status), std::free);
+            return status == 0 && demangled ? std::string(demangled.get())
+                                            : std::string(raw);
+        };
+        std::string segment_detail;
         for (const auto &segment : segments_) {
             host_segments += segment->capture_safe ? 0 : 1;
+            segment_detail += fmt::format(
+                "[{}:{})={} first={} last={} ", operator_index,
+                operator_index + segment->ops.size(),
+                segment->capture_safe ? "device" : "host",
+                describe(*segment->ops.front()), describe(*segment->ops.back()));
+            operator_index += segment->ops.size();
         }
         spdlog::info(
-            "segmented graph: operators={}, segments={}, host_segments={}",
-            op_list_.size(), segments_.size(), host_segments);
+            "segmented graph: operators={}, segments={}, host_segments={}, detail={}",
+            op_list_.size(), segments_.size(), host_segments, segment_detail);
     }
 
 #else
