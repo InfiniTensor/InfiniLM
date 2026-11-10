@@ -45,6 +45,11 @@ private:
                             const infinilm::runtime::Tensor &qkv,
                             size_t token_count) const;
 
+    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+    forward_split_fused_qk_rms_norm_(infinilm::runtime::Runtime &runtime,
+                                     const infinilm::runtime::Tensor &qkv,
+                                     size_t token_count) const;
+
 protected:
     std::shared_ptr<infinilm::layers::linear::QKVParallelLinear> qkv_proj_;
     std::shared_ptr<infinilm::layers::linear::RowParallelLinear> o_proj_;
@@ -61,6 +66,7 @@ protected:
     size_t head_dim_;
     infinilm::runtime::Device device_;
     bool use_fused_qk_norm_{false};
+    bool use_fused_qk_rms_norm_{false};
 
     // For off-line kv cache quantization
     infinilm::weights::Weight kv_cache_k_scale_;
