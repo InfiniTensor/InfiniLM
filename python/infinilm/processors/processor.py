@@ -65,6 +65,7 @@ _BUILTIN_PROCESSORS = {
     "deepseek": ("deepseek_processor", "DeepSeekProcessor"),
     "deepseek_v2": ("sentencepiece_processor", "DeepSeekV2Processor"),
     "deepseek_v4": ("deepseek_v4_processor", "DeepSeekV4Processor"),
+    "zero21_model": ("basic_llm_processor", "BasicLLMProcessor"),
     "ernie4_5_moe_vl": ("ernie4_5_vl_processor", "Ernie45VLProcessor"),
     "fm9g": ("sentencepiece_processor", "FM9GProcessor"),
     "gpt2": ("gpt2_processor", "GPT2Processor"),

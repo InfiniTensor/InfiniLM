@@ -52,7 +52,20 @@ private:
     std::shared_ptr<infinilm::layers::linear::ReplicatedLinear> lm_head_;
 };
 
+/**
+ * Config post-processing for the `deepseek_v2` model type; thin wrapper
+ * around `create_deepseek_v2_style_model_config`.
+ */
 std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);
+
+/**
+ * Shared config post-processing for DeepseekV2-style architectures
+ * (MLA + greedy-softmax MoE, yarn RoPE). Validates `model_type` against
+ * `expected_model_type` and fills derived fields (head_dim, num_experts,
+ * partial_rotary_factor, dtype, ...).
+ */
+std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_style_model_config(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config, const std::string &expected_model_type);
 
 /** Implemented in `deepseek_v2_allocate_kv_cache_tensors.cpp`. */
 std::vector<infinilm::runtime::Tensor> deepseek_v2_allocate_kv_cache_tensors(
