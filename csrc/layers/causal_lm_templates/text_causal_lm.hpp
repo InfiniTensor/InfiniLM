@@ -8,6 +8,7 @@
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
 #include "runtime/device.hpp"
+#include "static_logits_policy.hpp"
 #include <cstdint>
 #include <optional>
 #include <stdexcept>
@@ -62,6 +63,11 @@ public:
         models::validate_runtime_construction(model_config, runtime, rank_info);
         const auto head_output_dtype = detail::prepare_lm_head_output_dtype(
             *model_config, runtime.device(), model_config->get_dtype());
+        static_r5_profile_ = model_config->get_or<bool>("static_r5_profile", false)
+                          && rank_info.tp_size == 1 && rank_info.pp_size == 1
+                          && model_config->get<std::string>("model_type") == "llama"
+                          && !model_config->get_config_json().contains("quantization_config")
+                          && !head_output_dtype.has_value();
         int32_t shift_value = -1;
         infinilm::runtime::Tensor shift_host; // Live until BODY catch drain or successful fence.
         try {
@@ -109,6 +115,38 @@ public:
         }
 
         auto lm_head_input = hidden_states;
+        const auto &prefill = forward_context.attn_metadata.static_prefill_host;
+        auto &runtime = *forward_context.runtime;
+        if (static_r5_profile_ && !input.sample_all_positions && prefill
+            && !runtime.isGraphRecording()
+            && runtime.device().type() == infinilm::runtime::Device::Type::kIluvatar
+            && hidden_states->dtype() == infinilm::runtime::DataType::kBFloat16
+            && hidden_states->ndim() == 3
+            && hidden_states->size(0) == prefill->batch_size
+            && hidden_states->size(1) == prefill->query_length
+            && lm_head_->dtype() == hidden_states->dtype() && !lm_head_->has_bias()) {
+            const size_t batch = hidden_states->size(0);
+            const size_t sequence = hidden_states->size(1);
+            const size_t width = hidden_states->size(2);
+            const size_t rows = detail::static_logits_rows(batch, sequence, width, lm_head_->out_features());
+            if (rows != 0) {
+                auto last_hidden = hidden_states->narrow({{1, sequence - 1, 1}});
+                if (rows == 1) {
+                    lm_head_input = last_hidden->contiguous(runtime)->view({1, batch, width});
+                } else {
+                    // Keep the selected row at its original position within a
+                    // 64-row tile, as in the validated R5 vocabulary projection.
+                    lm_head_input = infinilm::runtime::Tensor::empty(runtime, {batch, rows, width}, hidden_states->dtype());
+                    runtime.setDeviceMemoryAsync(lm_head_input->data(), 0, lm_head_input->nbytes(), runtime.stream());
+                    lm_head_input->narrow({{1, rows - 1, 1}})->copy_from(runtime, last_hidden);
+                }
+                auto projected = lm_head_->forward(runtime, lm_head_input);
+                auto logits = rows == 1
+                                ? projected->view({batch, 1, lm_head_->out_features()})
+                                : projected->narrow({{1, rows - 1, 1}})->contiguous(runtime);
+                return {logits, hidden_states};
+            }
+        }
         if (!input.sample_all_positions && input.input_offsets.has_value()) {
             const size_t num_requests = input.input_offsets.value()->numel() - 1;
             const bool is_packed_prefill = hidden_states->ndim() == 3
@@ -163,6 +201,7 @@ private:
     size_t pp_size_{1};
     size_t pp_stage_{0};
     infinilm::runtime::Tensor last_token_shift_;
+    bool static_r5_profile_{false};
 };
 
 } // namespace infinilm::layers::causal_lm_templates

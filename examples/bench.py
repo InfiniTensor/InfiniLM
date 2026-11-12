@@ -5,8 +5,8 @@ import sys
 import time
 from collections import OrderedDict
 
-import infinicore
 import numpy as np
+from infinilm import _core as infinicore
 from infinilm.base_config import BaseConfig
 from infinilm.cache import PagedKVCacheConfig, StaticKVCacheConfig
 from infinilm.distributed import DistConfig
