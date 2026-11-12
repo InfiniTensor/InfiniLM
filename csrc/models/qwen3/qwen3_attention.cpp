@@ -51,8 +51,12 @@ Qwen3Attention::Qwen3Attention(infinilm::runtime::Runtime &runtime, std::shared_
 
         q_norm_ = this->bind_child("q_norm", std::make_shared<std::remove_reference_t<decltype(*q_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
         k_norm_ = this->bind_child("k_norm", std::make_shared<std::remove_reference_t<decltype(*k_norm_)>>(runtime, head_dim_, rms_norm_eps, dtype));
+#if defined(INFINI_OPS_HAS_FUSED_QK_NORM)
         use_fused_qk_norm_ = device_.type() == infinilm::runtime::Device::Type::kNvidia && head_dim_ == 128 && dtype == infinilm::runtime::DataType::kBFloat16 && !infini::ops::FusedQkNorm::active_implementation_indices(device_.type()).empty();
-        use_fused_qk_rms_norm_ = use_fused_qk_norm_ && num_attention_heads_ == 16 && num_key_value_heads_ == 8 && !infini::ops::FusedQkRmsNorm::active_implementation_indices(device_.type()).empty();
+#endif
+#if defined(INFINI_OPS_HAS_FUSED_QK_RMS_NORM)
+        use_fused_qk_rms_norm_ = device_.type() == infinilm::runtime::Device::Type::kNvidia && head_dim_ == 128 && dtype == infinilm::runtime::DataType::kBFloat16 && num_attention_heads_ == 16 && num_key_value_heads_ == 8 && !infini::ops::FusedQkRmsNorm::active_implementation_indices(device_.type()).empty();
+#endif
 
         // NONE KV scales remain the original null Parameters; no Device allocation.
         if (runtime.device().type() != infinilm::runtime::Device::Type::kCpu) {
@@ -92,18 +96,25 @@ infinilm::runtime::Tensor Qwen3Attention::forward_static_(const infinilm::runtim
     size_t seq_len = shape[1];
 
     // 1. Project Q, K, V
-    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor> qkv_split;
-    if (use_fused_qk_rms_norm_ || use_fused_qk_norm_) {
-        auto qkv = qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable);
-        qkv_split = use_fused_qk_rms_norm_
-                      ? forward_split_fused_qk_rms_norm_(*forward_context.runtime, qkv, batch_size * seq_len)
-                      : forward_split_fused_qk_(*forward_context.runtime, qkv, batch_size * seq_len);
-    } else {
-        qkv_split = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
-    }
+    auto qkv_split =
+#if defined(INFINI_OPS_HAS_FUSED_QK_RMS_NORM)
+        use_fused_qk_rms_norm_
+            ? forward_split_fused_qk_rms_norm_(*forward_context.runtime,
+                                               qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                               batch_size * seq_len)
+        :
+#endif
+#if defined(INFINI_OPS_HAS_FUSED_QK_NORM)
+        use_fused_qk_norm_
+            ? forward_split_fused_qk_(*forward_context.runtime,
+                                      qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                      batch_size * seq_len)
+            :
+#endif
+            qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
     auto [q, k, v] = qkv_split;
 
-    if (!use_fused_qk_norm_) {
+    if (!use_fused_qk_rms_norm_ && !use_fused_qk_norm_) {
         q = q_norm_->forward(*forward_context.runtime, q->view({batch_size * seq_len, num_attention_heads_, head_dim_}));
         k = k_norm_->forward(*forward_context.runtime, k->view({batch_size * seq_len, num_key_value_heads_, head_dim_}));
     }
@@ -154,22 +165,29 @@ infinilm::runtime::Tensor Qwen3Attention::forward_paged_(const infinilm::runtime
     ASSERT_EQ(batch_size, 1);
 
     // 1. Project Q, K, V
-    std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor> qkv_split;
-    if (use_fused_qk_rms_norm_ || use_fused_qk_norm_) {
-        auto qkv = qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable);
-        qkv_split = use_fused_qk_rms_norm_
-                      ? forward_split_fused_qk_rms_norm_(*forward_context.runtime, qkv, seq_len)
-                      : forward_split_fused_qk_(*forward_context.runtime, qkv, seq_len);
-    } else {
-        qkv_split = qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
-    }
+    auto qkv_split =
+#if defined(INFINI_OPS_HAS_FUSED_QK_RMS_NORM)
+        use_fused_qk_rms_norm_
+            ? forward_split_fused_qk_rms_norm_(*forward_context.runtime,
+                                               qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                               seq_len)
+        :
+#endif
+#if defined(INFINI_OPS_HAS_FUSED_QK_NORM)
+        use_fused_qk_norm_
+            ? forward_split_fused_qk_(*forward_context.runtime,
+                                      qkv_proj_->forward(*forward_context.runtime, hidden_states_mutable),
+                                      seq_len)
+            :
+#endif
+            qkv_proj_->forward_split(*forward_context.runtime, hidden_states_mutable);
     auto [q, k, v] = qkv_split;
 
     // 2. Reshape for multi-head attention
     auto q_reshaped = q->view({seq_len, num_attention_heads_, head_dim_});
     auto k_reshaped = k->view({seq_len, num_key_value_heads_, head_dim_});
     auto v_reshaped = v->view({seq_len, num_key_value_heads_, head_dim_});
-    if (!use_fused_qk_norm_) {
+    if (!use_fused_qk_rms_norm_ && !use_fused_qk_norm_) {
         q_reshaped = q_norm_->forward(*forward_context.runtime, q_reshaped);
         k_reshaped = k_norm_->forward(*forward_context.runtime, k_reshaped);
     }
@@ -198,6 +216,8 @@ infinilm::runtime::Tensor Qwen3Attention::forward_paged_(const infinilm::runtime
     return output;
 }
 
+#if defined(INFINI_OPS_HAS_FUSED_QK_NORM)
+
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
 Qwen3Attention::forward_split_fused_qk_(infinilm::runtime::Runtime &runtime,
                                         const infinilm::runtime::Tensor &qkv,
@@ -222,7 +242,9 @@ Qwen3Attention::forward_split_fused_qk_(infinilm::runtime::Runtime &runtime,
     auto v = qkv->narrow({{2, q_width + k_width, qkv->shape()[2] - q_width - k_width}});
     return {q, k, v};
 }
+#endif
 
+#if defined(INFINI_OPS_HAS_FUSED_QK_RMS_NORM)
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor, infinilm::runtime::Tensor>
 Qwen3Attention::forward_split_fused_qk_rms_norm_(infinilm::runtime::Runtime &runtime,
                                                  const infinilm::runtime::Tensor &qkv,
@@ -244,4 +266,5 @@ Qwen3Attention::forward_split_fused_qk_rms_norm_(infinilm::runtime::Runtime &run
     auto v = qkv->narrow({{2, q_width + k_width, qkv->shape()[2] - q_width - k_width}});
     return {q_output, k_output, v};
 }
+#endif
 } // namespace infinilm::models::qwen3
