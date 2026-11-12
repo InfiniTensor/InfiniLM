@@ -1,11 +1,13 @@
 #include "infinicore/ops/mha_varlen.hpp"
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 
 namespace infinicore::op {
 
 INFINICORE_GRAPH_OP_DISPATCHERS_IMPL(MultiheadAttentionVarlen);
 
 // The Ascend provider synchronizes cumulative sequence lengths on the host.
+// Prefill FA (varlen) is capture-safe only when phase policy allows FA in-graph.
 MultiheadAttentionVarlen::MultiheadAttentionVarlen(Tensor out,
                                                    const Tensor &q,
                                                    const Tensor &k,
@@ -17,9 +19,10 @@ MultiheadAttentionVarlen::MultiheadAttentionVarlen(Tensor out,
                                                    int max_seqlen_k,
                                                    std::optional<Tensor> alibi_slopes,
                                                    float scale)
-    : device_graph_capture_safe_(out->device().type() != Device::Type::kNvidia
-                                 && out->device().type()
-                                        != Device::Type::kAscend) {
+    : device_graph_capture_safe_(
+          context::faInGraphAllowed()
+          && out->device().type() != Device::Type::kNvidia
+          && out->device().type() != Device::Type::kAscend) {
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, q, k, v, cum_seqlens_q, cum_seqlens_kv);
     if (block_table.has_value()) {
         INFINICORE_ASSERT_TENSORS_SAME_DEVICE(out, block_table.value());

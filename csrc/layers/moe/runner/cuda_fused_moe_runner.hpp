@@ -36,7 +36,7 @@ private:
     size_t num_local_experts_ = 0;
     size_t hidden_size_ = 0;
     size_t intermediate_size_per_partition_ = 0;
-    size_t align_block_size_ = 16;
+    size_t align_block_size_ = 64; // must match moe_fused_dense_qy_dl block_size_m
 };
 
 } // namespace infinilm::layers::moe

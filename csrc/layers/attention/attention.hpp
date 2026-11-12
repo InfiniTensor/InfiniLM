@@ -3,6 +3,7 @@
 #include "../../backends/attention_backends.hpp"
 #include "../../config/model_config.hpp"
 #include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "../linear/linear.hpp"
 #include "backends/attention_layer.hpp"
 #include "infinicore/nn/module.hpp"
@@ -19,6 +20,26 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
+
+    /// Piecewise prefill: QKV + RoPE into staging.
+    void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
+                                    const infinicore::Tensor &hidden_states,
+                                    global_state::PiecewiseLayerStaging &staging) const;
+    void forward_pre_attn_qkv_piecewise(const infinicore::Tensor &positions,
+                                        const infinicore::Tensor &hidden_states,
+                                        global_state::PiecewiseLayerStaging &staging) const;
+    void forward_pre_attn_rope_piecewise(const infinicore::Tensor &positions,
+                                         global_state::PiecewiseLayerStaging &staging) const;
+    void forward_eager_attn_piecewise(const infinicore::Tensor &positions,
+                                      global_state::PiecewiseLayerStaging &staging) const;
+    void forward_post_attn_piecewise_into(infinicore::Tensor &hidden_states,
+                                          global_state::PiecewiseLayerStaging &staging) const;
+    void forward_post_attn_piecewise_graph_into(infinicore::Tensor &hidden_states,
+                                                global_state::PiecewiseLayerStaging &staging) const;
+    void forward_post_attn_piecewise_cg_into(infinicore::Tensor &hidden_states,
+                                             global_state::PiecewiseLayerStaging &staging) const;
+    void forward_post_attn_piecewise_allreduce_into(infinicore::Tensor &hidden_states,
+                                                    global_state::PiecewiseLayerStaging &staging) const;
 
     void process_weights_after_loading() override {
         qkv_proj_->process_weights_after_loading();

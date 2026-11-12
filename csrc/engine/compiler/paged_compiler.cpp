@@ -1,15 +1,76 @@
 #include "paged_compiler.hpp"
+#include "../compiled_prefill_flags.hpp"
+#include "../../global_state/decode_phase_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <optional>
+#include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace infinilm::engine {
 namespace {
+
+/// Opt-in: enqueue graph-bank H2D without per-tensor StreamSynchronize.
+/// Host sources (model_input_cpu / local_args) live until sample D2H drains
+/// the same stream. Default off.
+bool async_graph_bank_h2d_enabled() {
+    static const bool enabled = [] {
+        const char *raw = std::getenv("INFINI_ASYNC_GRAPH_BANK_H2D");
+        if (raw == nullptr || raw[0] == '\0') {
+            return false;
+        }
+        return raw[0] != '0';
+    }();
+    return enabled;
+}
+
+/// Opt-in: skip ``model_->reset_runtime_state()`` on decode graph hit.
+/// QY bf16 Marlin already no-ops the walk; saves the 42-layer module walk.
+/// Default off. Correctness-local for this cell.
+bool skip_decode_reset_runtime_enabled() {
+    static const bool enabled = [] {
+        const char *raw = std::getenv("INFINI_SKIP_DECODE_RESET_RUNTIME");
+        if (raw == nullptr || raw[0] == '\0') {
+            return false;
+        }
+        return raw[0] != '0';
+    }();
+    return enabled;
+}
+
+void bank_copy_from(infinicore::Tensor dst, infinicore::Tensor src) {
+    if (!async_graph_bank_h2d_enabled()) {
+        dst->copy_from(src);
+        return;
+    }
+    if (!dst || !src || dst->shape() != src->shape() || dst->dtype() != src->dtype()) {
+        dst->copy_from(src);
+        return;
+    }
+    // Contiguous CPU→device only: non-contiguous / D2D keep sync copy_from
+    // (staging lifetime or rearrange semantics).
+    if (src->device().type() == infinicore::Device::Type::kCpu
+        && dst->device().type() != infinicore::Device::Type::kCpu
+        && src->is_contiguous()
+        && dst->is_contiguous()) {
+        const size_t copy_size = std::min(dst->nbytes(), src->nbytes());
+        if (copy_size == 0) {
+            return;
+        }
+        infinicore::context::setDevice(dst->device());
+        infinicore::context::memcpyH2D(dst->data(), src->data(), copy_size, /*async=*/true);
+        return;
+    }
+    dst->copy_from(src);
+}
 
 bool has_mamba_cache(const infinilm::global_state::ForwardContext &forward_context) {
     auto has_state = [](const std::vector<infinicore::Tensor> &state_vec) {
@@ -89,6 +150,37 @@ void PagedCompiler::compile() {
     if (paged_config != nullptr && !decode_batch_sizes_.empty()) {
         compiled_map_decode_.clear();
         block_tables_holder_.reset();
+
+        // Honor SKIP_MONOLITHIC_DECODE_CG / eager / DECODE_GRAPH_ONLY.
+        // vLLM-align default: capture monolithic decode CG for QY MoE too
+        // (MoE stays in-graph under moeDeviceGraphCaptureSafe). Opt-out
+        // kill-switch: INFINI_MOE_QY_ALLOW_GRAPH=0|false|off|no restores the
+        // prior skip (bisect / CUresult 701 workaround only — not the promote path).
+        bool skip_decode = skip_monolithic_decode_graph();
+        if (!skip_decode) {
+            const auto &model_config = model_->get_model_config();
+            const size_t n_routed = model_config == nullptr
+                ? 0
+                : model_config->get_or<size_t>("n_routed_experts", 0);
+            const auto device = infinicore::context::getDevice();
+            const char *allow = std::getenv("INFINI_MOE_QY_ALLOW_GRAPH");
+            const bool qy_moe_disallow = allow != nullptr
+                && (std::string(allow) == "0"
+                    || std::strcmp(allow, "false") == 0
+                    || std::strcmp(allow, "no") == 0
+                    || std::strcmp(allow, "off") == 0);
+            if (n_routed > 0 && device.type() == infinicore::Device::Type::kQy
+                && qy_moe_disallow) {
+                skip_decode = true;
+                spdlog::info(
+                    "QY MoE: skipping monolithic decode CG "
+                    "(INFINI_MOE_QY_ALLOW_GRAPH kill-switch; unset/1 = MoE-in-graph decode FULL)");
+            }
+        }
+        if (skip_decode) {
+            spdlog::info("PagedCompiler: skipping monolithic decode CG capture");
+            return;
+        }
 
         const size_t nblocks = paged_config->num_blocks();
         auto &forward_context = infinilm::global_state::get_forward_context();
@@ -209,19 +301,31 @@ void PagedCompiler::compile() {
             // Capture must not start with stale state from previous attempts.
             model_->reset_runtime_state();
             infinicore::context::syncStream();
+            // Decode FULL capture: FA in-graph when INFINI_FA_INGRAPH=decode|both.
+            infinicore::context::InferencePhaseGuard phase_guard(
+                infinicore::context::InferencePhase::Decode);
             GraphRecordingGuard recording;
             auto output = model_->forward(input);
             auto graph = recording.finish();
             barrier_->wait();
+            spdlog::info(
+                "PagedCompiler: decode FULL CG captured batch={} device_segments={} "
+                "(vLLM-align: MoE stays in-graph, not own-segment)",
+                b,
+                graph ? graph->device_segment_count() : 0);
 
             return make_compiled_result(
                 std::move(input), std::move(graph), output);
         };
 
         {
+            // Warm decode shapes (incl. MoE FuseScratchPool / align workspace)
+            // before StreamCaptureGuard so capture cannot at::empty.
             const size_t warmup_batch_size = std::min(max_batch_size, static_cast<size_t>(64));
             auto input = make_decode_input(
                 warmup_batch_size, nblocks, block_tables_holder_);
+            infinicore::context::InferencePhaseGuard warm_phase(
+                infinicore::context::InferencePhase::Decode);
             model_->forward(input);
             infinicore::context::syncStream();
             // Clear transient operator state before CUDA graph capture.
@@ -292,33 +396,54 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         return {nullptr, nullptr};
     }
 
-    graph_input.input_ids.value()->copy_from(input.input_ids.value());
-    graph_input.position_ids.value()->copy_from(input.position_ids.value());
-    graph_input.total_sequence_lengths.value()->copy_from(input.total_sequence_lengths.value());
-    graph_input.input_offsets.value()->copy_from(input.input_offsets.value());
-    graph_input.cu_seqlens.value()->copy_from(input.cu_seqlens.value());
+    namespace dpp = infinilm::global_state::decode_phase_profile;
+    const bool host_prof = dpp::enabled();
+    const double t_bank0 = host_prof ? dpp::monotonic_ms() : 0.0;
+
+    bank_copy_from(graph_input.input_ids.value(), input.input_ids.value());
+    bank_copy_from(graph_input.position_ids.value(), input.position_ids.value());
+    bank_copy_from(
+        graph_input.total_sequence_lengths.value(),
+        input.total_sequence_lengths.value());
+    bank_copy_from(graph_input.input_offsets.value(), input.input_offsets.value());
+    bank_copy_from(graph_input.cu_seqlens.value(), input.cu_seqlens.value());
 
     auto &graph_block_tables = graph_input.block_tables.value();
     set_minus_one_device_async(graph_block_tables);
-    graph_block_tables->narrow({{1, 0, block_per_req}})
-        ->copy_from(runtime_block_tables);
-    graph_input.slot_mapping.value()->copy_from(input.slot_mapping.value());
+    bank_copy_from(
+        graph_block_tables->narrow({{1, 0, block_per_req}}),
+        runtime_block_tables);
+    bank_copy_from(graph_input.slot_mapping.value(), input.slot_mapping.value());
 
     const bool graph_has_mamba_indices = graph_input.mamba_init_state_indices.has_value()
                                       && graph_input.mamba_final_state_indices.has_value();
     if (graph_has_mamba_indices) {
-        graph_input.mamba_init_state_indices.value()->copy_from(
+        bank_copy_from(
+            graph_input.mamba_init_state_indices.value(),
             input.mamba_init_state_indices.value());
-        graph_input.mamba_final_state_indices.value()->copy_from(
+        bank_copy_from(
+            graph_input.mamba_final_state_indices.value(),
             input.mamba_final_state_indices.value());
     }
+
+    const double t_bank1 = host_prof ? dpp::monotonic_ms() : 0.0;
 
     // CUDA graph replay reuses the same per-layer Marlin workspaces.
     // The graph itself does not contain a workspace reset, so enqueue
     // one on the same stream before launch. This is correct but costs
     // decode latency; the intended follow-up is a reusable global
     // zero workspace/lock buffer shared by all Marlin layers.
-    model_->reset_runtime_state();
+    // Opt-in skip: INFINI_SKIP_DECODE_RESET_RUNTIME=1 (QY bf16 Marlin no-op).
+    if (!skip_decode_reset_runtime_enabled()) {
+        model_->reset_runtime_state();
+    }
+
+    const double t_reset1 = host_prof ? dpp::monotonic_ms() : 0.0;
+    if (host_prof) {
+        auto &split = dpp::last_get_compiled_split();
+        split.bank_h2d_ms = t_bank1 - t_bank0;
+        split.reset_runtime_ms = t_reset1 - t_bank1;
+    }
 
     auto graph = std::get<0>(selected_result->compiled);
     const auto &compiled_output = std::get<1>(selected_result->compiled);
@@ -332,6 +457,31 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             hidden_states});
 
     return std::make_tuple(graph, shared_output);
+}
+
+void PagedCompiler::record_graph_hit(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_hits_;
+    } else {
+        ++decode_graph_hits_;
+    }
+}
+
+void PagedCompiler::record_graph_miss(bool is_prefill) {
+    if (is_prefill) {
+        ++prefill_graph_misses_;
+    } else {
+        ++decode_graph_misses_;
+    }
+}
+
+PagedCompiler::GraphStats PagedCompiler::graph_stats() const {
+    return GraphStats{
+        prefill_graph_hits_,
+        prefill_graph_misses_,
+        decode_graph_hits_,
+        decode_graph_misses_,
+    };
 }
 
 } // namespace infinilm::engine

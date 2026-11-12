@@ -1,7 +1,7 @@
 from transformers import AutoTokenizer
 from typing_extensions import override
 
-from ..llm.scheduler import SchedulerOutput
+from ..llm.scheduler import ScheduledRow, SchedulerOutput
 from ..llm.static_scheduler import StaticSchedulerOutput
 from .processor import InfinilmProcessor, register_processor
 
@@ -158,10 +158,153 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_p": top_p,
         }
 
+    @staticmethod
+    def _append_prefill_row_metadata(
+        row: ScheduledRow,
+        *,
+        tokens: list,
+        seq_lens: list,
+        seq_offsets: list,
+        slot_mapping: list,
+        cached_lens: list,
+        position_ids: list,
+        cu_seqlens: list,
+        is_final_prefill_chunk: list,
+    ) -> None:
+        req = row.request
+        num_cached = req.num_local_cached_tokens
+        req_tokens = req.get_prefill_tokens()
+        q = row.num_scheduled_tokens
+        start = (
+            req.chunk_prefill_offset
+            if req.chunk_prefill_offset > 0
+            else num_cached
+        )
+        end = min(start + q, len(req_tokens))
+        tokens_to_compute = req_tokens[start:end]
+        tokens.extend(tokens_to_compute)
+        total_kv_len = end
+        seq_lens.append(total_kv_len)
+        current_offset = seq_offsets[-1] + len(tokens_to_compute)
+        seq_offsets.append(current_offset)
+        slot_start = start - num_cached
+        slot_end = end - num_cached
+        # slot_mapping may cover the full allocated suffix from num_cached.
+        if req.slot_mapping and slot_end > slot_start:
+            slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
+        else:
+            slot_mapping.extend(req.slot_mapping)
+        cached_lens.append(start)
+        position_ids.extend(range(start, end))
+        cu_seqlens.append(cu_seqlens[-1] + total_kv_len)
+        is_final_prefill_chunk.append(row.is_final_prefill_chunk)
+
+    @staticmethod
+    def _append_decode_row_metadata(
+        req,
+        *,
+        tokens: list,
+        seq_lens: list,
+        seq_offsets: list,
+        slot_mapping: list,
+        cached_lens: list,
+        position_ids: list,
+        cu_seqlens: list,
+        is_final_prefill_chunk: list,
+    ) -> None:
+        num_cached = req.num_local_cached_tokens
+        seq_len = req.get_total_length()
+        last_token = (
+            req.generated_token_ids[-1]
+            if req.generated_token_ids
+            else req.prompt_token_ids[-1]
+        )
+        tokens.append(last_token)
+        seq_lens.append(seq_len)
+        current_offset = seq_offsets[-1] + 1
+        seq_offsets.append(current_offset)
+        slot_mapping.extend(req.slot_mapping)
+        cached_lens.append(num_cached)
+        position_ids.append(seq_len - 1)
+        cu_seqlens.append(cu_seqlens[-1] + seq_len)
+        is_final_prefill_chunk.append(True)
+
+    def _build_model_input_from_rows(
+        self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
+    ) -> dict:
+        """Per-row varlen metadata for v1 (and mixed) scheduling."""
+        import infinicore
+
+        tokens: list = []
+        seq_lens: list = []
+        seq_offsets: list = [0]
+        block_tables: list = []
+        slot_mapping: list = []
+        cached_lens: list = []
+        position_ids: list = []
+        cu_seqlens: list = [0]
+        is_final_prefill_chunk: list = []
+
+        max_block_table_len = max(
+            len(row.request.block_table) for row in scheduler_output.rows
+        )
+
+        for row in scheduler_output.rows:
+            req = row.request
+            if row.is_prefill_row:
+                self._append_prefill_row_metadata(
+                    row,
+                    tokens=tokens,
+                    seq_lens=seq_lens,
+                    seq_offsets=seq_offsets,
+                    slot_mapping=slot_mapping,
+                    cached_lens=cached_lens,
+                    position_ids=position_ids,
+                    cu_seqlens=cu_seqlens,
+                    is_final_prefill_chunk=is_final_prefill_chunk,
+                )
+            else:
+                self._append_decode_row_metadata(
+                    req,
+                    tokens=tokens,
+                    seq_lens=seq_lens,
+                    seq_offsets=seq_offsets,
+                    slot_mapping=slot_mapping,
+                    cached_lens=cached_lens,
+                    position_ids=position_ids,
+                    cu_seqlens=cu_seqlens,
+                    is_final_prefill_chunk=is_final_prefill_chunk,
+                )
+            padded_block_table = req.block_table + [-1] * (
+                max_block_table_len - len(req.block_table)
+            )
+            block_tables.append(padded_block_table)
+
+        return {
+            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
+            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
+            "past_kv_lengths": infinicore.from_list(
+                cached_lens, dtype=infinicore.int32
+            ),
+            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
+            "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
+            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
+            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
+            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+            "temperature": temperature,
+            "top_k": top_k,
+            "top_p": top_p,
+            "is_final_prefill_chunk": is_final_prefill_chunk,
+            "scheduling_mode": scheduler_output.scheduling_mode,
+        }
+
     def _build_model_input_from_batch_scheduler_output(
         self, scheduler_output: SchedulerOutput, temperature, top_p, top_k
     ) -> dict:
         """Construct model inputs for prefill or decode phase.
+
+        When ``scheduler_output.rows`` is present (v1), use row-aware slicing via
+        ``chunk_prefill_offset`` / ``ScheduledRow.num_scheduled_tokens``.
 
         Prefill phase:
             - input_ids: Flattened token list (excluding cached tokens)
@@ -188,6 +331,11 @@ class BasicLLMProcessor(InfinilmProcessor):
                 "build_model_inputs called with empty scheduled_requests"
             )
 
+        if getattr(scheduler_output, "rows", None):
+            return self._build_model_input_from_rows(
+                scheduler_output, temperature, top_p, top_k
+            )
+
         tokens = []
         seq_lens = []
         seq_offsets = [0]
@@ -196,6 +344,7 @@ class BasicLLMProcessor(InfinilmProcessor):
         cached_lens = []
         position_ids = []
         cu_seqlens = [0]
+        is_final_prefill_chunk: list = []
 
         max_block_table_len = max(
             len(req.block_table) for req in scheduler_output.scheduled_requests
@@ -205,21 +354,47 @@ class BasicLLMProcessor(InfinilmProcessor):
         for req in scheduler_output.scheduled_requests:
             num_cached = req.num_local_cached_tokens
             if scheduler_output.is_prefill:
-                # Prefill phase
-                req_tokens = req.get_input_tokens()
-                tokens_to_compute = req_tokens[num_cached:]
-                tokens.extend(tokens_to_compute)
+                req_tokens = req.get_prefill_tokens()
+                if (
+                    req.chunk_size > 0
+                    and req.is_prefill
+                    and (
+                        req.is_chunking()
+                        or req.chunk_prefill_offset > 0
+                    )
+                ):
+                    start = req.chunk_prefill_offset
+                    end = min(start + req.chunk_size, len(req_tokens))
+                    tokens_to_compute = req_tokens[start:end]
+                    compute_len = len(tokens_to_compute)
+                    tokens.extend(tokens_to_compute)
+                    total_kv_len = start + compute_len
+                    seq_lens.append(total_kv_len)
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
+                    slot_start = start - num_cached
+                    slot_end = end - num_cached
+                    slot_mapping.extend(req.slot_mapping[slot_start:slot_end])
+                    cached_lens.append(start)
+                    position_ids.extend(range(start, end))
+                    cu_seqlens.append(cu_seqlens[-1] + total_kv_len)
+                    is_final_prefill_chunk.append(req.chunk_is_last())
+                else:
+                    tokens_to_compute = req_tokens[num_cached:]
+                    tokens.extend(tokens_to_compute)
 
-                compute_len = len(tokens_to_compute)
-                seq_len = len(req_tokens)
-                seq_lens.append(seq_len)
+                    compute_len = len(tokens_to_compute)
+                    seq_len = len(req_tokens)
+                    seq_lens.append(seq_len)
 
-                current_offset += compute_len
-                seq_offsets.append(current_offset)
+                    current_offset += compute_len
+                    seq_offsets.append(current_offset)
 
-                slot_mapping.extend(req.slot_mapping)
-                cached_lens.append(num_cached)
-                position_ids.extend(range(num_cached, num_cached + compute_len))
+                    slot_mapping.extend(req.slot_mapping)
+                    cached_lens.append(num_cached)
+                    position_ids.extend(range(num_cached, num_cached + compute_len))
+                    cu_seqlens.append(cu_seqlens[-1] + seq_len)
+                    is_final_prefill_chunk.append(True)
 
             else:
                 # Decode phase
@@ -238,15 +413,15 @@ class BasicLLMProcessor(InfinilmProcessor):
                 slot_mapping.extend(req.slot_mapping)
                 cached_lens.append(num_cached)
                 position_ids.append(seq_len - 1)
+                cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
             # Pad block_table to same length
             padded_block_table = req.block_table + [-1] * (
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
-            cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
-        return {
+        model_input = {
             "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
             "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
             "past_kv_lengths": infinicore.from_list(
@@ -261,6 +436,12 @@ class BasicLLMProcessor(InfinilmProcessor):
             "top_k": top_k,
             "top_p": top_p,
         }
+        if is_final_prefill_chunk:
+            model_input["is_final_prefill_chunk"] = is_final_prefill_chunk
+            model_input["scheduling_mode"] = (
+                "PREFILL" if scheduler_output.is_prefill else "DECODE"
+            )
+        return model_input
 
     @override
     def get_tokenizer(self):

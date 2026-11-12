@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../layers/causal_lm_templates/piecewise_text_causal_lm.hpp"
 #include "../../layers/common_modules.hpp"
 #include <memory>
 
@@ -13,7 +14,7 @@ using LlamaDecoderLayer = infinilm::layers::causal_lm_templates::TextDecoderLaye
 
 using LlamaModel = infinilm::layers::causal_lm_templates::TextModel<LlamaDecoderLayer>;
 
-using LlamaForCausalLM = infinilm::layers::causal_lm_templates::TextCausalLM<LlamaModel>;
+using LlamaForCausalLM = infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<LlamaModel>;
 
 } // namespace infinilm::models::llama
 

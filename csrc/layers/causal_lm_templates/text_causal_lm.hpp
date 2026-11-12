@@ -3,6 +3,7 @@
 #include "../../global_state/global_state.hpp"
 #include "../../models/infinilm_model.hpp"
 #include "../linear/linear.hpp"
+#include "../linear/vocab_parallel_lm_head.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/ops/add.hpp"
 #include "infinicore/ops/embedding.hpp"
@@ -45,7 +46,9 @@ public:
 
         model_ = this->register_module<Model>("model", model_config, device);
         if (is_last_pp_stage()) {
-            lm_head_ = this->register_module<infinilm::layers::linear::ReplicatedLinear>("lm_head", hidden_size, vocab_size, false, dtype, device);
+            lm_head_ = this->register_module<infinilm::layers::linear::VocabParallelLMHead>(
+                "lm_head", hidden_size, vocab_size, false, dtype, device,
+                rank_info.tp_rank, rank_info.tp_size, rank_info.comm, rank_info.pp_size);
             // Modern InfiniCore does not provide a dedicated last-token
             // hidden selector op.
             // Keep a device-side -1 tensor so packed prefill can compute
@@ -104,7 +107,7 @@ public:
 
 protected:
     INFINICORE_NN_MODULE(Model, model);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
+    INFINICORE_NN_MODULE(infinilm::layers::linear::VocabParallelLMHead, lm_head);
 
 private:
     bool is_last_pp_stage() const { return pp_stage_ + 1 == pp_size_; }

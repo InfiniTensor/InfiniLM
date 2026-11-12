@@ -1,6 +1,8 @@
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 
 namespace infinicore::nn {
@@ -25,11 +27,16 @@ void RMSNorm::forward_inplace(Tensor &x, Tensor &residual) const {
         residual = x;
         x = op::rms_norm(x, weight_, static_cast<float>(eps_));
     } else {
+        // Keep QY fusion opt-in until the model-level quality gate is satisfied.
+        const char *qy_fusion = std::getenv("INFINI_QY_FUSED_ADD_RMSNORM");
+        const bool use_qy_fusion = device_.type() == Device::Type::kQy
+                                   && qy_fusion != nullptr && std::strcmp(qy_fusion, "1") == 0;
         if (device_.type() == Device::Type::kCpu
             || device_.type() == Device::Type::kNvidia
             || device_.type() == Device::Type::kIluvatar
             || device_.type() == Device::Type::kMetax
             || device_.type() == Device::Type::kMoore
+            || use_qy_fusion
             || device_.type() == Device::Type::kCambricon
             || device_.type() == Device::Type::kHygon) {
             op::add_rms_norm_inplace(x, residual, weight_, static_cast<float>(eps_));

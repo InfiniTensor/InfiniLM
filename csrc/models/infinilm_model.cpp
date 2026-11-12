@@ -118,4 +118,84 @@ void InfinilmModel::reset_runtime_state_recursive_(const infinicore::nn::Module 
     module->reset_runtime_state();
 }
 
+
+void InfinilmModel::native_piecewise_embed(const Input &,
+                                           infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_embed not supported");
+}
+
+void InfinilmModel::native_piecewise_pre_attn_layer(size_t,
+                                                    const Input &,
+                                                    infinicore::Tensor &,
+                                                    infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_pre_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_pre_attn_qkv_layer(size_t,
+                                                        const Input &,
+                                                        infinicore::Tensor &,
+                                                        infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_pre_attn_qkv_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_pre_attn_rope_layer(size_t,
+                                                         const Input &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_pre_attn_rope_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_eager_attn_layer(size_t,
+                                                      const Input &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_eager_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_layer(size_t,
+                                                     const Input &,
+                                                     infinicore::Tensor &,
+                                                     infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_cg_layer(size_t,
+                                                        const Input &,
+                                                        infinicore::Tensor &,
+                                                        infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_cg_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_decode_cg_layer(size_t,
+                                                               const Input &,
+                                                               infinicore::Tensor &,
+                                                               infinicore::Tensor &) const {
+    throw std::runtime_error(
+        "InfinilmModel: native_piecewise_post_attn_decode_cg_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_eager_moe_layer(size_t,
+                                                     const Input &,
+                                                     infinicore::Tensor &,
+                                                     infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_eager_moe_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_graph_layer(size_t,
+                                                           const Input &,
+                                                           infinicore::Tensor &,
+                                                           infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_graph_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_post_attn_allreduce_layer(size_t,
+                                                               const Input &,
+                                                               infinicore::Tensor &,
+                                                               infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_post_attn_allreduce_layer not supported");
+}
+
+void InfinilmModel::native_piecewise_lm_head(const Input &,
+                                             infinicore::Tensor &,
+                                             infinicore::Tensor &,
+                                             infinicore::Tensor &) const {
+    throw std::runtime_error("InfinilmModel: native_piecewise_lm_head not supported");
+}
+
 } // namespace infinilm

@@ -3,6 +3,7 @@
 #include <pybind11/pybind11.h>
 
 #include <cstdint>
+#include <string>
 
 #include "infinicore.hpp"
 
@@ -34,6 +35,38 @@ inline void bind(py::module &m) {
     m.def("start_graph_recording", &startGraphRecording, "Start graph recording");
     m.def("stop_graph_recording", &stopGraphRecording, "Stop graph recording and return the graph");
     m.def("cancel_graph_recording", &cancelGraphRecording, "Cancel the active graph recording");
+    m.def("fa_in_graph_allowed",
+          &faInGraphAllowed,
+          "Phase-adaptive FA under stream capture (INFINI_FA_INGRAPH)");
+    m.def("moe_triton_capture_allowed",
+          &moeTritonCaptureAllowed,
+          "Phase-adaptive MoE under stream capture (INFINI_MOE_INGRAPH)");
+    m.def(
+        "set_inference_phase",
+        [](const std::string &phase) {
+            if (phase == "decode" || phase == "Decode") {
+                setInferencePhase(InferencePhase::Decode);
+            } else if (phase == "prefill" || phase == "Prefill") {
+                setInferencePhase(InferencePhase::Prefill);
+            } else {
+                setInferencePhase(InferencePhase::Unknown);
+            }
+        },
+        py::arg("phase"),
+        "Set TLS InferencePhase: decode | prefill | unknown");
+    m.def(
+        "get_inference_phase",
+        []() -> std::string {
+            switch (getInferencePhase()) {
+            case InferencePhase::Decode:
+                return "decode";
+            case InferencePhase::Prefill:
+                return "prefill";
+            default:
+                return "unknown";
+            }
+        },
+        "Current TLS InferencePhase string");
 }
 
 } // namespace infinicore::context

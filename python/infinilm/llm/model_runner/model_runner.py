@@ -21,6 +21,40 @@ from infinilm.processors import AutoInfinilmProcessor
 logger = logging.getLogger(__name__)
 
 
+def _normalize_sampled_token_ids(raw) -> list[int | list[int]]:
+    """Flatten model sample tensors to per-request int or list[int].
+
+    Batched eager/F&P forwards may return shapes like (B,), (B,1), or (B,1,1).
+    Nested lists must not reach tokenizer.decode (OverflowError on list ids).
+    """
+
+    def _as_int(value) -> int:
+        if isinstance(value, (list, tuple)):
+            if not value:
+                raise ValueError("empty sampled token nested list")
+            return _as_int(value[0])
+        return int(value)
+
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        return [_as_int(raw)]
+    if not raw:
+        return []
+    if all(isinstance(item, (list, tuple)) for item in raw):
+        # (B, K) speculative / multi-token → list[list[int]]
+        if any(
+            isinstance(sub, (list, tuple)) and sub and isinstance(sub[0], (list, tuple))
+            for sub in raw
+        ):
+            return [_as_int(item) for item in raw]
+        # (B, 1) common sample layout → list[int]
+        if all(len(item) == 1 for item in raw):
+            return [_as_int(item) for item in raw]
+        return [[_as_int(tok) for tok in item] for item in raw]
+    return [_as_int(item) for item in raw]
+
+
 @dataclass
 class KVConnectorOutput:
     finished_sending: set[str] | None = None
@@ -166,6 +200,7 @@ class ModelRunner:
         supported_devices = [
             "cpu",
             "cuda",
+            "qy",
             "hygon",
             "thead",
             "iluvatar",
@@ -232,6 +267,11 @@ class ModelRunner:
         if self.speculative_runner is not None:
             return self._model_forward_with_speculative(scheduler_output, model_input)
 
+        # Scheduler/processor may attach Python-only metadata (chunk finality /
+        # scheduling mode). Drop keys InferEngine.forward does not accept yet.
+        for _meta_key in ("is_final_prefill_chunk", "scheduling_mode"):
+            model_input.pop(_meta_key, None)
+
         # Wake every stage before stage 0 enters forward. Each worker receives
         # the same metadata and then blocks in its model on the activation from
         # the preceding stage. Stage 0 waits for all acknowledgements afterward.
@@ -249,8 +289,7 @@ class ModelRunner:
         if self.pipeline_control is not None:
             self.pipeline_control.wait_forward()
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
-
-        return sampled_tokens_list
+        return _normalize_sampled_token_ids(sampled_tokens_list)
 
     def _model_forward_with_speculative(self, scheduler_output, model_input):
         return self.speculative_runner.forward(scheduler_output, model_input)
