@@ -111,13 +111,14 @@ void DeepseekV2ForCausalLM::reset_cache(
     kv_cache_vec = std::move(new_kv_cache_vec);
 }
 
-std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_style_model_config(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config, const std::string &expected_model_type) {
     if (!model_config) {
         throw std::invalid_argument("DeepseekV2 requires configuration");
     }
     const std::string model_type = model_config->get<std::string>("model_type");
-    if ("deepseek_v2" != model_type) {
-        throw std::runtime_error("create_deepseek_v2_model_config: model_type is not deepseek_v2");
+    if (expected_model_type != model_type) {
+        throw std::runtime_error("create_deepseek_v2_style_model_config: model_type is not " + expected_model_type);
     }
 
     auto &config_json = model_config->get_config_json();
@@ -176,6 +177,11 @@ std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(s
         }
     }
     return model_config;
+}
+
+std::shared_ptr<infinilm::config::ModelConfig> create_deepseek_v2_model_config(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config) {
+    return create_deepseek_v2_style_model_config(std::move(model_config), "deepseek_v2");
 }
 
 } // namespace infinilm::models::deepseek_v2
