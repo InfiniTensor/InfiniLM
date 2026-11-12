@@ -1,0 +1,44 @@
+{
+  "status": "PACKAGING_CPU_VALIDATED",
+  "original_experiment_files_unchanged": 98,
+  "python310_grammar_files": 69,
+  "cpu_regression": {
+    "command": "python3 -B -m unittest discover -q -b",
+    "tests": 262,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "executed_in": "experiment/ after copying to the publication tree",
+    "python": "3.12.14",
+    "packages": {
+      "aiohttp": "3.14.4",
+      "numpy": "2.3.5"
+    }
+  },
+  "upload_helper_fixture_tests": {
+    "tests": 13,
+    "status": "PASS"
+  },
+  "new_gpu_experiments": 0,
+  "current_main_gpu_compatibility": "NOT_VALIDATED; cache_manager fingerprint mismatch remains guarded",
+  "public_core_files_modified": 0,
+  "formatting": {
+    "original_file_bytes_preserved": true,
+    "gitattributes_preserve_original_line_endings": true,
+    "historical_eof_blank_line_exceptions": [
+      "experiment/backend_runtime.py",
+      "experiment/cost_router.py"
+    ],
+    "summary_csv_line_endings": "LF"
+  },
+  "full_publication_tree_fixture": {
+    "status": "PASS",
+    "file_count": 106,
+    "helper_explicit_staging": "PASS",
+    "normal_git_add_with_parent_ignore": "PASS",
+    "git_diff_cached_check": "PASS",
+    "repeat_attempt_rejected": true,
+    "remote_operations": 0,
+    "gpu_operations": 0
+  }
+}

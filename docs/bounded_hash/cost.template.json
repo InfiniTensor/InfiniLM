@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "description": "Incomplete illustration only. Null coefficients are invalid; supply independent deployment measurements, not historical V3 numbers.",
+  "compatibility": {
+    "identity": null,
+    "page_size": 256,
+    "kv_tokens": 32768,
+    "cache_policy": "prefix_lru",
+    "max_inflight": 3
+  },
+  "phase_model": {
+    "schema_version": 1,
+    "prefill_coef": [null, null, null],
+    "decode_step_ms": {"1": null, "2": null, "3": null},
+    "decode_context_tokens": {"1": null, "2": null, "3": null}
+  }
+}

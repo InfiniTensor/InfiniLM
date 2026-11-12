@@ -15,6 +15,10 @@ InfiniLM 的 `csrc/runtime` 管理 owning Tensor/Memory 和 worker Runtime；
 通过 Chat Completions 接入智能体框架，启用方式、模型格式和支持边界见
 [工具调用手册](docs/tool-calling.md)。工具执行与权限由上层框架负责。
 
+An optional [bounded-hash gateway](docs/bounded_hash/README.md) routes text
+requests across complete model replicas. It is disabled by default and remains
+an unvalidated draft adaptation of the historical V3 experiment.
+
 ## 使用方式
 #### 一、编译并安装 `InfiniCore`
 按固定子模块的 [README](third_party/InfiniCore/README.md) 使用原生构建入口，
