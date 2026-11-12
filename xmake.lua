@@ -1,4 +1,4 @@
-add_requires("pybind11 3.0.1", {system = false})
+add_requires("pybind11 3.0.x", {system = false})
 
 -- Core owns SDK builds; LM consumes an explicitly installed prefix.
 local INFINI_ROOT = os.getenv("INFINI_ROOT")
