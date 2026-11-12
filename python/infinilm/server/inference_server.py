@@ -148,6 +148,10 @@ class InferenceServer:
         pre_transpose: bool = False,
         tool_call_parser: str = "none",
         chunked_prefill_size: int = 0,
+        bounded_hash_backend_key_env: Optional[str] = None,
+        bounded_hash_cache_policy: str = "native",
+        bounded_hash_max_inflight: int = 3,
+        bounded_hash_hardware_id: Optional[str] = None,
     ):
         """Initialize inference server.
 
@@ -213,6 +217,13 @@ class InferenceServer:
             raise ValueError("Unsupported tool call parser")
         self.tool_call_parser = tool_call_parser
         self.chunked_prefill_size = chunked_prefill_size
+        self.bounded_hash_backend_key_env = bounded_hash_backend_key_env
+        self.bounded_hash_cache_policy = bounded_hash_cache_policy
+        self.bounded_hash_max_inflight = bounded_hash_max_inflight
+        self.bounded_hash_hardware_id = bounded_hash_hardware_id
+        self._bounded_hash = None
+        if bounded_hash_cache_policy != "native" and not bounded_hash_backend_key_env:
+            raise ValueError("Routing cache policy requires the opt-in backend.")
 
         self.engine: AsyncLLMEngine = None
 
@@ -258,11 +269,24 @@ class InferenceServer:
                 pre_transpose=self.pre_transpose,
                 chunked_prefill_size=self.chunked_prefill_size,
             )
-            self.engine.start()
+            try:
+                if self.bounded_hash_backend_key_env:
+                    from infinilm.server.bounded_hash_backend import BoundedHashBackend
+
+                    self._bounded_hash = BoundedHashBackend(
+                        self, self.bounded_hash_backend_key_env,
+                        self.bounded_hash_cache_policy,
+                    )
+                self.engine.start()
+            except BaseException:
+                self.engine.stop()
+                raise
             logger.info(f"Engine initialized with model at {self.model_path}")
             logger.info(f"  enable_graph: {self.enable_graph}")
-            yield
-            self.engine.stop()
+            try:
+                yield
+            finally:
+                self.engine.stop()
 
         app = FastAPI(lifespan=lifespan)
         self._register_routes(app)
@@ -287,6 +311,16 @@ class InferenceServer:
                 return JSONResponse(
                     content={"error": "Request must be an object"}, status_code=400
                 )
+
+            if self._bounded_hash is not None:
+                try:
+                    data = self._bounded_hash.validate_generation(data, request.headers)
+                except (ValueError, TypeError) as error:
+                    return JSONResponse(
+                        content={"error": {"message": str(error),
+                                           "type": "invalid_request_error"}},
+                        status_code=getattr(error, "status_code", 400),
+                    )
 
             if not data.get("messages"):
                 if not data.get("prompt"):
@@ -322,12 +356,40 @@ class InferenceServer:
                 return StreamingResponse(
                     self._stream_chat(request_id, data, request),
                     media_type="text/event-stream",
+                    headers=self._bounded_hash_headers(),
                 )
             else:
                 response = await self._chat(request_id, data, request)
                 if isinstance(response, JSONResponse):
                     return response
-                return JSONResponse(content=response)
+                return JSONResponse(
+                    content=response, headers=self._bounded_hash_headers()
+                )
+
+        if self.bounded_hash_backend_key_env:
+            @app.post("/internal/bounded-hash/contract")
+            async def bounded_hash_contract(request: Request):
+                if self._bounded_hash is None or not self.engine.is_healthy():
+                    return JSONResponse(
+                        content={"error": "Backend is not ready."}, status_code=503
+                    )
+                try:
+                    self._bounded_hash.authorize(request.headers)
+                    body = await request.json()
+                    if not isinstance(body, dict) or set(body) - {"request", "prefix_tokens"}:
+                        raise ValueError("Invalid contract envelope.")
+                    contract = self._bounded_hash.contract(
+                        body.get("request"), body.get("prefix_tokens", 0)
+                    )
+                    return JSONResponse(
+                        content=contract, headers=self._bounded_hash_headers()
+                    )
+                except (ValueError, TypeError) as error:
+                    return JSONResponse(
+                        content={"error": {"message": str(error),
+                                           "type": "invalid_request_error"}},
+                        status_code=getattr(error, "status_code", 400),
+                    )
 
         @app.get("/health")
         async def health():
@@ -361,6 +423,11 @@ class InferenceServer:
         @app.get("/models")
         async def list_models_legacy():
             return _models_payload()
+
+    def _bounded_hash_headers(self):
+        if self._bounded_hash is None:
+            return {}
+        return {"X-InfiniLM-Backend-Instance": self._bounded_hash.instance_id}
 
     def _normalize_messages(self, messages: list) -> list:
         """Normalize messages to handle multimodal content (list format).
@@ -434,6 +501,7 @@ class InferenceServer:
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
         """Handle streaming chat request."""
         req = None
+        token_stream = None
         _abort_reason = FinishReason.CANCELED
         parser = None
 
@@ -455,11 +523,17 @@ class InferenceServer:
                 chunk_json(request_id, role="assistant", model=self.model_id)
             )
 
-            async for token_output in self.engine.stream_request(
+            token_stream = self.engine.stream_request(
                 req,
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
-            ):
+            )
+            async for token_output in token_stream:
+                if self._bounded_hash is not None:
+                    yield sse_json({
+                        "id": request_id, "choices": [],
+                        "x_infinilm": self._bounded_hash.info(req),
+                    })
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
@@ -499,6 +573,8 @@ class InferenceServer:
                         yield sse_json(chunk)
 
                 if token_output.finished:
+                    if self._bounded_hash is not None:
+                        await self._bounded_hash.wait_retired(req)
                     finish_reason = self._convert_finish_reason(
                         token_output.finish_reason
                     )
@@ -523,18 +599,22 @@ class InferenceServer:
                                 "created": int(time.time()),
                                 "model": self.model_id,
                                 "choices": [],
-                                "usage": {
-                                    "prompt_tokens": req.get_prompt_length(),
-                                    "completion_tokens": req.get_num_generated_tokens(),
-                                    "total_tokens": req.get_total_length(),
-                                },
+                                "usage": (
+                                    self._bounded_hash.usage(req)
+                                    if self._bounded_hash is not None else {
+                                        "prompt_tokens": req.get_prompt_length(),
+                                        "completion_tokens": req.get_num_generated_tokens(),
+                                        "total_tokens": req.get_total_length(),
+                                    }
+                                ),
+                                **({"x_infinilm": self._bounded_hash.info(req)}
+                                   if self._bounded_hash is not None else {}),
                             }
                         )
                     break
 
         except asyncio.CancelledError:
-            # Starlette cancelled us (client disconnected); stream_request will be
-            # aclose()'d automatically via the async-for destructor.
+            # The opt-in backend explicitly closes its token stream in `finally`.
             logger.info(f"Request {request_id} was cancelled")
             raise
 
@@ -560,11 +640,14 @@ class InferenceServer:
             # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
+            if self._bounded_hash is not None and token_stream is not None:
+                await token_stream.aclose()
         yield "data: [DONE]\n\n"
 
     async def _chat(self, request_id: str, data: dict, http_request: Request):
         """Handle non-streaming chat request."""
         req = None
+        token_stream = None
         _abort_reason = FinishReason.CANCELED
 
         try:
@@ -582,11 +665,12 @@ class InferenceServer:
 
             # Collect all generated tokens
             output_text = ""
-            async for token_output in self.engine.stream_request(
+            token_stream = self.engine.stream_request(
                 req,
                 timeout=DEFAULT_STREAM_TIMEOUT,
                 request_timeout=DEFAULT_REQUEST_TIMEOUT,
-            ):
+            )
+            async for token_output in token_stream:
                 # Check client disconnect
                 if await http_request.is_disconnected():
                     logger.info(f"Client disconnected for request {request_id}")
@@ -614,6 +698,8 @@ class InferenceServer:
                 if token_output.finished:
                     break
 
+            if self._bounded_hash is not None:
+                await self._bounded_hash.wait_retired(req)
             output_text = output_text.strip()
             finish_reason = self._convert_finish_reason(req.finish_reason)
 
@@ -627,6 +713,9 @@ class InferenceServer:
                 completion_tokens=req.get_num_generated_tokens(),
                 total_tokens=req.get_total_length(),
             )
+            if self._bounded_hash is not None:
+                response["usage"] = self._bounded_hash.usage(req)
+                response["x_infinilm"] = self._bounded_hash.info(req)
             parser = self._agent_parser(data, req)
             if parser:
                 response["choices"][0]["message"] = collect_message(
@@ -658,6 +747,8 @@ class InferenceServer:
             # req.close() is handled by stream_request.finally.
             if req and not req.is_finished():
                 self.engine.add_aborted_req(req, _abort_reason)
+            if self._bounded_hash is not None and token_stream is not None:
+                await token_stream.aclose()
 
     def _agent_parser(self, data, req):
         if self.tool_call_parser == "none":
@@ -771,6 +862,10 @@ def main():
         pre_transpose=cfg.pre_transpose,
         tool_call_parser=cfg.tool_call_parser,
         chunked_prefill_size=cfg.chunked_prefill_size,
+        bounded_hash_backend_key_env=cfg.bounded_hash_backend_key_env,
+        bounded_hash_cache_policy=cfg.bounded_hash_cache_policy,
+        bounded_hash_max_inflight=cfg.bounded_hash_max_inflight,
+        bounded_hash_hardware_id=cfg.bounded_hash_hardware_id,
     )
     server.start()
 

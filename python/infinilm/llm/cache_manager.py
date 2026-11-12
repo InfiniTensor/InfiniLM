@@ -1,6 +1,6 @@
 """Paged KV cache allocation and source-agnostic prefix lookup."""
 
-from collections import deque
+from collections import OrderedDict, deque
 from collections.abc import Sequence
 from typing import Dict, List, Set
 
@@ -84,6 +84,19 @@ class BlockManager:
         self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
+        self.routing_cache_policy = "native"
+        self.routing_idle_evictions = 0
+        self._routing_idle = OrderedDict()
+
+    def configure_routing_cache_policy(self, policy: str) -> None:
+        """Select idle-block eviction before the scheduler starts owning pages."""
+        if policy not in {"native", "prefix_lru"}:
+            raise ValueError("Unsupported routing cache policy.")
+        if self.used_block_ids or any(block.ref_count for block in self.blocks):
+            raise RuntimeError("Cache policy must be configured before allocation.")
+        if self._nsa_owner_clock is not None and policy != "native":
+            raise ValueError("Routing cache policy excludes NSA owner pools.")
+        self.routing_cache_policy = policy
 
     def __repr__(self) -> str:
         return (
@@ -124,6 +137,7 @@ class BlockManager:
         block.free()
         self.used_block_ids.remove(block_id)
         self.free_block_ids.append(block_id)
+        self._routing_idle.pop(block_id, None)
 
     def can_allocate(self, num_required_blocks: int) -> bool:
         return len(self.free_block_ids) >= num_required_blocks
@@ -158,6 +172,7 @@ class BlockManager:
             block = self.blocks[block_id]
             assert block.hash == block_hash and block_id in self.used_block_ids
             block.ref_count += 1
+            self._routing_idle.pop(block_id, None)
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
 
@@ -436,9 +451,27 @@ class BlockManager:
             block = self.blocks[block_id]
             assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
+            if self.routing_cache_policy == "prefix_lru" and block.ref_count == 0:
+                self._routing_idle.pop(block_id, None)
+                self._routing_idle[block_id] = None
 
     def try_free_blocks(self, num_required: int) -> bool:
         """Evict unreferenced blocks until the requested capacity is available."""
+        if self.routing_cache_policy == "prefix_lru":
+            while not self.can_allocate(num_required) and self._routing_idle:
+                block_id = next(iter(self._routing_idle))
+                if (
+                    block_id not in self.used_block_ids
+                    or self.blocks[block_id].ref_count != 0
+                ):
+                    raise RuntimeError("Idle LRU ownership invariant failed.")
+                self._deallocate_block(block_id)
+                self.routing_idle_evictions += 1
+            if not self.can_allocate(num_required) and any(
+                self.blocks[i].ref_count == 0 for i in self.used_block_ids
+            ):
+                raise RuntimeError("Untracked idle blocks in routing cache policy.")
+            return self.can_allocate(num_required)
         to_free = [
             block_id
             for block_id in self.used_block_ids

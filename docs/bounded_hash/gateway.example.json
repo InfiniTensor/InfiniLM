@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "enabled": false,
+  "host": "127.0.0.1",
+  "port": 8080,
+  "state_lock": "gateway.state.lock",
+  "cost_file": "cost.current-deployment.json",
+  "page_size": 256,
+  "kv_tokens": 32768,
+  "max_inflight": 3,
+  "virtual_nodes": 128,
+  "skew": 1.25,
+  "cache_ttl_s": 5,
+  "queue_timeout_s": 30,
+  "request_timeout_s": 1800,
+  "warm_wait_ms": 1000,
+  "prefix_tokens": 7936,
+  "cache_policy": "prefix_lru",
+  "backends": [
+    {"url": "http://127.0.0.1:8000", "key_env": "INFINILM_REPLICA_KEY"},
+    {"url": "http://127.0.0.1:8001", "key_env": "INFINILM_REPLICA_KEY"}
+  ]
+}
