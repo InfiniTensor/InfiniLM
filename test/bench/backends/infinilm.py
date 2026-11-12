@@ -14,7 +14,7 @@ class InfiniLMBenchmark(BaseBenchmark):
         device_type_str="cpu",
         tensor_parallel_size=1,
         benchmark="ceval",
-        enable_paged_attn=False,
+        enable_paged_cache=False,
         enable_graph=False,
         attn_backend="default",
     ):
@@ -48,8 +48,8 @@ class InfiniLMBenchmark(BaseBenchmark):
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
             self.config_dict = json.load(f)
 
-        if enable_paged_attn and attn_backend == "default":
-            attn_backend = "paged-attn"
+        if enable_paged_cache and attn_backend == "default":
+            attn_backend = "flash-attn"
 
         print("Loading model with InfiniLM backend...")
         print(f"Graph compilation: {'enabled' if enable_graph else 'disabled'}")
@@ -59,7 +59,7 @@ class InfiniLMBenchmark(BaseBenchmark):
             model_path=model_dir_path,
             device=device_name,
             tensor_parallel_size=tensor_parallel_size,
-            cache_type="paged" if enable_paged_attn else "static",
+            cache_type="paged" if enable_paged_cache else "static",
             max_batch_size=1,
             num_blocks=128,
             block_size=256,

@@ -60,9 +60,6 @@ std::vector<infinilm::runtime::Tensor> deepseek_v2_allocate_kv_cache_tensors(
             break;
         }
         case backends::AttentionBackend::FLASH_ATTN: {
-            ;
-        }
-        case backends::AttentionBackend::PAGED_ATTN: {
             auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
             if (nullptr == paged_kv_cache_config) {
                 throw std::runtime_error("infinilm::models::deepseek_v2::deepseek_v2_allocate_kv_cache_tensors: invalid paged kv cache config type");

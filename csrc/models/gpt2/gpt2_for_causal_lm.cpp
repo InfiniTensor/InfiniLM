@@ -96,7 +96,6 @@ GPT2Attention::GPT2Attention(infinilm::runtime::Runtime &runtime,
     validate_gpt2_resources(runtime, config, rank_info);
     (void)ep;
     if (backend != backends::AttentionBackend::STATIC_ATTN
-        && backend != backends::AttentionBackend::PAGED_ATTN
         && backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit GPT2 Attention backend");
     }
@@ -161,8 +160,7 @@ infinilm::runtime::Tensor GPT2Attention::forward(const infinilm::runtime::Tensor
 
     auto [q, k, v] = qkv_proj_->forward_split(runtime, hidden_states_mutable);
 
-    if (attention_backend_ == infinilm::backends::AttentionBackend::PAGED_ATTN
-        || attention_backend_ == infinilm::backends::AttentionBackend::FLASH_ATTN) {
+    if (attention_backend_ == infinilm::backends::AttentionBackend::FLASH_ATTN) {
         auto q_reshaped = q->view({seq_len, num_heads_, head_dim_});
         auto k_reshaped = k->view({seq_len, num_kv_heads_, head_dim_});
         auto v_reshaped = v->view({seq_len, num_kv_heads_, head_dim_});

@@ -1,11 +1,11 @@
 #include "flash_attn.hpp"
 #include "../../../execution/submit.hpp"
+#include "../attention_checks.hpp"
 #include "attention_layer.hpp"
 
 #include "../../../execution/paged_cache_checks.hpp"
 #include "../../../execution/submit.hpp"
 #include "../../../utils.hpp"
-#include "../attention_checks.hpp"
 #include "runtime/runtime.hpp"
 #include <algorithm>
 #include <base/flash_attn_varlen_func.h>
@@ -34,75 +34,67 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
                                                       const infinilm::global_state::AttentionMetadata &attn_metadata,
                                                       infinilm::runtime::Runtime &runtime) const {
     runtime.assertOwnerThread();
-    if (!query || !key || !value || !kv_cache) {
-        throw std::invalid_argument("Flash Attention requires non-null Q/K/V and KV cache tensors");
-    }
     if (runtime.device() != query->device() || runtime.device() != kv_cache->device()) {
         throw std::invalid_argument("Flash Attention Runtime and tensor devices differ");
     }
     auto total_sequence_lengths = attn_metadata.total_sequence_lengths;
     auto input_offsets = attn_metadata.input_offsets;
+    auto cu_seqlens = attn_metadata.cu_seqlens;
     auto block_tables = attn_metadata.block_tables;
     auto slot_mapping = attn_metadata.slot_mapping;
-    auto cu_seqlens = attn_metadata.cu_seqlens;
-
-    if (!total_sequence_lengths || !*total_sequence_lengths
-        || !block_tables || !*block_tables
-        || !slot_mapping || !*slot_mapping) {
-        throw std::invalid_argument("Flash Attention requires sequence lengths, block tables and slot mapping");
-    }
-    if (query->ndim() != 3 || query->size(0) == 0
-        || total_sequence_lengths.value()->ndim() != 1
-        || total_sequence_lengths.value()->size(0) == 0) {
-        throw std::invalid_argument("Flash Attention requires nonempty rank-3 query and rank-1 sequence lengths");
-    }
-
-    const size_t seq_len = query->shape()[0];
-    const bool is_prefill = seq_len != total_sequence_lengths.value()->shape()[0];
-    if (is_prefill && (!input_offsets || !*input_offsets || !cu_seqlens || !*cu_seqlens || input_offsets.value()->ndim() != 1 || cu_seqlens.value()->ndim() != 1 || input_offsets.value()->size(0) < 2 || cu_seqlens.value()->size(0) < 2 || attn_metadata.max_query_length == 0 || attn_metadata.max_sequence_length == 0 || attn_metadata.max_query_length > static_cast<size_t>(std::numeric_limits<int64_t>::max()) || attn_metadata.max_sequence_length > static_cast<size_t>(std::numeric_limits<int64_t>::max()))) {
-        throw std::invalid_argument("Flash Attention prefill requires offsets and positive batch maximum lengths");
-    }
+    ASSERT(block_tables.has_value());
+    ASSERT(slot_mapping.has_value());
 
     // 1. update paged kv cache
     auto [k_total, v_total] = do_kv_cache_update(layer, key, value, kv_cache, slot_mapping.value(), runtime);
 
+    size_t seq_len = query->shape()[0];
+    bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
+
     // 2. Compute attention
-    auto attn_output = infinilm::runtime::Tensor::empty(
-        runtime, {seq_len, num_heads_, head_dim_}, query->dtype());
+    const size_t value_head_dim = value->size(value->ndim() - 1);
+    infinilm::runtime::Tensor attn_output = infinilm::runtime::Tensor::empty(runtime, {seq_len, num_heads_, value_head_dim}, query->dtype());
     if (is_prefill) {
+        ASSERT(input_offsets.has_value());
+        ASSERT(cu_seqlens.has_value());
+        const auto block_width = block_tables.value()->shape().at(1);
+        const auto page_size = k_total->shape().at(1);
+        const auto max_length = static_cast<size_t>(std::numeric_limits<int64_t>::max());
+        if (seq_len > max_length || (page_size != 0 && block_width > max_length / page_size)) {
+            throw std::invalid_argument("Paged prefill maximum length exceeds int64");
+        }
+        const auto max_seqlen_k = block_width * page_size;
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
             infini::ops::Config::Automatic(),
             query, k_total, v_total, input_offsets.value(), cu_seqlens.value(),
             std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{block_tables.value()},
-            static_cast<int64_t>(attn_metadata.max_query_length), static_cast<int64_t>(attn_metadata.max_sequence_length),
+            static_cast<int64_t>(seq_len), static_cast<int64_t>(max_seqlen_k),
             0.0, std::optional<double>{scale_}, true, layer.window_size(), 0.0, false, false,
             attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
         INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
     } else {
-        // FA2 decode path: flash::mha_fwd_kvcache
-        // In paged-attn mode, seq_len = actual batch_size (one query token per sequence).
-        // q_reshaped: [seq_len, num_heads, head_dim] → [seq_len, 1, num_heads, head_dim]
-        // k/v cache:  [num_blocks, block_size, num_kv_heads, head_dim]
-        auto q_for_fa = query->view({seq_len, 1, num_heads_, head_dim_});
-        auto attn_out_4d = attn_output->view({seq_len, 1, num_heads_, head_dim_});
+        ASSERT(query->ndim() == 3 && attn_output->shape() == query->shape());
+        const auto kv_query = query->unsqueeze(1);
+        const auto kv_output = attn_output->unsqueeze(1);
         const auto kv_window = layer.window_size();
         const auto kv_bound = infinilm::layers::attention::detail::check_kvcache(
-            runtime, attn_out_4d, q_for_fa, k_total, v_total, total_sequence_lengths.value(), block_tables.value(),
+            runtime, kv_output, kv_query, k_total, v_total, total_sequence_lengths.value(), block_tables.value(),
             std::nullopt, attn_metadata.logical_kv_upper_bound);
         infini::ops::FlashAttnWithKvcacheConfig kv_config(kv_bound);
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infinilm::runtime::Tensor> kv_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly, kv_config,
-            q_for_fa, k_total, v_total, kv_none, kv_none, kv_none, kv_none,
+            kv_query, k_total, v_total, kv_none, kv_none, kv_none, kv_none,
             std::optional<infinilm::runtime::Tensor>{total_sequence_lengths.value()}, kv_none, kv_none,
             std::optional<infinilm::runtime::Tensor>{block_tables.value()}, kv_none,
             std::optional<double>{scale_}, true, kv_window, double{0.0}, true,
-            int64_t{0}, false, attn_out_4d, kv_none);
-        INFINILM_TRACE_OP(MhaKVCache, attn_out_4d);
+            int64_t{0}, false, kv_output, kv_none);
+        INFINILM_TRACE_OP(MhaKVCache, kv_output);
     }
-    return attn_output->view({1, seq_len, num_heads_ * head_dim_});
+    attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
+    return attn_output;
 }
 
 std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> FlashAttentionImpl::do_kv_cache_update(const AttentionLayer &layer,
@@ -113,6 +105,7 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> FlashAttentionI
                                                                                                         infinilm::runtime::Runtime &runtime) const {
     auto k_cache_layer = kv_cache->narrow({{0, 0, 1}})->squeeze(0);
     auto v_cache_layer = kv_cache->narrow({{0, 1, 1}})->squeeze(0);
+    v_cache_layer = v_cache_layer->narrow({{3, 0, value->size(value->ndim() - 1)}});
     const auto &paged_mapping = slot_mapping;
     const auto paged_config = infinilm::execution::paged_cache_checks::validate(
         runtime, k_cache_layer, v_cache_layer, key, value, paged_mapping);
@@ -135,5 +128,4 @@ std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> FlashAttentionI
 
     return {k_cache_layer, v_cache_layer};
 }
-
 } // namespace infinilm::layers::attention::backends

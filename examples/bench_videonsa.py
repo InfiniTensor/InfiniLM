@@ -186,7 +186,7 @@ def main():
     output_lens = as_int_list(cfg.output_len)
     max_batch_size = max(int(cfg.batch_size), int(cfg.max_batch_size))
     max_cache_len = max(max(input_lens) + max(output_lens) + 4096, cfg.max_cache_len)
-    cache_type = "paged" if cfg.enable_paged_attn else "static"
+    cache_type = "paged" if cfg.enable_paged_cache else "static"
 
     video_meta = apply_video_auto_args(cfg)
     apply_multimodal_env(cfg)
@@ -194,7 +194,7 @@ def main():
 
     print(
         f"bench_config model={cfg.model} image={cfg.image} video={cfg.video} prompt={cfg.prompt!r} "
-        f"device={cfg.device} paged={cfg.enable_paged_attn} attn={cfg.attn} "
+        f"device={cfg.device} paged={cfg.enable_paged_cache} attn={cfg.attn} "
         f"videonsa_nsa=always_on "
         f"image_max_pixels={cfg.image_max_pixels} "
         f"video_num_frames={cfg.video_num_frames} video_max_pixels={cfg.video_max_pixels} "

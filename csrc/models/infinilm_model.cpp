@@ -89,9 +89,6 @@ std::vector<infinilm::runtime::Tensor> InfinilmModel::default_allocate_kv_cache_
             break;
         }
         case backends::AttentionBackend::FLASH_ATTN: {
-            ;
-        }
-        case backends::AttentionBackend::PAGED_ATTN: {
             auto paged_kv_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
             if (nullptr == paged_kv_cache_config) {
                 throw std::runtime_error(

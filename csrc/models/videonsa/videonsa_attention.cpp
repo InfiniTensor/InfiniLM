@@ -308,31 +308,29 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     const auto &mm_metadata = forward_context.mm_metadata;
     const bool has_visual_ranges = mm_metadata.visual_token_ranges.has_value() && !mm_metadata.visual_token_ranges->empty();
     const auto &attn_metadata = forward_context.attn_metadata;
-    const bool is_paged = ::infinilm::backends::AttentionBackend::PAGED_ATTN == attention_backend_
-                       || ::infinilm::backends::AttentionBackend::FLASH_ATTN == attention_backend_;
-    const bool is_flash_attn = ::infinilm::backends::AttentionBackend::FLASH_ATTN == attention_backend_;
+    const bool uses_paged_cache = ::infinilm::backends::AttentionBackend::FLASH_ATTN == attention_backend_;
     const bool has_paged_metadata = attn_metadata.total_sequence_lengths.has_value()
                                  && attn_metadata.slot_mapping.has_value()
                                  && attn_metadata.block_tables.has_value();
     const bool is_decode = has_paged_metadata
                         && hidden_states->size(0) == 1
                         && hidden_states->size(1) == attn_metadata.total_sequence_lengths.value()->shape()[0];
-    if (is_paged && (!forward_context.runtime || !forward_context.nsa_owner || forward_context.nsa_owner->runtime != forward_context.runtime || forward_context.nsa_owner->invocation != nsa_prepared_invocation_)) {
+    if (uses_paged_cache && (!forward_context.runtime || !forward_context.nsa_owner || forward_context.nsa_owner->runtime != forward_context.runtime || forward_context.nsa_owner->invocation != nsa_prepared_invocation_)) {
         throw std::invalid_argument("NSA raw write requires complete worker/model preflight");
     }
-    const bool can_use_paged_decode_nsa = is_paged && has_paged_metadata && is_decode;
+    const bool can_use_paged_decode_nsa = uses_paged_cache && has_paged_metadata && is_decode;
     if (can_use_paged_decode_nsa) {
         throw std::runtime_error("Paged NSA decode requires InfiniOps compressed-cache and attention operators");
     }
     if (can_use_paged_decode_nsa && !nsa_prepared_tail_) {
         throw std::invalid_argument("NSA one-tail evidence differs from actual model shape");
     }
-    const bool can_use_fast_prefill = is_flash_attn
+    const bool can_use_fast_prefill = uses_paged_cache
                                    && has_paged_metadata
                                    && hidden_states->size(0) == 1
                                    && !is_decode;
     const bool can_use_paged_prefill_nsa = false && has_visual_ranges
-                                        && is_paged
+                                        && uses_paged_cache
                                         && has_paged_metadata
                                         && hidden_states->size(0) == 1
                                         && hidden_states->size(1) != attn_metadata.total_sequence_lengths.value()->shape()[0];
@@ -552,8 +550,7 @@ void VideoNSAAttention::prepare_paged_owner(global_state::ForwardContext &contex
     auto &runtime = *context.runtime;
     runtime.assertOwnerThread();
     if (runtime.isGraphRecording()
-        || (attention_backend_ != backends::AttentionBackend::PAGED_ATTN
-            && attention_backend_ != backends::AttentionBackend::FLASH_ATTN)) {
+        || attention_backend_ != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("VideoNSA owner requires eager paged attention");
     }
     const auto &proof = *context.nsa_owner;

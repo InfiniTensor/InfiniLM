@@ -36,7 +36,6 @@ DeepseekV2MLAAttention::DeepseekV2MLAAttention(infinilm::runtime::Runtime &runti
         throw std::invalid_argument("Invalid explicit Deepseek construction resources");
     }
     if (attention_backend != backends::AttentionBackend::STATIC_ATTN
-        && attention_backend != backends::AttentionBackend::PAGED_ATTN
         && attention_backend != backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit Deepseek attention backend");
     }
@@ -306,7 +305,7 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
                 attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
             INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
         } else {
-            ASSERT_EQ(attention_backend_, ::infinilm::backends::AttentionBackend::PAGED_ATTN);
+            ASSERT_EQ(attention_backend_, ::infinilm::backends::AttentionBackend::FLASH_ATTN);
             latent_attn_->prefill_paged(
                 runtime,
                 attn_output,

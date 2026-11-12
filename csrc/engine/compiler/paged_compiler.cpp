@@ -95,7 +95,7 @@ FinitePagedDecodeProfile make_finite_paged_decode_profile(
     }
     return {
         ordinary_kv_prepare && graph_config.pp_size == 1,
-        graph_config.attention_backend == backends::AttentionBackend::FLASH_ATTN || graph_config.attention_backend == backends::AttentionBackend::PAGED_ATTN,
+        graph_config.attention_backend == backends::AttentionBackend::FLASH_ATTN,
         model_config->get_kv_quant_scheme() == quantization::KVQuantAlgo::NONE,
         uses_short_decode_graph(paged_config, model_config, device_type, graph_config),
         paged_config.block_size(), paged_config.num_blocks()};

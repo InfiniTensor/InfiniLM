@@ -45,7 +45,6 @@ Attention::Attention(infinilm::runtime::Runtime &runtime,
         throw std::invalid_argument("Invalid explicit Attention construction resources");
     }
     if (attention_backend != ::infinilm::backends::AttentionBackend::STATIC_ATTN
-        && attention_backend != ::infinilm::backends::AttentionBackend::PAGED_ATTN
         && attention_backend != ::infinilm::backends::AttentionBackend::FLASH_ATTN) {
         throw std::invalid_argument("Unsupported explicit Attention backend");
     }

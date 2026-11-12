@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../../global_state/forward_context.hpp"
+#include "../../../global_state/global_state.hpp"
 #include "runtime/tensor.hpp"
 #include <tuple>
 
@@ -22,7 +22,7 @@ public:
                        size_t layer_idx);
 
     /**
-     * @brief Forward pass with FlashAttention.
+     * @brief Forward pass with PagedAttention.
      *
      * @param layer: The `AttentionLayer` instance.
      * @param query: Query tensor, shape `[num_tokens, num_heads, head_dim]`.
