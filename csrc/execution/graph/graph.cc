@@ -196,15 +196,6 @@ void Graph::run() const {
         }
         const Segment *previous = nullptr;
         for (const auto &segment : segments_) {
-#ifdef USE_INFINIRT_GRAPH
-            if (!segment->capture_safe && previous != nullptr
-                && previous->device_graph_ != nullptr
-                && previous->device_graph_->exec != nullptr) {
-                // Host code may inspect the preceding device result. Later device
-                // work is submitted on the same stream, so it stays ordered.
-                previous->device_graph_->synchronize();
-            }
-#endif
             segment->run();
             previous = segment.get();
         }
