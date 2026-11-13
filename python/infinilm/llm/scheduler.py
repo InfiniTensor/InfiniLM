@@ -241,6 +241,14 @@ class Scheduler:
         self.speculative_cache_ops = SpeculativeCacheOps(self)
         self.block_size = block_size
         self.max_num_batched_tokens = max_num_batched_tokens
+        self._decode_admission_sequence = 0
+        self._decode_priority = {}
+        self._paused_running_requests: List[InferenceRequest] = []
+        self._kv_admission_reserve_blocks = (
+            max(4, self.max_batch_size // 4)
+            if self.cache_manager.num_blocks >= 4 * self.max_batch_size
+            else 0
+        )
         self.connector = connector
         self.enable_prefix_caching = enable_prefix_caching
         # Chunked prefill: cap one request's prefill step at this many
@@ -446,6 +454,19 @@ class Scheduler:
             raise RuntimeError(
                 "NSA previous managed batch must be consumed before another schedule"
             )
+        self._paused_running_requests.sort(
+            key=lambda req: self._decode_priority.get(req.request_id, float("inf"))
+        )
+        while (
+            self._paused_running_requests
+            and self.running_queue.sync_q.qsize() < self.max_batch_size
+        ):
+            req = self._paused_running_requests.pop(0)
+            if req.is_finished():
+                self.complete_requests([req])
+            else:
+                self.running_queue.sync_q.put_nowait(req)
+
         deferred_requests = []
         scheduled_requests = []
         seen_request_objects = set()
@@ -482,8 +503,7 @@ class Scheduler:
             waiting_to_inspect += 1
         while (
             waiting_to_inspect > 0
-            and len(scheduled_requests) + self.running_queue.sync_q.qsize()
-            < self.max_batch_size
+            and len(scheduled_requests) < self.max_batch_size
             and current_num_batched_tokens < self.max_num_batched_tokens
         ):
             waiting_to_inspect -= 1
@@ -506,6 +526,31 @@ class Scheduler:
             if req.is_finished():
                 self.complete_requests([req])
                 continue
+
+            # Prompt-heavy and long-output requests retain the original global
+            # running cap. Only compact requests may prefill early and pause
+            # before decode; larger admissions increase cache pressure.
+            if (
+                self.chunked_prefill_size is None
+                and req.num_computed_tokens == 0
+                and self.running_queue.sync_q.qsize() + len(scheduled_requests)
+                >= self.max_batch_size
+            ):
+                request_blocks = (
+                    req.get_prompt_length()
+                    + req.sampling_params.max_tokens
+                    + self.block_size
+                    - 1
+                ) // self.block_size
+                prompt_blocks = (
+                    req.get_prompt_length() + self.block_size - 1
+                ) // self.block_size
+                if (
+                    request_blocks > max(1, self.max_batch_size // 3)
+                    or prompt_blocks > 1
+                ):
+                    deferred_requests.append(req)
+                    break
 
             if req.num_computed_tokens == 0:
                 if self.has_mamba_cache:
@@ -729,6 +774,13 @@ class Scheduler:
             for req in deferred_requests:
                 self.waiting_queue.sync_q.put(req)
 
+        for prefilled_request in scheduled_requests:
+            if prefilled_request.request_id not in self._decode_priority:
+                self._decode_priority[prefilled_request.request_id] = (
+                    self._decode_admission_sequence
+                )
+                self._decode_admission_sequence += 1
+
         is_prefill = len(scheduled_requests) > num_decode_requests
         if not scheduled_requests and (not self.enable_mixed_batching or retry_whole):
             self._schedule_running(
@@ -812,6 +864,18 @@ class Scheduler:
 
     def _schedule_running(self, scheduled_requests, seen_request_objects, limit):
         # Process Running queue (decode phase)
+        running_requests = []
+        while True:
+            try:
+                running_requests.append(self.running_queue.sync_q.get_nowait())
+            except queue.Empty:
+                break
+        running_requests.sort(
+            key=lambda req: self._decode_priority.get(req.request_id, float("inf"))
+        )
+        for running_request in running_requests:
+            self.running_queue.sync_q.put_nowait(running_request)
+
         running_to_inspect = self.running_queue.sync_q.qsize()
         while running_to_inspect > 0 and len(scheduled_requests) < limit:
             running_to_inspect -= 1
@@ -919,6 +983,7 @@ class Scheduler:
                     raise
                 req._paged_completion_state = "done"
                 del self._active_requests[req.request_id]
+                self._decode_priority.pop(req.request_id, None)
 
                 if req.status == RequestStatus.CANCELED:
                     logger.info(
@@ -940,8 +1005,16 @@ class Scheduler:
                     req.status = RequestStatus.WAITING
                     self.waiting_queue.sync_q.put(req)
                 else:
-                    # Still running, put back in running queue
-                    self.running_queue.sync_q.put(req)
+                    # Keep device decode occupancy bounded. Extra prefilled
+                    # requests retain their first token and KV pages while
+                    # waiting for a running slot.
+                    if (
+                        self.chunked_prefill_size is None
+                        and self.running_queue.sync_q.qsize() >= self.max_batch_size
+                    ):
+                        self._paused_running_requests.append(req)
+                    else:
+                        self.running_queue.sync_q.put(req)
 
     def notify_failed_requests(self, finalize_request) -> None:
         """Notify after async fail-stop without retiring resource ownership."""
@@ -1024,12 +1097,20 @@ class Scheduler:
         running_queue_size = self.running_queue.sync_q.qsize()
         for _ in range(running_queue_size):
             req = self.running_queue.sync_q.get()
-            remaining_tokens = (
-                req.sampling_params.max_tokens - req.get_num_generated_tokens()
-            )
-            num_blocks_needed = (
-                remaining_tokens + self.block_size - 1
-            ) // self.block_size
+            if self.chunked_prefill_size is not None:
+                remaining_tokens = (
+                    req.sampling_params.max_tokens - req.get_num_generated_tokens()
+                )
+                num_blocks_needed = (
+                    remaining_tokens + self.block_size - 1
+                ) // self.block_size
+            else:
+                total_sequence_length = (
+                    req.get_prompt_length() + req.sampling_params.max_tokens
+                )
+                num_blocks_needed = (
+                    total_sequence_length + self.block_size - 1
+                ) // self.block_size
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
 
@@ -1055,6 +1136,16 @@ class Scheduler:
                 0,
             )
 
+        if self.chunked_prefill_size is None:
+            for paused_request in self._paused_running_requests:
+                paused_sequence_length = (
+                    paused_request.get_prompt_length()
+                    + paused_request.sampling_params.max_tokens
+                )
+                total_required_blocks += (
+                    paused_sequence_length + self.block_size - 1
+                ) // self.block_size
+
         # Calculate blocks needed for the new request
         total_length = request.get_prompt_length() - num_local_computed_tokens
         total_length += request.sampling_params.max_tokens
@@ -1068,8 +1159,13 @@ class Scheduler:
         # Include decode headroom for requests accepted earlier in this batch.
         total_required_blocks += current_prefill_extra_blocks
 
-        # Compare with total usable blocks in cache manager
-        return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+        if self.chunked_prefill_size is not None:
+            return total_required_blocks <= self.cache_manager.get_total_usable_blocks()
+
+        admission_limit = (
+            self.cache_manager.num_blocks - self._kv_admission_reserve_blocks
+        )
+        return total_required_blocks <= admission_limit
 
     def _get_prefill_extra_blocks(self, request: InferenceRequest) -> int:
         total_length = request.get_prompt_length()
