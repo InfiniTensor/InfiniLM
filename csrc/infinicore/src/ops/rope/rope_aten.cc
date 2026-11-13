@@ -24,8 +24,6 @@ namespace {
 // gather cos/sin via cache-table slice.
 constexpr int64_t kQyRopeChunkTokens = 128;
 
-
-
 struct PlannedMeta {
     Tensor x_out;
     Tensor x;
@@ -207,7 +205,6 @@ void run(void *planned_meta) {
     using namespace ::infinicore::adaptor;
     set_aten_stream_to_infinicore();
 
-
     auto x = to_aten_tensor(p->x);
     auto pos = to_aten_tensor(p->pos).to(at::kLong).reshape({-1}).contiguous();
     auto sin_table = to_aten_tensor(p->sin);
@@ -244,10 +241,8 @@ void run(void *planned_meta) {
                    cudaMemcpyHostToDevice);
     }
 
-    const int algo_tag =
-        (p->algo == infinicore::nn::RoPE::Algo::GPT_J) ? 0 : 1;
-    if (p->algo != infinicore::nn::RoPE::Algo::GPT_NEOX &&
-        p->algo != infinicore::nn::RoPE::Algo::GPT_J) {
+    const int algo_tag = (p->algo == infinicore::nn::RoPE::Algo::GPT_J) ? 0 : 1;
+    if (p->algo != infinicore::nn::RoPE::Algo::GPT_NEOX && p->algo != infinicore::nn::RoPE::Algo::GPT_J) {
         throw std::runtime_error("Unsupported RoPE algorithm for QY ATen path");
     }
     const int dtype_tag = static_cast<int>(p->x->dtype());
@@ -291,13 +286,11 @@ void run(void *planned_meta) {
             dtype_tag, reinterpret_cast<void *>(stream));
         auto err = cudaGetLastError();
         if (err != cudaSuccess) {
-            throw std::runtime_error(std::string("QY rope_strided launch: ") +
-                                     cudaGetErrorString(err));
+            throw std::runtime_error(std::string("QY rope_strided launch: ") + cudaGetErrorString(err));
         }
     } else {
         // Legacy pack → contiguous rotate → unpack.
-        at::Tensor x_contig =
-            x.is_contiguous() ? x : at::empty(x.sizes(), x.options());
+        at::Tensor x_contig = x.is_contiguous() ? x : at::empty(x.sizes(), x.options());
         if (!x.is_contiguous()) {
             pack_head_vectors(x, x_contig, stream);
         }
@@ -306,8 +299,7 @@ void run(void *planned_meta) {
         unpack_head_vectors(rotated, out, stream);
         auto err = cudaGetLastError();
         if (err != cudaSuccess) {
-            throw std::runtime_error(std::string("QY rope_unpack launch: ") +
-                                     cudaGetErrorString(err));
+            throw std::runtime_error(std::string("QY rope_unpack launch: ") + cudaGetErrorString(err));
         }
     }
 

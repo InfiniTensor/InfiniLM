@@ -118,7 +118,6 @@ void InfinilmModel::reset_runtime_state_recursive_(const infinicore::nn::Module 
     module->reset_runtime_state();
 }
 
-
 void InfinilmModel::native_piecewise_embed(const Input &,
                                            infinicore::Tensor &) const {
     throw std::runtime_error("InfinilmModel: native_piecewise_embed not supported");

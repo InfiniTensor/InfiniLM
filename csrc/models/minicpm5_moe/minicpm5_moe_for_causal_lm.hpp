@@ -9,8 +9,7 @@
 namespace infinilm::models::minicpm5_moe {
 
 using MiniCPM5MoEModel = infinilm::layers::causal_lm_templates::TextModel<MiniCPM5MoEDecoderLayer>;
-using MiniCPM5MoEForCausalLM =
-    infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<MiniCPM5MoEModel>;
+using MiniCPM5MoEForCausalLM = infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<MiniCPM5MoEModel>;
 
 std::shared_ptr<infinilm::config::ModelConfig>
 create_minicpm5_moe_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);

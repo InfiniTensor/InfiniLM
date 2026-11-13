@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../../layers/common_modules.hpp"
 #include "../../global_state/piecewise_prefill_state.hpp"
+#include "../../layers/common_modules.hpp"
 
 namespace infinilm::models::minicpm5_moe {
 
@@ -17,7 +17,6 @@ public:
 
     infinicore::Tensor forward(const infinicore::Tensor &positions,
                                const infinicore::Tensor &hidden_states) const;
-
 
     void forward_pre_attn_piecewise(const infinicore::Tensor &positions,
                                     const infinicore::Tensor &hidden_states,
@@ -85,6 +84,5 @@ protected:
     mutable infinicore::Tensor gate_score_write_view_;
     mutable infinicore::Tensor gate_sigmoid_buf_;
 };
-
 
 } // namespace infinilm::models::minicpm5_moe

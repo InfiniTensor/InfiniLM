@@ -58,7 +58,7 @@ struct BatchDescriptor {
 
 inline bool operator==(const BatchDescriptor &a, const BatchDescriptor &b) {
     return a.num_tokens == b.num_tokens && a.num_reqs == b.num_reqs
-           && a.uniform_decode == b.uniform_decode;
+        && a.uniform_decode == b.uniform_decode;
 }
 
 namespace detail {
@@ -72,8 +72,7 @@ inline std::vector<size_t> parse_csv_sizes_(const char *raw) {
     size_t start = 0;
     while (start < spec.size()) {
         const size_t comma = spec.find(',', start);
-        const std::string token =
-            spec.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
+        const std::string token = spec.substr(start, comma == std::string::npos ? std::string::npos : comma - start);
         if (!token.empty()) {
             out.push_back(static_cast<size_t>(std::stoul(token)));
         }
@@ -170,8 +169,7 @@ public:
             if (desc.num_tokens > max_capture_) {
                 return {CudaGraphRuntimeMode::None, desc};
             }
-            const size_t padded =
-                padded_bucket_for_seq_len(desc.num_tokens, bs_to_padded_, /*fallback=*/0);
+            const size_t padded = padded_bucket_for_seq_len(desc.num_tokens, bs_to_padded_, /*fallback=*/0);
             if (padded > 0 && piecewise_keys_.count(padded) > 0) {
                 BatchDescriptor key = desc;
                 key.num_tokens = padded;

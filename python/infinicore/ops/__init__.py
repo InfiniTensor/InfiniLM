@@ -56,7 +56,7 @@ def rms_norm(input, weight, epsilon=1e-5, *, out=None):
 
 def add_rms_norm(input, residual, weight, epsilon=1e-5, *, out=None, residual_out=None):
     if (out is None) != (residual_out is None):
-        raise ValueError('out and residual_out must be provided together')
+        raise ValueError("out and residual_out must be provided together")
     arguments = (_unwrap(input), _unwrap(residual), _unwrap(weight), epsilon)
     if out is None:
         normalized, summed = _infinicore.add_rms_norm(*arguments)
@@ -81,7 +81,9 @@ def rope(x, pos, sin_table, cos_table, algo, *, out=None):
 
 
 def paged_caching(key_cache, value_cache, key, value, slot_mapping):
-    _infinicore.paged_caching_(*map(_unwrap, (key_cache, value_cache, key, value, slot_mapping)))
+    _infinicore.paged_caching_(
+        *map(_unwrap, (key_cache, value_cache, key, value, slot_mapping))
+    )
 
 
 def causal_softmax(input, *, out=None):

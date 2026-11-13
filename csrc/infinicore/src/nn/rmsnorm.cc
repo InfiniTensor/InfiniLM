@@ -30,7 +30,7 @@ void RMSNorm::forward_inplace(Tensor &x, Tensor &residual) const {
         // Keep QY fusion opt-in until the model-level quality gate is satisfied.
         const char *qy_fusion = std::getenv("INFINI_QY_FUSED_ADD_RMSNORM");
         const bool use_qy_fusion = device_.type() == Device::Type::kQy
-                                   && qy_fusion != nullptr && std::strcmp(qy_fusion, "1") == 0;
+                                && qy_fusion != nullptr && std::strcmp(qy_fusion, "1") == 0;
         if (device_.type() == Device::Type::kCpu
             || device_.type() == Device::Type::kNvidia
             || device_.type() == Device::Type::kIluvatar

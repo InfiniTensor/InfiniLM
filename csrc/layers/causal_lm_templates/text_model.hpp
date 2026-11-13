@@ -231,7 +231,6 @@ public:
         return hidden_states;
     }
 
-
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::Embedding, embed_tokens);
     INFINICORE_NN_MODULE_VEC(DecoderLayer, layers);

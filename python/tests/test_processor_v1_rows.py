@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock
 
 from infinilm.llm.request import InferenceRequest, RequestStatus
 from infinilm.llm.sampling_params import SamplingParams

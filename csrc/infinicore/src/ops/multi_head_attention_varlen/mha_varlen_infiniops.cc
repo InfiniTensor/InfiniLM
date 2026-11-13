@@ -161,7 +161,9 @@ void *plan(Tensor out,
             std::ostringstream oss;
             oss << "ndim=" << t->ndim() << " shape=[";
             for (size_t i = 0; i < t->ndim(); ++i) {
-                if (i) oss << ',';
+                if (i) {
+                    oss << ',';
+                }
                 oss << t->size(i);
             }
             oss << "] contig=" << t->is_contiguous()

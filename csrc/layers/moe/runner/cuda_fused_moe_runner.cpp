@@ -150,11 +150,10 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     size_t max_num_blocks = 0;
     if (block_size > 0) {
         // vLLM DL: min(numel, (numel - E) // B + E); use unsigned-safe form.
-        const size_t dl_blocks =
-            num_pairs > num_experts
-                ? std::min(num_pairs,
-                           (num_pairs - num_experts) / block_size + num_experts)
-                : num_pairs;
+        const size_t dl_blocks = num_pairs > num_experts
+                                   ? std::min(num_pairs,
+                                              (num_pairs - num_experts) / block_size + num_experts)
+                                   : num_pairs;
         max_num_blocks = dl_blocks;
         max_num_tokens_padded = dl_blocks * block_size;
     }
@@ -167,10 +166,7 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     // buffers (numel>1) select take_/store_. Prefill M=512 stays on align.
     // Size-1 tensors are allocated before graph capture (ensure_tensor) and
     // kept on separate workspace fields so decode FULL stays device_segments=1.
-    const bool use_moe_cu =
-        num_experts > 0 &&
-        (static_cast<double>(num_tokens) * static_cast<double>(topk) /
-         static_cast<double>(num_experts)) <= 16.0;
+    const bool use_moe_cu = num_experts > 0 && (static_cast<double>(num_tokens) * static_cast<double>(topk) / static_cast<double>(num_experts)) <= 16.0;
 
     {
         static bool logged_align = false;

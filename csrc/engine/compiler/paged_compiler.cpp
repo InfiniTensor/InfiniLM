@@ -1,8 +1,8 @@
 #include "paged_compiler.hpp"
-#include "../compiled_prefill_flags.hpp"
 #include "../../global_state/decode_phase_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../utils.hpp"
+#include "../compiled_prefill_flags.hpp"
 #include "infinicore/context/context.hpp"
 
 #include <algorithm>
@@ -160,15 +160,15 @@ void PagedCompiler::compile() {
         if (!skip_decode) {
             const auto &model_config = model_->get_model_config();
             const size_t n_routed = model_config == nullptr
-                ? 0
-                : model_config->get_or<size_t>("n_routed_experts", 0);
+                                      ? 0
+                                      : model_config->get_or<size_t>("n_routed_experts", 0);
             const auto device = infinicore::context::getDevice();
             const char *allow = std::getenv("INFINI_MOE_QY_ALLOW_GRAPH");
             const bool qy_moe_disallow = allow != nullptr
-                && (std::string(allow) == "0"
-                    || std::strcmp(allow, "false") == 0
-                    || std::strcmp(allow, "no") == 0
-                    || std::strcmp(allow, "off") == 0);
+                                      && (std::string(allow) == "0"
+                                          || std::strcmp(allow, "false") == 0
+                                          || std::strcmp(allow, "no") == 0
+                                          || std::strcmp(allow, "off") == 0);
             if (n_routed > 0 && device.type() == infinicore::Device::Type::kQy
                 && qy_moe_disallow) {
                 skip_decode = true;

@@ -4,18 +4,18 @@
 
 #include <cstdlib>
 #include <cstring>
-#include <stdexcept>
-#include <spdlog/spdlog.h>
 #include <infinicore/context/context.hpp>
 #include <infinicore/graph/graph.hpp>
 #include <infinicore/ops/rearrange.hpp>
+#include <spdlog/spdlog.h>
+#include <stdexcept>
 
 namespace infinilm::layers::linear {
 namespace {
 
 bool supported_dtype(const infinicore::DataType &dtype) {
     return dtype == infinicore::DataType::kBFloat16
-           || dtype == infinicore::DataType::kFloat16;
+        || dtype == infinicore::DataType::kFloat16;
 }
 
 bool vocab_parallel_env_enabled() {
@@ -30,8 +30,8 @@ bool eligible(size_t vocab, const infinicore::DataType &dtype,
         return false;
     }
     return (world == 2 || world == 4) && pp_size == 1
-           && vocab % static_cast<size_t>(world) == 0 && supported_dtype(dtype)
-           && device.type() == infinicore::Device::Type::kQy;
+        && vocab % static_cast<size_t>(world) == 0 && supported_dtype(dtype)
+        && device.type() == infinicore::Device::Type::kQy;
 }
 
 infinicclDataType_t to_ccl_dtype(const infinicore::DataType &dtype) {
@@ -85,13 +85,11 @@ private:
 } // namespace
 
 size_t vocab_parallel_logits_bank_width(size_t vocab_size) {
-    const auto &rank_info =
-        infinilm::global_state::get_tensor_model_parallel_rank_info();
+    const auto &rank_info = infinilm::global_state::get_tensor_model_parallel_rank_info();
     const int world = rank_info.tp_size;
     const int rank = rank_info.tp_rank;
     const auto device = infinicore::context::getDevice();
-    const auto dtype =
-        infinilm::global_state::get_infinilm_config().model_config->get_dtype();
+    const auto dtype = infinilm::global_state::get_infinilm_config().model_config->get_dtype();
     if (!eligible(vocab_size, dtype, device, world, rank_info.pp_size)) {
         return vocab_size;
     }
@@ -111,10 +109,10 @@ infinicore::Tensor gather_vocab_logits(const infinicore::Tensor &local,
     const auto width = local->shape().back();
     const auto rows = local->numel() / width;
     auto packed = rank == 0
-                      ? infinicore::Tensor::empty(
-                            {static_cast<size_t>(world), rows, width},
-                            local->dtype(), local->device())
-                      : local;
+                    ? infinicore::Tensor::empty(
+                          {static_cast<size_t>(world), rows, width},
+                          local->dtype(), local->device())
+                    : local;
     if (rank == 0) {
         auto first = packed->narrow({{0, 0, 1}})->view(local->shape());
         infinicore::op::rearrange_(first, local);

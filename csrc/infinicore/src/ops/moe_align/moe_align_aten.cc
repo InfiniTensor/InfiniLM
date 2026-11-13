@@ -50,10 +50,9 @@ struct AlignWorkspacePool {
     at::Tensor &ensure(const at::Tensor &like, int64_t num_experts_v, int64_t timer_m) {
         const int64_t n_ints = static_cast<int64_t>(
             ::infini::ops::qy::moe_align_workspace_bytes(
-                static_cast<size_t>(num_experts_v)) /
-            sizeof(int32_t));
-        if (workspace.defined() && device_index == like.device().index() &&
-            num_experts == num_experts_v && workspace.numel() == n_ints) {
+                static_cast<size_t>(num_experts_v))
+            / sizeof(int32_t));
+        if (workspace.defined() && device_index == like.device().index() && num_experts == num_experts_v && workspace.numel() == n_ints) {
             return workspace;
         }
         {
@@ -107,8 +106,7 @@ void run_moe_align_gpu(at::Tensor sorted_token_ids,
     // Sync only when profiling; otherwise rely on stream order into fuse.
     auto err = cudaGetLastError();
     if (err != cudaSuccess) {
-        throw std::runtime_error(std::string("QY moe_align launch: ") +
-                                 cudaGetErrorString(err));
+        throw std::runtime_error(std::string("QY moe_align launch: ") + cudaGetErrorString(err));
     }
 }
 
@@ -169,7 +167,6 @@ void run(void *planned_meta) {
     auto *p = reinterpret_cast<PlannedMeta *>(planned_meta);
     using namespace ::infinicore::adaptor;
     set_aten_stream_to_infinicore();
-
 
     at::Tensor expert_map_aten;
     const at::Tensor *expert_map_ptr = nullptr;

@@ -3,27 +3,27 @@
 #include "../../global_state/ar_profile.hpp"
 #include "../../global_state/global_state.hpp"
 #include "../../global_state/hang_trace.hpp"
-#include "../compiled_prefill_flags.hpp"
 #include "../../global_state/piecewise_inductor_flags.hpp"
 #include "../../layers/linear/vocab_parallel_lm_head.hpp"
 #include "../../utils.hpp"
+#include "../compiled_prefill_flags.hpp"
 #include "../dispatch_hist.hpp"
-#include "piecewise_bucket_policy.hpp"
 #include "attn_metadata_utils.hpp"
+#include "piecewise_bucket_policy.hpp"
 
+#include "infinicore/context/context.hpp"
+#include "infinicore/graph/graph.hpp"
+#include "infinicore/ops/inductor_segment.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <numeric>
 #include <optional>
+#include <spdlog/spdlog.h>
 #include <sstream>
 #include <stdexcept>
 #include <string>
-#include <spdlog/spdlog.h>
-#include "infinicore/context/context.hpp"
-#include "infinicore/graph/graph.hpp"
-#include "infinicore/ops/inductor_segment.hpp"
 
 namespace infinilm::engine {
 
@@ -160,13 +160,13 @@ bool piecewise_pad_up_cg_enabled() {
 
 bool bucket_inductor_capture_enabled(size_t bucket) {
     return infinilm::global_state::piecewise_inductor_segment_enabled()
-           && infinilm::global_state::scoped_inductor_pre_attn_enabled()
-           && infinilm::global_state::bucket_is_inductor_eligible(bucket);
+        && infinilm::global_state::scoped_inductor_pre_attn_enabled()
+        && infinilm::global_state::bucket_is_inductor_eligible(bucket);
 }
 
 bool layer_capture_inductor_pre_attn(size_t layer, size_t bucket) {
     return bucket_inductor_capture_enabled(bucket)
-           && infinicore::op::inductor_segment_impl::has_package(
+        && infinicore::op::inductor_segment_impl::has_package(
                infinicore::op::PiecewiseInductorSegmentId::PreAttn, layer, bucket);
 }
 
@@ -385,26 +385,17 @@ void PiecewisePrefillCompiler::allocate_shared_banks_(size_t max_bucket,
     shared_banks_.residual = infinicore::Tensor::empty({1, max_bucket, hidden}, dtype, device);
     shared_banks_.ar_staging = infinicore::Tensor::empty({1, max_bucket, hidden}, dtype, device);
 
-    shared_banks_.input_ids =
-        infinicore::Tensor::empty({1, max_bucket}, infinicore::DataType::kInt64, device);
-    shared_banks_.position_ids =
-        infinicore::Tensor::empty({max_bucket}, infinicore::DataType::kInt64, device);
-    shared_banks_.slot_mapping =
-        infinicore::Tensor::empty({max_bucket}, infinicore::DataType::kInt64, device);
-    shared_banks_.past_sequence_lengths =
-        infinicore::Tensor::empty({n_req}, infinicore::DataType::kInt32, device);
-    shared_banks_.total_sequence_lengths =
-        infinicore::Tensor::empty({n_req}, infinicore::DataType::kInt32, device);
-    shared_banks_.input_offsets =
-        infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::kInt32, device);
-    shared_banks_.cu_seqlens =
-        infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::kInt32, device);
+    shared_banks_.input_ids = infinicore::Tensor::empty({1, max_bucket}, infinicore::DataType::kInt64, device);
+    shared_banks_.position_ids = infinicore::Tensor::empty({max_bucket}, infinicore::DataType::kInt64, device);
+    shared_banks_.slot_mapping = infinicore::Tensor::empty({max_bucket}, infinicore::DataType::kInt64, device);
+    shared_banks_.past_sequence_lengths = infinicore::Tensor::empty({n_req}, infinicore::DataType::kInt32, device);
+    shared_banks_.total_sequence_lengths = infinicore::Tensor::empty({n_req}, infinicore::DataType::kInt32, device);
+    shared_banks_.input_offsets = infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::kInt32, device);
+    shared_banks_.cu_seqlens = infinicore::Tensor::empty({n_req + 1}, infinicore::DataType::kInt32, device);
     // Vocab-parallel lm_head writes full vocab on root and local shard elsewhere.
     // Size the shared bank to match so FULL P+D capture never copies local→full.
-    const size_t logits_width =
-        infinilm::layers::linear::vocab_parallel_logits_bank_width(vocab_size);
-    shared_banks_.logits_holder =
-        infinicore::Tensor::empty({1, max_bucket, logits_width}, dtype, device);
+    const size_t logits_width = infinilm::layers::linear::vocab_parallel_logits_bank_width(vocab_size);
+    shared_banks_.logits_holder = infinicore::Tensor::empty({1, max_bucket, logits_width}, dtype, device);
     if (logits_width != vocab_size) {
         spdlog::info(
             "native piecewise CG: vocab-parallel logits bank width={} "
@@ -415,20 +406,20 @@ void PiecewisePrefillCompiler::allocate_shared_banks_(size_t max_bucket,
     }
 
     size_t staging = tensor_nbytes_(shared_banks_.hidden_states)
-                     + tensor_nbytes_(shared_banks_.residual)
-                     + tensor_nbytes_(shared_banks_.ar_staging);
+                   + tensor_nbytes_(shared_banks_.residual)
+                   + tensor_nbytes_(shared_banks_.ar_staging);
     for (const auto &st : shared_banks_.layer_staging) {
         staging += tensor_nbytes_(st.q_rope) + tensor_nbytes_(st.k_rope)
-                   + tensor_nbytes_(st.v_rope) + tensor_nbytes_(st.attn_output);
+                 + tensor_nbytes_(st.v_rope) + tensor_nbytes_(st.attn_output);
     }
     const size_t io = tensor_nbytes_(shared_banks_.input_ids)
-                      + tensor_nbytes_(shared_banks_.position_ids)
-                      + tensor_nbytes_(shared_banks_.slot_mapping)
-                      + tensor_nbytes_(shared_banks_.past_sequence_lengths)
-                      + tensor_nbytes_(shared_banks_.total_sequence_lengths)
-                      + tensor_nbytes_(shared_banks_.input_offsets)
-                      + tensor_nbytes_(shared_banks_.cu_seqlens)
-                      + tensor_nbytes_(shared_banks_.logits_holder);
+                    + tensor_nbytes_(shared_banks_.position_ids)
+                    + tensor_nbytes_(shared_banks_.slot_mapping)
+                    + tensor_nbytes_(shared_banks_.past_sequence_lengths)
+                    + tensor_nbytes_(shared_banks_.total_sequence_lengths)
+                    + tensor_nbytes_(shared_banks_.input_offsets)
+                    + tensor_nbytes_(shared_banks_.cu_seqlens)
+                    + tensor_nbytes_(shared_banks_.logits_holder);
     shared_banks_.staging_physical_bytes = staging;
     shared_banks_.io_physical_bytes = io;
     spdlog::info(
@@ -483,13 +474,11 @@ InfinilmModel::Input PiecewisePrefillCompiler::make_bucket_input_(size_t bucket,
     set_zeros(input.past_sequence_lengths.value());
     set_zeros(input.total_sequence_lengths.value());
 
-    const size_t chunk_size =
-        prefill_chunk_size_ > 0 ? prefill_chunk_size_ : prefill_chunk_size_from_env();
+    const size_t chunk_size = prefill_chunk_size_ > 0 ? prefill_chunk_size_ : prefill_chunk_size_from_env();
     // Token-count bank: capture at past=0. Runtime mid/MIXED past/slots are
     // overwritten by copy_runtime_into_bucket_ (vLLM-style reuse).
     constexpr size_t past = 0;
-    const int64_t pos_start =
-        (bucket < chunk_size) ? static_cast<int64_t>(chunk_size) : int64_t{0};
+    const int64_t pos_start = (bucket < chunk_size) ? static_cast<int64_t>(chunk_size) : int64_t{0};
     std::vector<int64_t> position_ids_vec(bucket);
     std::iota(position_ids_vec.begin(), position_ids_vec.end(), pos_start);
     infinicore::context::memcpyH2D(
@@ -680,8 +669,7 @@ void PiecewisePrefillCompiler::capture_bucket_(size_t bucket) {
             piecewise.phase = global_state::PiecewiseCapturePhase::EagerAttn;
             // TP>1: serialize multi-rank eager FA (QY dldnn_mha_varlen_fwd multi-instance
             // launch / sticky graph state); barriers already wrap pre/post CG pieces.
-            const int tp_size_fa =
-                infinilm::global_state::get_tensor_model_parallel_world_size();
+            const int tp_size_fa = infinilm::global_state::get_tensor_model_parallel_world_size();
             if (tp_size_fa > 1) {
                 infinicore::context::syncDevice();
                 barrier_->wait();
@@ -834,8 +822,7 @@ void PiecewisePrefillCompiler::compile() {
     }
     enabled_ = true;
 
-    const auto *paged_config =
-        dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
+    const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(model_->get_cache_config());
     const size_t nblocks = paged_config->num_blocks();
     // Capture width ≥ MAX_BATCH_SIZE so mixed/multi-req PIECEWISE can replay with
     // runtime_n_req ≤ compiled_n_req (vLLM mixed_mode=PIECEWISE). Opt-in override:
@@ -881,8 +868,7 @@ void PiecewisePrefillCompiler::compile() {
     // Physical staging/I-O = shared max bank (O(max)); arenas = MoE scratch via
     // shared Python workspace after M3 (still summed per Graph CaptureArena).
     const size_t staging_bytes = shared_banks_.staging_physical_bytes;
-    const size_t io_bytes =
-        shared_banks_.io_physical_bytes + tensor_nbytes_(block_tables_holder_);
+    const size_t io_bytes = shared_banks_.io_physical_bytes + tensor_nbytes_(block_tables_holder_);
     size_t arena_bytes = 0;
     size_t full_overlay_buckets = 0;
     for (const auto &kv : compiled_) {
@@ -892,8 +878,7 @@ void PiecewisePrefillCompiler::compile() {
         }
     }
     const size_t staging_io_bytes = staging_bytes + io_bytes;
-    const size_t free_delta =
-        free_before >= free_after ? free_before - free_after : 0;
+    const size_t free_delta = free_before >= free_after ? free_before - free_after : 0;
     std::ostringstream oss;
     for (size_t i = 0; i < capture_buckets_.size(); ++i) {
         if (i > 0) {
@@ -946,7 +931,6 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
         ->narrow({{0, 0, valid_seq_len}})
         ->copy_from(runtime.position_ids.value());
 
-
     const size_t runtime_n_req = runtime.block_tables.value()->size(0);
     const size_t compiled_n_req = graph_input.block_tables.value()->size(0);
     if (runtime_n_req > compiled_n_req) {
@@ -986,8 +970,7 @@ void PiecewisePrefillCompiler::copy_runtime_into_bucket_(BucketGraphs &bucket_gr
         auto last_off = graph_input.input_offsets.value()
                             ->narrow({{0, runtime_n_req, 1}})
                             ->to(infinicore::Device{infinicore::Device::Type::kCpu});
-        const int32_t last_val =
-            *reinterpret_cast<const int32_t *>(last_off->data());
+        const int32_t last_val = *reinterpret_cast<const int32_t *>(last_off->data());
         std::vector<int32_t> pad(off_tail, last_val);
         auto offsets_tail = graph_input.input_offsets.value()->narrow(
             {{0, runtime_n_req + 1, off_tail}});
@@ -1055,10 +1038,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     const size_t runtime_n_req = input.block_tables.has_value() ? input.block_tables.value()->size(0) : 1;
     // Decode rows set is_final=True for sampling; that must not hide mid-prefill
     // rows (MIXED). mid_chunk ← any False flag; need_lm_head ← any True / empty.
-    const bool mid_chunk =
-        InfinilmModel::has_nonfinal_prefill_chunk(input.is_final_prefill_chunk);
-    const bool need_lm_head =
-        InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk);
+    const bool mid_chunk = InfinilmModel::has_nonfinal_prefill_chunk(input.is_final_prefill_chunk);
+    const bool need_lm_head = InfinilmModel::any_final_prefill_chunk(input.is_final_prefill_chunk);
     if (profile) {
         spdlog::info(
             "rank_worker_profile: piecewise run_prefill begin seq_len={} padded={} graph_bucket={} "
@@ -1093,9 +1074,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         // Updating the length tensors does not enlarge that captured plan.
         set_attn_metadata(input);
         const auto &runtime_meta = global_state::get_forward_context().attn_metadata;
-        const bool length_ok =
-            runtime_meta.max_query_length <= candidate.full_max_query_length
-            && runtime_meta.max_sequence_length <= candidate.full_max_sequence_length;
+        const bool length_ok = runtime_meta.max_query_length <= candidate.full_max_query_length
+                            && runtime_meta.max_sequence_length <= candidate.full_max_sequence_length;
         if (!length_ok) {
             static thread_local bool warned = false;
             if (!warned) {
@@ -1128,8 +1108,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
                 const size_t source_pos = req;
                 const size_t target_pos = offsets[req + 1] - 1;
                 infinicore::Tensor source = full_logits->shape().size() == 2
-                    ? full_logits->narrow({{0, source_pos, 1}})
-                    : full_logits->narrow({{1, source_pos, 1}});
+                                              ? full_logits->narrow({{0, source_pos, 1}})
+                                              : full_logits->narrow({{1, source_pos, 1}});
                 auto target = candidate.logits_holder->narrow({{1, target_pos, 1}});
                 target->copy_from(source->view({1, 1, source->size(source->shape().size() - 1)}));
             }
@@ -1147,9 +1127,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     // vLLM-style: one token-count bank. Homo mid, MIXED mid, and first/final all
     // replay compiled_[bucket]; copy_runtime_into_bucket_ supplies live past/slots.
     auto &bucket_graphs = compiled_.at(graph_bucket);
-    const bool have_piecewise =
-        !bucket_graphs.pre_attn.empty() && bucket_graphs.pre_attn[0]
-        && !bucket_graphs.post_attn.empty() && bucket_graphs.post_attn[0];
+    const bool have_piecewise = !bucket_graphs.pre_attn.empty() && bucket_graphs.pre_attn[0]
+                             && !bucket_graphs.post_attn.empty() && bucket_graphs.post_attn[0];
     // force_mid_eager only on a true miss (no piecewise bank — e.g. SKIP_PIECEWISE).
     const bool force_mid_eager = mid_chunk && !have_piecewise;
 
@@ -1179,8 +1158,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     // Successful pad-up CG counts as exact_cg (not pw_eager_pad_up).
     {
         const bool missing_graph = !have_piecewise;
-        const bool use_pad_up_cg =
-            pad_up && pad_up_cg_on && !missing_graph && !force_mid_eager;
+        const bool use_pad_up_cg = pad_up && pad_up_cg_on && !missing_graph && !force_mid_eager;
         const bool pad_up_eager = pad_up && !use_pad_up_cg;
         const bool mid_chunk_eager = force_mid_eager && !pad_up_eager;
         dispatch_hist::record_piecewise_eager(pad_up_eager, mid_chunk_eager, missing_graph);
@@ -1209,9 +1187,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         // Exact-width and pad-up final chunks both use inductor when enabled *and*
         // not taking native pad-up CG (kill-switch / miss falls back to eager AOT).
         // Pad-up still sets piecewise.valid_seq_len=L; AOT pads positions/hidden to bucket.
-        piecewise.allow_inductor_pre_attn =
-            inductor_mode && !repro_skip_final_inductor()
-            && (pad_up_blocks_cg || !pad_up);
+        piecewise.allow_inductor_pre_attn = inductor_mode && !repro_skip_final_inductor()
+                                         && (pad_up_blocks_cg || !pad_up);
     } else {
         // Mid / MIXED replay fused pre CG — never fused PreAttn AOTI (packages bake RoPE).
         piecewise.allow_inductor_pre_attn = false;
@@ -1227,7 +1204,6 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
 
     model_->native_piecewise_embed(bucket_graphs.input, piecewise.hidden_states);
 
-
     // Always walk the full model; layers without a captured graph run eager
     // (QY may cap capture via INFINI_NATIVE_CG_MAX_LAYERS to fit cudaGraphExec budget).
     const size_t num_layers = model_->native_piecewise_num_layers();
@@ -1235,16 +1211,14 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
     // Final-chunk inductor pre-attn needs the same eager post replay (B4 tail).
     // Pad-up: CG when PAD_UP_CG on; legacy kill-switch forces eager post/lm_head.
     // MIXED: lm_head always eager when mid+need_lm_head (live is_final flags).
-    const bool use_eager_post =
-        pad_up_blocks_cg
-        || force_mid_eager
-        || (inductor_mode && piecewise.allow_inductor_pre_attn);
-    const bool use_eager_lm_head =
-        pad_up_blocks_cg
-        || force_mid_eager
-        || (need_lm_head && mid_chunk)
-        || !bucket_graphs.lm_head
-        || (inductor_mode && piecewise.allow_inductor_pre_attn);
+    const bool use_eager_post = pad_up_blocks_cg
+                             || force_mid_eager
+                             || (inductor_mode && piecewise.allow_inductor_pre_attn);
+    const bool use_eager_lm_head = pad_up_blocks_cg
+                                || force_mid_eager
+                                || (need_lm_head && mid_chunk)
+                                || !bucket_graphs.lm_head
+                                || (inductor_mode && piecewise.allow_inductor_pre_attn);
     {
         // Telemetry: first past=0 mid, first past>0 homo mid, first MIXED mid,
         // and first short final pad-up CG.
@@ -1264,8 +1238,8 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         }
         if (mid_chunk && !pad_up_blocks_cg && graph_bucket >= 2048) {
             const bool do_log = (runtime_past0 <= 0 && !logged_mid_past0)
-                || (runtime_past0 > 0 && !need_lm_head && !logged_mid_past_gt0)
-                || (need_lm_head && !logged_mixed_mid);
+                             || (runtime_past0 > 0 && !need_lm_head && !logged_mid_past_gt0)
+                             || (need_lm_head && !logged_mixed_mid);
             if (do_log) {
                 if (runtime_past0 <= 0 && !need_lm_head) {
                     logged_mid_past0 = true;
@@ -1310,14 +1284,12 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         const double t_layer0 = profile ? monotonic_ms() : 0.0;
         barrier_->wait();
         // Inductor AOT packages bake RoPE — keep mid on fused pre CG (or eager).
-        const bool inductor_layer_mid =
-            mid_chunk && layer_capture_inductor_pre_attn(layer, graph_bucket);
+        const bool inductor_layer_mid = mid_chunk && layer_capture_inductor_pre_attn(layer, graph_bucket);
         // Product: fused pre CG (LN+QKV+RoPE). QKV_ONLY kill-switch: QKV CG + eager RoPE.
         // Legacy pad-up kill-switch / force_mid_eager / mid-inductor stress → eager full pre.
-        const bool force_eager_pre =
-            pad_up_blocks_cg
-            || force_mid_eager
-            || inductor_layer_mid;
+        const bool force_eager_pre = pad_up_blocks_cg
+                                  || force_mid_eager
+                                  || inductor_layer_mid;
 
         // Always compiled_[bucket] (token-count bank).
         std::shared_ptr<infinicore::graph::Graph> pre_graph;
@@ -1379,8 +1351,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
         double post_graph_run_ms = 0.0;
         double post_eager_ms = 0.0;
         infinicore::graph::Graph::LastRunProfile post_split{};
-        const bool have_post_graph =
-            layer < captured_post && static_cast<bool>(bucket_graphs.post_attn[layer]);
+        const bool have_post_graph = layer < captured_post && static_cast<bool>(bucket_graphs.post_attn[layer]);
         if (use_eager_post || inductor_layer_mid || !have_post_graph) {
             const double t_post_e0 = profile ? monotonic_ms() : 0.0;
             model_->native_piecewise_post_attn_cg_layer(
@@ -1416,7 +1387,7 @@ std::optional<infinicore::Tensor> PiecewisePrefillCompiler::run_prefill(const In
             if (pre_graph) {
                 append_graph_run_split(extra, "pre_graph", pre_split);
             }
-            if (post_graph_run_ms > 0.0 || post_split.used_device ) {
+            if (post_graph_run_ms > 0.0 || post_split.used_device) {
                 append_graph_run_split(extra, "post_graph", post_split);
             }
             spdlog::info(

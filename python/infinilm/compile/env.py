@@ -73,9 +73,7 @@ def apply_cudagraph_policy_env(
     if prefer_full_and_piecewise and not pol:
         pol = CUDAGRAPH_POLICY_FULL_AND_PIECEWISE
         os.environ["INFINI_CUDAGRAPH_POLICY"] = pol
-        logger.info(
-            "enable_graph → default INFINI_CUDAGRAPH_POLICY=full_and_piecewise"
-        )
+        logger.info("enable_graph → default INFINI_CUDAGRAPH_POLICY=full_and_piecewise")
     if pol == CUDAGRAPH_POLICY_FULL_AND_PIECEWISE:
         os.environ.setdefault(
             "INFINI_CUDAGRAPH_POLICY", CUDAGRAPH_POLICY_FULL_AND_PIECEWISE

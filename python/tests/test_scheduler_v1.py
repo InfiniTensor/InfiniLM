@@ -30,8 +30,8 @@ def _req(
 def _prime_kv(scheduler: Scheduler, req: InferenceRequest) -> None:
     """Allocate block table so running-queue decode can append_slot."""
     tokens = req.get_input_tokens()
-    req.block_table, req.slot_mapping, cached = (
-        scheduler.cache_manager.allocate_blocks(tokens, req.block_table)
+    req.block_table, req.slot_mapping, cached = scheduler.cache_manager.allocate_blocks(
+        tokens, req.block_table
     )
     req.num_blocks = len(req.block_table)
     req.num_local_cached_tokens = cached

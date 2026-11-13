@@ -179,7 +179,7 @@ void Attention::forward_pre_attn_rope_piecewise(const infinicore::Tensor &positi
     const size_t seq_len = staging.q_rope->size(1);
     const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
     const bool addr_stable = infinicore::context::isGraphRecording()
-        || piecewise.compile_capture_active;
+                          || piecewise.compile_capture_active;
 
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;

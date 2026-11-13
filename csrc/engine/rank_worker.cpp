@@ -1,7 +1,7 @@
 #include "rank_worker.hpp"
-#include "compiled_prefill_flags.hpp"
 #include "../global_state/decode_phase_profile.hpp"
 #include "../models/model_factory.hpp"
+#include "compiled_prefill_flags.hpp"
 #include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
@@ -473,9 +473,9 @@ void RankWorker::thread_loop() {
                             const bool has_bt = local_args.block_tables.has_value()
                                              && local_args.input_ids.has_value();
                             const bool uniform_decode = has_bt
-                                && local_args.block_tables.value()->size(0)
-                                       == local_args.input_ids.value()->size(1)
-                                && local_args.input_ids.value()->size(1) > 0;
+                                                     && local_args.block_tables.value()->size(0)
+                                                            == local_args.input_ids.value()->size(1)
+                                                     && local_args.input_ids.value()->size(1) > 0;
                             const double t_to0 = host_prof ? dpp::monotonic_ms() : 0.0;
                             auto model_input_cpu = local_args.to_model_input(
                                 infinicore::Device{infinicore::Device::Type::kCpu},
@@ -490,8 +490,7 @@ void RankWorker::thread_loop() {
                                 && general_compiler->native_piecewise_enabled()) {
                                 infinicore::context::InferencePhaseGuard phase_guard(
                                     infinicore::context::InferencePhase::Prefill);
-                                if (auto pw_logits =
-                                        general_compiler->run_native_piecewise_prefill(model_input_cpu)) {
+                                if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input_cpu)) {
                                     logits = *pw_logits;
                                     piecewise_ran = true;
                                     general_compiler->record_graph_hit(/*is_prefill=*/true);
@@ -543,15 +542,13 @@ void RankWorker::thread_loop() {
                         }
                         // Fall back to eager mode
                         if (!logits && !piecewise_ran) {
-                            auto &piecewise_eager =
-                                global_state::get_forward_context().piecewise;
+                            auto &piecewise_eager = global_state::get_forward_context().piecewise;
                             piecewise_eager.valid_seq_len = 0;
-                            piecewise_eager.phase =
-                                global_state::PiecewiseCapturePhase::None;
+                            piecewise_eager.phase = global_state::PiecewiseCapturePhase::None;
                             const bool looks_decode = local_args.block_tables.has_value()
-                                && local_args.input_ids.has_value()
-                                && local_args.block_tables.value()->size(0)
-                                       == local_args.input_ids.value()->size(1);
+                                                   && local_args.input_ids.has_value()
+                                                   && local_args.block_tables.value()->size(0)
+                                                          == local_args.input_ids.value()->size(1);
                             infinicore::context::InferencePhaseGuard phase_guard(
                                 looks_decode ? infinicore::context::InferencePhase::Decode
                                              : infinicore::context::InferencePhase::Prefill);

@@ -391,8 +391,7 @@ void Graph::instantiate() {
     // Decode FULL (vLLM splitting_ops=[]): one segment for the whole op list.
     // Do not split on capture_safe or prefers_own_device_segment — unsafe ops
     // (Send/Recv) stay inside that capture. Prefill / piecewise unchanged.
-    const bool decode_full =
-        context::getInferencePhase() == context::InferencePhase::Decode;
+    const bool decode_full = context::getInferencePhase() == context::InferencePhase::Decode;
 
     for (const auto &op : op_list_) {
         if (decode_full) {
@@ -408,9 +407,8 @@ void Graph::instantiate() {
         // Start a new segment when capture_safe flips, when this op wants its
         // own segment, or when the previous op already claimed a private one
         // (so MoE stays isolated without host-break / PiecewiseDecode).
-        const bool prev_own =
-            !segments_.empty() && !segments_.back()->ops.empty()
-            && segments_.back()->ops.back()->prefers_own_device_segment();
+        const bool prev_own = !segments_.empty() && !segments_.back()->ops.empty()
+                           && segments_.back()->ops.back()->prefers_own_device_segment();
         if (segments_.empty()
             || segments_.back()->capture_safe != capture_safe
             || own_seg

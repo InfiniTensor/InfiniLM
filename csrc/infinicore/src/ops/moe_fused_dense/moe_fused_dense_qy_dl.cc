@@ -35,16 +35,13 @@ struct FuseScratchPool {
 
     bool same_shape_key(const at::Tensor &like, int64_t topk_v, int64_t h_v,
                         int64_t inter_v) const {
-        return device_index == like.device().index() && dtype == like.scalar_type() &&
-               topk == topk_v && h == h_v && inter == inter_v;
+        return device_index == like.device().index() && dtype == like.scalar_type() && topk == topk_v && h == h_v && inter == inter_v;
     }
 
     void ensure(const at::Tensor &like, int64_t m_v, int64_t topk_v, int64_t h_v,
                 int64_t inter_v) {
         const int64_t inter2 = inter_v * 2;
-        if (cache1_storage.defined() && activated_storage.defined() &&
-            cache3_storage.defined() && same_shape_key(like, topk_v, h_v, inter_v) &&
-            capacity_m >= m_v) {
+        if (cache1_storage.defined() && activated_storage.defined() && cache3_storage.defined() && same_shape_key(like, topk_v, h_v, inter_v) && capacity_m >= m_v) {
             return;
         }
         if (infinicore::context::isGraphRecording()) {
@@ -57,8 +54,7 @@ struct FuseScratchPool {
             cache1_storage = at::empty({alloc_m, topk_v, inter2}, like.options());
         }
         {
-            activated_storage =
-                at::empty({alloc_m * topk_v, inter_v}, like.options());
+            activated_storage = at::empty({alloc_m * topk_v, inter_v}, like.options());
         }
         {
             cache3_storage = at::empty({alloc_m, topk_v, h_v}, like.options());
@@ -210,8 +206,7 @@ void run(void *planned_meta) {
         auto err = cudaGetLastError();
         if (err != cudaSuccess) {
             throw std::runtime_error(
-                std::string("QY moe_fused_dense silu launch: ") +
-                cudaGetErrorString(err));
+                std::string("QY moe_fused_dense silu launch: ") + cudaGetErrorString(err));
         }
     }
 
@@ -253,8 +248,7 @@ void run(void *planned_meta) {
         auto err = cudaGetLastError();
         if (err != cudaSuccess) {
             throw std::runtime_error(
-                std::string("QY moe_fused_dense combine launch: ") +
-                cudaGetErrorString(err));
+                std::string("QY moe_fused_dense combine launch: ") + cudaGetErrorString(err));
         }
     }
 }

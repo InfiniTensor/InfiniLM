@@ -82,8 +82,8 @@ private:
                                    const InfinilmModel::Input &runtime,
                                    size_t valid_seq_len) const;
     GraphCompiler::Compiled make_full_compiled_(const InfinilmModel::Input &input,
-                                 std::shared_ptr<infinicore::graph::Graph> graph,
-                                 const InfinilmModel::Output &output) const;
+                                                std::shared_ptr<infinicore::graph::Graph> graph,
+                                                const InfinilmModel::Output &output) const;
 
     std::shared_ptr<InfinilmModel> model_;
     RankBarrier *barrier_;

@@ -10,7 +10,9 @@ from infinilm.llm.sampling_params import SamplingParams
 from infinilm.llm.scheduler import Scheduler
 
 
-def _req(request_id: str, prompt_len: int, *, chunk_size: int = 4096) -> InferenceRequest:
+def _req(
+    request_id: str, prompt_len: int, *, chunk_size: int = 4096
+) -> InferenceRequest:
     req = InferenceRequest(
         request_id=request_id,
         prompt_token_ids=list(range(1, prompt_len + 1)),

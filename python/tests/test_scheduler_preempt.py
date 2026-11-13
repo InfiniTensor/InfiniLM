@@ -35,8 +35,8 @@ def _req(
 
 def _prime_kv_all_tokens(scheduler: Scheduler, req: InferenceRequest) -> None:
     tokens = req.get_all_token_ids()
-    req.block_table, req.slot_mapping, cached = (
-        scheduler.cache_manager.allocate_blocks(tokens, req.block_table)
+    req.block_table, req.slot_mapping, cached = scheduler.cache_manager.allocate_blocks(
+        tokens, req.block_table
     )
     req.num_blocks = len(req.block_table)
     req.num_local_cached_tokens = cached
@@ -170,9 +170,7 @@ class SchedulerPreemptTest(unittest.TestCase):
         self.assertEqual(victim.prefill_seq_len(), 6)
         self.scheduler.waiting_prepend(victim)
 
-        self.assertGreaterEqual(
-            self.scheduler.cache_manager.get_num_free_blocks(), 2
-        )
+        self.assertGreaterEqual(self.scheduler.cache_manager.get_num_free_blocks(), 2)
         self.assertTrue(self.scheduler.can_accept_request(victim))
 
         out = self.scheduler.schedule()

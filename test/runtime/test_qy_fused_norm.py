@@ -1,7 +1,8 @@
 """QY fused norm equivalence, strided aliasing, replay, and orderly teardown."""
-from concurrent.futures import ThreadPoolExecutor
+
 import ctypes
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 import infinicore as ic
 import torch
@@ -10,20 +11,22 @@ import torch
 class QyFusedNormTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        if ic.get_device_count('qy') == 0:
-            raise unittest.SkipTest('QY device required')
+        if ic.get_device_count("qy") == 0:
+            raise unittest.SkipTest("QY device required")
         cls.worker = ThreadPoolExecutor(max_workers=1)
         cls.bf16_mismatches = 0
         cls.bf16_elements = 0
-        cls.worker.submit(ic.set_device, 'qy:0').result()
+        cls.worker.submit(ic.set_device, "qy:0").result()
 
     @classmethod
     def tearDownClass(cls):
         cls.worker.submit(ic.cancel_graph_recording).result()
         cls.worker.submit(ic.sync_device).result()
-        cls.worker.submit(ic.set_device, 'cpu').result()
+        cls.worker.submit(ic.set_device, "cpu").result()
         cls.worker.shutdown(wait=True)
-        print(f'BF16 fused versus separate: {cls.bf16_mismatches}/{cls.bf16_elements} elements differ')
+        print(
+            f"BF16 fused versus separate: {cls.bf16_mismatches}/{cls.bf16_elements} elements differ"
+        )
 
     def check_case(self, tokens, dtype, strided, graph):
         torch.manual_seed(42)
@@ -34,13 +37,18 @@ class QyFusedNormTest(unittest.TestCase):
         width = 2056 if strided else 2048
         xstore = torch.full((tokens, width), -7, dtype=dtype)
         rstore = torch.full_like(xstore, -7)
+
         def owned(t):
-            return ic.from_torch(t).to('qy:0')
+            return ic.from_torch(t).to("qy:0")
 
         def read(t):
-            host = t.contiguous().to('cpu')
+            host = t.contiguous().to("cpu")
             result = torch.empty(tuple(t.shape), dtype=dtype)
-            ctypes.memmove(result.data_ptr(), host.data_ptr(), result.numel() * result.element_size())
+            ctypes.memmove(
+                result.data_ptr(),
+                host.data_ptr(),
+                result.numel() * result.element_size(),
+            )
             return result
 
         ixstore, irstore, iw = map(owned, (xstore, rstore, weight))
@@ -60,7 +68,11 @@ class QyFusedNormTest(unittest.TestCase):
             ir.copy_(owned(b))
             rounded = (x.float() + residual.float()).to(dtype)
             ref = rounded.float()
-            ref = (ref * torch.rsqrt(ref.square().mean(-1, keepdim=True) + 1e-6) * weight.float()).to(dtype)
+            ref = (
+                ref
+                * torch.rsqrt(ref.square().mean(-1, keepdim=True) + 1e-6)
+                * weight.float()
+            ).to(dtype)
             ic.sync_device()
             separate_sum = ic.empty_like(ix)
             separate_out = ic.empty_like(ix)
@@ -71,7 +83,9 @@ class QyFusedNormTest(unittest.TestCase):
             else:
                 graph_obj.run()
             ic.sync_device()
-            tol = {torch.bfloat16: .016, torch.float16: .002, torch.float32: 2e-5}[dtype]
+            tol = {torch.bfloat16: 0.016, torch.float16: 0.002, torch.float32: 2e-5}[
+                dtype
+            ]
             torch.testing.assert_close(read(ix), ref, rtol=tol, atol=tol)
             separate = read(separate_out)
             actual = read(ix)
@@ -89,9 +103,13 @@ class QyFusedNormTest(unittest.TestCase):
             for tokens in (1, 4, 512):
                 for strided in (False, True):
                     for graph in (False, True):
-                        with self.subTest(dtype=dtype, tokens=tokens, strided=strided, graph=graph):
-                            self.worker.submit(self.check_case, tokens, dtype, strided, graph).result()
+                        with self.subTest(
+                            dtype=dtype, tokens=tokens, strided=strided, graph=graph
+                        ):
+                            self.worker.submit(
+                                self.check_case, tokens, dtype, strided, graph
+                            ).result()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -363,9 +363,7 @@ def build_infiniccl_commands(
         )
     elif backend == "qy":
         qy_root = Path(
-            os.environ.get("QY_ROOT")
-            or os.environ.get("QY_HOME")
-            or "/usr/local/dlgpu"
+            os.environ.get("QY_ROOT") or os.environ.get("QY_HOME") or "/usr/local/dlgpu"
         )
         nccl_root = Path(
             os.environ.get("DENGLIN_NCCL_ROOT") or "/home/admin01/dlearning-soft/nccl"

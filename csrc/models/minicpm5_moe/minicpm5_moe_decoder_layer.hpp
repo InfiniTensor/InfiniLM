@@ -75,7 +75,6 @@ public:
                                        infinicore::Tensor &residual,
                                        global_state::PiecewiseLayerStaging &staging) const;
 
-
 protected:
     INFINICORE_NN_MODULE(MiniCPM5MoEAttention, self_attn);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);

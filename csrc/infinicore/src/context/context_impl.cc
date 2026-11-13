@@ -424,7 +424,10 @@ void warn_once_(bool &flag, const char *msg) {
     spdlog::warn("{}", msg);
 }
 
-enum class MoeIngraphMode : uint8_t { Off = 0, Decode, Prefill, Both };
+enum class MoeIngraphMode : uint8_t { Off = 0,
+                                      Decode,
+                                      Prefill,
+                                      Both };
 
 MoeIngraphMode moeIngraphMode_() {
     const char *raw = std::getenv("INFINI_MOE_INGRAPH");
@@ -465,7 +468,9 @@ MoeIngraphMode moeIngraphMode_() {
     return MoeIngraphMode::Off;
 }
 
-enum class FaIngraphMode : uint8_t { Off = 0, Decode, Both };
+enum class FaIngraphMode : uint8_t { Off = 0,
+                                     Decode,
+                                     Both };
 
 FaIngraphMode faIngraphMode_() {
     const char *raw = std::getenv("INFINI_FA_INGRAPH");

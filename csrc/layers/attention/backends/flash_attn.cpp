@@ -56,11 +56,11 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
         // Prefer batch max from metadata; never fall back to max_position_embeddings
         // (MiniCPM5=131072) which exceeds block_table capacity and breaks FA.
         int max_seqlen_q = attn_metadata.max_query_length > 0
-                               ? static_cast<int>(attn_metadata.max_query_length)
-                               : static_cast<int>(seq_len);
+                             ? static_cast<int>(attn_metadata.max_query_length)
+                             : static_cast<int>(seq_len);
         int max_seqlen_k = attn_metadata.max_sequence_length > 0
-                               ? static_cast<int>(attn_metadata.max_sequence_length)
-                               : max_seqlen_q;
+                             ? static_cast<int>(attn_metadata.max_sequence_length)
+                             : max_seqlen_q;
         if (block_tables.value()->ndim() >= 2) {
             const int table_cap = static_cast<int>(block_tables.value()->size(1) * 256);
             max_seqlen_k = std::min(max_seqlen_k, table_cap);

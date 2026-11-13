@@ -101,9 +101,9 @@ inline void set_attn_metadata_for_varlen_batch(const InfinilmModel::Input &compi
 
     auto &meta = infinilm::global_state::get_forward_context().attn_metadata;
     meta.past_sequence_lengths = compiled.past_sequence_lengths.has_value()
-                                     ? std::optional<infinicore::Tensor>(
-                                           compiled.past_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}}))
-                                     : std::nullopt;
+                                   ? std::optional<infinicore::Tensor>(
+                                         compiled.past_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}}))
+                                   : std::nullopt;
     meta.total_sequence_lengths = compiled.total_sequence_lengths.value()->narrow({{0, 0, runtime_n_req}});
     meta.input_offsets = compiled.input_offsets.value()->narrow({{0, 0, offset_len}});
     meta.cu_seqlens = compiled.cu_seqlens.value()->narrow({{0, 0, cu_len}});

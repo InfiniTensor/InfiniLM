@@ -217,9 +217,9 @@ void store_gate_score(infinicore::Tensor &gate_buf,
     const auto &gshape = g->shape();
 
     const bool need_alloc = !gate_buf || gate_buf->dtype() != g->dtype()
-        || gate_buf->device() != g->device()
-        || !same_trailing_dims_(gate_buf->shape(), gshape)
-        || gate_buf->shape()[0] < gshape[0];
+                         || gate_buf->device() != g->device()
+                         || !same_trailing_dims_(gate_buf->shape(), gshape)
+                         || gate_buf->shape()[0] < gshape[0];
 
     if (need_alloc) {
         if (recording) {
@@ -237,8 +237,8 @@ void store_gate_score(infinicore::Tensor &gate_buf,
     }
 
     const bool view_ok = gate_write_view && gate_write_view->shape() == gshape
-        && gate_write_view->dtype() == g->dtype()
-        && gate_write_view->device() == g->device();
+                      && gate_write_view->dtype() == g->dtype()
+                      && gate_write_view->device() == g->device();
     if (!view_ok) {
         if (recording) {
             throw std::runtime_error(
@@ -327,7 +327,7 @@ void MiniCPM5MoEAttention::forward_pre_attn_rope_piecewise(
     // Same address-stable contract as Attention::forward_pre_attn_rope_piecewise:
     // no alloc/rebind of position_ids / QK under recording; past/pad via contents.
     const bool addr_stable = infinicore::context::isGraphRecording()
-        || piecewise.compile_capture_active;
+                          || piecewise.compile_capture_active;
 
     auto pos_shape = position_ids->shape();
     infinicore::Tensor pos_ids_for_rope = position_ids;
@@ -399,9 +399,15 @@ void MiniCPM5MoEAttention::forward_eager_attn_piecewise(
     auto q = staging.q_rope->view({seq_len, num_attention_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto k = staging.k_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
     auto v = staging.v_rope->view({seq_len, num_key_value_heads_, head_dim_})->narrow({{0, 0, valid_len}});
-    if (!q->is_contiguous()) q = q->contiguous();
-    if (!k->is_contiguous()) k = k->contiguous();
-    if (!v->is_contiguous()) v = v->contiguous();
+    if (!q->is_contiguous()) {
+        q = q->contiguous();
+    }
+    if (!k->is_contiguous()) {
+        k = k->contiguous();
+    }
+    if (!v->is_contiguous()) {
+        v = v->contiguous();
+    }
 
     auto attn_output = attn_->forward(q, k, v);
     if (use_gated_attention_ && gate_score_cache_) {

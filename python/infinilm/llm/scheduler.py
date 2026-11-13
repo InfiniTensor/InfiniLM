@@ -95,10 +95,7 @@ class SchedulingBudget:
     def can_add(self, request_id: str, num_tokens: int) -> bool:
         if num_tokens <= 0:
             return False
-        if (
-            request_id not in self._scheduled_req_ids
-            and self.remaining_seqs() <= 0
-        ):
+        if request_id not in self._scheduled_req_ids and self.remaining_seqs() <= 0:
             return False
         return num_tokens <= self.remaining_tokens()
 
@@ -537,7 +534,6 @@ class Scheduler:
             return scheduler_output
 
         return None
-
 
     def _schedule_v1(self) -> Optional[SchedulerOutput]:
         return self._schedule_v1_mixed()
@@ -1058,8 +1054,10 @@ class Scheduler:
 
     @staticmethod
     def _prefill_is_final_chunk(req: InferenceRequest) -> bool:
-        if req.chunk_size > 0 and req.is_prefill and (
-            req.is_chunking() or req.chunk_prefill_offset > 0
+        if (
+            req.chunk_size > 0
+            and req.is_prefill
+            and (req.is_chunking() or req.chunk_prefill_offset > 0)
         ):
             return req.chunk_is_last()
         return True

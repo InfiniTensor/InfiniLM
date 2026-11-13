@@ -315,12 +315,8 @@ class LLMEngine:
         sampled_token_ids: list[int | list[int]],
     ) -> List[tuple]:
         """POST / non-row update path (optional legacy mid-chunk via request flags)."""
-        chunk_mid_step = (
-            len(requests) > 0
-            and all(
-                r.is_prefill and r.is_chunking() and not r.chunk_is_last()
-                for r in requests
-            )
+        chunk_mid_step = len(requests) > 0 and all(
+            r.is_prefill and r.is_chunking() and not r.chunk_is_last() for r in requests
         )
         if chunk_mid_step:
             for req in requests:
@@ -367,9 +363,7 @@ class LLMEngine:
         self.scheduler.commit_computed_tokens(req, pre_output_computed_tokens)
 
         if req.is_aborted():
-            logger.info(
-                f"Request {req.request_id} aborted by client, skipping update"
-            )
+            logger.info(f"Request {req.request_id} aborted by client, skipping update")
             # close() may have set _aborted=True without setting a terminal status
             # (status still RUNNING).
             if not req.is_finished():
@@ -377,8 +371,10 @@ class LLMEngine:
             return pending
 
         # Flatten accidental nested sample layouts (e.g. (B,1,1) → [[id]]).
-        while isinstance(token_ids, list) and len(token_ids) == 1 and isinstance(
-            token_ids[0], list
+        while (
+            isinstance(token_ids, list)
+            and len(token_ids) == 1
+            and isinstance(token_ids[0], list)
         ):
             token_ids = token_ids[0]
         if isinstance(token_ids, list):

@@ -1,6 +1,8 @@
 """Compile / CUDA-graph policy helpers."""
 
 from .env import (
+    CUDAGRAPH_POLICY_EAGER,
+    CUDAGRAPH_POLICY_FULL_AND_PIECEWISE,
     apply_cudagraph_policy_env,
     cudagraph_policy,
     long_prefill_threshold,
@@ -15,8 +17,6 @@ from .env import (
     schedule_no_mixed_enabled,
     schedule_preempt_enabled,
     v1_scheduler_enabled,
-    CUDAGRAPH_POLICY_EAGER,
-    CUDAGRAPH_POLICY_FULL_AND_PIECEWISE,
 )
 
 __all__ = [

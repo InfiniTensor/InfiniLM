@@ -64,12 +64,12 @@ public:
 
     static bool any_final_prefill_chunk(const std::vector<bool> &flags) {
         return flags.empty()
-               || std::any_of(flags.begin(), flags.end(), [](bool v) { return v; });
+            || std::any_of(flags.begin(), flags.end(), [](bool v) { return v; });
     }
 
     static bool has_nonfinal_prefill_chunk(const std::vector<bool> &flags) {
         return !flags.empty()
-               && std::any_of(flags.begin(), flags.end(), [](bool v) { return !v; });
+            && std::any_of(flags.begin(), flags.end(), [](bool v) { return !v; });
     }
 
     struct Output {
