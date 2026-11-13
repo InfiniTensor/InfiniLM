@@ -70,14 +70,22 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
     auto attn_output = infinilm::runtime::Tensor::empty(
         runtime, {seq_len, num_heads_, head_dim_}, query->dtype());
     if (is_prefill) {
+        const auto prefill_query = query->is_contiguous()
+                                     ? query
+                                     : query->contiguous(runtime);
+        const auto prefill_block_tables = block_tables.value()->is_contiguous()
+                                            ? block_tables.value()
+                                            : block_tables.value()->contiguous(runtime);
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
             infini::ops::Config::Automatic(),
-            query, k_total, v_total, input_offsets.value(), cu_seqlens.value(),
-            std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{block_tables.value()},
+            prefill_query, k_total, v_total, input_offsets.value(), cu_seqlens.value(),
+            std::optional<infinilm::runtime::Tensor>{},
+            std::optional<infinilm::runtime::Tensor>{prefill_block_tables},
             static_cast<int64_t>(attn_metadata.max_query_length), static_cast<int64_t>(attn_metadata.max_sequence_length),
             0.0, std::optional<double>{scale_}, true, layer.window_size(), 0.0, false, false,
-            attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
+            attn_output, std::optional<infinilm::runtime::Tensor>{},
+            std::optional<infinilm::runtime::Tensor>{});
         INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
     } else {
         // FA2 decode path: flash::mha_fwd_kvcache
@@ -94,8 +102,9 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
         const std::optional<infinilm::runtime::Tensor> kv_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
-            runtime, infinilm::execution::RecordingPolicy::DeviceOnly, kv_config,
-            q_for_fa, k_total, v_total, kv_none, kv_none, kv_none, kv_none,
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            kv_config, q_for_fa, k_total, v_total, kv_none, kv_none, kv_none,
+            kv_none,
             std::optional<infinilm::runtime::Tensor>{total_sequence_lengths.value()}, kv_none, kv_none,
             std::optional<infinilm::runtime::Tensor>{block_tables.value()}, kv_none,
             std::optional<double>{scale_}, true, kv_window, double{0.0}, true,
