@@ -618,6 +618,49 @@ class ChunkedPrefillBranchMatrixTest(unittest.TestCase):
         self.assertTrue(run_scheduler(s, reqs))
         self.assertEqual(blocks_held(s), 0)
 
+    def test_non_chunked_low_footprint_prefills_before_decode_slot(self):
+        s = make_scheduler(max_batch_size=4, num_blocks=64)
+        reqs = [make_request(f"r{i}", 8, max_tokens=8) for i in range(5)]
+        for r in reqs:
+            s.add_request(r)
+        phases = []
+        self.assertTrue(run_scheduler(s, reqs, phases=phases))
+        self.assertTrue(phases[0].startswith("P:r0,r1,r2,r3"))
+        self.assertTrue(phases[1].startswith("P:r4"))
+        self.assertEqual(s._paused_running_requests, [])
+
+    def test_non_chunked_long_output_keeps_running_cap(self):
+        s = make_scheduler(max_batch_size=4, num_blocks=64)
+        reqs = [make_request(f"r{i}", 16, max_tokens=32) for i in range(5)]
+        for r in reqs:
+            s.add_request(r)
+        phases = []
+        self.assertTrue(run_scheduler(s, reqs, phases=phases))
+        self.assertTrue(phases[0].startswith("P:r0,r1,r2,r3"))
+        self.assertTrue(phases[1].startswith("D:r0,r1,r2,r3"))
+        late_prefills = [
+            index for index, phase in enumerate(phases) if phase.startswith("P:r4")
+        ]
+        self.assertEqual(late_prefills, [reqs[0].sampling_params.max_tokens])
+
+    def test_non_chunked_prompt_heavy_keeps_running_cap(self):
+        s = make_scheduler(max_batch_size=16, num_blocks=128)
+        reqs = [make_request(f"r{i}", 64, max_tokens=8) for i in range(17)]
+        for r in reqs:
+            s.add_request(r)
+        phases = []
+        self.assertTrue(run_scheduler(s, reqs, phases=phases))
+        self.assertTrue(
+            phases[0].startswith("P:" + ",".join(f"r{i}" for i in range(16)))
+        )
+        self.assertTrue(
+            phases[1].startswith("D:" + ",".join(f"r{i}" for i in range(16)))
+        )
+        late_prefills = [
+            index for index, phase in enumerate(phases) if phase.startswith("P:r16")
+        ]
+        self.assertEqual(late_prefills, [reqs[0].sampling_params.max_tokens])
+
 
 if __name__ == "__main__":
     unittest.main()
