@@ -21,6 +21,7 @@ private:
     std::unique_ptr<::infinilm::execution::graph::GraphManager> graph_manager_;
 
     void releaseDeviceMemory(std::byte *ptr) noexcept;
+    void releaseDirectDeviceMemory(std::byte *ptr) noexcept;
     void syncStreamForCleanup() noexcept;
 
     Runtime(Device device);

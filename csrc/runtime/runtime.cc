@@ -219,6 +219,25 @@ void Runtime::releaseDeviceMemory(std::byte *ptr) noexcept {
     }
 }
 
+void Runtime::releaseDirectDeviceMemory(std::byte *ptr) noexcept {
+    infini::rt::DeviceGuard device_guard{device_.type(), device_.index()};
+    if (!device_guard.active() || ptr == nullptr) {
+        return;
+    }
+    try {
+        const auto status = infini::rt::runtime::StreamSynchronize(stream_);
+        warn_runtime_cleanup_failure("synchronizing direct device memory release", status);
+        if (status != infini::rt::runtime::kSuccess) {
+            return;
+        }
+        INFINILM_CHECK_ERROR(infini::rt::runtime::Free(ptr));
+    } catch (const std::exception &error) {
+        warn_runtime_cleanup_failure("releasing direct device memory", error.what());
+    } catch (...) {
+        warn_runtime_cleanup_failure("releasing direct device memory", "unknown error");
+    }
+}
+
 std::shared_ptr<Memory> Runtime::allocateMemory(size_t size) {
     infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
     auto runtime = shared_from_this();
@@ -227,7 +246,7 @@ std::shared_ptr<Memory> Runtime::allocateMemory(size_t size) {
         return std::make_shared<Memory>(
             data_ptr, size, device_,
             [runtime](std::byte *p) { runtime->releaseDeviceMemory(p); },
-            false, size > 0, runtime); // Zero allocations have no allocator block to pin.
+            false, size > 0, runtime);
     } catch (...) {
         runtime->device_memory_allocator_->deallocate(data_ptr);
         throw;
@@ -237,14 +256,16 @@ std::shared_ptr<Memory> Runtime::allocateMemory(size_t size) {
 std::shared_ptr<Memory> Runtime::allocateParameterMemory(size_t size) {
     infini::rt::DeviceGuard device_guard{device_.type(), device_.index(), true};
     auto runtime = shared_from_this();
-    std::byte *data_ptr = runtime->device_memory_allocator_->allocate_exact(size);
+    void *raw_ptr = nullptr;
+    INFINILM_CHECK_ERROR(infini::rt::runtime::Malloc(&raw_ptr, size));
+    auto data_ptr = static_cast<std::byte *>(raw_ptr);
     try {
         return std::make_shared<Memory>(
             data_ptr, size, device_,
-            [runtime](std::byte *p) { runtime->releaseDeviceMemory(p); },
-            false, true, runtime);
+            [runtime](std::byte *p) { runtime->releaseDirectDeviceMemory(p); },
+            false, false, runtime);
     } catch (...) {
-        runtime->device_memory_allocator_->deallocate(data_ptr);
+        INFINILM_CHECK_ERROR(infini::rt::runtime::Free(raw_ptr));
         throw;
     }
 }
