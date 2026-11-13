@@ -482,7 +482,8 @@ class Scheduler:
             waiting_to_inspect += 1
         while (
             waiting_to_inspect > 0
-            and len(scheduled_requests) < self.max_batch_size
+            and len(scheduled_requests) + self.running_queue.sync_q.qsize()
+            < self.max_batch_size
             and current_num_batched_tokens < self.max_num_batched_tokens
         ):
             waiting_to_inspect -= 1
@@ -581,7 +582,7 @@ class Scheduler:
                     num_local_computed_tokens,
                     current_prefill_extra_blocks,
                 ):
-                    logger.warning(
+                    logger.debug(
                         "Insufficient KV cache blocks for request %s, deferring.",
                         req.request_id,
                     )
