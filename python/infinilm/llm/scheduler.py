@@ -510,10 +510,28 @@ class Scheduler:
                 prompt_blocks = (
                     req.get_prompt_length() + self.block_size - 1
                 ) // self.block_size
+                prompt_heavy = prompt_blocks > 1
+                long_output = request_blocks > max(1, self.max_batch_size // 3)
+                if prompt_heavy:
+                    admission_target = self.max_batch_size
+                elif long_output:
+                    usable_blocks = (
+                        self.cache_manager.num_blocks
+                        - self._kv_admission_reserve_blocks
+                    )
+                    admission_target = min(
+                        self.max_batch_size + 4,
+                        max(
+                            self.max_batch_size,
+                            usable_blocks // request_blocks,
+                        ),
+                    )
+                else:
+                    admission_target = self.max_batch_size
+                admitted_requests = len(self._decode_priority) + len(scheduled_requests)
                 if (
-                    request_blocks > max(1, self.max_batch_size // 3)
-                    or prompt_blocks > 1
-                ):
+                    prompt_heavy or long_output
+                ) and admitted_requests >= admission_target:
                     deferred_requests.append(req)
                     break
 
@@ -981,9 +999,15 @@ class Scheduler:
                     # Keep device decode occupancy bounded. Extra prefilled
                     # requests retain their first token and KV pages while
                     # waiting for a running slot.
-                    if (
-                        self.chunked_prefill_size is None
-                        and self.running_queue.sync_q.qsize() >= self.max_batch_size
+                    # Queue size alone misses requests whose output completion
+                    # races with the next prefill batch. Admission priority is
+                    # stable, so requests beyond the first decode batch pause
+                    # even when the running queue is momentarily drained.
+                    decode_priority = self._decode_priority.get(req.request_id, None)
+                    if self.chunked_prefill_size is None and (
+                        self.running_queue.sync_q.qsize() >= self.max_batch_size
+                        or decode_priority is not None
+                        and decode_priority >= self.max_batch_size
                     ):
                         self._paused_running_requests.append(req)
                     else:

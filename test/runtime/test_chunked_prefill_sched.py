@@ -629,19 +629,22 @@ class ChunkedPrefillBranchMatrixTest(unittest.TestCase):
         self.assertTrue(phases[1].startswith("P:r4"))
         self.assertEqual(s._paused_running_requests, [])
 
-    def test_non_chunked_long_output_keeps_running_cap(self):
+    def test_non_chunked_long_output_prefetch_keeps_decode_batch(self):
         s = make_scheduler(max_batch_size=4, num_blocks=64)
-        reqs = [make_request(f"r{i}", 16, max_tokens=32) for i in range(5)]
+        reqs = [make_request(f"r{i}", 16, max_tokens=32) for i in range(9)]
         for r in reqs:
             s.add_request(r)
         phases = []
         self.assertTrue(run_scheduler(s, reqs, phases=phases))
         self.assertTrue(phases[0].startswith("P:r0,r1,r2,r3"))
-        self.assertTrue(phases[1].startswith("D:r0,r1,r2,r3"))
-        late_prefills = [
-            index for index, phase in enumerate(phases) if phase.startswith("P:r4")
+        self.assertTrue(phases[1].startswith("P:r4,r5,r6,r7"))
+        self.assertTrue(phases[2].startswith("D:r0,r1,r2,r3"))
+        decode_sizes = [
+            len(phase[2:].split(",")) for phase in phases if phase.startswith("D:")
         ]
-        self.assertEqual(late_prefills, [reqs[0].sampling_params.max_tokens])
+        self.assertTrue(decode_sizes)
+        self.assertLessEqual(max(decode_sizes), 4)
+        self.assertEqual(s._paused_running_requests, [])
 
     def test_non_chunked_prompt_heavy_keeps_running_cap(self):
         s = make_scheduler(max_batch_size=16, num_blocks=128)
