@@ -4,6 +4,9 @@
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -76,17 +79,53 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
 CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
                                      const MoeWeights &weights,
                                      MoeWorkspace &workspace) const {
-    auto runner_input = prepare_runner_input(
-        dispatch_output,
-        workspace);
+    // dl fused MoE materializes [M, topk, H] intermediates. A 7k-token
+    // prefill OOMs a 32GB KS38; vLLM chunks, but its 16k chunk is still too
+    // big here. Run ≤1024-token chunks on QY (graph capture stays one shot).
+    constexpr size_t kQyChunkTokens = 1024;
+    const auto &hidden = dispatch_output.hidden_states;
+    const size_t num_tokens = hidden ? hidden->shape()[0] : 0;
+    const bool chunk_qy = hidden
+                       && hidden->device().type() == infinicore::Device::Type::kQy
+                       && !infinicore::context::isGraphRecording()
+                       && num_tokens > kQyChunkTokens
+                       && hidden->shape().size() == 2;
+    if (!chunk_qy) {
+        auto runner_input = prepare_runner_input(dispatch_output, workspace);
+        auto runner_output = run_fused_core(runner_input, weights, workspace);
+        return CombineInput{
+            CombineInputFormat::Standard,
+            runner_output.hidden_states,
+            runner_input.topk_output,
+            runner_input.routing_metadata,
+        };
+    }
 
-    auto runner_output = run_fused_core(runner_input, weights, workspace);
+    ensure_tensor(
+        workspace.fused_moe_output,
+        hidden->shape(),
+        hidden->dtype(),
+        hidden->device());
+    workspace.fused_moe_output_tokens_capacity = num_tokens;
+    const auto &topk = dispatch_output.topk_output;
+    for (size_t begin = 0; begin < num_tokens; begin += kQyChunkTokens) {
+        const size_t rows = std::min(kQyChunkTokens, num_tokens - begin);
+        DispatchOutput slice = dispatch_output;
+        slice.hidden_states = hidden->narrow({{0, begin, rows}})->contiguous();
+        slice.topk_output.topk_weights = topk.topk_weights->narrow({{0, begin, rows}})->contiguous();
+        slice.topk_output.topk_ids = topk.topk_ids->narrow({{0, begin, rows}})->contiguous();
+        // Fresh align buffers so block_size recovered from numel matches this chunk.
+        MoeWorkspace chunk_workspace;
+        auto runner_input = prepare_runner_input(slice, chunk_workspace);
+        auto runner_output = run_fused_core(runner_input, weights, chunk_workspace);
+        workspace.fused_moe_output->narrow({{0, begin, rows}})->copy_from(runner_output.hidden_states);
+    }
 
     return CombineInput{
         CombineInputFormat::Standard,
-        runner_output.hidden_states,
-        runner_input.topk_output,
-        runner_input.routing_metadata,
+        workspace.fused_moe_output,
+        dispatch_output.topk_output,
+        MoeRoutingMetadata{},
     };
 }
 
@@ -97,16 +136,76 @@ CudaFusedMoeRunnerInput CudaFusedMoeRunner::prepare_runner_input(const DispatchO
     if (topk_shape.size() != 2) {
         throw std::runtime_error("MoE runner requires topk_ids to be a 2D tensor");
     }
-    const size_t num_pairs = topk_shape[0] * topk_shape[1];
+    const size_t num_tokens = topk_shape[0];
+    const size_t topk = topk_shape[1];
+    const size_t num_pairs = num_tokens * topk;
     const size_t block_size = align_block_size_;
-    const size_t align_num_experts = num_local_experts_ + 1;
-    const size_t max_num_tokens_padded = num_pairs < align_num_experts
-                                           ? num_pairs * block_size
-                                           : num_pairs + align_num_experts * (block_size - 1);
-    const size_t sorted_token_ids_capacity = ((max_num_tokens_padded + 3) / 4) * 4;
-    const size_t max_num_blocks = (max_num_tokens_padded + block_size - 1) / block_size;
+    const size_t num_experts = num_local_experts_;
+    // Match vLLM moe_align_block_size Denglin (is_dl) capacity — NOT the
+    // generic num_pairs + (E+1)*(block-1) bound. Oversized sorted/expert
+    // buffers with BLOCK_SIZE_M=64 trip Denglin tu_program.cc:625 / SIGSEGV
+    // even when align block_size matches tiles (repro: 18240/285 OK, 18336/287
+    // crash for M=512,E=160,block=64).
+    size_t max_num_tokens_padded = 0;
+    size_t max_num_blocks = 0;
+    if (block_size > 0) {
+        // vLLM DL: min(numel, (numel - E) // B + E); use unsigned-safe form.
+        const size_t dl_blocks = num_pairs > num_experts
+                                   ? std::min(num_pairs,
+                                              (num_pairs - num_experts) / block_size + num_experts)
+                                   : num_pairs;
+        max_num_blocks = dl_blocks;
+        max_num_tokens_padded = dl_blocks * block_size;
+    }
+    const size_t sorted_token_ids_capacity = max_num_tokens_padded;
     const auto device = topk_ids->device();
 
+    // Match vLLM fused_experts_impl use_moe_cu (unquantized): when
+    // M*top_k/E <= 16, skip moe_align_ and pass three size-1 int32 metadata
+    // tensors. That selects _invoke_fused_moe_bf16 / warpnk. Real align
+    // buffers (numel>1) select take_/store_. Prefill M=512 stays on align.
+    // Size-1 tensors are allocated before graph capture (ensure_tensor) and
+    // kept on separate workspace fields so decode FULL stays device_segments=1.
+    const bool use_moe_cu = num_experts > 0 && (static_cast<double>(num_tokens) * static_cast<double>(topk) / static_cast<double>(num_experts)) <= 16.0;
+
+    {
+        static bool logged_align = false;
+        if (!logged_align) {
+            logged_align = true;
+            std::cerr << "CudaFusedMoeRunner moe_align block_size=" << block_size
+                      << " num_local_experts=" << num_local_experts_
+                      << " num_tokens=" << num_tokens << " topk=" << topk
+                      << " use_moe_cu=" << (use_moe_cu ? 1 : 0)
+                      << " sorted_cap=" << sorted_token_ids_capacity
+                      << " expert_cap=" << max_num_blocks << std::endl;
+        }
+    }
+
+    if (use_moe_cu) {
+        ensure_tensor(workspace.moe_cu_sorted_token_ids,
+                      {1},
+                      infinicore::DataType::kInt32,
+                      device);
+        ensure_tensor(workspace.moe_cu_expert_ids,
+                      {1},
+                      infinicore::DataType::kInt32,
+                      device);
+        ensure_tensor(workspace.moe_cu_num_tokens_post_padded,
+                      {1},
+                      infinicore::DataType::kInt32,
+                      device);
+        return CudaFusedMoeRunnerInput{
+            dispatch_output.hidden_states,
+            dispatch_output.topk_output,
+            MoeRoutingMetadata{
+                workspace.moe_cu_sorted_token_ids,
+                workspace.moe_cu_expert_ids,
+                workspace.moe_cu_num_tokens_post_padded,
+            },
+        };
+    }
+
+    // Align block_size must equal moe_fused_dense block_size_m (TU segfault otherwise).
     if (!workspace.sorted_token_ids || workspace.sorted_token_ids_capacity < sorted_token_ids_capacity) {
         if (infinicore::context::isGraphRecording()) {
             throw std::runtime_error("MoE sorted_token_ids workspace was not initialized before graph capture");

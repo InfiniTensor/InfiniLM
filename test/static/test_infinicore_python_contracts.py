@@ -66,8 +66,7 @@ class InfiniCorePythonContractsTest(unittest.TestCase):
         config._torch_device_available = lambda name: False
         self.assertEqual(config.get_device_str("thead"), "thead")
         self.assertEqual(config.detect_device(), "thead")
-        with self.assertRaisesRegex(ValueError, "unsupported device platform 'qy'"):
-            config.get_device_str("qy")
+        self.assertEqual(config.get_device_str("qy"), "qy")
 
     def test_rope_wrapper_preserves_arguments_and_output_identity(self) -> None:
         calls = []

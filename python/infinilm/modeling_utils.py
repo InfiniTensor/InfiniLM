@@ -342,7 +342,10 @@ def load_model_state_dict_by_file(
             )
             already_loaded_keys.append(key)
 
-        model.load_state_dict(model_param_infini, strict=True)
+        # MiniCPM5 MoE registers packed w13/w2 views absent from HF `.bin`
+        # checkpoints; check_parameters filters those expected missing keys.
+        bin_strict = model_type not in ("minicpm5_moe",)
+        model.load_state_dict(model_param_infini, strict=bin_strict)
         infinicore.sync_device()
         del model_param_infini
         del model_params

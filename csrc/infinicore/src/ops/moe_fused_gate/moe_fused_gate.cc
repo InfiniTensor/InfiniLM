@@ -1,6 +1,7 @@
 #include "infinicore/ops/moe_fused_gate.hpp"
 
 #include "../../utils.hpp"
+#include "infinicore/context/context.hpp"
 
 namespace infinicore::op {
 
@@ -14,7 +15,9 @@ MoeFusedGate::MoeFusedGate(Tensor topk_weights,
                            const size_t topk_group,
                            const size_t num_fused_shared_experts,
                            const float routed_scaling_factor,
-                           const bool apply_routed_scaling_factor_on_output) {
+                           const bool apply_routed_scaling_factor_on_output)
+    : device_graph_capture_safe_(
+          context::moeDeviceGraphCaptureSafe(topk_weights->device().type())) {
     INFINICORE_ASSERT_TENSORS_SAME_DEVICE(topk_weights, topk_indices, input, bias);
     INFINICORE_GRAPH_OP_DISPATCH(
         topk_weights->device().type(),

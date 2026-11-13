@@ -267,7 +267,11 @@ class ModernInfiniCoreCompatibilityTest(unittest.TestCase):
             engine,
         )
         self.assertIn(
-            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, and Ascend devices",
+            "device_type != infinicore::Device::Type::kQy",
+            engine,
+        )
+        self.assertIn(
+            "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, Ascend, and QY devices",
             engine,
         )
         self.assertIn(

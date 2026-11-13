@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../../config/model_config.hpp"
+#include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_inductor_flags.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "infinicore/device.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
@@ -61,6 +64,73 @@ public:
     }
 
     size_t layer_idx() const { return layer_idx_; }
+
+    void piecewise_pre_attn(const infinicore::Tensor &positions,
+                            infinicore::Tensor &hidden_states,
+                            infinicore::Tensor &residual,
+                            global_state::PiecewiseLayerStaging &staging) const {
+        (void)global_state::piecewise_inductor_segment_enabled();
+        piecewise_pre_attn_qkv(positions, hidden_states, residual, staging);
+        piecewise_pre_attn_rope(positions, staging);
+    }
+
+    void piecewise_pre_attn_qkv(const infinicore::Tensor &positions,
+                                infinicore::Tensor &hidden_states,
+                                infinicore::Tensor &residual,
+                                global_state::PiecewiseLayerStaging &staging) const {
+        input_layernorm_->forward_inplace(hidden_states, residual);
+        self_attn_->forward_pre_attn_qkv_piecewise(positions, hidden_states, staging);
+    }
+
+    void piecewise_pre_attn_rope(const infinicore::Tensor &positions,
+                                 global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_pre_attn_rope_piecewise(positions, staging);
+    }
+
+    void piecewise_eager_attn(const infinicore::Tensor &positions,
+                              global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_eager_attn_piecewise(positions, staging);
+    }
+
+    void piecewise_post_attn(infinicore::Tensor &hidden_states,
+                             infinicore::Tensor &residual,
+                             global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_cg(infinicore::Tensor &hidden_states,
+                                infinicore::Tensor &residual,
+                                global_state::PiecewiseLayerStaging &staging) const {
+        self_attn_->forward_post_attn_piecewise_cg_into(hidden_states, staging);
+        post_attention_layernorm_->forward_inplace(hidden_states, residual);
+        auto mlp_out = mlp_->forward(hidden_states);
+        hidden_states->copy_from(mlp_out);
+    }
+
+    /// Dense MLP models capture the full post segment (no MoE break).
+    void piecewise_post_attn_decode_cg(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_eager_moe(infinicore::Tensor &,
+                             infinicore::Tensor &,
+                             global_state::PiecewiseLayerStaging &) const {}
+
+    void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual,
+                                   global_state::PiecewiseLayerStaging &staging) const {
+        // Without deferred allreduce split, reuse the fused CG post path.
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_allreduce(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const {
+        (void)residual;
+        self_attn_->forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+    }
 
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);

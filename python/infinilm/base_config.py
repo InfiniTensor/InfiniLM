@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import shutil
+import subprocess
 import warnings
 
 from infinilm.config.attention import resolve_attention_backend
@@ -201,7 +202,7 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
+                "device platform: auto, cpu, nvidia, qy, metax, moore, iluvatar, "
                 "cambricon, ascend, hygon, thead, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
@@ -524,10 +525,27 @@ class BaseConfig:
         env_checks = [
             ("metax", ["MACA_PATH", "MACA_HOME", "MACA_ROOT"]),
             ("hygon", ["DTK_HOME", "DTK_PATH"]),
+            ("qy", ["QY_ROOT", "QY_HOME", "QY_PATH"]),
         ]
         for device_name, env_names in env_checks:
             if any(os.getenv(env_name) for env_name in env_names):
                 return device_name
+
+        # QY exposes inventory via dlsmi; require a successful probe.
+        dlsmi = shutil.which("dlsmi")
+        if dlsmi:
+            try:
+                subprocess.run(
+                    [dlsmi],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=True,
+                    timeout=2,
+                )
+            except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                pass
+            else:
+                return "qy"
 
         command_checks = [
             ("cambricon", ["cnmon"]),
@@ -557,6 +575,8 @@ class BaseConfig:
             "musa": "musa",
             "npu": "npu",
             "nvidia": "cuda",
+            # Keep InfiniCore device as `qy` (kQy); torch tensors still use CUDA.
+            "qy": "qy",
             "cambricon": "mlu",
             "ascend": "npu",
             "metax": "metax",

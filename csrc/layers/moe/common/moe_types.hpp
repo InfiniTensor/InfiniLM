@@ -73,6 +73,11 @@ struct MoeWorkspace {
     infinicore::Tensor sorted_token_ids;
     infinicore::Tensor expert_ids;
     infinicore::Tensor num_tokens_post_padded;
+    // Size-1 metadata for vLLM use_moe_cu (avg tokens/expert <= 16) decode path;
+    // kept separate so prefill align buffers (large sorted/expert) stay graph-stable.
+    infinicore::Tensor moe_cu_sorted_token_ids;
+    infinicore::Tensor moe_cu_expert_ids;
+    infinicore::Tensor moe_cu_num_tokens_post_padded;
     infinicore::Tensor expert_offsets;
     infinicore::Tensor blockscale_offsets;
     infinicore::Tensor problem_sizes1;

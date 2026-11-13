@@ -1,11 +1,52 @@
 #include "rank_worker.hpp"
+#include "../global_state/decode_phase_profile.hpp"
 #include "../models/model_factory.hpp"
+#include "compiled_prefill_flags.hpp"
+#include "infinicore/context/context.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/distributed/send_recv.hpp"
+#include <cstdlib>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
+#include <string>
 
 namespace infinilm::engine {
+namespace {
+
+/// Opt-in: skip redundant syncStream after sample output_ids D2H.
+/// memcpyD2H already StreamSynchronize's; under SKIP_TAIL_SYNC the decode
+/// Graph::run leaves work ordered on the same stream until that D2H drain.
+/// Default off. Prefill Gate C unchanged.
+bool decode_coalesce_sample_sync_enabled() {
+    static const bool enabled = [] {
+        const char *raw = std::getenv("INFINI_DECODE_COALESCE_SAMPLE_SYNC");
+        if (raw == nullptr || raw[0] == '\0') {
+            return false;
+        }
+        return raw[0] != '0';
+    }();
+    return enabled;
+}
+
+void sync_stream_after_sample_d2h() {
+    if (decode_coalesce_sample_sync_enabled()) {
+        return;
+    }
+    infinicore::context::syncStream();
+}
+
+/// When set with INFINI_DECODE_HOST_PROFILE, syncDevice after Graph::run so
+/// graph_run_ms is exclusive GPU+host (heavier; measure-arm second pass).
+bool decode_host_profile_sync() {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *raw = std::getenv("INFINI_RANK_WORKER_PROFILE_SYNC");
+        cached = (raw != nullptr && raw[0] == '1' && raw[1] == '\0') ? 1 : 0;
+    }
+    return cached == 1;
+}
+
+} // namespace
 
 RankWorker::RankWorker(
     std::shared_ptr<infinilm::global_state::InfinilmConfig> infinilm_config,
@@ -416,24 +457,101 @@ void RankWorker::thread_loop() {
                     {
                         std::lock_guard<std::mutex> lk(mutex_);
 
+                        namespace dpp = infinilm::global_state::decode_phase_profile;
+                        const bool host_prof = dpp::enabled();
+                        const double t_step0 = host_prof ? dpp::monotonic_ms() : 0.0;
+                        dpp::HostStep host_step{};
+                        bool host_step_valid = false;
+
                         infinicore::Tensor logits;
                         infinicore::Tensor hidden_states;
+                        bool piecewise_ran = false;
                         // Packed all-position runs do not match the one-token-per-request
                         // output shape captured by the compiled decode graphs.
                         if (!local_args.sample_all_positions && compiler_ != nullptr && rank_info_.pp_size == 1) {
-                            auto [graph, output] = compiler_->get_compiled(
-                                local_args.to_model_input(
-                                    infinicore::Device{infinicore::Device::Type::kCpu},
-                                    false,
-                                    true));
-                            if (graph != nullptr && output != nullptr) {
-                                graph->run();
-                                logits = output->logits;
-                                hidden_states = output->hidden_states;
+                            auto *general_compiler = dynamic_cast<GeneralCompiler *>(compiler_.get());
+                            const bool has_bt = local_args.block_tables.has_value()
+                                             && local_args.input_ids.has_value();
+                            const bool uniform_decode = has_bt
+                                                     && local_args.block_tables.value()->size(0)
+                                                            == local_args.input_ids.value()->size(1)
+                                                     && local_args.input_ids.value()->size(1) > 0;
+                            const double t_to0 = host_prof ? dpp::monotonic_ms() : 0.0;
+                            auto model_input_cpu = local_args.to_model_input(
+                                infinicore::Device{infinicore::Device::Type::kCpu},
+                                false,
+                                true);
+                            if (host_prof) {
+                                host_step.to_model_ms = dpp::monotonic_ms() - t_to0;
+                            }
+
+                            // F&P native piecewise prefill (FA host-break segments).
+                            if (!uniform_decode && general_compiler != nullptr
+                                && general_compiler->native_piecewise_enabled()) {
+                                infinicore::context::InferencePhaseGuard phase_guard(
+                                    infinicore::context::InferencePhase::Prefill);
+                                if (auto pw_logits = general_compiler->run_native_piecewise_prefill(model_input_cpu)) {
+                                    logits = *pw_logits;
+                                    piecewise_ran = true;
+                                    general_compiler->record_graph_hit(/*is_prefill=*/true);
+                                } else if (general_compiler->native_piecewise_last_prefill_executed()) {
+                                    piecewise_ran = true;
+                                } else {
+                                    general_compiler->record_graph_miss(/*is_prefill=*/true);
+                                }
+                            }
+
+                            // FULL decode: FA in-graph under FA_INGRAPH=decode.
+                            if (!logits && !piecewise_ran && uniform_decode) {
+                                const double t_gc0 = host_prof ? dpp::monotonic_ms() : 0.0;
+                                auto [graph, output] = compiler_->get_compiled(model_input_cpu);
+                                if (host_prof) {
+                                    host_step.get_compiled_ms = dpp::monotonic_ms() - t_gc0;
+                                    const auto &split = dpp::last_get_compiled_split();
+                                    host_step.bank_h2d_ms = split.bank_h2d_ms;
+                                    host_step.reset_runtime_ms = split.reset_runtime_ms;
+                                }
+                                if (graph != nullptr && output != nullptr) {
+                                    infinicore::context::InferencePhaseGuard phase_guard(
+                                        infinicore::context::InferencePhase::Decode);
+                                    const double t_run0 = host_prof ? dpp::monotonic_ms() : 0.0;
+                                    graph->run();
+                                    if (host_prof && decode_host_profile_sync()) {
+                                        infinicore::context::syncDevice();
+                                    }
+                                    if (host_prof) {
+                                        host_step.graph_run_ms = dpp::monotonic_ms() - t_run0;
+                                        const auto &rp = graph->last_run_profile();
+                                        host_step.launch_ms = rp.launch_ms;
+                                        host_step.hostop_ms = rp.hostop_ms;
+                                        host_step.op_list_ms = rp.op_list_ms;
+                                        host_step.tail_sync_ms = rp.tail_sync_ms;
+                                        host_step.skipped_tail_sync = rp.skipped_tail_sync;
+                                        host_step.device_segment_count = graph->device_segment_count();
+                                        host_step_valid = true;
+                                    }
+                                    logits = output->logits;
+                                    hidden_states = output->hidden_states;
+                                    if (general_compiler != nullptr) {
+                                        general_compiler->record_graph_hit(/*is_prefill=*/false);
+                                    }
+                                } else if (general_compiler != nullptr) {
+                                    general_compiler->record_graph_miss(/*is_prefill=*/false);
+                                }
                             }
                         }
                         // Fall back to eager mode
-                        if (!logits) {
+                        if (!logits && !piecewise_ran) {
+                            auto &piecewise_eager = global_state::get_forward_context().piecewise;
+                            piecewise_eager.valid_seq_len = 0;
+                            piecewise_eager.phase = global_state::PiecewiseCapturePhase::None;
+                            const bool looks_decode = local_args.block_tables.has_value()
+                                                   && local_args.input_ids.has_value()
+                                                   && local_args.block_tables.value()->size(0)
+                                                          == local_args.input_ids.value()->size(1);
+                            infinicore::context::InferencePhaseGuard phase_guard(
+                                looks_decode ? infinicore::context::InferencePhase::Decode
+                                             : infinicore::context::InferencePhase::Prefill);
                             auto model_args = local_args.to_model_input(
                                 rank_info_.device,
                                 attention_backend_ == backends::AttentionBackend::STATIC_ATTN);
@@ -460,7 +578,7 @@ void RankWorker::thread_loop() {
                                     (rank_info_.pp_size - 1) * rank_info_.tp_size,
                                     rank_info_.world_comm);
                                 output_ids = output_ids->to(infinicore::Device{infinicore::Device::Type::kCpu});
-                                infinicore::context::syncStream();
+                                sync_stream_after_sample_d2h();
                             }
                             output_ = Output{
                                 output_ids,
@@ -493,7 +611,10 @@ void RankWorker::thread_loop() {
 
                             const bool parameter_greedy = top_p == 0.0f || top_k == 1 || temperature == 0.0f;
                             const auto logits_dtype = logits->dtype();
-                            const bool batch_greedy = rank_info_.device.type() == infinicore::Device::Type::kNvidia
+                            // random_sample_ handles QY's flattened-only Argmax
+                            // with per-row reductions for batched logits.
+                            const bool batch_greedy = (rank_info_.device.type() == infinicore::Device::Type::kNvidia
+                                                       || rank_info_.device.type() == infinicore::Device::Type::kQy)
                                                    && parameter_greedy
                                                    && n_out > 0
                                                    && logits_positions == n_out
@@ -502,6 +623,7 @@ void RankWorker::thread_loop() {
                                                        || logits_dtype == infinicore::DataType::kBFloat16
                                                        || logits_dtype == infinicore::DataType::kFloat32)
                                                    && (sample_all_positions || logits_are_last_token_only);
+                            const double t_sample0 = host_prof && host_step_valid ? dpp::monotonic_ms() : 0.0;
                             if (batch_greedy) {
                                 float random_val = 0.0f;
                                 for (size_t i{0}; i < n_out; ++i) {
@@ -527,6 +649,9 @@ void RankWorker::thread_loop() {
                                         out, score, random_val, top_p, top_k, temperature);
                                 }
                             }
+                            if (host_prof && host_step_valid) {
+                                host_step.sample_ms = dpp::monotonic_ms() - t_sample0;
+                            }
 
                             if (rank_info_.pp_size > 1) {
                                 infinicore::op::distributed::send(
@@ -535,9 +660,19 @@ void RankWorker::thread_loop() {
                                     rank_info_.world_comm);
                             }
 
+                            const double t_d2h0 = host_prof && host_step_valid ? dpp::monotonic_ms() : 0.0;
                             output_ids = output_ids->to(infinicore::Device{infinicore::Device::Type::kCpu});
 
-                            infinicore::context::syncStream();
+                            // D2H already StreamSynchronize's; optional coalesce
+                            // drops this second host fence (INFINI_DECODE_COALESCE_SAMPLE_SYNC=1).
+                            sync_stream_after_sample_d2h();
+                            if (host_prof && host_step_valid) {
+                                host_step.d2h_ms = dpp::monotonic_ms() - t_d2h0;
+                                host_step.step_ms = dpp::monotonic_ms() - t_step0;
+                                dpp::record_host_step(
+                                    host_step,
+                                    /*log_rank0=*/rank_info_.tp_rank == 0 && rank_info_.pp_stage == 0);
+                            }
 
                             auto out{Output{output_ids, logits, hidden_states}};
 

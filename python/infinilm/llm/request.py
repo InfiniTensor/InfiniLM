@@ -186,6 +186,7 @@ class InferenceRequest:
         self._generated_token_ids: List[int] = []
         self._generated_token_ids_view = _SequenceView(self._generated_token_ids)
         self.generated_text: str = ""  # generated_text == tokenizer.decode(generated_token_ids[:_token_decode_offset])
+        self.is_prefill: bool = True
         self.status: RequestStatus = RequestStatus.WAITING
         self.finish_reason: Optional[FinishReason] = None
 
@@ -205,6 +206,13 @@ class InferenceRequest:
         self._hash_tail_token_ids: List[int] = []
         # Number of leading full blocks published to the prefix-cache index.
         self.num_cache_indexed_blocks: int = 0
+
+        # Chunked-prefill state (0 = disabled, otherwise tokens per chunk / step budget)
+        self.chunk_size: int = 0
+        # Prompt(+recompute) tokens already fed through forward as chunked-prefill
+        self.chunk_prefill_offset: int = 0
+        # RECOMPUTE preemption count; stream/generated state is kept.
+        self.num_preemptions: int = 0
 
         # Mamba cache management. None means no mamba cache row is currently owned.
         self.mamba_cache_index: Optional[int] = None
@@ -241,15 +249,94 @@ class InferenceRequest:
     def generated_token_ids(self) -> Sequence[int]:
         return self._generated_token_ids_view
 
+    @generated_token_ids.setter
+    def generated_token_ids(self, token_ids: Sequence[int]) -> None:
+        """Replace generated tokens (tests / helpers). Prefer append_generated_token_id."""
+        self._generated_token_ids.clear()
+        self._generated_token_ids.extend(int(t) for t in token_ids)
+
     @property
     def block_hashes(self) -> Sequence[BlockHash]:
         return self._block_hashes_view
+
+    @property
+    def num_cached_tokens(self) -> int:
+        """Alias of ``num_local_cached_tokens`` (Aug CB / pack helpers)."""
+        return self.num_local_cached_tokens
+
+    @num_cached_tokens.setter
+    def num_cached_tokens(self, value: int) -> None:
+        self.num_local_cached_tokens = int(value)
 
     def get_prompt_length(self) -> int:
         return self.prompt_length
 
     def get_input_tokens(self) -> Sequence[int]:
         return self._prompt_token_ids
+
+    def tokens_for_kv_recompute(self) -> List[int]:
+        """Full token sequence needed to rebuild KV after RECOMPUTE preemption."""
+        return list(self._prompt_token_ids) + list(self._generated_token_ids)
+
+    def get_prefill_tokens(self) -> List[int]:
+        """Tokens to feed during the current prefill (prompt+generated after RECOMPUTE)."""
+        if self.is_prefill and self.num_preemptions > 0:
+            return self.tokens_for_kv_recompute()
+        return list(self._prompt_token_ids)
+
+    def prefill_seq_len(self) -> int:
+        """Sequence length that must be computed during the current prefill."""
+        if self.is_prefill and self.num_preemptions > 0:
+            return self.prompt_length + len(self._generated_token_ids)
+        return self.prompt_length
+
+    def prepare_for_recompute(self, chunk_size: int) -> None:
+        """Reset compute/KV state for RECOMPUTE while keeping streamed output.
+
+        Does **not** call ``mark_canceled`` (that would close client streams).
+        Keeps generated tokens/text and ``_text_output_offset`` so resume does
+        not re-emit prefixes. Preserves WAITING (not WAITING_FOR_REMOTE_KVS).
+        """
+        self.is_prefill = True
+        self.status = RequestStatus.WAITING
+        self.finish_reason = None
+        self.finished_time = None
+
+        self.block_table = []
+        self.slot_mapping = []
+        self.num_local_cached_tokens = 0
+        self.num_computed_tokens = 0
+        self.num_blocks = 0
+        self.num_cache_indexed_blocks = 0
+
+        self.chunk_prefill_offset = 0
+        self.chunk_size = chunk_size
+        self.num_preemptions += 1
+
+    def prefill_debt(self) -> int:
+        """Prefill tokens still to compute (0 when decoding).
+
+        Uses ``num_computed_tokens`` / ``chunk_prefill_offset`` as the progress
+        cursor (POST field), not Aug's property overlay.
+        """
+        if not self.is_prefill:
+            return 0
+        seq_len = self.prefill_seq_len()
+        if self.chunk_size > 0 and self.chunk_prefill_offset > 0:
+            return max(0, seq_len - self.chunk_prefill_offset)
+        return max(0, seq_len - self.num_computed_tokens)
+
+    def is_chunking(self) -> bool:
+        """Return True if this request uses multi-step chunked prefill."""
+        if self.chunk_size <= 0 or not self.is_prefill:
+            return False
+        remaining = self.prefill_seq_len() - self.num_computed_tokens
+        return remaining > self.chunk_size
+
+    def chunk_is_last(self) -> bool:
+        """Return True if the next chunk would finish the prefill sequence."""
+        remaining = self.prefill_seq_len() - self.chunk_prefill_offset
+        return remaining <= self.chunk_size
 
     def get_num_generated_tokens(self) -> int:
         return len(self._generated_token_ids)
