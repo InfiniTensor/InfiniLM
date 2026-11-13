@@ -181,12 +181,12 @@ def from_torch(torch_tensor, *, device=None):
         )
 
     index = 0 if owner.device.index is None else owner.device.index
-    _cuda_compat = ("cuda", "qy", "metax", "iluvatar", "hygon", "thead")
+    _cuda_compat = ("cuda", "qy", "metax", "mars", "iluvatar", "hygon", "thead")
 
     if device is None:
         if owner.device.type == "cuda":
             current = get_device()
-            if current.type in ("qy", "thead", "hygon", "iluvatar", "metax"):
+            if current.type in ("qy", "thead", "hygon", "iluvatar", "metax", "mars"):
                 target = Device(current.type, index)
             elif current.type in ("cpu", "cuda"):
                 target = Device("nvidia", index)

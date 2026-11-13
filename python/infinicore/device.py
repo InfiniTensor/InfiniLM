@@ -11,6 +11,7 @@ _TYPE_ALIASES = {
     "ascend": (_infinicore.Device.Type.ASCEND, "npu"),
     "npu": (_infinicore.Device.Type.ASCEND, "npu"),
     "metax": (_infinicore.Device.Type.METAX, "metax"),
+    "mars": (_infinicore.Device.Type.MARS, "mars"),
     "moore": (_infinicore.Device.Type.MOORE, "musa"),
     "musa": (_infinicore.Device.Type.MOORE, "musa"),
     "iluvatar": (_infinicore.Device.Type.ILUVATAR, "iluvatar"),

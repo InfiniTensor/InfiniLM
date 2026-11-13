@@ -20,6 +20,15 @@ local MUSA_ROOT =
     or "/usr/local/musa"
 local OPERATOR_CALLS_HEADER = INFINI_ROOT .. "/include/infini/operator_call_instantiations.h"
 
+local HPCC_PATH = os.getenv("HPCC_PATH") or "/opt/hpcc"
+local MARS_SDK_PRESENT = os.getenv("HPCC_PATH") or os.isdir(HPCC_PATH .. "/include")
+if os.isdir(HPCC_PATH .. "/include") then
+    add_includedirs(HPCC_PATH .. "/include")
+end
+if os.isdir(HPCC_PATH .. "/tools/cu-bridge/include") then
+    add_includedirs(HPCC_PATH .. "/tools/cu-bridge/include")
+end
+
 set_toolchains("gcc")
 
 -- A mode name alone does not enable compiler optimization in xmake.
@@ -90,6 +99,9 @@ target("infinicore_runtime")
     if QY_SDK_PRESENT then
         add_defines("ENABLE_QY_API", "ENABLE_ATEN")
     end
+    if MARS_SDK_PRESENT and not QY_SDK_PRESENT then
+        add_defines("ENABLE_MARS_API", "ENABLE_ATEN")
+    end
 
     if not is_plat("windows") then
         add_cxflags("-fPIC")
@@ -108,7 +120,10 @@ target("infinicore_runtime")
         add_rpathdirs("@loader_path")
     end
     add_links("infiniops", "infiniccl", "infinirt", { public = true })
-    add_links("infinilm_metax_extra", { public = true })
+    -- MetaX-only helper; skip on Mars/HPCC hosts.
+    if not MARS_SDK_PRESENT or os.getenv("MACA_PATH") then
+        add_links("infinilm_metax_extra", { public = true })
+    end
 
     add_files("csrc/infinicore/src/*.cc")
     add_files("csrc/infinicore/src/adaptor/*.cc")
@@ -126,8 +141,38 @@ target("infinicore_runtime")
     remove_files("csrc/infinicore/src/ops/*/*_flashattn.cc")
     remove_files("csrc/infinicore/src/ops/*/*_hygon.cc")
     remove_files("csrc/infinicore/src/ops/*/*_moore.cc")
+    if MARS_SDK_PRESENT and not os.getenv("MACA_PATH") then
+        remove_files("csrc/infinicore/src/ops/*/*_metax.cc")
+        remove_files("csrc/infinicore/src/ops/*/*_metax.maca")
+    end
 
     on_load(function (target)
+        if MARS_SDK_PRESENT and not QY_SDK_PRESENT then
+            local python = os.getenv("PYTHON") or "python3"
+            local torch_dir = try {
+                function ()
+                    return os.iorunv(python, {"-c", "import torch, os; print(os.path.dirname(torch.__file__))"}):trim()
+                end
+            }
+            if torch_dir and torch_dir ~= "" then
+                target:add("includedirs",
+                    path.join(torch_dir, "include"),
+                    path.join(torch_dir, "include/torch/csrc/api/include"),
+                    { public = true })
+                target:add("linkdirs", path.join(torch_dir, "lib"), { public = true })
+                target:add("rpathdirs", path.join(torch_dir, "lib"))
+                target:add("links",
+                    "torch", "torch_cpu", "torch_cuda", "torch_python",
+                    "c10", "c10_cuda",
+                    { public = true })
+            end
+            if os.isdir(HPCC_PATH .. "/include") then
+                target:add("includedirs", HPCC_PATH .. "/include", { public = true })
+            end
+            if os.isdir(HPCC_PATH .. "/lib") then
+                target:add("linkdirs", HPCC_PATH .. "/lib", { public = true })
+            end
+        end
         if QY_SDK_PRESENT then
             local python = os.getenv("PYTHON") or "python3"
             local torch_dir = try {

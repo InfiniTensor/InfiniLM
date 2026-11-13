@@ -205,6 +205,7 @@ class ModelRunner:
             "thead",
             "iluvatar",
             "metax",
+            "mars",
             "mlu",
             "musa",
             "npu",
