@@ -168,6 +168,10 @@ void PagedCompiler::compile() {
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
     if (paged_config != nullptr) {
+        // Release reusable staging blocks left by dense weight post-processing
+        // before graph capture; per-weight trims serialize too many device
+        // frees across TP ranks.
+        runtime_.trimMemory();
         compiled_short_decode_b1_.reset();
         compiled_map_decode_.clear();
         block_tables_holder_.reset();
