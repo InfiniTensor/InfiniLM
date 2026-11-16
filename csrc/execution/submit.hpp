@@ -4,6 +4,7 @@
 #include "runtime/runtime.hpp"
 #include <infini/ops.h>
 #include <infini/rt/device_guard.h>
+#include <tuning.h>
 
 #include <memory>
 #include <optional>
@@ -134,6 +135,14 @@ auto snapshot(infinilm::runtime::Runtime &runtime, const std::vector<T> &tensors
 }
 
 } // namespace detail
+
+template <class OpsKey>
+infini::ops::Config implicit_config(infinilm::runtime::Device::Type device_type) {
+    if (infini::ops::TuningManager::Instance().IsEnabled()) {
+        return infini::ops::Config{};
+    }
+    return OpsKey::DefaultConfig(device_type);
+}
 
 // This boundary owns submission resources only. Callers allocate outputs and
 // supply the exact public Ops arguments/configuration; Ops owns computation.
