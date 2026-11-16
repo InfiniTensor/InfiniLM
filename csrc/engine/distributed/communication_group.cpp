@@ -321,7 +321,8 @@ void allgather_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, output, input, false,
+    submitCollective(runtime, output, input,
+                     runtime.device().type() == infinilm::runtime::Device::Type::kHygon,
                      [count, dtype, communicator](const void *src, void *dst, void *stream) {
                          return infinicclAllGather(src, dst, count, dtype, communicator, stream);
                      });
