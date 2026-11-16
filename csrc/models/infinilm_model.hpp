@@ -7,6 +7,7 @@
 #include "../layers/quantization/w4_model_plan.hpp"
 #include "../weights/weights.hpp"
 #include "runtime/tensor.hpp"
+#include "execution/graph/graph.hpp"
 
 #include <optional>
 #include <vector>
@@ -74,6 +75,7 @@ public:
         infinilm::runtime::Tensor logits;
         /// Optional final hidden states, used by MTP/Eagle draft models.
         infinilm::runtime::Tensor hidden_states;
+        std::optional<execution::graph::Graph::ExecutionReport> model_graph_execution;
     };
 
     virtual ~InfinilmModel() = default;
@@ -95,6 +97,8 @@ public:
     // ordinary ForwardContext KV caches. Recurrent/vision/MLA models must
     // provide their own write-set contract before graph preparation is enabled.
     virtual bool supports_kv_only_prepare() const { return false; }
+    // Stateful models can own their decode plans and retain their full write set.
+    virtual bool owns_paged_decode_graph() const { return false; }
 
     void process_weights_after_loading(infinilm::runtime::Runtime &runtime, bool pre_transpose) override;
     // Validation consumes worker-owned values; no implicit rank/config snapshot.

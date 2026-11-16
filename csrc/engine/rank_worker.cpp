@@ -929,7 +929,15 @@ void RankWorker::thread_loop() {
                                         effective_args.input_offsets, local_args.cu_seqlens,
                                         effective_args.block_tables, local_args.slot_mapping);
                                 }
+                                forward_context_.model_decode_barrier =
+                                    enable_graph_compiling_ && !local_args.sample_all_positions &&
+                                            rank_info_.pp_size == 1 && model_->owns_paged_decode_graph()
+                                        ? barrier_
+                                        : nullptr;
                                 auto model_output = model_->forward(model_args, forward_context_);
+                                if (model_output.model_graph_execution) {
+                                    graph_execution = std::move(model_output.model_graph_execution);
+                                }
                                 logits = model_output.logits;
                                 hidden_states = model_output.hidden_states;
                             }

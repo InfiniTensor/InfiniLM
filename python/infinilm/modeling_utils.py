@@ -329,6 +329,7 @@ def load_model_state_dict_by_file(
                 _remap_qwen3_5,
                 _remap_qwen3_5_moe,
                 _remap_kimi_k3,
+                _remap_deepseek_v4,
             )
             or (
                 remapper is _remap_baichuan
@@ -1328,6 +1329,28 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+def _remap_deepseek_v4(state_dict, config=None):
+    """Map V4 target weights while preserving checkpoint storage and dtype."""
+    remapped = {}
+    aliases = {
+        "embed.weight": "model.embed_tokens.weight",
+        "head.weight": "lm_head.weight",
+        "norm.weight": "model.norm.weight",
+    }
+    for name, tensor in state_dict.items():
+        if name.startswith("mtp."):
+            continue
+        target = aliases.get(name, name)
+        if name.startswith(("layers.", "hc_head_")):
+            target = "model." + name
+        if target.endswith(".scale"):
+            target = target.removesuffix(".scale") + ".weight_scale"
+        if target in remapped:
+            raise ValueError(f"DeepSeek V4 checkpoint alias collision: {target}")
+        remapped[target] = tensor
+    return remapped
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1339,4 +1362,5 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "deepseek_v4": _remap_deepseek_v4,
 }

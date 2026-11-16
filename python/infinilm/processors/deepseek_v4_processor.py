@@ -11,12 +11,18 @@ from .history_encoding import deepseek_history_encoder
 
 class DeepSeekV4Processor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
-        super().__init__(model_dir_path)
+        from transformers import PreTrainedTokenizerFast
+
+        # The checkpoint supplies a generic fast tokenizer. AutoTokenizer can
+        # try to instantiate the unregistered DeepSeek V4 Transformers config.
+        self.tokenizer = PreTrainedTokenizerFast.from_pretrained(model_dir_path)
         source = Path(model_dir_path) / "encoding/encoding_dsv4.py"
-        spec = importlib.util.spec_from_file_location("deepseek_v4_encoding", source)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        self.encode_messages = deepseek_history_encoder(module.encode_messages)
+        self.encode_messages = None
+        if source.is_file():
+            spec = importlib.util.spec_from_file_location("deepseek_v4_encoding", source)
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            self.encode_messages = deepseek_history_encoder(module.encode_messages)
 
     def apply_chat_template(
         self, conversation, add_generation_prompt=False, tokenize=True, **kwargs
@@ -43,12 +49,33 @@ class DeepSeekV4Processor(BasicLLMProcessor):
             "thinking_mode",
             "thinking" if kwargs.get("enable_thinking", True) else "chat",
         )
-        prompt = self.encode_messages(
-            messages,
-            thinking_mode=mode,
-            reasoning_effort=kwargs.get("reasoning_effort"),
-            drop_thinking=False,
-        )
+        if self.encode_messages is not None:
+            prompt = self.encode_messages(
+                messages,
+                thinking_mode=mode,
+                reasoning_effort=kwargs.get("reasoning_effort"),
+                drop_thinking=False,
+            )
+        elif (
+            len(messages) == 1
+            and messages[0].get("role") == "user"
+            and isinstance(messages[0].get("content"), str)
+            and not messages[0].get("tool_calls")
+            and kwargs.get("reasoning_effort") is None
+            and mode in {"thinking", "chat"}
+        ):
+            # The W8A8 export omits the official encoder. Preserve the
+            # acceptance version's plain single-turn token format.
+            user, assistant = self.tokenizer.convert_ids_to_tokens([128803, 128804])
+            thinking = "<think>" if mode == "thinking" else "</think>"
+            prompt = (
+                self.tokenizer.bos_token + user + messages[0]["content"] + assistant + thinking
+            )
+        else:
+            raise ValueError(
+                "DeepSeek V4 multi-turn, tools and reasoning effort require "
+                "encoding/encoding_dsv4.py in the checkpoint directory"
+            )
         if not add_generation_prompt:
             prompt = prompt.removesuffix(
                 "<｜Assistant｜>" + ("<think>" if mode == "thinking" else "</think>")

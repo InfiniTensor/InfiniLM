@@ -8,6 +8,10 @@ namespace infinilm::runtime {
 class Runtime;
 }
 
+namespace infinilm::engine {
+class RankBarrier;
+}
+
 namespace infinilm::global_state {
 
 // Proven once from host decode metadata before a static forward. The generic
@@ -115,6 +119,7 @@ struct ForwardContext {
     }
     // Worker-owned; the context is used only while that worker is alive.
     infinilm::runtime::Runtime *runtime{nullptr};
+    engine::RankBarrier *model_decode_barrier{nullptr};
     std::shared_ptr<const engine::nsa::Proof> nsa_owner;
     AttentionMetadata attn_metadata;
     MambaMetadata mamba_metadata;

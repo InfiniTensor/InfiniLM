@@ -160,6 +160,9 @@ void PagedCompiler::compile() {
         if (decode_batch_sizes_.empty()) {
             return;
         }
+        if (model_->owns_paged_decode_graph()) {
+            return;
+        }
         if (!model_->supports_kv_only_prepare()) {
             skip_unavailable_prepare("paged graph prepare cannot restore this model's state");
             return;
