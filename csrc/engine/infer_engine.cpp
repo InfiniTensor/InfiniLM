@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <future>
 #include <limits>
 #include <stdexcept>
@@ -448,6 +449,30 @@ InferEngine::Input::to_model_input(
             : to_device(target_hidden_states),
         sample_all_positions};
     input.logical_kv_upper_bound = logical_kv_upper_bound;
+
+    const char *reuse_flag = std::getenv("INFINILM_MOORE_PREFILL_METADATA_REUSE");
+    const bool reuse_enabled = reuse_flag && reuse_flag[0] == '1' && reuse_flag[1] == '\0';
+    if (reuse_enabled && is_prefill && !runtime.isGraphRecording()
+        && device.type() == infinilm::runtime::Device::Type::kMoore
+        && input_offsets && *input_offsets && cu_seqlens && *cu_seqlens
+        && input.input_offsets && input.cu_seqlens) {
+        const auto &query_offsets = *input_offsets;
+        const auto &key_offsets = *cu_seqlens;
+        if (query_offsets->device().type() == infinilm::runtime::Device::Type::kCpu
+            && key_offsets->device().type() == infinilm::runtime::Device::Type::kCpu
+            && query_offsets->dtype() == infinilm::runtime::DataType::kInt32
+            && key_offsets->dtype() == infinilm::runtime::DataType::kInt32
+            && query_offsets->ndim() == 1 && key_offsets->ndim() == 1
+            && query_offsets->numel() >= 2 && query_offsets->numel() == key_offsets->numel()
+            && query_offsets->strides()[0] == 1 && key_offsets->strides()[0] == 1
+            && query_offsets->data() && key_offsets->data()) {
+            const auto *query_data = reinterpret_cast<const int32_t *>(query_offsets->data());
+            const auto *key_data = reinterpret_cast<const int32_t *>(key_offsets->data());
+            if (std::equal(query_data, query_data + query_offsets->numel(), key_data)) {
+                input.cu_seqlens = input.input_offsets;
+            }
+        }
+    }
 
     auto &attn_metadata = forward_context.attn_metadata;
     attn_metadata = {
