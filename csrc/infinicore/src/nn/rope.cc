@@ -82,6 +82,7 @@ void RoPE::initialize_cache() {
     // [B,S,H,D] (MiniCPM5 static) and 3D reshape still mismatches HF GPT-NeoX.
     if ((device_.type() == Device::Type::kNvidia
          || device_.type() == Device::Type::kMetax
+         || device_.type() == Device::Type::kMars
          || device_.type() == Device::Type::kIluvatar
          || device_.type() == Device::Type::kMoore
          || device_.type() == Device::Type::kCambricon

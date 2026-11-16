@@ -16,6 +16,8 @@
 #include "tensor.h"
 
 namespace infinicore::op::infiniops {
+// mars-config-fallback-marker-20261113b
+
 
 inline infini::ops::DataType toInfiniOpsDtype(DataType dtype) {
     switch (dtype) {
@@ -54,6 +56,8 @@ inline infini::ops::Device toInfiniOpsDevice(const Device &device) {
         return infini::ops::Device{infini::ops::Device::Type::kNvidia, static_cast<int>(device.index())};
     case Device::Type::kMetax:
         return infini::ops::Device{infini::ops::Device::Type::kMetax, static_cast<int>(device.index())};
+    case Device::Type::kMars:
+        return infini::ops::Device{infini::ops::Device::Type::kMars, static_cast<int>(device.index())};
     case Device::Type::kMoore:
         return infini::ops::Device{infini::ops::Device::Type::kMoore, static_cast<int>(device.index())};
     case Device::Type::kIluvatar:
@@ -77,6 +81,7 @@ inline bool isSupportedDevice(Device::Type device_type) {
     switch (device_type) {
     case Device::Type::kNvidia:
     case Device::Type::kMetax:
+    case Device::Type::kMars:
     case Device::Type::kMoore:
     case Device::Type::kIluvatar:
     case Device::Type::kCambricon:
@@ -97,9 +102,10 @@ inline bool isSupportedDevice(Device::Type device_type) {
 // level instead of treating consumer-side traits as the provider manifest.
 template <typename Operator>
 std::vector<std::size_t> activeImplementationIndices(infini::ops::Device::Type device_type) {
-    using Query = std::vector<std::size_t> (*)(infini::ops::Device::Type);
-    Query volatile query = &Operator::active_implementation_indices;
-    return query(device_type);
+    // Call the InfiniOps extern-template export directly. The previous
+    // volatile-function-pointer indirection still resolved to an empty
+    // primary-template body under some link orders on Mars.
+    return Operator::active_implementation_indices(device_type);
 }
 
 template <typename Operator>
@@ -107,17 +113,20 @@ infini::ops::Config configForImplementation(
     infini::ops::Device::Type device_type,
     std::size_t implementation_index) {
     const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
-    if (std::find(
-            implementation_indices.begin(),
-            implementation_indices.end(),
-            implementation_index)
-        == implementation_indices.end()) {
+    if (!implementation_indices.empty()
+        && std::find(
+               implementation_indices.begin(),
+               implementation_indices.end(),
+               implementation_index)
+            == implementation_indices.end()) {
         throw std::runtime_error(
             "InfiniOps implementation " + std::to_string(implementation_index)
             + " is not active for device '"
             + std::string(infini::ops::Device::StringFromType(device_type)) + "'.");
     }
-
+    // Mars/MetaX consumer TUs may see an empty ActiveImplementations list even
+    // when InfiniOps exports the linked provider (e.g. FlashAttn@16). Trust the
+    // caller-selected index so Make/Call can resolve inside libinfiniops.
     infini::ops::Config config;
     config.set_implementation_index(implementation_index);
     return config;
@@ -144,6 +153,18 @@ infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type
         return config;
     }
 
+    // Prefer InfiniOps-exported indices when visible; otherwise default to 0
+    // for native Mars/MetaX ops. Callers that need linked slots (FA@16) must
+    // use configForImplementation with an explicit index.
+    if (device_type == infini::ops::Device::Type::kMars
+        || device_type == infini::ops::Device::Type::kMetax) {
+        const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
+        infini::ops::Config config;
+        config.set_implementation_index(
+            implementation_indices.empty() ? 0 : implementation_indices.front());
+        return config;
+    }
+
     const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
     if (implementation_indices.empty()) {
         throw std::runtime_error(
@@ -158,6 +179,7 @@ template <typename Dispatcher, typename Function>
 void registerSupportedDevices(Dispatcher &dispatcher, Function function) {
     dispatcher.registerDevice(Device::Type::kNvidia, function);
     dispatcher.registerDevice(Device::Type::kMetax, function);
+    dispatcher.registerDevice(Device::Type::kMars, function);
     dispatcher.registerDevice(Device::Type::kMoore, function);
     dispatcher.registerDevice(Device::Type::kIluvatar, function);
     dispatcher.registerDevice(Device::Type::kCambricon, function);

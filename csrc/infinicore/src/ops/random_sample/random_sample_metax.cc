@@ -165,7 +165,10 @@ void calculate(Tensor indices,
 }
 
 static bool registered = []() {
+	// Host D2H/H2D sampler: used for MetaX and Mars when InfiniOps
+	// TopKTopPSamplingFromLogits has no device provider.
 	RandomSample::dispatcher().registerDevice(Device::Type::kMetax, &calculate);
+	RandomSample::dispatcher().registerDevice(Device::Type::kMars, &calculate);
 	return true;
 }();
 

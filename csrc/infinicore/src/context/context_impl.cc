@@ -19,6 +19,7 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
     Device::Type::kCambricon,
     Device::Type::kAscend,
     Device::Type::kMetax,
+    Device::Type::kMars,
     Device::Type::kMoore,
     Device::Type::kIluvatar,
     Device::Type::kHygon,
@@ -237,6 +238,7 @@ ContextImpl::ContextImpl() {
     initializeDeviceType<Device::Type::kCambricon>();
     initializeDeviceType<Device::Type::kAscend>();
     initializeDeviceType<Device::Type::kMetax>();
+    initializeDeviceType<Device::Type::kMars>();
     initializeDeviceType<Device::Type::kMoore>();
     initializeDeviceType<Device::Type::kIluvatar>();
     initializeDeviceType<Device::Type::kHygon>();

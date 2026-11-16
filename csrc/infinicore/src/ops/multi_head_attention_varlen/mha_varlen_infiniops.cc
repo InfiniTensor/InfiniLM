@@ -46,6 +46,7 @@ bool is_supported(const Tensor &out,
     const auto device_type = out->device().type();
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
+         && device_type != Device::Type::kMars
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
@@ -274,6 +275,12 @@ static bool registered = []() {
         Device::Type::kMetax, &run);
     MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
         Device::Type::kMetax, &cleanup);
+    MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
+        Device::Type::kMars, &plan);
+    MultiheadAttentionVarlen::run_dispatcher().registerDevice(
+        Device::Type::kMars, &run);
+    MultiheadAttentionVarlen::cleanup_dispatcher().registerDevice(
+        Device::Type::kMars, &cleanup);
     MultiheadAttentionVarlen::plan_dispatcher().registerDevice(
         Device::Type::kMoore, &plan);
     MultiheadAttentionVarlen::run_dispatcher().registerDevice(
