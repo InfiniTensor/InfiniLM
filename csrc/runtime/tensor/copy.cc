@@ -26,6 +26,13 @@ void copyCpuStrided(std::byte *dst,
         return;
     }
 
+    // TP column slices are strided between rows but contiguous within a row.
+    if (dim + 1 == shape.size() && dst_strides[dim] == 1 && src_strides[dim] == 1) {
+        if (shape[dim]) {
+            std::memmove(dst, src, shape[dim] * element_size);
+        }
+        return;
+    }
     const auto byte_size = static_cast<std::ptrdiff_t>(element_size);
     for (size_t index = 0; index < shape[dim]; ++index) {
         copyCpuStrided(
