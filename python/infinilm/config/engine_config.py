@@ -70,6 +70,7 @@ class EngineConfig:
     enable_prefix_caching: bool = True
     static_cache_capacity: int = 1
     chunked_prefill_size: int = 0
+    enable_mixed_batching: bool = False
 
     def __post_init__(self) -> None:
         if (
@@ -97,6 +98,8 @@ class EngineConfig:
             and self.cache_type != "paged"
         ):
             raise ValueError("kv_transfer_config requires cache_type='paged'")
+        if self.enable_mixed_batching and self.cache_type != "paged":
+            raise ValueError("mixed batching requires paged attention")
         if type(self.chunked_prefill_size) is not int or (
             self.chunked_prefill_size < 0
         ):
