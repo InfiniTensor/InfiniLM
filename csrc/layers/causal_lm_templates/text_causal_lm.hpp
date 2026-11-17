@@ -1,4 +1,5 @@
 #pragma once
+#include "../../debug_utils/graph_checkpoint.hpp"
 
 #include "../../global_state/global_state.hpp"
 #include "../../models/infinilm_model.hpp"
@@ -90,6 +91,7 @@ public:
         }
 
         auto logits = lm_head_->forward(lm_head_input);
+        if (debug::graph_checkpoints_enabled() && global_state::get_tensor_model_parallel_rank_info().tp_rank == 0) debug::graph_checkpoint("logits", logits);
         return {logits, hidden_states};
     }
 

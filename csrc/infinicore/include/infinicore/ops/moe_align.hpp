@@ -9,6 +9,7 @@
 
 namespace infinicore::op {
 
+// Capture-safe for QY full_and_piecewise; ATen path skips sync under capture.
 INFINICORE_GRAPH_OP_CLASS(MoeAlign, Tensor, Tensor, Tensor, const Tensor &, const size_t, const size_t, const bool);
 INFINICORE_GRAPH_OP_CLASS(MoeAlignWithExpertMap, Tensor, Tensor, Tensor, const Tensor &, const Tensor &, const size_t, const size_t, const bool);
 

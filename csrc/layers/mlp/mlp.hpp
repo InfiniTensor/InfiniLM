@@ -34,7 +34,16 @@ public:
      * @param hidden_states Input tensor of shape [batch, seq_len, hidden_size]
      * @return Output tensor of shape [batch, seq_len, hidden_size]
      */
+    /// Fused forward (matmul + AllReduce on down_proj when TP>1).
     infinicore::Tensor forward(const infinicore::Tensor &hidden_states) const;
+
+    /// Gate/up/SiLU + down_proj matmul only (no collective).
+    infinicore::Tensor forward_matmul(const infinicore::Tensor &hidden_states) const;
+
+    /// AllReduce (+bias) for a prior forward_matmul output when TP>1.
+    void forward_allreduce(infinicore::Tensor &output) const;
+
+    bool needs_allreduce() const { return down_proj_->needs_allreduce(); }
 
     void process_weights_after_loading() override {
         gate_up_proj_->process_weights_after_loading();

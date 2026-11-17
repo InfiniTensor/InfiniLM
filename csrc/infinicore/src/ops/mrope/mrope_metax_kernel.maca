@@ -1,0 +1,81 @@
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include "mrope_metax_launch.h"
+#include "mrope_kernel_common.cuh"
+
+namespace {
+
+template <typename Tdata, typename Tpos>
+__global__ void mrope_kernel(
+    Tdata *q_out, Tdata *k_out,
+    const Tdata *q, const Tdata *k,
+    const Tdata *cos, const Tdata *sin,
+    const Tpos *positions,
+    size_t num_q_heads, size_t num_kv_heads,
+    size_t head_size, size_t rotary_dim, size_t half_rotary_dim,
+    ptrdiff_t q_out_s_token, ptrdiff_t q_out_s_head,
+    ptrdiff_t k_out_s_token, ptrdiff_t k_out_s_head,
+    ptrdiff_t q_s_token, ptrdiff_t q_s_head,
+    ptrdiff_t k_s_token, ptrdiff_t k_s_head,
+    ptrdiff_t cos_s_pos, ptrdiff_t sin_s_pos,
+    ptrdiff_t pos_s_axis, ptrdiff_t pos_s_token,
+    size_t max_position_embeddings,
+    size_t section_t, size_t section_h, size_t section_w,
+    bool positions_has_axes, bool interleaved) {
+	op::mrope::cuda::mropeBlock<Tdata, float, Tpos>(
+	    q_out, k_out, q, k, cos, sin, positions,
+	    num_q_heads, num_kv_heads, head_size, rotary_dim, half_rotary_dim,
+	    q_out_s_token, q_out_s_head, k_out_s_token, k_out_s_head,
+	    q_s_token, q_s_head, k_s_token, k_s_head,
+	    cos_s_pos, sin_s_pos, pos_s_axis, pos_s_token, max_position_embeddings,
+	    section_t, section_h, section_w, positions_has_axes, interleaved);
+}
+
+template <typename Tdata, typename Tpos>
+int launch_typed(const InfiniLMMRoPELaunchArgs *a) {
+	dim3 grid(static_cast<unsigned>(a->num_tokens),
+	          static_cast<unsigned>(std::max(a->num_q_heads, a->num_kv_heads)));
+	int half = a->rotary_dim / 2;
+	int nthreads = std::max(half, 1);
+	nthreads = std::min(std::max(nthreads, 32), 256);
+	mcStream_t stream = reinterpret_cast<mcStream_t>(a->stream);
+	mrope_kernel<Tdata, Tpos><<<grid, nthreads, 0, stream>>>(
+	    static_cast<Tdata *>(a->q_out), static_cast<Tdata *>(a->k_out),
+	    static_cast<const Tdata *>(a->q), static_cast<const Tdata *>(a->k),
+	    static_cast<const Tdata *>(a->cos), static_cast<const Tdata *>(a->sin),
+	    static_cast<const Tpos *>(a->positions),
+	    static_cast<size_t>(a->num_q_heads), static_cast<size_t>(a->num_kv_heads),
+	    static_cast<size_t>(a->head_size), static_cast<size_t>(a->rotary_dim),
+	    static_cast<size_t>(a->rotary_dim / 2),
+	    a->q_out_s_token, a->q_out_s_head, a->k_out_s_token, a->k_out_s_head,
+	    a->q_s_token, a->q_s_head, a->k_s_token, a->k_s_head,
+	    a->cos_s_pos, a->sin_s_pos, a->pos_s_axis, a->pos_s_token,
+	    static_cast<size_t>(a->max_position_embeddings),
+	    static_cast<size_t>(a->section_t), static_cast<size_t>(a->section_h),
+	    static_cast<size_t>(a->section_w),
+	    a->positions_has_axes != 0, a->interleaved != 0);
+	return static_cast<int>(mcGetLastError());
+}
+
+template <typename Tdata>
+int launch_pos(const InfiniLMMRoPELaunchArgs *a) {
+	if (a->pos_i64) return launch_typed<Tdata, int64_t>(a);
+	return launch_typed<Tdata, int32_t>(a);
+}
+
+} // namespace
+
+extern "C" int infinilm_mrope_metax_launch(const InfiniLMMRoPELaunchArgs *args) {
+	if (!args || !args->q_out || !args->k_out || !args->q || !args->k ||
+	    !args->cos || !args->sin || !args->positions || args->num_tokens <= 0) {
+		return 1;
+	}
+	switch (args->dtype) {
+	case 0: return launch_pos<float>(args);
+	case 1: return launch_pos<__half>(args);
+	case 2: return launch_pos<__maca_bfloat16>(args);
+	default: return 2;
+	}
+}

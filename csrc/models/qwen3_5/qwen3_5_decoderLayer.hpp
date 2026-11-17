@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../global_state/piecewise_prefill_state.hpp"
 #include "../qwen3_next/qwen3_next_gated_deltanet.hpp"
 #include "qwen3_5_attention.hpp"
 #include <string>
@@ -21,6 +22,54 @@ public:
                                infinicore::Tensor &hidden_states);
 
     size_t layer_idx() const { return layer_idx_; }
+
+    void piecewise_pre_attn(const infinicore::Tensor &positions,
+                            infinicore::Tensor &hidden_states,
+                            infinicore::Tensor &residual,
+                            global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Layernorm + past-independent QKV (CG-capturable). No RoPE. GDN: LN only.
+    void piecewise_pre_attn_qkv(const infinicore::Tensor &positions,
+                                infinicore::Tensor &hidden_states,
+                                infinicore::Tensor &residual,
+                                global_state::PiecewiseLayerStaging &staging) const;
+
+    /// Eager RoPE on staging Q/K (host-break). GDN: no-op.
+    void piecewise_pre_attn_rope(const infinicore::Tensor &positions,
+                                 global_state::PiecewiseLayerStaging &staging) const;
+
+    void piecewise_eager_attn(const infinicore::Tensor &positions,
+                              global_state::PiecewiseLayerStaging &staging) const;
+
+    void piecewise_post_attn(infinicore::Tensor &hidden_states,
+                             infinicore::Tensor &residual,
+                             global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_cg(infinicore::Tensor &hidden_states,
+                                infinicore::Tensor &residual,
+                                global_state::PiecewiseLayerStaging &staging) const;
+
+    void piecewise_post_attn_decode_cg(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_eager_moe(infinicore::Tensor &,
+                             infinicore::Tensor &,
+                             global_state::PiecewiseLayerStaging &) const {}
+
+    void piecewise_post_attn_graph(infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual,
+                                   global_state::PiecewiseLayerStaging &staging) const {
+        piecewise_post_attn_cg(hidden_states, residual, staging);
+    }
+
+    void piecewise_post_attn_allreduce(infinicore::Tensor &hidden_states,
+                                       infinicore::Tensor &residual,
+                                       global_state::PiecewiseLayerStaging &staging) const;
 
 protected:
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, input_layernorm);

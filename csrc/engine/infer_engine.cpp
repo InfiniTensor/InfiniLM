@@ -100,13 +100,15 @@ InferEngine::InferEngine(
         // providers used by the paged prefill and decode paths below.
         if (device_type != infinicore::Device::Type::kNvidia
             && device_type != infinicore::Device::Type::kMetax
+            && device_type != infinicore::Device::Type::kMars
             && device_type != infinicore::Device::Type::kMoore
             && device_type != infinicore::Device::Type::kCambricon
             && device_type != infinicore::Device::Type::kIluvatar
             && device_type != infinicore::Device::Type::kHygon
-            && device_type != infinicore::Device::Type::kAscend) {
+            && device_type != infinicore::Device::Type::kAscend
+            && device_type != infinicore::Device::Type::kQy) {
             throw std::invalid_argument(
-                "flash-attn is only available on NVIDIA, MetaX, Moore, Cambricon, Iluvatar, Hygon, and Ascend devices");
+                "flash-attn is only available on NVIDIA, MetaX, Mars, Moore, Cambricon, Iluvatar, Hygon, Ascend, and QY devices");
         }
         const auto *paged_cache_config = dynamic_cast<const cache::PagedKVCacheConfig *>(cache_config);
         if (paged_cache_config == nullptr) {

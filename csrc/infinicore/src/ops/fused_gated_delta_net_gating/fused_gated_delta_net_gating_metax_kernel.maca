@@ -1,0 +1,150 @@
+#include <cstddef>
+#include <cstdint>
+
+#include <maca_bfloat16.h>
+#include <maca_fp16.h>
+
+#include "fused_gated_delta_net_gating_metax_launch.h"
+
+namespace {
+
+template <typename T>
+__device__ __forceinline__ float load_as_float(const T *ptr, ptrdiff_t offset) {
+	return static_cast<float>(ptr[offset]);
+}
+
+template <>
+__device__ __forceinline__ float load_as_float<__half>(const __half *ptr, ptrdiff_t offset) {
+	return __half2float(ptr[offset]);
+}
+
+template <>
+__device__ __forceinline__ float load_as_float<__maca_bfloat16>(const __maca_bfloat16 *ptr,
+                                                               ptrdiff_t offset) {
+	return __bfloat162float(ptr[offset]);
+}
+
+__device__ __forceinline__ float sigmoidf_stable(float x) {
+	if (x >= 0.0f) {
+		float z = expf(-x);
+		return 1.0f / (1.0f + z);
+	}
+	float z = expf(x);
+	return z / (1.0f + z);
+}
+
+__device__ __forceinline__ float softplus_beta_threshold(float x, float beta, float threshold) {
+	float bx = beta * x;
+	return bx <= threshold ? log1pf(expf(bx)) / beta : x;
+}
+
+template <typename T>
+__global__ void fused_gated_delta_net_gating_kernel(float *g,
+                                                    float *beta_output,
+                                                    const T *A_log,
+                                                    const T *a,
+                                                    const T *b,
+                                                    const T *dt_bias,
+                                                    size_t total,
+                                                    size_t seq_len,
+                                                    size_t hidden,
+                                                    ptrdiff_t g_s0,
+                                                    ptrdiff_t g_s1,
+                                                    ptrdiff_t g_s2,
+                                                    ptrdiff_t beta_s0,
+                                                    ptrdiff_t beta_s1,
+                                                    ptrdiff_t beta_s2,
+                                                    ptrdiff_t A_log_s0,
+                                                    ptrdiff_t a_s0,
+                                                    ptrdiff_t a_s1,
+                                                    ptrdiff_t a_s2,
+                                                    ptrdiff_t b_s0,
+                                                    ptrdiff_t b_s1,
+                                                    ptrdiff_t b_s2,
+                                                    ptrdiff_t dt_bias_s0,
+                                                    float beta,
+                                                    float threshold) {
+	size_t linear = blockIdx.x * blockDim.x + threadIdx.x;
+	if (linear >= total) {
+		return;
+	}
+
+	size_t h = linear % hidden;
+	size_t tmp = linear / hidden;
+	size_t s = tmp % seq_len;
+	size_t batch = tmp / seq_len;
+
+	ptrdiff_t g_off = static_cast<ptrdiff_t>(batch) * g_s0 + static_cast<ptrdiff_t>(s) * g_s1 +
+	                  static_cast<ptrdiff_t>(h) * g_s2;
+	ptrdiff_t beta_off = static_cast<ptrdiff_t>(batch) * beta_s0 + static_cast<ptrdiff_t>(s) * beta_s1 +
+	                     static_cast<ptrdiff_t>(h) * beta_s2;
+	ptrdiff_t a_off = static_cast<ptrdiff_t>(batch) * a_s0 + static_cast<ptrdiff_t>(s) * a_s1 +
+	                  static_cast<ptrdiff_t>(h) * a_s2;
+	ptrdiff_t b_off = static_cast<ptrdiff_t>(batch) * b_s0 + static_cast<ptrdiff_t>(s) * b_s1 +
+	                  static_cast<ptrdiff_t>(h) * b_s2;
+
+	float x = load_as_float(a, a_off) + load_as_float(dt_bias, static_cast<ptrdiff_t>(h) * dt_bias_s0);
+	g[g_off] = -expf(load_as_float(A_log, static_cast<ptrdiff_t>(h) * A_log_s0)) *
+	           softplus_beta_threshold(x, beta, threshold);
+	beta_output[beta_off] = sigmoidf_stable(load_as_float(b, b_off));
+}
+
+template <typename T>
+int launch_kernel(const InfiniLMFusedGatingLaunchArgs *a) {
+	size_t total = static_cast<size_t>(a->batch) * static_cast<size_t>(a->seq_len) *
+	               static_cast<size_t>(a->hidden);
+	if (total == 0) {
+		return 0;
+	}
+	constexpr int block = 256;
+	int grid = static_cast<int>((total + block - 1) / block);
+	mcStream_t stream = reinterpret_cast<mcStream_t>(a->stream);
+	fused_gated_delta_net_gating_kernel<T><<<grid, block, 0, stream>>>(
+	    a->g,
+	    a->beta_output,
+	    static_cast<const T *>(a->A_log),
+	    static_cast<const T *>(a->a),
+	    static_cast<const T *>(a->b),
+	    static_cast<const T *>(a->dt_bias),
+	    total,
+	    static_cast<size_t>(a->seq_len),
+	    static_cast<size_t>(a->hidden),
+	    a->g_s0,
+	    a->g_s1,
+	    a->g_s2,
+	    a->beta_s0,
+	    a->beta_s1,
+	    a->beta_s2,
+	    a->A_log_s0,
+	    a->a_s0,
+	    a->a_s1,
+	    a->a_s2,
+	    a->b_s0,
+	    a->b_s1,
+	    a->b_s2,
+	    a->dt_bias_s0,
+	    a->beta,
+	    a->threshold);
+	return static_cast<int>(mcGetLastError());
+}
+
+} // namespace
+
+extern "C" int infinilm_fused_gated_delta_net_gating_metax_launch(
+    const InfiniLMFusedGatingLaunchArgs *args) {
+	if (args == nullptr || args->g == nullptr || args->beta_output == nullptr ||
+	    args->A_log == nullptr || args->a == nullptr || args->b == nullptr ||
+	    args->dt_bias == nullptr) {
+		return 1;
+	}
+	switch (args->dtype) {
+	case 0:
+		return launch_kernel<float>(args);
+	case 1:
+		return launch_kernel<__half>(args);
+	case 2:
+		return launch_kernel<__maca_bfloat16>(args);
+	default:
+		return 2;
+	}
+}

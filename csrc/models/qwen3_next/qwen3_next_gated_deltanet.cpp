@@ -1,3 +1,4 @@
+#include "../../debug_utils/graph_checkpoint.hpp"
 #include "qwen3_next_gated_deltanet.hpp"
 
 #include "../../global_state/global_state.hpp"
@@ -158,7 +159,18 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
     auto &forward_context = infinilm::global_state::get_forward_context();
     auto &mamba_metadata = forward_context.mamba_metadata;
 
+    const bool trace_layer = layer_idx_ == 0 && debug::graph_checkpoints_enabled()
+        && global_state::get_tensor_model_parallel_rank_info().tp_rank == 0;
+    if (trace_layer) {
+        debug::graph_checkpoint("l0_qkv", qkv);
+        debug::graph_checkpoint("l0_z", z);
+        debug::graph_checkpoint("l0_a", a);
+        debug::graph_checkpoint("l0_b", b);
+        debug::graph_checkpoint("l0_conv_state", forward_context.conv_state_vec[layer_idx_], mamba_metadata.init_state_indices.value());
+        debug::graph_checkpoint("l0_ssm_state", forward_context.ssm_state_vec[layer_idx_], mamba_metadata.init_state_indices.value());
+    }
     auto conv_qkv = this->conv1d_->forward(qkv);
+    if (trace_layer) debug::graph_checkpoint("l0_conv_qkv", conv_qkv);
 
     auto q = conv_qkv->narrow({{2, 0, local_key_dim_}});
     auto k = conv_qkv->narrow({{2, local_key_dim_, local_key_dim_}});
@@ -184,6 +196,7 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {seq_len, 1, local_num_value_heads_},
             {b->stride(1), b->stride(0), 1});
         auto [g, beta] = infinicore::op::fused_gated_delta_net_gating(A_log_, a_heads, b_heads, dt_bias_);
+        if (trace_layer) { debug::graph_checkpoint("l0_g", g); debug::graph_checkpoint("l0_beta", beta); }
 
         delta_out = infinicore::op::recurrent_gated_delta_rule_indexed(
             q_delta,
@@ -234,6 +247,7 @@ infinicore::Tensor Qwen3NextGatedDeltaNet::forward(const infinicore::Tensor &hid
             {delta_out->stride(1), delta_out->stride(2), delta_out->stride(3)});
     }
 
+    if (trace_layer) debug::graph_checkpoint("l0_delta_out", delta_out);
     auto delta_out_2d = delta_out->as_strided(
         {batch_size * seq_len * local_num_value_heads_, value_head_dim_},
         {static_cast<infinicore::Stride>(value_head_dim_), 1});

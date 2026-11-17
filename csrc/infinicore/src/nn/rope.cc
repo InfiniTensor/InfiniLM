@@ -78,8 +78,11 @@ void RoPE::initialize_cache() {
     INFINICORE_NN_BUFFER_INIT(cos_cache, ({max_seq_len_, cache_dim}, dtype_, device_));
 
 #ifdef ENABLE_INFINIOPS_API
+    // QY: prefer sin/cos + ATen RoPE. InfiniOps RotaryEmbedding no-ops on 4D
+    // [B,S,H,D] (MiniCPM5 static) and 3D reshape still mismatches HF GPT-NeoX.
     if ((device_.type() == Device::Type::kNvidia
          || device_.type() == Device::Type::kMetax
+         || device_.type() == Device::Type::kMars
          || device_.type() == Device::Type::kIluvatar
          || device_.type() == Device::Type::kMoore
          || device_.type() == Device::Type::kCambricon

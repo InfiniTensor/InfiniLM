@@ -46,6 +46,87 @@ public:
         return language_model_->forward(input);
     }
 
+    size_t num_layers() const { return language_model_->num_layers(); }
+
+    void piecewise_embed(const InfinilmModel::Input &input,
+                         infinicore::Tensor &hidden_states) const {
+        language_model_->piecewise_embed(input, hidden_states);
+    }
+
+    void piecewise_pre_attn_layer(size_t layer_idx,
+                                  const InfinilmModel::Input &input,
+                                  infinicore::Tensor &hidden_states,
+                                  infinicore::Tensor &residual) const {
+        language_model_->piecewise_pre_attn_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_pre_attn_qkv_layer(size_t layer_idx,
+                                      const InfinilmModel::Input &input,
+                                      infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
+        language_model_->piecewise_pre_attn_qkv_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_pre_attn_rope_layer(size_t layer_idx,
+                                       const InfinilmModel::Input &input) const {
+        language_model_->piecewise_pre_attn_rope_layer(layer_idx, input);
+    }
+
+    void piecewise_eager_attn_layer(size_t layer_idx,
+                                    const InfinilmModel::Input &input) const {
+        language_model_->piecewise_eager_attn_layer(layer_idx, input);
+    }
+
+    void piecewise_post_attn_layer(size_t layer_idx,
+                                   const InfinilmModel::Input &input,
+                                   infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual) const {
+        language_model_->piecewise_post_attn_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_post_attn_cg_layer(size_t layer_idx,
+                                      const InfinilmModel::Input &input,
+                                      infinicore::Tensor &hidden_states,
+                                      infinicore::Tensor &residual) const {
+        language_model_->piecewise_post_attn_cg_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_post_attn_decode_cg_layer(size_t layer_idx,
+                                             const InfinilmModel::Input &input,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const {
+        language_model_->piecewise_post_attn_decode_cg_layer(
+            layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_eager_moe_layer(size_t layer_idx,
+                                   const InfinilmModel::Input &input,
+                                   infinicore::Tensor &hidden_states,
+                                   infinicore::Tensor &residual) const {
+        language_model_->piecewise_eager_moe_layer(layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_post_attn_graph_layer(size_t layer_idx,
+                                         const InfinilmModel::Input &input,
+                                         infinicore::Tensor &hidden_states,
+                                         infinicore::Tensor &residual) const {
+        language_model_->piecewise_post_attn_graph_layer(
+            layer_idx, input, hidden_states, residual);
+    }
+
+    void piecewise_post_attn_allreduce_layer(size_t layer_idx,
+                                             const InfinilmModel::Input &input,
+                                             infinicore::Tensor &hidden_states,
+                                             infinicore::Tensor &residual) const {
+        language_model_->piecewise_post_attn_allreduce_layer(
+            layer_idx, input, hidden_states, residual);
+    }
+
+    infinicore::Tensor piecewise_lm_head(infinicore::Tensor &hidden_states,
+                                         infinicore::Tensor &residual) const {
+        return language_model_->piecewise_lm_head(hidden_states, residual);
+    }
+
 protected:
     INFINICORE_NN_MODULE(LanguageModel, language_model);
 };

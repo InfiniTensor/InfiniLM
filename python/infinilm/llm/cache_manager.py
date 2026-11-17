@@ -155,6 +155,27 @@ class BlockManager:
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
 
+    def allocate_blocks(
+        self,
+        tokens: Sequence[int],
+        block_table: List[int] | None = None,
+    ) -> tuple[List[int], List[int], int]:
+        """Compat helper for tests / CB admit: allocate a fresh full sequence.
+
+        Returns ``(block_table, slot_mapping, num_cached_tokens)`` with
+        ``num_cached_tokens=0`` (no prefix hit in this helper).
+        """
+        del block_table  # fresh allocation; callers pass [] / None
+        allocation = self.allocate_slots(len(tokens), num_computed_tokens=0)
+        if allocation is None:
+            raise RuntimeError("No available cache blocks")
+        req_blocks, slot_mapping = allocation
+        return req_blocks, slot_mapping, 0
+
+    def reset_req_blocks(self) -> None:
+        """No-op on POST BlockManager (no Aug-style req_block_ids split)."""
+        return
+
     def allocate_slots(
         self,
         num_new_tokens: int,

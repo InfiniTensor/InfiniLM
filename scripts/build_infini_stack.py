@@ -9,9 +9,12 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Sequence
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SUPPORTED_BACKENDS = ("nvidia", "iluvatar", "hygon", "moore")
+SUPPORTED_BACKENDS = ("nvidia", "iluvatar", "hygon", "moore", "qy")
 DEFAULT_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops.json"
 MOORE_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops_moore.json"
+QY_M0_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops_qy_m0.json"
+QY_M1_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops_qy_m1.json"
+QY_M2_OPERATOR_CONFIG = PROJECT_ROOT / "scripts/configs/infiniops_ops_qy_m2.json"
 SUBMODULES = {
     "InfiniRT": Path("submodules/InfiniRT"),
     "InfiniOps": Path("submodules/InfiniOps"),
@@ -80,7 +83,12 @@ def git_capture(arguments: Sequence[str], cwd: Path) -> str:
     )
 
 
-def validate_submodule(project_root: Path, relative_path: Path) -> str:
+def validate_submodule(
+    project_root: Path,
+    relative_path: Path,
+    *,
+    allow_dirty: bool = False,
+) -> str:
     submodule_root = project_root / relative_path
     if not (submodule_root / "CMakeLists.txt").is_file():
         raise RuntimeError(
@@ -93,14 +101,20 @@ def validate_submodule(project_root: Path, relative_path: Path) -> str:
         relative_path,
     )
     actual = git_capture(["rev-parse", "HEAD"], submodule_root)
-    if actual != expected:
+    if actual != expected and not allow_dirty:
         raise RuntimeError(
             f"Submodule revision mismatch for {relative_path}: "
             f"expected {expected}, found {actual}"
         )
     status = git_capture(["status", "--porcelain"], submodule_root)
-    if status:
+    if status and not allow_dirty:
         raise RuntimeError(f"Submodule worktree is dirty: {relative_path}")
+    if allow_dirty and (actual != expected or status):
+        print(
+            f"warning: allowing dirty/mismatched submodule {relative_path} "
+            f"(expected {expected}, actual {actual})",
+            flush=True,
+        )
     return actual
 
 
@@ -219,6 +233,15 @@ def build_infiniops_commands(
     iluvatar_arch: Optional[str] = None,
     hygon_arch: Optional[str] = None,
 ) -> List[List[str]]:
+    # QY: enable linked FA when the ops config selects slot-16 flash providers (M2+).
+    ops_text = operator_config.read_text(encoding="utf-8")
+    qy_wants_linked = (
+        backend == "qy"
+        and "flash_attn_varlen_func" in ops_text
+        and "flash_attn_with_kvcache" in ops_text
+    )
+    linked = "ON" if (backend != "qy" or qy_wants_linked) else "OFF"
+    generate_bindings = "ON" if backend == "qy" else "OFF"
     configure = [
         "cmake",
         "-S",
@@ -227,11 +250,11 @@ def build_infiniops_commands(
         str(build),
         "-DWITH_CPU=ON",
         backend_cmake_option(backend),
-        "-DWITH_LINKED=ON",
+        f"-DWITH_LINKED={linked}",
         "-DWITH_TORCH=ON",
         "-DAUTO_DETECT_DEVICES=OFF",
         "-DAUTO_DETECT_BACKENDS=OFF",
-        "-DGENERATE_PYTHON_BINDINGS=OFF",
+        f"-DGENERATE_PYTHON_BINDINGS={generate_bindings}",
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DINFINI_RT_ROOT={prefix}",
         f"-DINFINI_OPS_OPS={operator_config}",
@@ -239,20 +262,46 @@ def build_infiniops_commands(
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
     append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch, hygon_arch)
+    if backend == "qy":
+        qy_root = Path(
+            os.environ.get("QY_ROOT")
+            or os.environ.get("QY_HOME")
+            or os.environ.get("QY_PATH")
+            or "/usr/local/denglin"
+        )
+        configure.append(f"-DQY_ROOT={qy_root}")
+        try:
+            import pybind11
 
-    return [
-        configure,
-        [
-            "cmake",
-            "--build",
-            str(build),
-            "--target",
-            "infiniops",
-            "--parallel",
-            str(jobs),
-        ],
-        ["cmake", "--install", str(build)],
+            configure.append(f"-Dpybind11_DIR={pybind11.get_cmake_dir()}")
+        except Exception:
+            pass
+
+    build_cmd = [
+        "cmake",
+        "--build",
+        str(build),
+        "--target",
+        "infiniops",
+        "--parallel",
+        str(jobs),
     ]
+    commands = [configure, build_cmd]
+    # QY M0 enables GENERATE_PYTHON_BINDINGS; install expects the ops module.
+    if backend == "qy":
+        commands.append(
+            [
+                "cmake",
+                "--build",
+                str(build),
+                "--target",
+                "ops",
+                "--parallel",
+                str(jobs),
+            ]
+        )
+    commands.append(["cmake", "--install", str(build)])
+    return commands
 
 
 def build_infiniccl_commands(
@@ -267,23 +316,31 @@ def build_infiniccl_commands(
     iluvatar_arch: Optional[str] = None,
     hygon_arch: Optional[str] = None,
 ) -> List[List[str]]:
+    # QY InfiniCCL/NCCL is M3; TP1 keeps InfiniCCL CPU-only (no WITH_QY yet).
+    ccl_backend = backend
+    ccl_test = test
+    if backend == "qy":
+        ccl_backend = None
+        ccl_test = False
+
     configure = [
         "cmake",
         "-S",
         str(source),
         "-B",
         str(build),
-        backend_cmake_option(backend),
-        f"-DWITH_NCCL={'OFF' if backend == 'moore' else 'ON'}",
+        "-DWITH_NCCL=OFF" if backend in ("moore", "qy") else "-DWITH_NCCL=ON",
         f"-DWITH_MCCL={'ON' if backend == 'moore' else 'OFF'}",
         "-DWITH_OMPI=OFF",
         "-DWITH_MPICH=OFF",
         "-DAUTO_DETECT_DEVICES=OFF",
         "-DAUTO_DETECT_BACKENDS=OFF",
-        f"-DBUILD_EXAMPLES={'ON' if test else 'OFF'}",
+        f"-DBUILD_EXAMPLES={'ON' if ccl_test else 'OFF'}",
         f"-DCMAKE_BUILD_TYPE={build_type}",
         f"-DCMAKE_INSTALL_PREFIX={prefix}",
     ]
+    if ccl_backend is not None:
+        configure.insert(5, backend_cmake_option(ccl_backend))
     append_gpu_arch(configure, backend, cuda_arch, iluvatar_arch, hygon_arch)
     if backend == "iluvatar":
         configure.extend(
@@ -310,7 +367,7 @@ def build_infiniccl_commands(
         ["cmake", "--build", str(build), "--parallel", str(jobs)],
         ["cmake", "--install", str(build)],
     ]
-    if test:
+    if ccl_test:
         commands.append(
             [
                 str(build / "examples/ccl/all_reduce"),
@@ -465,6 +522,14 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Print commands without executing them.",
     )
+    parser.add_argument(
+        "--allow-dirty-submodules",
+        action="store_true",
+        help=(
+            "Allow dirty or gitlink-mismatched InfiniCore submodules "
+            "(for local M0 feature-branch builds)."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.jobs < 1:
         parser.error("--jobs must be positive")
@@ -479,13 +544,16 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     if args.backend == "hygon" and args.hygon_arch is None:
         args.hygon_arch = "gfx936"
     if args.operator_config is None:
-        if args.backend not in ("nvidia", "moore"):
+        if args.backend == "qy":
+            args.operator_config = QY_M1_OPERATOR_CONFIG
+        elif args.backend not in ("nvidia", "moore"):
             parser.error(f"--operator-config is required with --backend={args.backend}")
-        args.operator_config = (
-            MOORE_OPERATOR_CONFIG
-            if args.backend == "moore"
-            else DEFAULT_OPERATOR_CONFIG
-        )
+        else:
+            args.operator_config = (
+                MOORE_OPERATOR_CONFIG
+                if args.backend == "moore"
+                else DEFAULT_OPERATOR_CONFIG
+            )
     if args.build_root is None:
         args.build_root = Path("build/integration") / args.backend
     return args
@@ -509,7 +577,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     operator_config_path = resolve_from_project(args.operator_config)
     operator_config = read_operator_config(operator_config_path)
     revisions = {
-        name: validate_submodule(infinicore_root, relative_path)
+        name: validate_submodule(
+            infinicore_root,
+            relative_path,
+            allow_dirty=args.allow_dirty_submodules,
+        )
         for name, relative_path in SUBMODULES.items()
     }
     infinilm_revision = git_capture(["rev-parse", "HEAD"], PROJECT_ROOT)
@@ -526,6 +598,29 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     build_env.get("LD_LIBRARY_PATH", ""),
                 ],
             )
+        )
+    elif args.backend == "qy":
+        qy_root = Path(
+            build_env.setdefault(
+                "QY_ROOT",
+                build_env.get("QY_HOME")
+                or build_env.get("QY_PATH")
+                or "/usr/local/denglin",
+            )
+        )
+        build_env["CUDA_HOME"] = str(qy_root / "sdk")
+        build_env["CUDA_PATH"] = str(qy_root / "sdk")
+        build_env["LD_LIBRARY_PATH"] = os.pathsep.join(
+            filter(
+                None,
+                [
+                    str(qy_root / "sdk/lib"),
+                    build_env.get("LD_LIBRARY_PATH", ""),
+                ],
+            )
+        )
+        build_env["PATH"] = os.pathsep.join(
+            filter(None, [str(qy_root / "sdk/bin"), build_env.get("PATH", "")])
         )
 
     print(f"InfiniLM: {infinilm_revision}")

@@ -1,4 +1,9 @@
 #include "qwen3_5_decoderLayer.hpp"
+#include "../../global_state/ar_profile.hpp"
+#include "../../global_state/global_state.hpp"
+#include "../../global_state/piecewise_inductor_flags.hpp"
+#include "../../global_state/piecewise_prefill_state.hpp"
+#include "../../utils.hpp"
 #include "infinicore/ops.hpp"
 #include <stdexcept>
 #include <string>
@@ -61,6 +66,113 @@ infinicore::Tensor Qwen35DecoderLayer::forward(const infinicore::Tensor &positio
     hidden_states = mlp_->forward(hidden_states);
     hidden_states = infinicore::op::add(residual, hidden_states);
     return hidden_states;
+}
+
+void Qwen35DecoderLayer::piecewise_pre_attn(
+    const infinicore::Tensor &positions,
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    (void)global_state::piecewise_inductor_segment_enabled();
+    piecewise_pre_attn_qkv(positions, hidden_states, residual, staging);
+    piecewise_pre_attn_rope(positions, staging);
+}
+
+void Qwen35DecoderLayer::piecewise_pre_attn_qkv(
+    const infinicore::Tensor &positions,
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    input_layernorm_->forward_inplace(hidden_states, residual);
+    if ("linear_attention" == layer_type_) {
+        // GDN: LN only in CG-capturable pre; eager_attn runs the delta-net.
+        (void)positions;
+        (void)staging;
+        return;
+    }
+    self_attn_->forward_pre_attn_qkv_piecewise(positions, hidden_states, staging);
+}
+
+void Qwen35DecoderLayer::piecewise_pre_attn_rope(
+    const infinicore::Tensor &positions,
+    global_state::PiecewiseLayerStaging &staging) const {
+    if ("linear_attention" == layer_type_) {
+        (void)positions;
+        (void)staging;
+        return;
+    }
+    self_attn_->forward_pre_attn_rope_piecewise(positions, staging);
+}
+
+void Qwen35DecoderLayer::piecewise_eager_attn(
+    const infinicore::Tensor &positions,
+    global_state::PiecewiseLayerStaging &staging) const {
+    if ("linear_attention" == layer_type_) {
+        // Prefer working eager-GDN over CG-capturing GDN (SSM/conv state).
+        auto &piecewise = global_state::get_forward_context().piecewise;
+        auto &hidden = piecewise.hidden_states;
+        const size_t seq_len = hidden->size(1);
+        const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+        auto hs = hidden->narrow({{1, 0, valid_len}});
+        auto out = linear_attn_->forward(hs);
+        hidden->narrow({{1, 0, valid_len}})->copy_from(out);
+        if (valid_len < seq_len) {
+            auto tail = hidden->narrow({{1, valid_len, seq_len - valid_len}});
+            set_zeros(tail);
+        }
+        (void)positions;
+        (void)staging;
+        return;
+    }
+    self_attn_->forward_eager_attn_piecewise(positions, staging);
+}
+
+void Qwen35DecoderLayer::piecewise_post_attn_cg(
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    auto &piecewise = global_state::get_forward_context().piecewise;
+    const size_t seq_len = hidden_states->size(1);
+    const size_t valid_len = piecewise.valid_seq_len > 0 ? piecewise.valid_seq_len : seq_len;
+    if ("linear_attention" == layer_type_) {
+        // Skip o_proj — GDN already wrote into hidden_states in eager_attn.
+        (void)staging;
+        post_attention_layernorm_->forward_inplace(hidden_states, residual);
+        auto hidden_for_mlp = (valid_len < seq_len)
+                                  ? hidden_states->narrow({{1, 0, valid_len}})
+                                  : hidden_states;
+        auto mlp_out = mlp_->forward_matmul(hidden_for_mlp);
+        mlp_->forward_allreduce(mlp_out);
+        if (valid_len < seq_len) {
+            hidden_states->narrow({{1, 0, valid_len}})->copy_from(mlp_out);
+        } else {
+            hidden_states->copy_from(mlp_out);
+        }
+        return;
+    }
+    self_attn_->forward_post_attn_piecewise_cg_into(hidden_states, staging);
+    self_attn_->forward_post_attn_piecewise_allreduce_into(hidden_states, staging);
+    post_attention_layernorm_->forward_inplace(hidden_states, residual);
+    auto hidden_for_mlp = (valid_len < seq_len)
+                              ? hidden_states->narrow({{1, 0, valid_len}})
+                              : hidden_states;
+    auto mlp_out = mlp_->forward_matmul(hidden_for_mlp);
+    mlp_->forward_allreduce(mlp_out);
+    if (valid_len < seq_len) {
+        hidden_states->narrow({{1, 0, valid_len}})->copy_from(mlp_out);
+    } else {
+        hidden_states->copy_from(mlp_out);
+    }
+}
+
+void Qwen35DecoderLayer::piecewise_post_attn_allreduce(
+    infinicore::Tensor &hidden_states,
+    infinicore::Tensor &residual,
+    global_state::PiecewiseLayerStaging &staging) const {
+    (void)residual;
+    (void)hidden_states;
+    (void)staging;
+    // AllReduce already applied inside piecewise_post_attn_cg.
 }
 
 } // namespace infinilm::models::qwen3_5

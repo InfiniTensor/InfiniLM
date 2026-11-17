@@ -16,6 +16,7 @@ class PinnableBlockAllocator : public MemoryAllocator {
         void *ptr = nullptr;  // Device pointer
         size_t size = 0;      // Block size in bytes
         size_t pin_count = 0; // Number of graphs retaining this block
+        size_t reuse_capture_id = 0; // Scratch reuse is local to one active capture
         bool in_use = false;  // Wether the block is currently in use
         size_t use_count = 0; // Number of Memory owners for this block
         std::optional<size_t> free_list_index;
@@ -65,6 +66,7 @@ private:
     Device device_;
 
     bool pinned_mode_ = false;
+    size_t capture_id_ = 0;
     std::thread::id pin_owner_;
 
     std::vector<SizeClass> size_classes_;
@@ -75,7 +77,8 @@ private:
 
     std::mutex mutex_; // Thread safety
 
-    void freeze_for_capture_(const std::shared_ptr<Block> &block);
+    void freeze_for_capture_(const std::shared_ptr<Block> &block, bool scratch = false);
+    bool can_reuse_block_(const std::shared_ptr<Block> &block) const;
     static void remove_free_block_(SizeClass &cls, size_t index);
     void cache_free_block_(const std::shared_ptr<Block> &block);
     void release_frozen_blocks_(

@@ -17,10 +17,12 @@ inline void bind(py::module &m) {
         .value("CAMBRICON", Device::Type::kCambricon)
         .value("ASCEND", Device::Type::kAscend)
         .value("METAX", Device::Type::kMetax)
+        .value("MARS", Device::Type::kMars)
         .value("MOORE", Device::Type::kMoore)
         .value("ILUVATAR", Device::Type::kIluvatar)
         .value("HYGON", Device::Type::kHygon)
-        .value("THEAD", Device::Type::kThead);
+        .value("THEAD", Device::Type::kThead)
+        .value("QY", Device::Type::kQy);
 
     device
         .def(py::init<const Device::Type &, const int &>(),

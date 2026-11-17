@@ -1,28 +1,24 @@
 #pragma once
 
+#include "../../layers/causal_lm_templates/piecewise_text_causal_lm.hpp"
 #include "qwen3_5_model.hpp"
 #include <memory>
-#include <vector>
 
 namespace infinilm::models::qwen3_5 {
 
-class Qwen35ForCausalLM : public InfinilmModel {
+class Qwen35ForCausalLM
+    : public infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<Qwen35Model> {
 public:
-    Qwen35ForCausalLM(std::shared_ptr<infinilm::config::ModelConfig> model_config,
-                      const infinicore::Device &device);
-
-    Output forward(const Input &input) const override;
+    using Base = infinilm::layers::causal_lm_templates::PiecewiseTextCausalLM<Qwen35Model>;
+    using Base::Base;
 
     void reset_cache(const cache::CacheConfig *cache_config) override;
-
-protected:
-    INFINICORE_NN_MODULE(Qwen35Model, model);
-    INFINICORE_NN_MODULE(infinilm::layers::linear::ReplicatedLinear, lm_head);
 };
 
 std::shared_ptr<infinilm::config::ModelConfig> prepare_qwen3_5_model_config(
     std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
-std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(std::shared_ptr<infinilm::config::ModelConfig> model_config);
+std::shared_ptr<infinilm::config::ModelConfig> create_qwen3_5_model_config(
+    std::shared_ptr<infinilm::config::ModelConfig> model_config);
 
 } // namespace infinilm::models::qwen3_5

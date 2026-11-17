@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -41,11 +42,13 @@ bool is_supported(const Tensor &out,
     const auto device_type = out->device().type();
     if ((device_type != Device::Type::kNvidia
          && device_type != Device::Type::kMetax
+         && device_type != Device::Type::kMars
          && device_type != Device::Type::kMoore
          && device_type != Device::Type::kCambricon
          && device_type != Device::Type::kIluvatar
          && device_type != Device::Type::kHygon
-         && device_type != Device::Type::kAscend)
+         && device_type != Device::Type::kAscend
+         && device_type != Device::Type::kQy)
         || q->ndim() != 4
         || out->ndim() != 4
         || k_cache->ndim() != 4
@@ -119,9 +122,11 @@ struct PlannedMeta {
 
 std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     PlannedMeta &planned) {
+    const auto device_type = planned.q.device.type();
+    const auto implementation_index = implementation_index_for_device(device_type);
     const auto config = ::infinicore::op::infiniops::configForImplementation<
         infini::ops::FlashAttnWithKvcache>(
-        infini::ops::Device::Type::kNvidia, 16);
+        device_type, implementation_index);
 
     const auto q = planned.q.tensor(planned.q_tensor);
     const auto k_cache = planned.k_cache.tensor(planned.k_cache_tensor);
@@ -136,7 +141,13 @@ std::unique_ptr<FlashAttnOperator> make_graph_safe_provider(
     const std::vector<std::int64_t> window_size{-1, -1};
     const double softcap = 0.0;
     const bool rotary_interleaved = true;
-    const std::int64_t num_splits = 0;
+    // MetaX: FA2 num_splits=0 (auto) picks multi-split on long decode and
+    // hits flash_fwd_splitkv_combine ATU. Default to 1; override via env.
+    const char *num_splits_env = std::getenv("INFINI_FA_NUM_SPLITS");
+    const std::int64_t num_splits =
+        (num_splits_env && *num_splits_env)
+            ? std::strtoll(num_splits_env, nullptr, 10)
+            : 1;
     const bool return_softmax_lse = false;
     const auto out = planned.out.tensor(planned.out_tensor);
 
@@ -175,8 +186,23 @@ void *plan(Tensor out,
            const Tensor &block_table,
            std::optional<Tensor> alibi_slopes,
            float scale) {
+    // MetaX/vLLM: FA requires contiguous block_table / seqlens. Piecewise and
+    // paged compilers often pass narrow() views; non-contig triggers
+    // flash_fwd_splitkv memory/ATU faults on MACA (same fix as mha_varlen).
+    Tensor seqlens_k_c = seqlens_k;
+    Tensor block_table_c = block_table;
+    if (seqlens_k_c && !seqlens_k_c->is_contiguous()) {
+        seqlens_k_c = seqlens_k_c->contiguous();
+    }
+    if (block_table_c && !block_table_c->is_contiguous()) {
+        block_table_c = block_table_c->contiguous();
+    }
+    if (alibi_slopes.has_value() && alibi_slopes.value()
+        && !alibi_slopes.value()->is_contiguous()) {
+        alibi_slopes = alibi_slopes.value()->contiguous();
+    }
     INFINICORE_ASSERT(is_supported(
-        out, q, k_cache, v_cache, seqlens_k, block_table, alibi_slopes));
+        out, q, k_cache, v_cache, seqlens_k_c, block_table_c, alibi_slopes));
     auto planned = std::unique_ptr<PlannedMeta>{new PlannedMeta{
         TensorMeta(out),
         TensorMeta(q),
@@ -233,7 +259,13 @@ void run(void *planned_meta) {
     const std::vector<std::int64_t> window_size{-1, -1};
     const double softcap = 0.0;
     const bool rotary_interleaved = true;
-    const std::int64_t num_splits = 0;
+    // MetaX: FA2 num_splits=0 (auto) picks multi-split on long decode and
+    // hits flash_fwd_splitkv_combine ATU. Default to 1; override via env.
+    const char *num_splits_env = std::getenv("INFINI_FA_NUM_SPLITS");
+    const std::int64_t num_splits =
+        (num_splits_env && *num_splits_env)
+            ? std::strtoll(num_splits_env, nullptr, 10)
+            : 1;
     const bool return_softmax_lse = false;
     const auto out = planned->out.tensor(planned->out_tensor);
 
@@ -306,8 +338,11 @@ static bool registered = []() {
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kNvidia, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kNvidia, &cleanup);
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMetax, &plan);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMars, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMetax, &run);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMars, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMetax, &cleanup);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMars, &cleanup);
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kMoore, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kMoore, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kMoore, &cleanup);
@@ -323,6 +358,9 @@ static bool registered = []() {
     MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kAscend, &plan);
     MhaKVCache::run_dispatcher().registerDevice(Device::Type::kAscend, &run);
     MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kAscend, &cleanup);
+    MhaKVCache::plan_dispatcher().registerDevice(Device::Type::kQy, &plan);
+    MhaKVCache::run_dispatcher().registerDevice(Device::Type::kQy, &run);
+    MhaKVCache::cleanup_dispatcher().registerDevice(Device::Type::kQy, &cleanup);
     return true;
 }();
 

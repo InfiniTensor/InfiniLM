@@ -9,6 +9,7 @@
 #include <array>
 #include <cstddef>
 #include <stdexcept>
+#include <typeinfo>
 #include <string>
 
 namespace infinicore::op::common {
@@ -37,8 +38,9 @@ public:
         const auto fn = table_.at(static_cast<size_t>(device_type));
         if (fn == nullptr) {
             throw std::runtime_error(
-                "No operator implementation is registered for device `"
-                + std::string(Device::StringFromType(device_type)) + "`.");
+                std::string("No operator implementation is registered for device `")
+                + std::string(Device::StringFromType(device_type)) + "`. schema="
+                + typeid(Fn).name());
         }
         return fn;
     }

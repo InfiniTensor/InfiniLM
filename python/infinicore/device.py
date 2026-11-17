@@ -11,11 +11,13 @@ _TYPE_ALIASES = {
     "ascend": (_infinicore.Device.Type.ASCEND, "npu"),
     "npu": (_infinicore.Device.Type.ASCEND, "npu"),
     "metax": (_infinicore.Device.Type.METAX, "metax"),
+    "mars": (_infinicore.Device.Type.MARS, "mars"),
     "moore": (_infinicore.Device.Type.MOORE, "musa"),
     "musa": (_infinicore.Device.Type.MOORE, "musa"),
     "iluvatar": (_infinicore.Device.Type.ILUVATAR, "iluvatar"),
     "hygon": (_infinicore.Device.Type.HYGON, "hygon"),
     "thead": (_infinicore.Device.Type.THEAD, "thead"),
+    "qy": (_infinicore.Device.Type.QY, "qy"),
 }
 
 _NATIVE_TO_NAME = {native: name for native, name in set(_TYPE_ALIASES.values())}

@@ -69,7 +69,20 @@ public:
                       infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
                       infinicclComm_t communicator = nullptr);
 
+    /// Fused matmul (+bias) then AllReduce when TP>1. Default eager path.
     infinicore::Tensor forward(infinicore::Tensor &input) const;
+
+    /// Matmul (+bias) only — no collective. Used by piecewise CG capture so
+    /// AllReduce can be a separate capture-safe op / valid_len staging path.
+    infinicore::Tensor forward_matmul(infinicore::Tensor &input) const;
+
+    /// In-place AllReduce on a TP-sharded row-parallel output (no-op if TP==1).
+    void forward_allreduce(infinicore::Tensor &output) const;
+
+    bool needs_allreduce() const {
+        return tp_size_ > 1 && communicator_ != nullptr;
+    }
+
     std::string extra_repr() const;
 
 protected:

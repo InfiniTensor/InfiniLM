@@ -52,6 +52,7 @@ void PinnableBlockAllocator::begin_pin_mode() {
     INFINICORE_ASSERT(capture_frozen_blocks_.empty());
     INFINICORE_ASSERT(capture_frozen_block_set_.empty());
     pinned_mode_ = true;
+    ++capture_id_;
     pin_owner_ = std::this_thread::get_id();
 }
 
@@ -97,9 +98,13 @@ void PinnableBlockAllocator::cancel_pin_mode() {
     pin_owner_ = {};
 }
 
-void PinnableBlockAllocator::freeze_for_capture_(const std::shared_ptr<Block> &block) {
+void PinnableBlockAllocator::freeze_for_capture_(const std::shared_ptr<Block> &block, bool scratch) {
     if (pinned_mode_ && pin_owner_ == std::this_thread::get_id()
         && capture_frozen_block_set_.insert(block.get()).second) {
+        // External inputs and blocks retained by another graph keep their
+        // contents. Only scratch allocated by this capture may be recycled
+        // once its tensor owners release it.
+        block->reuse_capture_id = scratch && block->pin_count == 0 ? capture_id_ : 0;
         ++block->pin_count;
         capture_frozen_blocks_.push_back(block);
     }
@@ -130,6 +135,13 @@ void PinnableBlockAllocator::release_frozen_blocks_(
         }
     } catch (...) {
     }
+}
+
+bool PinnableBlockAllocator::can_reuse_block_(const std::shared_ptr<Block> &block) const {
+    return !block->in_use
+        && (block->pin_count == 0
+            || (pinned_mode_ && pin_owner_ == std::this_thread::get_id()
+                && block->pin_count == 1 && block->reuse_capture_id == capture_id_));
 }
 
 // ------------------- allocate -------------------
@@ -168,12 +180,15 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
     // 1. Try size-class allocation for small/medium
     for (auto &cls : size_classes_) {
         if (size <= cls.block_size) {
-            if (!cls.free_blocks.empty()) {
-                block = cls.free_blocks.back();
-                remove_free_block_(cls, cls.free_blocks.size() - 1);
+            for (size_t i = cls.free_blocks.size(); i > 0; --i) {
+                block = cls.free_blocks[i - 1];
+                if (!can_reuse_block_(block)) {
+                    continue;
+                }
+                remove_free_block_(cls, i - 1);
                 block->in_use = true;
                 block->use_count = 1;
-                freeze_for_capture_(block);
+                freeze_for_capture_(block, true);
                 return reinterpret_cast<std::byte *>(block->ptr);
             }
             // Allocate a new block for this class
@@ -181,7 +196,7 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
             block->size = cls.block_size;
             block->in_use = true;
             block->use_count = 1;
-            freeze_for_capture_(block);
+            freeze_for_capture_(block, true);
 
             INFINICORE_CHECK_ERROR(infini::rt::runtime::Malloc(&block->ptr, block->size));
 
@@ -191,19 +206,17 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
     }
 
     // 2. Large block allocation
-    // A pinned free block can be reused once its tensor owners release it. The
-    // pin keeps the underlying storage alive for graph replay without making
-    // the address exclusive to one captured graph.
+    // Apply the same capture ownership rule to large scratch allocations.
     auto it = std::find_if(large_blocks_.begin(), large_blocks_.end(),
-                           [size](const std::shared_ptr<Block> &b) {
-                               return b->size >= size && !b->in_use;
+                           [this, size](const std::shared_ptr<Block> &b) {
+                               return b->size >= size && can_reuse_block_(b);
                            });
 
     if (it != large_blocks_.end()) {
         block = *it;
         block->in_use = true;
         block->use_count = 1;
-        freeze_for_capture_(block);
+        freeze_for_capture_(block, true);
         return reinterpret_cast<std::byte *>(block->ptr);
     }
 
@@ -212,7 +225,7 @@ std::byte *PinnableBlockAllocator::allocate(size_t size) {
     block->size = size;
     block->in_use = true;
     block->use_count = 1;
-    freeze_for_capture_(block);
+    freeze_for_capture_(block, true);
 
     INFINICORE_CHECK_ERROR(infini::rt::runtime::Malloc(&block->ptr, block->size));
 

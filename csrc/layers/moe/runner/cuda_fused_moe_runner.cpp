@@ -4,6 +4,9 @@
 #include "infinicore/ops/moe_align.hpp"
 #include "infinicore/ops/moe_fused_dense.hpp"
 
+#include <algorithm>
+#include <cstdlib>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -76,17 +79,53 @@ void check_packed_weight_tensor(const infinicore::Tensor &tensor,
 CombineInput CudaFusedMoeRunner::run(const DispatchOutput &dispatch_output,
                                      const MoeWeights &weights,
                                      MoeWorkspace &workspace) const {
-    auto runner_input = prepare_runner_input(
-        dispatch_output,
-        workspace);
+    // dl fused MoE materializes [M, topk, H] intermediates. A 7k-token
+    // prefill OOMs a 32GB KS38; vLLM chunks, but its 16k chunk is still too
+    // big here. Run ≤1024-token chunks on QY (graph capture stays one shot).
+    constexpr size_t kQyChunkTokens = 1024;
+    const auto &hidden = dispatch_output.hidden_states;
+    const size_t num_tokens = hidden ? hidden->shape()[0] : 0;
+    const bool chunk_qy = hidden
+                       && hidden->device().type() == infinicore::Device::Type::kQy
+                       && !infinicore::context::isGraphRecording()
+                       && num_tokens > kQyChunkTokens
+                       && hidden->shape().size() == 2;
+    if (!chunk_qy) {
+        auto runner_input = prepare_runner_input(dispatch_output, workspace);
+        auto runner_output = run_fused_core(runner_input, weights, workspace);
+        return CombineInput{
+            CombineInputFormat::Standard,
+            runner_output.hidden_states,
+            runner_input.topk_output,
+            runner_input.routing_metadata,
+        };
+    }
 
-    auto runner_output = run_fused_core(runner_input, weights, workspace);
+    ensure_tensor(
+        workspace.fused_moe_output,
+        hidden->shape(),
+        hidden->dtype(),
+        hidden->device());
+    workspace.fused_moe_output_tokens_capacity = num_tokens;
+    const auto &topk = dispatch_output.topk_output;
+    for (size_t begin = 0; begin < num_tokens; begin += kQyChunkTokens) {
+        const size_t rows = std::min(kQyChunkTokens, num_tokens - begin);
+        DispatchOutput slice = dispatch_output;
+        slice.hidden_states = hidden->narrow({{0, begin, rows}})->contiguous();
+        slice.topk_output.topk_weights = topk.topk_weights->narrow({{0, begin, rows}})->contiguous();
+        slice.topk_output.topk_ids = topk.topk_ids->narrow({{0, begin, rows}})->contiguous();
+        // Fresh align buffers so block_size recovered from numel matches this chunk.
+        MoeWorkspace chunk_workspace;
+        auto runner_input = prepare_runner_input(slice, chunk_workspace);
+        auto runner_output = run_fused_core(runner_input, weights, chunk_workspace);
+        workspace.fused_moe_output->narrow({{0, begin, rows}})->copy_from(runner_output.hidden_states);
+    }
 
     return CombineInput{
         CombineInputFormat::Standard,
-        runner_output.hidden_states,
-        runner_input.topk_output,
-        runner_input.routing_metadata,
+        workspace.fused_moe_output,
+        dispatch_output.topk_output,
+        MoeRoutingMetadata{},
     };
 }
 

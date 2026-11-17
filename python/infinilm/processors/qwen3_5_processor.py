@@ -137,7 +137,16 @@ class Qwen35Processor(BasicLLMProcessor):
     ):
         normalized_conversation = []
         for message in conversation:
-            content = message["content"]
+            content = message.get("content") if isinstance(message, dict) else None
+            if content is None:
+                # Preserve tool_calls / name / etc.; chat template tolerates empty content.
+                if isinstance(message, dict):
+                    fixed = dict(message)
+                    fixed["content"] = ""
+                    normalized_conversation.append(fixed)
+                else:
+                    normalized_conversation.append(message)
+                continue
             if not isinstance(content, list):
                 normalized_conversation.append(message)
                 continue
@@ -158,9 +167,10 @@ class Qwen35Processor(BasicLLMProcessor):
                         f"Unsupported Qwen3.5 content type: {item_type}"
                     )
 
-            normalized_conversation.append(
-                {"role": message.get("role", "user"), "content": normalized_content}
-            )
+            fixed = dict(message) if isinstance(message, dict) else {}
+            fixed["role"] = message.get("role", "user") if isinstance(message, dict) else "user"
+            fixed["content"] = normalized_content
+            normalized_conversation.append(fixed)
 
         template_owner = (
             self.processor if self.processor is not None else self.tokenizer
@@ -199,15 +209,16 @@ class Qwen35Processor(BasicLLMProcessor):
 
         init_indices = []
         final_indices = []
-        for req in scheduler_output.scheduled_requests:
+        rows = getattr(scheduler_output, "rows", None)
+        for row_idx, req in enumerate(scheduler_output.scheduled_requests):
             if req.mamba_cache_index is None:
                 raise RuntimeError(
                     f"Request {req.request_id} has no assigned mamba cache index"
                 )
-            if scheduler_output.is_prefill:
-                init_indices.append(0)
-            else:
-                init_indices.append(req.mamba_cache_index)
+            is_prefill = rows[row_idx].is_prefill_row if rows else scheduler_output.is_prefill
+            # Continuing prefill consumes the state written by the prior chunk.
+            start = (getattr(req, "chunk_prefill_offset", 0) or req.num_local_cached_tokens)
+            init_indices.append(0 if is_prefill and start == 0 else req.mamba_cache_index)
             final_indices.append(req.mamba_cache_index)
 
         import infinicore
@@ -397,11 +408,25 @@ class Qwen35Processor(BasicLLMProcessor):
         import torch
 
         position_chunks = []
-        for req in scheduler_output.scheduled_requests:
-            if scheduler_output.is_prefill:
+        rows = getattr(scheduler_output, "rows", None)
+        # The v1 scheduler can split a prompt or mix decode and prefill rows.
+        # Position columns must match the exact token slice packed by the base
+        # processor, rather than the entire remaining request prompt.
+        scheduled = (
+            [(row.request, row.is_prefill_row, row.num_scheduled_tokens) for row in rows]
+            if rows else
+            [(req, scheduler_output.is_prefill, None)
+             for req in scheduler_output.scheduled_requests]
+        )
+        for req, is_prefill, budget in scheduled:
+            if is_prefill:
                 self._update_request_mrope_delta(req)
                 num_cached = req.num_local_cached_tokens
-                compute_len = len(req.get_input_tokens()) - num_cached
+                if budget is not None:
+                    num_cached = getattr(req, "chunk_prefill_offset", 0) or num_cached
+                    compute_len = min(budget, len(req.get_prefill_tokens()) - num_cached)
+                else:
+                    compute_len = len(req.get_input_tokens()) - num_cached
                 position_chunks.append(
                     self._build_mrope_position_ids(req, num_cached, compute_len)
                 )

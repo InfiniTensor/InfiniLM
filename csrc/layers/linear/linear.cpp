@@ -1,4 +1,6 @@
 #include "linear.hpp"
+#include "infinicore/ops/add.hpp"
+#include "infinicore/ops/distributed/allreduce.hpp"
 
 namespace infinilm::nn {
 
@@ -82,10 +84,38 @@ RowParallelLinear::RowParallelLinear(size_t in_features, size_t out_features,
 }
 
 infinicore::Tensor RowParallelLinear::forward(infinicore::Tensor &input) const {
-    if (tp_size_ > 1 && communicator_ != nullptr) {
+    if (needs_allreduce()) {
         return compute_linear_allreduce(input, communicator_);
     }
     return BaseLinear::forward(input);
+}
+
+infinicore::Tensor RowParallelLinear::forward_matmul(infinicore::Tensor &input) const {
+    // Match BaseQuantization::forward_allreduce: matmul without bias when TP
+    // will AllReduce; bias is applied after the collective in forward_allreduce.
+    if (!needs_allreduce()) {
+        return BaseLinear::forward(input);
+    }
+    infinilm::quantization::ParamsMap params;
+    for (const auto &[name, param] : parameters_) {
+        params[name] = static_cast<const infinicore::Tensor &>(param);
+    }
+    return quantization_->forward(params, input, /*has_bias=*/false, alpha_);
+}
+
+void RowParallelLinear::forward_allreduce(infinicore::Tensor &output) const {
+    if (!needs_allreduce()) {
+        return;
+    }
+    infinicore::op::distributed::allreduce_(
+        output, output, infinicclSum, communicator_);
+    if (has_bias_) {
+        infinilm::quantization::ParamsMap params;
+        for (const auto &[name, param] : parameters_) {
+            params[name] = static_cast<const infinicore::Tensor &>(param);
+        }
+        infinicore::op::add_(output, output, params.at("bias"));
+    }
 }
 
 std::string RowParallelLinear::extra_repr() const {

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #include "config.h"
 #include "data_type.h"
@@ -15,6 +16,8 @@
 #include "tensor.h"
 
 namespace infinicore::op::infiniops {
+// mars-config-fallback-marker-20261113b
+
 
 inline infini::ops::DataType toInfiniOpsDtype(DataType dtype) {
     switch (dtype) {
@@ -53,6 +56,8 @@ inline infini::ops::Device toInfiniOpsDevice(const Device &device) {
         return infini::ops::Device{infini::ops::Device::Type::kNvidia, static_cast<int>(device.index())};
     case Device::Type::kMetax:
         return infini::ops::Device{infini::ops::Device::Type::kMetax, static_cast<int>(device.index())};
+    case Device::Type::kMars:
+        return infini::ops::Device{infini::ops::Device::Type::kMars, static_cast<int>(device.index())};
     case Device::Type::kMoore:
         return infini::ops::Device{infini::ops::Device::Type::kMoore, static_cast<int>(device.index())};
     case Device::Type::kIluvatar:
@@ -65,6 +70,8 @@ inline infini::ops::Device toInfiniOpsDevice(const Device &device) {
         return infini::ops::Device{infini::ops::Device::Type::kHygon, static_cast<int>(device.index())};
     case Device::Type::kThead:
         return infini::ops::Device{infini::ops::Device::Type::kThead, static_cast<int>(device.index())};
+    case Device::Type::kQy:
+        return infini::ops::Device{infini::ops::Device::Type::kQy, static_cast<int>(device.index())};
     default:
         throw std::runtime_error("InfiniOps backend does not support this device type.");
     }
@@ -74,34 +81,52 @@ inline bool isSupportedDevice(Device::Type device_type) {
     switch (device_type) {
     case Device::Type::kNvidia:
     case Device::Type::kMetax:
+    case Device::Type::kMars:
     case Device::Type::kMoore:
     case Device::Type::kIluvatar:
     case Device::Type::kCambricon:
     case Device::Type::kAscend:
     case Device::Type::kHygon:
     case Device::Type::kThead:
+    case Device::Type::kQy:
         return true;
     default:
         return false;
     }
 }
 
+// Provider traits live in the compiled InfiniOps library. Consumer headers
+// intentionally omit backend specializations; extern template declarations do
+// not prevent an optimizer from inlining that empty primary-template body.
+// Dispatch indirectly through the exported instantiation at every optimization
+// level instead of treating consumer-side traits as the provider manifest.
+template <typename Operator>
+std::vector<std::size_t> activeImplementationIndices(infini::ops::Device::Type device_type) {
+    // Call the InfiniOps extern-template export directly. The previous
+    // volatile-function-pointer indirection still resolved to an empty
+    // primary-template body under some link orders on Mars.
+    return Operator::active_implementation_indices(device_type);
+}
+
 template <typename Operator>
 infini::ops::Config configForImplementation(
     infini::ops::Device::Type device_type,
     std::size_t implementation_index) {
-    const auto implementation_indices = Operator::active_implementation_indices(device_type);
-    if (std::find(
-            implementation_indices.begin(),
-            implementation_indices.end(),
-            implementation_index)
-        == implementation_indices.end()) {
+    const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
+    if (!implementation_indices.empty()
+        && std::find(
+               implementation_indices.begin(),
+               implementation_indices.end(),
+               implementation_index)
+            == implementation_indices.end()) {
         throw std::runtime_error(
             "InfiniOps implementation " + std::to_string(implementation_index)
             + " is not active for device '"
             + std::string(infini::ops::Device::StringFromType(device_type)) + "'.");
     }
-
+    // Mars/MetaX consumer TUs may see an empty ActiveImplementations list even
+    // when InfiniOps exports the linked provider (e.g. FlashAttn@16). Trust the
+    // caller-selected index so Make/Call can resolve inside libinfiniops.
     infini::ops::Config config;
     config.set_implementation_index(implementation_index);
     return config;
@@ -111,7 +136,7 @@ template <typename Operator>
 infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type) {
     if (device_type == infini::ops::Device::Type::kNvidia) {
         static const std::size_t implementation_index = [] {
-            const auto implementation_indices = Operator::active_implementation_indices(
+            const auto implementation_indices = activeImplementationIndices<Operator>(
                 infini::ops::Device::Type::kNvidia);
             if (implementation_indices.empty()) {
                 throw std::runtime_error(
@@ -128,7 +153,19 @@ infini::ops::Config defaultConfigForDevice(infini::ops::Device::Type device_type
         return config;
     }
 
-    const auto implementation_indices = Operator::active_implementation_indices(device_type);
+    // Prefer InfiniOps-exported indices when visible; otherwise default to 0
+    // for native Mars/MetaX ops. Callers that need linked slots (FA@16) must
+    // use configForImplementation with an explicit index.
+    if (device_type == infini::ops::Device::Type::kMars
+        || device_type == infini::ops::Device::Type::kMetax) {
+        const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
+        infini::ops::Config config;
+        config.set_implementation_index(
+            implementation_indices.empty() ? 0 : implementation_indices.front());
+        return config;
+    }
+
+    const auto implementation_indices = activeImplementationIndices<Operator>(device_type);
     if (implementation_indices.empty()) {
         throw std::runtime_error(
             "InfiniOps operator has no active implementation for device '"
@@ -142,12 +179,14 @@ template <typename Dispatcher, typename Function>
 void registerSupportedDevices(Dispatcher &dispatcher, Function function) {
     dispatcher.registerDevice(Device::Type::kNvidia, function);
     dispatcher.registerDevice(Device::Type::kMetax, function);
+    dispatcher.registerDevice(Device::Type::kMars, function);
     dispatcher.registerDevice(Device::Type::kMoore, function);
     dispatcher.registerDevice(Device::Type::kIluvatar, function);
     dispatcher.registerDevice(Device::Type::kCambricon, function);
     dispatcher.registerDevice(Device::Type::kAscend, function);
     dispatcher.registerDevice(Device::Type::kHygon, function);
     dispatcher.registerDevice(Device::Type::kThead, function);
+    dispatcher.registerDevice(Device::Type::kQy, function);
 }
 
 struct TensorMeta {

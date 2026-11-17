@@ -34,4 +34,15 @@ infinicore::Tensor MLP::forward(const infinicore::Tensor &hidden_states) const {
     auto output = down_proj_->forward(intermediate);
     return output;
 }
+
+infinicore::Tensor MLP::forward_matmul(const infinicore::Tensor &hidden_states) const {
+    auto hidden_states_mutable = hidden_states;
+    auto gate_up = gate_up_proj_->forward(hidden_states_mutable);
+    auto intermediate = infinicore::op::silu_and_mul(gate_up);
+    return down_proj_->forward_matmul(intermediate);
+}
+
+void MLP::forward_allreduce(infinicore::Tensor &output) const {
+    down_proj_->forward_allreduce(output);
+}
 } // namespace infinilm::layers::mlp
