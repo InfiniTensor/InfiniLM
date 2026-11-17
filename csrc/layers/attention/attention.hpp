@@ -63,6 +63,7 @@ protected:
     size_t num_key_value_heads_;
     size_t hidden_size_;
     size_t head_dim_;
+    bool static_paired_rope_{false};
     infinilm::runtime::Runtime *construction_owner_ = nullptr; // Non-owning, worker-owned selected lifetime.
 
     // For off-line kv cache quantization
