@@ -47,10 +47,16 @@ DeepseekV2TopKRouter::DeepseekV2TopKRouter(infinilm::runtime::Runtime &runtime,
         num_experts_ = model_config->get<size_t>("num_experts");
         num_experts_per_tok_ = model_config->get<size_t>("num_experts_per_tok");
         norm_topk_prob_ = model_config->get<bool>("norm_topk_prob");
-        // This router computes ungrouped softmax top-k with unit routing scale.
+        const double routed_scaling_factor = model_config->get_or<double>("routed_scaling_factor", 1.0);
+        // This router computes ungrouped softmax top-k. When top-k weights are
+        // not renormalized, HF multiplies them by routed_scaling_factor, so a
+        // non-unit factor requires a post-topk scale (HF MoEGate semantics).
+        if (!norm_topk_prob_ && routed_scaling_factor != 1.0) {
+            routed_scaling_factor_ = static_cast<float>(routed_scaling_factor);
+        }
         if (model_config->get_or<std::string>("scoring_func", "softmax") != "softmax"
             || model_config->get_or<std::string>("topk_method", "greedy") != "greedy"
-            || model_config->get_or<double>("routed_scaling_factor", 1.0) != 1.0
+            || (norm_topk_prob_ && routed_scaling_factor != 1.0f)
             || model_config->get_or<size_t>("n_group", 1) != 1
             || model_config->get_or<size_t>("topk_group", 1) != 1) {
             throw std::invalid_argument("DeepseekV2TopKRouter implements ungrouped softmax top-k with unit routing scale");
@@ -85,6 +91,17 @@ DeepseekV2TopKRouter::forward(infinilm::runtime::Runtime &runtime, const infinil
         std::optional<infinilm::runtime::Tensor>{}, norm_topk_prob_,
         router_scores, router_indices, topk_scratch);
     INFINILM_TRACE_OP(Topksoftmax, router_scores);
+    if (routed_scaling_factor_ != 1.0f) {
+        // HF MoEGate semantics: with norm_topk_prob=false the top-k
+        // softmax weights are scaled by routed_scaling_factor.
+        auto scaled_scores = infinilm::runtime::Tensor::empty(runtime, router_scores->shape(), router_scores->dtype());
+        infinilm::execution::submit<infini::ops::Mul>(
+            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+            infini::ops::Mul::DefaultConfig(runtime.device().type()),
+            router_scores, static_cast<double>(routed_scaling_factor_), scaled_scores);
+        INFINILM_TRACE_OP(Mul, scaled_scores);
+        router_scores = std::move(scaled_scores);
+    }
     return {router_scores, router_indices};
 }
 

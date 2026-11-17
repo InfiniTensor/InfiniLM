@@ -32,6 +32,7 @@ protected:
     size_t num_experts_per_tok_{0};
     size_t num_experts_{0};
     bool norm_topk_prob_{false};
+    float routed_scaling_factor_{1.0f};
 };
 
 class DeepseekV2Experts : public infinilm::weights::ModelWeights {
