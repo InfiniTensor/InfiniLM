@@ -13,6 +13,11 @@ local MUSA_ROOT =
     or os.getenv("MUSA_HOME")
     or os.getenv("MUSA_PATH")
     or "/usr/local/musa"
+local MACA_ROOT =
+    os.getenv("MACA_ROOT")
+    or os.getenv("MACA_HOME")
+    or os.getenv("MACA_PATH")
+    or "/opt/maca"
 local TORCH_LIB = os.getenv("TORCH_LIB")
 set_toolchains("gcc")
 
@@ -64,6 +69,10 @@ end
 if os.isdir(MUSA_ROOT .. "/include") then
     add_includedirs(MUSA_ROOT .. "/include")
     add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")
+end
+if os.isdir(MACA_ROOT .. "/include") then
+    add_includedirs(MACA_ROOT .. "/include")
+    add_linkdirs(MACA_ROOT .. "/lib", MACA_ROOT .. "/lib64")
 end
 
 target("infinilm_runtime")
