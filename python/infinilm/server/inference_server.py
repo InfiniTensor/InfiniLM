@@ -148,6 +148,7 @@ class InferenceServer:
         pre_transpose: bool = False,
         tool_call_parser: str = "none",
         chunked_prefill_size: int = 0,
+        enable_mixed_batching: bool = False,
     ):
         """Initialize inference server.
 
@@ -213,6 +214,7 @@ class InferenceServer:
             raise ValueError("Unsupported tool call parser")
         self.tool_call_parser = tool_call_parser
         self.chunked_prefill_size = chunked_prefill_size
+        self.enable_mixed_batching = enable_mixed_batching
 
         self.engine: AsyncLLMEngine = None
 
@@ -257,6 +259,7 @@ class InferenceServer:
                 enable_prefix_caching=self.enable_prefix_caching,
                 pre_transpose=self.pre_transpose,
                 chunked_prefill_size=self.chunked_prefill_size,
+                enable_mixed_batching=self.enable_mixed_batching,
             )
             self.engine.start()
             logger.info(f"Engine initialized with model at {self.model_path}")
@@ -782,6 +785,7 @@ def main():
         pre_transpose=cfg.pre_transpose,
         tool_call_parser=cfg.tool_call_parser,
         chunked_prefill_size=cfg.chunked_prefill_size,
+        enable_mixed_batching=cfg.enable_mixed_batching,
     )
     server.start()
 
