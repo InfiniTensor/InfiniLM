@@ -63,6 +63,33 @@ bool RankBarrier::all(bool value) {
     return result;
 }
 
+unsigned RankBarrier::common_decode_slots(unsigned slots) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!broken_) {
+        const auto generation = generation_;
+        decode_slots_ &= slots;
+        if (++arrived_ == thread_count_) {
+            completed_decode_slots_ = decode_slots_;
+            decode_slots_ = ~0u;
+            arrived_ = 0;
+            ++generation_;
+            cv_.notify_all();
+        } else {
+            cv_.wait(lock, [&] { return broken_ || generation != generation_; });
+        }
+    }
+    if (broken_) {
+        auto error = first_error_;
+        lock.unlock();
+        if (error) {
+            std::rethrow_exception(error);
+        }
+        throw std::runtime_error("rank barrier aborted");
+    }
+    // Another reduction cannot finish until this rank returns and participates again.
+    return completed_decode_slots_;
+}
+
 void RankBarrier::abort(std::exception_ptr error) noexcept {
     {
         std::lock_guard<std::mutex> lock(mutex_);

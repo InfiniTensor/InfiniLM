@@ -411,7 +411,7 @@ class DeepseekV4ForCausalLM final : public InfinilmModel {
 public:
     DeepseekV4ForCausalLM(Runtime &rt,std::shared_ptr<ModelConfig> config,const Rank &rank,
                          backends::AttentionBackend backend,const layers::moe::EPConfig &ep)
-        : cfg_(*config,rank), comm_(rank.comm) {
+        : cfg_(*config,rank), comm_(rank.comm), sampling_rank_(rank.tp_rank == 0) {
         validate_runtime_construction(config,rt,rank);
         if (backend != backends::AttentionBackend::PAGED_ATTN || ep.backend != layers::moe::EPBackend::Disabled)
             throw std::invalid_argument("DeepSeek V4 requires paged attention and TP expert placement");
@@ -428,7 +428,8 @@ public:
         auto ids = (*input.input_ids)->view({(*input.input_ids)->numel()});
         auto batch = make_batch(rt,input);
         if (ctx.model_decode_barrier && batch.single_decode) {
-            return decode(rt,std::move(ids),std::move(batch),*ctx.model_decode_barrier);
+            return decode(rt, std::move(ids), std::move(batch), *ctx.model_decode_barrier,
+                          ctx.model_decode_greedy);
         }
         return {logits(rt,ids,batch)};
     }
@@ -442,7 +443,7 @@ public:
         auto &rt = ctx.require_runtime();
         cache::validate_cache_runtime(rt,rank);
         cache::validate_backend_cache_config(requested,backend);
-        decode_plan_.reset();
+        decode_plans_ = {};
         if (!requested) {
             caches_.clear();
             cache_config_.reset();
@@ -474,6 +475,8 @@ private:
         Tensor ids;
         BatchMetadata batch;
         Tensor logits;
+        Tensor sampled_ids;
+        bool greedy;
         std::shared_ptr<execution::graph::Graph> graph;
     };
 
@@ -490,53 +493,81 @@ private:
         return output->view({1,ids->numel(),cfg_.vocab});
     }
 
-    Output decode(Runtime &rt,Tensor ids,BatchMetadata batch,engine::RankBarrier &barrier) const {
-        bool reuse=decode_plan_ && ids->dtype()==decode_plan_->ids->dtype();
-        if (reuse) {
-            const auto incoming=batch.tensors(), held=decode_plan_->batch.tensors();
-            for (size_t i=0;i<held.size();++i) {
-                if ((*held[i])->shape()!=(*incoming[i])->shape() ||
-                    (*held[i])->dtype()!=(*incoming[i])->dtype()) {
-                    reuse=false;
-                    break;
+    Output decode(Runtime &rt, Tensor ids, BatchMetadata batch, engine::RankBarrier &barrier,
+                  bool greedy) const {
+        auto &recent = decode_plans_.front();
+        auto &previous = decode_plans_.back();
+        const auto incoming = batch.tensors();
+        auto matches = [&](const std::optional<DecodePlan> &plan) {
+            if (!plan || plan->greedy != greedy || ids->shape() != plan->ids->shape() ||
+                ids->dtype() != plan->ids->dtype()) {
+                return false;
+            }
+            const auto held = plan->batch.tensors();
+            for (size_t i = 0; i < held.size(); ++i) {
+                if ((*held[i])->shape() != (*incoming[i])->shape() ||
+                    (*held[i])->dtype() != (*incoming[i])->dtype()) {
+                    return false;
                 }
             }
-        }
-        if (barrier.all(reuse)) {
-            decode_plan_->ids->copy_from(rt,ids);
-            const auto incoming=batch.tensors(), held=decode_plan_->batch.tensors();
-            for (size_t i=0;i<held.size();++i) {
-                Tensor dest=*held[i];
-                dest->copy_from(rt,*incoming[i]);
+            return true;
+        };
+
+        // Collectives must replay graphs from the same capture on every rank.
+        // All ranks agree on the slot before moving it or issuing a capture.
+        const unsigned local_slots = (matches(recent) ? 1u : 0u) | (matches(previous) ? 2u : 0u);
+        const unsigned common_slots = barrier.common_decode_slots(local_slots);
+        if (common_slots) {
+            if (!(common_slots & 1u)) {
+                recent.swap(previous);
+            }
+            recent->ids->copy_from(rt, ids);
+            const auto held = recent->batch.tensors();
+            for (size_t i = 0; i < held.size(); ++i) {
+                Tensor dest = *held[i];
+                dest->copy_from(rt, *incoming[i]);
             }
         } else {
-            decode_plan_.reset();
-            DecodePlan candidate{std::move(ids),std::move(batch)};
+            // Drop the least recently used graph before pinning new allocations.
+            previous.reset();
+            DecodePlan candidate{std::move(ids), std::move(batch), {}, {}, greedy, {}};
             rt.startGraphRecording(true);
             try {
-                candidate.logits=logits(rt,candidate.ids,candidate.batch);
+                candidate.logits = logits(rt, candidate.ids, candidate.batch);
+                if (greedy && sampling_rank_) {
+                    candidate.sampled_ids = Tensor::empty(rt, {1}, DataType::kInt64);
+                    execution::submit<infini::ops::Argmax>(
+                        rt, execution::RecordingPolicy::DeviceOnly,
+                        infini::ops::Argmax::DefaultConfig(rt.device().type()),
+                        candidate.logits->view({cfg_.vocab}), std::optional<int64_t>{}, false,
+                        candidate.sampled_ids->view({}));
+                }
                 // No rank may allocate or synchronously upload descriptor
                 // metadata while a peer is capturing on DTK.
                 barrier.wait();
-                candidate.graph=rt.stopGraphRecording();
+                candidate.graph = rt.stopGraphRecording();
                 barrier.wait();
             } catch (...) {
                 rt.cancelGraphRecording();
                 throw;
             }
-            decode_plan_=std::move(candidate);
+            previous = std::move(recent);
+            recent = std::move(candidate);
         }
-        decode_plan_->graph->run();
-        return {decode_plan_->logits,{},decode_plan_->graph->execution_report()};
+        recent->graph->run();
+        return {recent->logits, {}, recent->graph->execution_report(), recent->sampled_ids};
     }
 
     V4Config cfg_;
     std::shared_ptr<Backbone> backbone_;
     std::shared_ptr<ColumnLinear> head_;
     infinicclComm_t comm_;
+    const bool sampling_rank_;
     std::vector<LayerPagedCache> caches_;
     Tensor swa_rope_, compressed_rope_;
-    mutable std::optional<DecodePlan> decode_plan_;
+    // These graphs hold pointers to this model instance's current KV cache.
+    // The two most recent shapes cover both sides of adjacent page boundaries.
+    mutable std::array<std::optional<DecodePlan>, 2> decode_plans_;
 };
 
 } // namespace

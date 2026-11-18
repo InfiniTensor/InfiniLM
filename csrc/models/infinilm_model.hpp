@@ -76,6 +76,8 @@ public:
         /// Optional final hidden states, used by MTP/Eagle draft models.
         infinilm::runtime::Tensor hidden_states;
         std::optional<execution::graph::Graph::ExecutionReport> model_graph_execution;
+        // Rank 0 may produce greedy token IDs in its model-owned decode graph.
+        infinilm::runtime::Tensor model_sampled_ids{};
     };
 
     virtual ~InfinilmModel() = default;

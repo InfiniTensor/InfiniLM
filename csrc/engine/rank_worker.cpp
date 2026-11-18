@@ -738,6 +738,17 @@ void RankWorker::thread_loop() {
                         infinilm::runtime::Tensor logits;
                         infinilm::runtime::Tensor hidden_states;
                         std::optional<infinilm::execution::graph::Graph::ExecutionReport> graph_execution;
+                        infinilm::runtime::Tensor model_sampled_ids;
+                        const auto parameter_greedy = [&] {
+                            if (local_args.sampling_rows) {
+                                return std::all_of(local_args.sampling_rows->begin(), local_args.sampling_rows->end(),
+                                                   [](const auto &row) {
+                                                       return std::get<1>(row) == 0.0f || std::get<2>(row) == 1 ||
+                                                              std::get<0>(row) == 0.0f;
+                                                   });
+                            }
+                            return local_args.top_p == 0.0f || local_args.top_k == 1 || local_args.temperature == 0.0f;
+                        };
                         auto effective_args = local_args;
                         std::shared_ptr<const nsa::Proof> nsa_proof;
                         // These retained RUN locals are OUTSIDE the inner try.
@@ -934,12 +945,17 @@ void RankWorker::thread_loop() {
                                             rank_info_.pp_size == 1 && model_->owns_paged_decode_graph()
                                         ? barrier_
                                         : nullptr;
+                                forward_context_.model_decode_greedy =
+                                    forward_context_.model_decode_barrier && effective_args.input_offsets &&
+                                    effective_args.input_offsets.value() &&
+                                    effective_args.input_offsets.value()->size(0) == 2 && parameter_greedy();
                                 auto model_output = model_->forward(model_args, forward_context_);
                                 if (model_output.model_graph_execution) {
                                     graph_execution = std::move(model_output.model_graph_execution);
                                 }
                                 logits = model_output.logits;
                                 hidden_states = model_output.hidden_states;
+                                model_sampled_ids = std::move(model_output.model_sampled_ids);
                             }
 
                             if (rank_info_.pp_size > 1 && rank_info_.pp_stage + 1 != rank_info_.pp_size) {
@@ -990,23 +1006,21 @@ void RankWorker::thread_loop() {
                                 const size_t logits_positions = batch_size * total_len;
                                 const bool logits_are_last_token_only = !sample_all_positions && logits_positions == n_req;
                                 const size_t n_out = sample_all_positions ? static_cast<size_t>(input_offsets[n_req]) : n_req;
-                                auto output_ids{infinilm::runtime::Tensor::empty(*runtime_, {n_out}, infinilm::runtime::DataType::kInt64)};
+                                auto output_ids = model_sampled_ids
+                                                      ? model_sampled_ids
+                                                      : infinilm::runtime::Tensor::empty(*runtime_, {n_out}, infinilm::runtime::DataType::kInt64);
 
-                                const bool parameter_greedy = local_args.sampling_rows.has_value()
-                                                                ? std::all_of(local_args.sampling_rows->begin(),
-                                                                              local_args.sampling_rows->end(),
-                                                                              [](const auto &row) {
-                                                                                  return std::get<1>(row) == 0.0f
-                                                                                      || std::get<2>(row) == 1
-                                                                                      || std::get<0>(row) == 0.0f;
-                                                                              })
-                                                                : top_p == 0.0f || top_k == 1 || temperature == 0.0f;
-                                const bool batch_greedy = parameter_greedy
+                                const bool batch_greedy = parameter_greedy()
                                                        && n_out > 0
                                                        && logits_positions == n_out
                                                        && logits->is_contiguous()
                                                        && (sample_all_positions || logits_are_last_token_only);
-                                if (batch_greedy) {
+                                if (model_sampled_ids) {
+                                    // Preserve the legacy RNG sequence across greedy and stochastic requests.
+                                    if (!local_args.random_values) {
+                                        (void)std::uniform_real_distribution<float>(0, 1)(rng_);
+                                    }
+                                } else if (batch_greedy) {
                                     float random_val = 0.0f;
                                     if (!local_args.random_values.has_value()) {
                                         for (size_t i{0}; i < n_out; ++i) {

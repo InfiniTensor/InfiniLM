@@ -27,6 +27,15 @@ void test_reusable_barrier() {
             ++passed;
             assert(!barrier.all(rank != 1));
             assert(barrier.all(true));
+            // Consecutive and mixed barriers exercise result publication across generations.
+            for (unsigned round = 0; round < 2048; ++round) {
+                const unsigned expected = round % 4;
+                const unsigned local_slots = rank == 1 ? expected : 3u;
+                assert(barrier.common_decode_slots(local_slots) == expected);
+                if (round % 11 == 0) {
+                    barrier.wait();
+                }
+            }
             barrier.wait();
             ++passed;
         });
@@ -37,14 +46,18 @@ void test_reusable_barrier() {
     assert(passed.load() == 6);
 }
 
-void test_abort_wakes_waiters_and_preserves_first_error() {
+void test_abort_wakes_waiters_and_preserves_first_error(bool decode_slots) {
     RankBarrier barrier(3);
     std::atomic<int> started{0};
 
     auto waiter = [&] {
         ++started;
         try {
-            barrier.wait();
+            if (decode_slots) {
+                (void)barrier.common_decode_slots(3u);
+            } else {
+                barrier.wait();
+            }
         } catch (const std::runtime_error &error) {
             return std::string(error.what());
         }
@@ -87,7 +100,8 @@ void test_zero_ranks_rejected() {
 
 int main() {
     test_reusable_barrier();
-    test_abort_wakes_waiters_and_preserves_first_error();
+    test_abort_wakes_waiters_and_preserves_first_error(false);
+    test_abort_wakes_waiters_and_preserves_first_error(true);
     test_zero_ranks_rejected();
     return 0;
 }
