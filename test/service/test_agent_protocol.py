@@ -918,6 +918,66 @@ def test_completion_token_alias_precedence():
     assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 3
 
 
+@pytest.mark.parametrize(
+    "field",
+    ["max_tokens", "max_completion_tokens", "max_new_tokens"],
+)
+def test_request_output_length_aliases(field):
+    client, server = make_client("answer")
+    response = post_chat(client, **{field: 9})
+    assert response.status_code == 200
+    assert server.engine.requests[0]["sampling_params"]["max_tokens"] == 9
+
+
+def test_top_level_generation_controls_override_nested_values():
+    client, server = make_client("answer")
+    response = post_chat(
+        client,
+        max_completion_tokens=7,
+        ignore_eos=False,
+        sampling_params={"max_tokens": 11, "ignore_eos": True},
+    )
+    assert response.status_code == 200
+    sampling_params = server.engine.requests[0]["sampling_params"]
+    assert sampling_params["max_tokens"] == 7
+    assert sampling_params["ignore_eos"] is False
+
+
+def test_nested_request_generation_controls_are_supported():
+    client, server = make_client("answer")
+    response = post_chat(
+        client,
+        sampling_params={"max_new_tokens": 13, "ignore_eos": True},
+    )
+    assert response.status_code == 200
+    sampling_params = server.engine.requests[0]["sampling_params"]
+    assert sampling_params["max_tokens"] == 13
+    assert sampling_params["ignore_eos"] is True
+
+
+def test_request_ignore_eos_overrides_server_default():
+    client, server = make_client("answer")
+    server.ignore_eos = True
+    response = post_chat(client, ignore_eos=False)
+    assert response.status_code == 200
+    assert server.engine.requests[0]["sampling_params"]["ignore_eos"] is False
+
+    response = post_chat(client)
+    assert response.status_code == 200
+    assert server.engine.requests[1]["sampling_params"]["ignore_eos"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [("ignore_eos", "true", "ignore_eos"), ("max_tokens", 0, "max_tokens")],
+)
+def test_invalid_request_generation_controls_return_400(field, value, message):
+    client, _ = make_client("answer")
+    response = post_chat(client, **{field: value})
+    assert response.status_code == 400
+    assert message in response.json()["error"]["message"]
+
+
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("name", [None, "compute", "auto", "none"])
 def test_required_calls_preserve_length_but_reject_normal_text(stream, name):
