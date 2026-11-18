@@ -7,6 +7,15 @@ if not INFINI_ROOT or INFINI_ROOT == "" then
 end
 local CUDA_ROOT = os.getenv("CUDA_HOME") or os.getenv("CUDA_PATH") or "/usr/local/cuda"
 local NEUWARE_ROOT = os.getenv("NEUWARE_HOME") or "/usr/local/neuware"
+local KUNLUN_HOME = os.getenv("KUNLUN_HOME") or ""
+local KUNLUN_XRE_ROOT = ""
+if KUNLUN_HOME ~= "" then
+    if os.isdir(KUNLUN_HOME .. "/xre/include") then
+        KUNLUN_XRE_ROOT = KUNLUN_HOME .. "/xre"
+    else
+        KUNLUN_XRE_ROOT = KUNLUN_HOME
+    end
+end
 local ASCEND_ROOT = os.getenv("ASCEND_HOME_PATH") or os.getenv("ASCEND_TOOLKIT_HOME") or os.getenv("ASCEND_HOME") or "/usr/local/Ascend/ascend-toolkit/latest"
 local MUSA_ROOT =
     os.getenv("MUSA_ROOT")
@@ -65,12 +74,21 @@ if os.isdir(MUSA_ROOT .. "/include") then
     add_includedirs(MUSA_ROOT .. "/include")
     add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")
 end
+if KUNLUN_XRE_ROOT ~= "" and os.isdir(KUNLUN_XRE_ROOT .. "/include") then
+    add_includedirs(KUNLUN_XRE_ROOT .. "/include")
+    add_linkdirs(KUNLUN_XRE_ROOT .. "/so")
+end
 
 target("infinilm_runtime")
     set_default(false)
     set_kind("shared")
     set_languages("cxx17")
-    add_defines("USE_INFINIRT_GRAPH")
+    -- Graph capture/replay requires runtime graph APIs; the Kunlun XRE
+    -- exposes none, so only enable for backends that have them.
+    local _kl = os.getenv("KUNLUN_HOME") or ""
+    if _kl == "" then
+        add_defines("USE_INFINIRT_GRAPH")
+    end
     if not is_plat("windows") then
         add_cxflags("-fPIC")
     end

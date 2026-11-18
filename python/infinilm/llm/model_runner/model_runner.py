@@ -93,8 +93,24 @@ class ModelRunner:
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
+            # Kunlun BKCL p2p requires every rank to see all peer devices, so
+            # ranks cannot isolate themselves via XPU_VISIBLE_DEVICES; give
+            # each PP rank its own physical device instead (stage k uses
+            # device k for tp=1).
             distributed_config=DistConfig(
-                config.tensor_parallel_size,
+                tp_device_ids=[
+                    config.pipeline_parallel_stage + i
+                    for i in range(config.tensor_parallel_size)
+                ]
+                if config.device == "kunlun" and config.pipeline_parallel_size > 1
+                else None,
+                tp_size=(
+                    config.tensor_parallel_size
+                    if not (
+                        config.device == "kunlun" and config.pipeline_parallel_size > 1
+                    )
+                    else None
+                ),
                 moe_ep_backend=config.moe_ep_backend,
                 moe_ep_size=config.moe_ep_size,
                 pp_size=config.pipeline_parallel_size,
@@ -203,6 +219,7 @@ class ModelRunner:
             "cuda",
             "hygon",
             "iluvatar",
+            "kunlun",
             "metax",
             "mlu",
             "musa",
