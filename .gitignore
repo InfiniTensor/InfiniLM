@@ -3,6 +3,12 @@
 build/
 python/infinilm/lib/*.so
 
+# Local Python extension and staged SDK files
+/python/_infinilm*.so
+/python/infinilm/_lib/*.so
+/python/infinilm/_lib/*.so.*
+/python/infinilm/licenses/InfiniOps/
+
 # MacOS Cache
 .DS_Store
 
