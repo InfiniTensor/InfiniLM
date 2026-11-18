@@ -95,6 +95,9 @@ void ContextImpl::initializeDeviceTypeLocked(Device::Type type) {
     case Device::Type::kHygon:
         initializeDeviceType<Device::Type::kHygon>();
         break;
+    case Device::Type::kKunlun:
+        initializeDeviceType<Device::Type::kKunlun>();
+        break;
     default:
         break;
     }
