@@ -5,6 +5,7 @@
 #include "../../layers/attention/attention_checks.hpp"
 #include "../../weights/weights.hpp"
 #include "runtime/runtime.hpp"
+#include "runtime/utils.hpp"
 #include <algorithm>
 #include <base/gemm.h>
 #include <base/reshape_and_cache_flash.h>
@@ -16,6 +17,7 @@
 #include "../../utils.hpp"
 #include "deepseek_v2_utils.hpp"
 #include <base/flash_attn_varlen_func.h>
+#include <base/flash_attn_with_kvcache.h>
 
 #include <stdexcept>
 
@@ -77,7 +79,8 @@ DeepseekV2MLAAttention::DeepseekV2MLAAttention(infinilm::runtime::Runtime &runti
         rotary_emb_ = infinilm::layers::rotary_embedding::get_rope(runtime, model_config, runtime.device());
         softmax_scale_ = deepseek_v2_attention_softmax_scale(model_config, static_cast<float>(q_head_dim_));
 
-        infinilm::layers::attention::init_kv_cache_quant_params(runtime, [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); }, kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
+        infinilm::layers::attention::init_kv_cache_quant_params(
+            runtime, [this](const std::string &n, infinilm::weights::Weight p) { this->bind_weight(n, std::move(p)); }, kv_cache_k_scale_, kv_cache_v_scale_, model_config->get_kv_quant_scheme());
         latent_attn_ = std::make_shared<infinilm::layers::attention::AttentionLayer>(
             num_attention_heads_, mla_head_dim_, softmax_scale_, 1, layer_idx_,
             kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_,
@@ -261,9 +264,15 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
 
     auto k_cache_layer = kv_cache->narrow({{3, 0, mla_head_dim_}});
     auto v_cache_layer = kv_cache->narrow({{3, mla_head_dim_, kv_lora_rank_}});
+    // The fused MLA cache is [blocks, 1, block_size, dim] (k|v packed in the
+    // last dim), while `ReshapeAndCacheFlash` expects
+    // [blocks, block_size, heads, dim]. Permute to that view for the cache
+    // write; the attention operators below keep the fused layout.
+    auto k_cache_write = k_cache_layer->permute({0, 2, 1, 3});
+    auto v_cache_write = v_cache_layer->permute({0, 2, 1, 3});
     const auto &paged_mapping = slot_mapping.value();
     const auto paged_config = infinilm::execution::paged_cache_checks::validate(
-        runtime, k_cache_layer, v_cache_layer, key_states, value_states, paged_mapping);
+        runtime, k_cache_write, v_cache_write, key_states, value_states, paged_mapping);
     if (paged_config) {
         const auto paged_tokens = paged_mapping->size(0);
         const infini::ops::Tensor paged_scale{nullptr, {1}, infinilm::runtime::DataType::kFloat32, runtime.device()};
@@ -275,7 +284,7 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
             auto paged_slots = paged_mapping->narrow({{0, paged_start, paged_count}});
             infinilm::execution::submit<infini::ops::ReshapeAndCacheFlash>(
                 runtime, infinilm::execution::RecordingPolicy::AllowHostReplay, *paged_config,
-                paged_key, paged_value, paged_slots, paged_scale, paged_scale, paged_mode, k_cache_layer, v_cache_layer);
+                paged_key, paged_value, paged_slots, paged_scale, paged_scale, paged_mode, k_cache_write, v_cache_write);
             INFINILM_TRACE_OP(PagedCaching, k_cache_layer);
             paged_start += paged_count;
         }
@@ -286,7 +295,12 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
     if (is_prefill) {
         ASSERT(input_offsets.has_value());
         ASSERT(cu_seqlens.has_value());
-        if (attention_backend_ == ::infinilm::backends::AttentionBackend::FLASH_ATTN) {
+        if (attention_backend_ == ::infinilm::backends::AttentionBackend::FLASH_ATTN && mla_head_dim_ <= 256) {
+            // Flash-attn varlen supports head dims up to 256 for dense K/V.
+            // The packed MLA query/kv head dim is kv_lora_rank +
+            // qk_rope_head_dim (576 for 021), so this branch only serves
+            // small-latent MLA configs; larger latents use the paged latent
+            // cache below, where the varlen provider dispatch covers MLA.
             const size_t num_reqs = total_sequence_lengths.value()->shape()[0];
             ASSERT(num_reqs > 0);
             ASSERT_EQ(seq_len % num_reqs, 0);
@@ -306,36 +320,70 @@ infinilm::runtime::Tensor DeepseekV2MLAAttention::forward_paged_(const infinilm:
                 attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
             INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
         } else {
-            ASSERT_EQ(attention_backend_, ::infinilm::backends::AttentionBackend::PAGED_ATTN);
-            latent_attn_->prefill_paged(
-                runtime,
-                attn_output,
-                query_states,
-                k_cache_layer,
-                v_cache_layer,
-                block_tables.value(),
-                total_sequence_lengths.value(),
-                input_offsets.value(),
-                softmax_scale_);
+            // Packed MLA head dims beyond flash-attention's 256 range read
+            // the paged latent cache through the same `FlashAttnVarlenFunc`
+            // interface: automatic dispatch serves MLA q/k head dim 576 with
+            // a separate 512 value latent from the fused cache. Both
+            // backends share this path.
+            // The paged K/V convention is [blocks, page, heads, dim] while
+            // the fused MLA cache is [blocks, heads, page, dim] (k|v packed
+            // in the last dim); permute the layer views to match, the same
+            // as the cache write above.
+            // cum_seq_lens_q describes the query token layout (offsets per
+            // sequence, i.e. input_offsets); cu_seqlens carries the
+            // cumulative per-sequence total KV lengths.
+            const auto block_width = block_tables.value()->shape().at(1);
+            const auto page_size = k_cache_layer->shape().at(2);
+            const auto max_length = static_cast<size_t>(std::numeric_limits<int64_t>::max());
+            if (seq_len > max_length || (page_size != 0 && block_width > max_length / page_size)) {
+                throw std::invalid_argument("MLA prefill maximum length exceeds int64");
+            }
+            const auto max_seqlen_k = block_width * page_size;
+            auto k_cache_paged = k_cache_layer->permute({0, 2, 1, 3});
+            auto v_cache_paged = v_cache_layer->permute({0, 2, 1, 3});
+            infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
+                runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+                infini::ops::Config::Automatic(),
+                query_states, k_cache_paged, v_cache_paged,
+                input_offsets.value(), cu_seqlens.value(),
+                std::optional<infinilm::runtime::Tensor>{},
+                std::optional<infinilm::runtime::Tensor>{block_tables.value()},
+                static_cast<int64_t>(seq_len), static_cast<int64_t>(max_seqlen_k),
+                0.0, std::optional<double>{softmax_scale_}, true, std::vector<int64_t>{-1, -1}, 0.0, false, false,
+                attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
+            INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
         }
     } else {
-        ASSERT(query_states->ndim() == 3 && attn_output->shape() == query_states->shape());
+        ASSERT(query_states->ndim() == 3);
+        // MLA decode attention over the paged latent cache through the
+        // `FlashAttnWithKvcache` interface: automatic dispatch serves MLA
+        // q/k head dim 576 with a separate 512 value latent from the fused
+        // cache. Both backends share this path. q is
+        // [num_seqs, 1, num_heads, qk_head_dim] and out is
+        // [num_seqs, 1, num_heads, kv_lora_rank]; in decode num_seqs=1.
         const auto kv_query = query_states->unsqueeze(1);
         const auto kv_output = attn_output->unsqueeze(1);
+        // The paged K/V convention is [blocks, page, heads, dim]; permute
+        // the fused-cache layer views to match, the same as prefill above.
+        const auto k_cache_paged = k_cache_layer->permute({0, 2, 1, 3});
+        const auto v_cache_paged = v_cache_layer->permute({0, 2, 1, 3});
+        const std::optional<infinilm::runtime::Tensor> kv_none;
         const auto kv_window = std::vector<int64_t>{-1, -1};
         const auto kv_bound = infinilm::layers::attention::detail::check_kvcache(
-            runtime, kv_output, kv_query, k_cache_layer, v_cache_layer, total_sequence_lengths.value(), block_tables.value(),
-            std::nullopt, size_t{0});
+            runtime, kv_output, kv_query, k_cache_paged, v_cache_paged,
+            total_sequence_lengths.value(), block_tables.value(), std::nullopt,
+            attn_metadata.logical_kv_upper_bound);
         infini::ops::FlashAttnWithKvcacheConfig kv_config(kv_bound);
         kv_config.set_implementation_index(infini::ops::Config::kAutomaticImplementation);
-        const std::optional<infinilm::runtime::Tensor> kv_none;
         infinilm::execution::submit<infini::ops::FlashAttnWithKvcache>(
-            runtime, infinilm::execution::RecordingPolicy::DeviceOnly, kv_config,
-            kv_query, k_cache_layer, v_cache_layer, kv_none, kv_none, kv_none, kv_none,
-            std::optional<infinilm::runtime::Tensor>{total_sequence_lengths.value()}, kv_none, kv_none,
-            std::optional<infinilm::runtime::Tensor>{block_tables.value()}, kv_none,
-            std::optional<double>{softmax_scale_}, true, kv_window, double{0.0}, true,
-            int64_t{0}, false, kv_output, kv_none);
+            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+            kv_config, kv_query, k_cache_paged, v_cache_paged, kv_none,
+            kv_none, kv_none, kv_none,
+            std::optional<infinilm::runtime::Tensor>{total_sequence_lengths.value()},
+            kv_none, kv_none,
+            std::optional<infinilm::runtime::Tensor>{block_tables.value()},
+            kv_none, std::optional<double>{softmax_scale_}, true, kv_window,
+            double{0.0}, true, int64_t{0}, false, kv_output, kv_none);
         INFINILM_TRACE_OP(MhaKVCache, kv_output);
     }
     return project_latent_to_value_(runtime, attn_output, batch_size, seq_len);
