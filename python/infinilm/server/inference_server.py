@@ -404,19 +404,30 @@ class InferenceServer:
         if not isinstance(sp, dict):
             sp = {}
 
-        def pick(key: str, default):
-            # Priority: explicit top-level field > nested sampling_params > server default
-            if key in data and data.get(key) is not None:
-                return data.get(key)
-            if key in sp and sp.get(key) is not None:
-                return sp.get(key)
+        def pick(keys: str | tuple[str, ...], default):
+            """Resolve request fields before falling back to the server default."""
+            if isinstance(keys, str):
+                keys = (keys,)
+            # Top-level OpenAI fields take priority over the compatibility
+            # sampling_params object, including when aliases are mixed.
+            for source in (data, sp):
+                for key in keys:
+                    if key in source and source[key] is not None:
+                        return source[key]
             return default
 
-        # Accept common alias
-        max_tokens = pick("max_tokens", pick("max_completion_tokens", self.max_tokens))
-        if max_tokens is None:
-            # Some clients use max_new_tokens
-            max_tokens = pick("max_new_tokens", self.max_tokens)
+        max_tokens = pick(
+            ("max_tokens", "max_completion_tokens", "max_new_tokens"),
+            self.max_tokens,
+        )
+        if max_tokens is not None:
+            max_tokens = int(max_tokens)
+            if max_tokens <= 0:
+                raise ValueError("max_tokens must be greater than 0")
+
+        ignore_eos = pick("ignore_eos", self.ignore_eos)
+        if not isinstance(ignore_eos, bool):
+            raise TypeError("ignore_eos must be a boolean")
 
         stop = pick("stop", None)
         if isinstance(stop, str):
@@ -426,9 +437,9 @@ class InferenceServer:
             temperature=float(pick("temperature", self.temperature)),
             top_p=float(pick("top_p", self.top_p)),
             top_k=int(pick("top_k", self.top_k)),
-            max_tokens=int(max_tokens) if max_tokens is not None else None,
+            max_tokens=max_tokens,
             stop=stop,
-            ignore_eos=self.ignore_eos,
+            ignore_eos=ignore_eos,
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
