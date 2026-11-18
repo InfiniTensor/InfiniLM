@@ -38,7 +38,8 @@ size_t require_static_graph_local_cache(
     const auto &kv_cache_vec = forward_context.kv_cache_vec;
     for (const auto &kv_cache : kv_cache_vec) {
         if (kv_cache->size(1) != cache_capacity
-            || kv_cache->size(3) != expected_page_size
+            || (kv_cache->size(2) != expected_page_size
+                && kv_cache->size(3) != expected_page_size)
             || kv_cache->dtype() != expected_dtype
             || kv_cache->size(4) != expected_head_dim) {
             throw std::invalid_argument("static graph requires matching local KV layouts");

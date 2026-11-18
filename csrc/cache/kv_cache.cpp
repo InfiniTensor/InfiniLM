@@ -197,9 +197,13 @@ infinilm::runtime::Tensor create_layer_kv_cache(
     size_t num_blocks_per_layer = config.num_blocks();
     size_t block_size = config.block_size();
 
-    // Canonical FlashAttention cache layout: [K/V, blocks, block, heads, dim].
-    infinilm::runtime::Shape kv_shape = {
-        2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
+    // Ascend ACLNN FIA consumes [K/V, blocks, heads, block, dim].
+    // Other devices retain FlashAttention's [K/V, blocks, block, heads, dim].
+    const bool aclnn_paged_layout = runtime.device().type() == infinilm::runtime::Device::Type::kAscend;
+    infinilm::runtime::Shape kv_shape = aclnn_paged_layout
+                                          ? infinilm::runtime::Shape{
+                                                2, num_blocks_per_layer, num_rank_k_heads, block_size, k_dim}
+                                          : infinilm::runtime::Shape{2, num_blocks_per_layer, block_size, num_rank_k_heads, k_dim};
 
     infinilm::runtime::Tensor kv_cache = infinilm::runtime::Tensor::empty(runtime, kv_shape, dtype);
     try {
