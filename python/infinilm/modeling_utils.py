@@ -7,6 +7,7 @@ import os
 import re
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 from tqdm import tqdm
@@ -207,7 +208,7 @@ def _normalize_checkpoint_tensor(tensor, eps=1e-12):
     return normalized
 
 
-def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, keys=None):
+def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, keys=None, read_mode="mmap"):
     """Borrow checkpoint storage; an explicit dtype requests CPU float conversion."""
     if raw:
         types = {
@@ -222,7 +223,7 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
             "F64": infinicore.float64,
         }
         cast_types = (infinicore.float32, infinicore.float16, infinicore.bfloat16)
-        with SafeTensorsMmap(file_path) as shard:
+        with SafeTensorsMmap(file_path, read_mode=read_mode) as shard:
             if shard.metadata is not None and shard.metadata.get("format") not in (
                 "pt",
                 "tf",
@@ -279,6 +280,35 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
     )
 
 
+def _prefetch_checkpoint_shards(paths, read_shard, *, enabled=True):
+    """Keep at most the current shard and one in-flight shard alive."""
+    if not enabled:
+        for path in paths:
+            params, read_s = read_shard(path)
+            try:
+                yield path, params, read_s, read_s
+            finally:
+                del params
+        return
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="weight-reader") as pool:
+        pending = pool.submit(read_shard, paths[0]) if paths else None
+        try:
+            for index, path in enumerate(paths):
+                started = time.perf_counter()
+                params, read_s = pending.result()
+                pending = None  # Do not retain a completed Future's shard storage.
+                wait_s = time.perf_counter() - started
+                if index + 1 < len(paths):
+                    pending = pool.submit(read_shard, paths[index + 1])
+                try:
+                    yield path, params, read_s, wait_s
+                finally:
+                    del params
+        finally:
+            if pending is not None:
+                pending.cancel()
+
+
 def load_model_state_dict_by_file(
     model: InferEngine,
     model_path: str,
@@ -287,8 +317,23 @@ def load_model_state_dict_by_file(
     """Load through one publication/tie/finalization transaction."""
     print(" load weights ......")
     t1 = time.time()
+    load_started = time.perf_counter()
+    profile_path = os.environ.get("INFINILM_WEIGHT_LOAD_PROFILE")
+
+    def log_stage(stage, **fields):
+        record = dict(stage=stage, elapsed_s=time.perf_counter() - load_started, **fields)
+        print("WEIGHT_LOAD_STAGE " + json.dumps(record), flush=True)
+        if profile_path:
+            with open(profile_path, "a", encoding="utf-8") as stream:
+                stream.write(json.dumps(record) + "\n")
 
     model_type = model.hf_config.get("model_type", "")
+    read_mode = os.environ.get(
+        "INFINILM_WEIGHT_READ_MODE",
+        "auto" if model_type in ("deepseek_v4", "qwen3_moe") and os.environ.get("HYGON_ARCH") else "mmap",
+    )
+    if read_mode not in ("mmap", "buffered", "auto"):
+        raise ValueError(f"Unknown INFINILM_WEIGHT_READ_MODE: {read_mode!r}")
     is_ernie = model_type == "ernie4_5_moe_vl"
     tie_word_embeddings = _declares_tied_embeddings(model.hf_config)
     model_keys = model.state_dict_keyname()
@@ -391,6 +436,8 @@ def load_model_state_dict_by_file(
         file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
     is_bin = not file_list
 
+    batch_timing = {}
+
     def checkpoint_batches():
         if is_ernie:
             if file_list:
@@ -435,7 +482,8 @@ def load_model_state_dict_by_file(
                     del params
             return
         if file_list:
-            for file_path in file_list:
+            def read_shard(file_path):
+                started = time.perf_counter()
                 shard_raw = raw_checkpoint
                 selection = {}
                 if shard_raw and (
@@ -468,8 +516,18 @@ def load_model_state_dict_by_file(
                             if _is_qwen_offset_norm(name)
                         )
                 params = _load_checkpoint_shard(
-                    file_path, None, (), raw=shard_raw, **selection
+                    file_path, None, (), raw=shard_raw, read_mode=read_mode, **selection
                 )
+                return params, time.perf_counter() - started
+
+            prefetch = model_type in ("deepseek_v4", "qwen3_moe")
+            print(f"Weight read mode: {read_mode}; prefetch={prefetch}", flush=True)
+            for file_path, params, read_s, wait_s in _prefetch_checkpoint_shards(
+                file_list, read_shard, enabled=prefetch
+            ):
+                batch_timing.clear()
+                batch_timing.update(read_s=read_s, wait_s=wait_s)
+                remap_started = time.perf_counter()
                 if remapper is not None:
                     if remapper in (
                         _remap_mamba,
@@ -482,6 +540,7 @@ def load_model_state_dict_by_file(
                         )
                     else:
                         params = remapper(params, config=model.hf_config)
+                batch_timing["remap_s"] = time.perf_counter() - remap_started
                 try:
                     yield os.path.basename(file_path), params, False
                 finally:
@@ -506,6 +565,7 @@ def load_model_state_dict_by_file(
         checkpoint_batches(), desc="Processing files"
     ):
         tqdm.write(f"Processing: {label}")
+        prepare_started = time.perf_counter()
         embedding_key = (
             "model.embed_tokens.weight"
             if is_bin and not is_qwen35
@@ -539,7 +599,11 @@ def load_model_state_dict_by_file(
             )
         if model_param:
             del tensor
+        batch_keys = len(model_param_infini)
+        prepare_s = time.perf_counter() - prepare_started + batch_timing.get("remap_s", 0.0)
+        copy_started = time.perf_counter()
         model.load_state_dict(model_param_infini, strict=strict)
+        copy_s = time.perf_counter() - copy_started
         # Native load joins each rank's copy before these acyclic owners are released.
         del model_param_infini
         del model_param
@@ -549,6 +613,10 @@ def load_model_state_dict_by_file(
             and "lm_head.weight" not in already_loaded_keys
         ):
             embed_tokens_torch_unscaled = None
+        log_stage("shard", file=label, keys=batch_keys,
+                  read_s=batch_timing.get("read_s", 0.0),
+                  wait_s=batch_timing.get("wait_s", 0.0),
+                  prepare_s=prepare_s, copy_s=copy_s)
 
     if (
         tie_word_embeddings
@@ -565,7 +633,9 @@ def load_model_state_dict_by_file(
             embed_tokens_torch_unscaled = None
 
     # Native finalization remains the sole required-name/Ready boundary.
+    log_stage("postprocess_start")
     model.process_weights_after_loading()
+    log_stage("complete", loaded_keys=len(set(already_loaded_keys)))
     t2 = time.time()
     print(f" load weights over! {(t2 - t1) * 1000} ms \n")
 

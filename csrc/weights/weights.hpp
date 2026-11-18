@@ -118,6 +118,7 @@ protected:
 
 private:
     void collect(std::unordered_map<std::string, Weight> &out, const std::string &prefix) const;
+    Weight *find_weight(const std::string &name);
     Weight &resolve(const std::string &name);
 };
 } // namespace infinilm::weights

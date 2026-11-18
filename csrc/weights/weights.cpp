@@ -164,10 +164,10 @@ std::vector<std::string> ModelWeights::state_required_keys() const {
     }
     return result;
 }
-Weight &ModelWeights::resolve(const std::string &name) {
+Weight *ModelWeights::find_weight(const std::string &name) {
     auto local = local_weights_.find(name);
     if (local != local_weights_.end()) {
-        return local->second;
+        return &local->second;
     }
     std::shared_ptr<ModelWeights> selected;
     size_t prefix = 0;
@@ -179,7 +179,13 @@ Weight &ModelWeights::resolve(const std::string &name) {
         }
     }
     if (selected) {
-        return selected->resolve(name.substr(prefix + 1));
+        return selected->find_weight(name.substr(prefix + 1));
+    }
+    return nullptr;
+}
+Weight &ModelWeights::resolve(const std::string &name) {
+    if (auto *weight = find_weight(name)) {
+        return *weight;
     }
     throw std::runtime_error("Weight '" + name + "' not found in model");
 }
@@ -192,19 +198,18 @@ void ModelWeights::load_parameter(Runtime &runtime, const std::string &name, con
 void ModelWeights::load_parameters_no_sync(Runtime &runtime,
                                            const std::unordered_map<std::string, Tensor> &sources, bool strict) {
     loading_allowed(runtime);
-    auto bindings = state_dict();
     LoadBatch batch(runtime);
     try {
         for (const auto &[name, source] : sources) {
-            auto binding = bindings.find(name);
-            if (binding == bindings.end()) {
+            auto *binding = find_weight(name);
+            if (binding == nullptr) {
                 if (strict) {
                     throw std::runtime_error("Weight '" + name + "' not found in model");
                 }
                 continue;
             }
             try {
-                binding->second.load_into(runtime, source, &batch);
+                binding->load_into(runtime, source, &batch);
             } catch (const std::exception &e) { throw std::runtime_error("Error loading parameter '" + name + "': " + e.what()); }
         }
         batch.drain();

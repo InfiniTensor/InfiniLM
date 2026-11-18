@@ -1,10 +1,11 @@
 """Private, read-only safetensors byte views for checkpoint copies.
 
 This is deliberately not a general tensor loader. ``tensor_bytes`` returns a
-NumPy integer bit-view whose base keeps the read-only mmap alive; the caller
+NumPy integer bit-view whose base keeps the read-only shard storage alive; the caller
 must supply the checked safetensors dtype when borrowing it with from_blob.
 """
 
+import ctypes
 import json
 import mmap
 import os
@@ -60,25 +61,73 @@ class TensorInfo:
     end: int
 
 
+def _is_fully_resident(mapping, file_stat):
+    """Inspect Linux page residency without faulting the checkpoint into RAM."""
+    if not sys.platform.startswith("linux") or file_stat.st_uid != os.geteuid():
+        return False
+    address_view = None
+    try:
+        pages = (len(mapping) + os.sysconf("SC_PAGE_SIZE") - 1) // os.sysconf("SC_PAGE_SIZE")
+        vector = (ctypes.c_ubyte * pages)()
+        address_view = np.frombuffer(mapping, dtype=np.uint8)
+        mincore = ctypes.CDLL(None, use_errno=True).mincore
+        mincore.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+        mincore.restype = ctypes.c_int
+        if mincore(address_view.ctypes.data, len(mapping), vector) != 0:
+            return False
+        return bool(np.all(np.frombuffer(vector, dtype=np.uint8) & 1))
+    except (AttributeError, OSError, ValueError, OverflowError):
+        return False
+    finally:
+        del address_view
+
+
+def _read_buffered(file, size):
+    storage = np.empty(size, dtype=np.uint8)
+    view = memoryview(storage)
+    file.seek(0)
+    offset = 0
+    while offset < size:
+        count = file.readinto(view[offset : min(offset + 64 * 1024 * 1024, size)])
+        if not count:
+            raise OSError("Unexpected EOF while reading safetensors shard")
+        offset += count
+    storage.setflags(write=False)
+    return storage
+
+
 class SafeTensorsMmap:
     """Validate one shard and expose only borrowed, read-only bit-views.
 
     Keep the returned arrays alive until the consuming H2D copy completes.
     Closing the reader does not invalidate outstanding borrowed arrays.
+    Optional buffered reads populate one CPU shard sequentially before use.
     """
 
-    def __init__(self, path: os.PathLike | str):
+    def __init__(self, path: os.PathLike | str, *, read_mode="mmap"):
+        if read_mode not in ("mmap", "buffered", "auto"):
+            raise ValueError(f"Unknown INFINILM_WEIGHT_READ_MODE: {read_mode!r}")
         self._mapping = None
-        with open(path, "rb") as file:
-            if os.fstat(file.fileno()).st_size < 10:
+        with open(path, "rb", buffering=0) as file:
+            file_stat = os.fstat(file.fileno())
+            if file_stat.st_size < 10:
                 raise ValueError("safetensors file is too short")
             mapping = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-        try:
-            tensors, metadata, data_start = self._validate(mapping)
-        except BaseException:
-            mapping.close()
-            raise
+            try:
+                tensors, metadata, data_start = self._validate(mapping)
+                selected = read_mode
+                if selected == "auto":
+                    selected = "mmap" if _is_fully_resident(mapping, file_stat) else "buffered"
+                    print(f"WEIGHT_READ_SELECT {os.path.basename(path)} {selected}", flush=True)
+                if selected == "buffered":
+                    mapping.close()
+                    mapping = _read_buffered(file, file_stat.st_size)
+            except BaseException:
+                if isinstance(mapping, mmap.mmap):
+                    mapping.close()
+                raise
         self._mapping = mapping
+        self.read_mode = selected
         self.tensors = MappingProxyType(tensors)
         self.metadata = None if metadata is None else MappingProxyType(metadata)
         self._data_start = data_start
@@ -203,7 +252,8 @@ class SafeTensorsMmap:
             mapping = self._mapping
             self._mapping = None
             try:
-                mapping.close()
+                if isinstance(mapping, mmap.mmap):
+                    mapping.close()
             except BufferError:
                 # NumPy views own exports of this mmap. Detaching the reader
                 # leaves the mapping alive only until those views are gone.
