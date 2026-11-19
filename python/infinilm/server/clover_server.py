@@ -122,8 +122,16 @@ def main():
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--tp", type=int, default=2)
+    parser.add_argument("--tp", type=int, default=1)
     parser.add_argument("--max-context", type=int, default=4096)
+    parser.add_argument(
+        "--device",
+        default="auto",
+        help=(
+            "device platform: auto, cpu, nvidia/cuda, hygon, metax, moore, "
+            "iluvatar, cambricon, ascend"
+        ),
+    )
     parser.add_argument(
         "--policy", choices=("baseline", "frontier"), default="baseline"
     )
@@ -132,7 +140,17 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
-    generator = CloverGenerator(args.model, tp=args.tp, max_context=args.max_context)
+    from infinilm.base_config import BaseConfig
+
+    # Reuse the framework's device resolution (auto-detection + alias
+    # normalization) without parsing the server's argv a second time.
+    config = BaseConfig.__new__(BaseConfig)
+    config.backend = "cpp"  # native backend: probe via infinicore, not vendor CLIs
+    config._auto_detected_device = None
+    device = config.get_device_str(args.device)
+    generator = CloverGenerator(
+        args.model, tp=args.tp, max_context=args.max_context, device=device
+    )
     app = create_app(
         generator,
         policy=args.policy,
