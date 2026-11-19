@@ -3,6 +3,8 @@
 import time
 from dataclasses import dataclass
 
+from infinilm._core.utils import to_torch_dtype
+
 from .frontier import FrontierPolicy
 
 
@@ -21,7 +23,31 @@ class CloverResult:
 class CloverGenerator:
     """Run greedy diffusion with clean prefix state and causal block replay."""
 
-    def __init__(self, model_path, *, tp=2, max_context=4096):
+    # Canonical device.type -> Torch device string (Hygon DTK Torch exposes
+    # its GPUs through the regular torch.cuda namespace).
+    _TORCH_DEVICE = {
+        "cpu": "cpu",
+        "cuda": "cuda",
+        "hygon": "cuda",
+        "metax": "metax",
+        "iluvatar": "iluvatar",
+        "mlu": "mlu",
+        "musa": "musa",
+        "npu": "npu",
+    }
+
+    def _torch_device_str(self, device):
+        try:
+            name = self._TORCH_DEVICE[device.type]
+        except KeyError as error:
+            raise ValueError(
+                f"Torch device name unknown for '{device.type}'; "
+                "Clover diffusion currently supports "
+                f"{', '.join(sorted(self._TORCH_DEVICE))}."
+            ) from error
+        return f"{name}:{device.index}"
+
+    def __init__(self, model_path, *, tp=1, max_context=4096, device="cuda"):
         import torch
         from transformers import AutoTokenizer
 
@@ -34,9 +60,11 @@ class CloverGenerator:
         self.torch = torch
         self.core = core
         self.cache_config = StaticKVCacheConfig(1, max_context)
+        self.device = core.device(device)
+        self.torch_device = self._torch_device_str(self.device)
         self.engine = InferEngine(
             model_path,
-            device=core.device("hygon"),
+            device=self.device,
             distributed_config=DistConfig(tp),
             cache_config=self.cache_config,
         )
@@ -78,16 +106,20 @@ class CloverGenerator:
 
     def _logits(self, value):
         torch, core = self.torch, self.core
-        out = torch.empty(value.shape, device="cuda:0", dtype=torch.bfloat16)
+        out = torch.empty(
+            value.shape,
+            device=self.torch_device,
+            dtype=to_torch_dtype(self.engine.dtype),
+        )
         target = core.from_blob(
             out.data_ptr(),
             list(value.shape),
-            dtype=core.bfloat16,
-            device=core.device("hygon", 0),
+            dtype=self.engine.dtype,
+            device=self.device,
             owner=out,
         )
         target.copy_(value)
-        core.set_device(core.device("hygon", 0))
+        core.set_device(self.device)
         core.sync_device()
         return out.view(self.block_size, -1).float()
 
@@ -134,7 +166,10 @@ class CloverGenerator:
         eos = set(self.engine.eos_token_id)
         for _ in range(blocks):
             ids = torch.full(
-                (self.block_size,), self.mask_id, device="cuda:0", dtype=torch.int64
+                (self.block_size,),
+                self.mask_id,
+                device=self.torch_device,
+                dtype=torch.int64,
             )
             for iteration in range(self.block_size):
                 result = self._forward(
