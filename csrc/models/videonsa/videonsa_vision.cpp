@@ -1,4 +1,5 @@
 #include "videonsa_vision.hpp"
+#include "videonsa_precision.hpp"
 #include "../../execution/tensor_expressions.hpp"
 #include "../../layers/linear/dense.hpp"
 #include "../../layers/mlp/fused_activation.hpp"
@@ -75,7 +76,7 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
                                                            const std::vector<int64_t> *cu_window_seqlens) const {
     const size_t seq_len = hidden_states->size(0);
     auto hidden = const_cast<infinilm::runtime::Tensor &>(hidden_states);
-    auto qkv = qkv_->forward(runtime, hidden)->view({seq_len, 3, num_heads_, head_dim_});
+    auto qkv = precise_biased_linear(runtime, *qkv_, hidden)->view({seq_len, 3, num_heads_, head_dim_});
 
     auto run_dense = [&](size_t start, size_t len) -> infinilm::runtime::Tensor {
         auto q = qkv->narrow({{0, start, len}, {1, 0, 1}})->squeeze(1)->permute({1, 0, 2})->contiguous(runtime);
@@ -176,7 +177,7 @@ infinilm::runtime::Tensor VideoNSAVisionAttention::forward(infinilm::runtime::Ru
             }
         }
     }
-    return proj_->forward(runtime, out);
+    return precise_biased_linear(runtime, *proj_, out);
 }
 
 VideoNSAVisionMLP::VideoNSAVisionMLP(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
@@ -203,11 +204,11 @@ VideoNSAVisionMLP::VideoNSAVisionMLP(infinilm::runtime::Runtime &runtime, const 
 infinilm::runtime::Tensor VideoNSAVisionMLP::forward(infinilm::runtime::Runtime &runtime,
                                                      const infinilm::runtime::Tensor &hidden_states) const {
     auto hidden = const_cast<infinilm::runtime::Tensor &>(hidden_states);
-    auto gate = gate_proj_->forward(runtime, hidden);
-    auto up = up_proj_->forward(runtime, hidden);
+    auto gate = precise_biased_linear(runtime, *gate_proj_, hidden);
+    auto up = precise_biased_linear(runtime, *up_proj_, hidden);
     auto x = infinilm::runtime::Tensor::empty(runtime, up->shape(), up->dtype());
     infinilm::layers::mlp::branch_activation_into(runtime, x, up, gate);
-    return down_proj_->forward(runtime, x);
+    return precise_biased_linear(runtime, *down_proj_, x);
 }
 
 VideoNSAVisionBlock::VideoNSAVisionBlock(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
@@ -281,14 +282,14 @@ VideoNSAPatchMerger::VideoNSAPatchMerger(infinilm::runtime::Runtime &runtime, co
 infinilm::runtime::Tensor VideoNSAPatchMerger::forward(infinilm::runtime::Runtime &runtime,
                                                        const infinilm::runtime::Tensor &hidden_states) const {
     auto x = ln_q_->forward(runtime, hidden_states)->view({hidden_states->size(0) / spatial_merge_unit_, merged_size_});
-    x = mlp_0_->forward(runtime, x);
+    x = precise_biased_linear(runtime, *mlp_0_, x);
     {
         auto ops_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
         infinilm::execution::submit<infini::ops::Gelu>(
             runtime, infini::ops::Gelu::DefaultConfig(runtime.device().type()), x, std::string{"none"}, ops_output);
         x = std::move(ops_output);
     }
-    return mlp_2_->forward(runtime, x);
+    return precise_biased_linear(runtime, *mlp_2_, x);
 }
 
 VideoNSAVisionModel::VideoNSAVisionModel(infinilm::runtime::Runtime &runtime, const nlohmann::json &config,
