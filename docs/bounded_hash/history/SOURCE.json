@@ -1,0 +1,58 @@
+{
+  "scope": "Historical V3 source and results provenance. This is not validation of the current upstream adaptation.",
+  "source_repository": "https://github.com/nhcf/InfiniLM",
+  "source_commit": "c6f1005f3e81d0799229d66bb6db6c37f1d257ac",
+  "source_directory": "examples/bounded_hash",
+  "source_archive": {
+    "name": "infinilm_cache_v3_20261104.zip",
+    "sha256_recorded_in_source_manifest": "25407351f3589f65e992b0781cff18000a194c16623f867730d6b7c3f1cf5b45",
+    "original_zip_available_during_adaptation": false,
+    "archive_digest_recomputed_during_adaptation": false
+  },
+  "file_manifest_verification": {
+    "original_experiment_files": 98,
+    "all_98_local_source_files_match_recorded_sha256": true,
+    "all_98_fixed_commit_blobs_match_recorded_sha256": true,
+    "all_98_upload_package_members_match_recorded_sha256": true,
+    "method": "Read-only byte hashing against the historical SOURCE_MANIFEST.json; no historical code or test execution."
+  },
+  "source_file_sha256": {
+    "SOURCE_MANIFEST.json": "589c2846f85f73b5d1436721134b780292a0105c4ee7742bb17e3b4a46325470",
+    "PACKAGING_VALIDATION.json": "b48c241ec93a696dc3c3483eeb8c0961602a3c0a2723679514af68573dc57298",
+    "RESULTS.md": "e71d61eb9b9bb3092e39321b415767b3b918b80426e01fa1f7ef6755b71b270d",
+    "results/summary.csv": "98a1d3901a51f5e194d3f08414ccb369935f72c9769c31a26f86488fdce8b134",
+    "experiment/cache_router_v3.py": "3a3789fbcf1f2c90b62b68b370a2ea871073270ad7d3ed0c10171472791d713d",
+    "experiment/reference_environment.json": "7344691f0e0d4f44f780936279ee14aaf6e2f5e733dbd90796d4914596827ddc",
+    "experiment/vendor/LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  },
+  "copied_originals": {
+    "summary.csv": "results/summary.csv",
+    "PACKAGING_VALIDATION.json": "PACKAGING_VALIDATION.json",
+    "LICENSE": "experiment/vendor/LICENSE"
+  },
+  "results_archive": {
+    "name": "optimized_run_c16_20261104T020635_636924Z_report.zip",
+    "available_during_adaptation": false,
+    "success_evidence_used": [
+      "RESULTS.md",
+      "results/summary.csv"
+    ],
+    "limitation": "The preserved summary and result attribution were inspected; the raw report ZIP and its per-request records were unavailable."
+  },
+  "reference_environment": {
+    "original_included": false,
+    "reason": "The original contains historical machine paths. The public README summarizes the environment; no redacted copy is represented as original bytes.",
+    "recorded_runtime_git_head": "8657a943553e2c67ad5f3db3db32931d8c97c3ae",
+    "recorded_verified_source_run": "cache_confirm_run_20261028T081428_439145Z",
+    "limitation": "This older environment provenance does not establish a V3 run on current main, and the historical runtime also contained local changes."
+  },
+  "historical_packaging_validation": {
+    "cpu_tests": 262,
+    "failures": 0,
+    "errors": 0,
+    "original_files_unchanged": 98,
+    "new_gpu_experiments": 0,
+    "note": "These results belong to historical archive packaging, not this adaptation."
+  },
+  "current_adaptation_execution": "NOT_RUN: no local tests, benchmarks, model runs, builds, or calibration runs."
+}

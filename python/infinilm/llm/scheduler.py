@@ -277,6 +277,7 @@ class Scheduler:
         # prefill and decode batches so a long chunked prompt
         # cannot starve decode work already in the running queue.
         self._last_batch_was_prefill = False
+        self.bounded_hash_observer = None
 
     def add_request(self, request: InferenceRequest):
         if request is not None:
@@ -595,6 +596,10 @@ class Scheduler:
                 req.num_local_cached_tokens = (
                     num_local_computed_tokens if load_kv_async else num_computed_tokens
                 )
+                if self.bounded_hash_observer is not None:
+                    req._bounded_hash_initial_cached_tokens = int(
+                        req.num_local_cached_tokens
+                    )
                 req.num_cache_indexed_blocks = len(cached_block_table)
                 req.num_computed_tokens = num_computed_tokens
                 req.num_scheduled_tokens = num_scheduled_tokens
@@ -914,6 +919,8 @@ class Scheduler:
                 else:
                     # Still running, put back in running queue
                     self.running_queue.sync_q.put(req)
+        if self.bounded_hash_observer is not None:
+            self.bounded_hash_observer.publish(self.cache_manager)
 
     def notify_failed_requests(self, finalize_request) -> None:
         """Notify after async fail-stop without retiring resource ownership."""

@@ -1,0 +1,9 @@
+Bounded-hash V3 routing adaptation
+
+Source: https://github.com/nhcf/InfiniLM/tree/c6f1005f3e81d0799229d66bb6db6c37f1d257ac/examples/bounded_hash
+Original experiment module digests are recorded in SOURCE_MANIFEST.json at that commit.
+The experiment package has no separate top-level license file. Repository metadata declares MIT.
+The vendored routing_manager.py carries Apache-2.0 and Copyright 2026 InfiniLM Contributors; its original LICENSE is retained.
+
+Modified modules use normal package imports. The adaptation adds explicit virtual-node configuration, strict token contracts, backend-instance-scoped observations, cancellation cleanup and bounded diagnostics.
+The historical native cache monkey patches and old native binaries are not included.

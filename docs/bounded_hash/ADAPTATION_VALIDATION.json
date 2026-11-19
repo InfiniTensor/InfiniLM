@@ -1,0 +1,80 @@
+{
+  "date": "2026-11-12",
+  "upstream_base": "ec6614ea32d778ce819aaa5c57e8ae3c7341a580",
+  "historical_source_commit": "c6f1005f3e81d0799229d66bb6db6c37f1d257ac",
+  "local_execution": {
+    "tests": "NOT_RUN",
+    "benchmarks": "NOT_RUN",
+    "model_runs": "NOT_RUN",
+    "builds": "NOT_RUN",
+    "calibration": "NOT_RUN",
+    "dependency_installation": "NOT_RUN",
+    "services": "NOT_RUN",
+    "job_submission": "NOT_RUN",
+    "project_imports": "NOT_RUN"
+  },
+  "static_checks": {
+    "python_ast_syntax": {
+      "status": "PARSED",
+      "file_count": 18,
+      "files": [
+        "python/infinilm/base_config.py",
+        "python/infinilm/llm/cache_manager.py",
+        "python/infinilm/llm/scheduler.py",
+        "python/infinilm/routing/__init__.py",
+        "python/infinilm/routing/bounded_hash/__init__.py",
+        "python/infinilm/routing/bounded_hash/affinity_router.py",
+        "python/infinilm/routing/bounded_hash/cache_router.py",
+        "python/infinilm/routing/bounded_hash/cache_router_v3.py",
+        "python/infinilm/routing/bounded_hash/mean_router.py",
+        "python/infinilm/routing/bounded_hash/phase_router.py",
+        "python/infinilm/routing/bounded_hash/stable_router.py",
+        "python/infinilm/routing/bounded_hash/vendor/__init__.py",
+        "python/infinilm/routing/bounded_hash/vendor/routing_manager.py",
+        "python/infinilm/server/bounded_hash_backend.py",
+        "python/infinilm/server/bounded_hash_config.py",
+        "python/infinilm/server/bounded_hash_gateway.py",
+        "python/infinilm/server/inference_server.py",
+        "test/service/test_bounded_hash_router.py"
+      ]
+    },
+    "json_syntax": {
+      "status": "PARSED",
+      "file_count": 5,
+      "files": [
+        "docs/bounded_hash/ADAPTATION_VALIDATION.json",
+        "docs/bounded_hash/cost.template.json",
+        "docs/bounded_hash/gateway.example.json",
+        "docs/bounded_hash/history/PACKAGING_VALIDATION.json",
+        "docs/bounded_hash/history/SOURCE.json"
+      ]
+    },
+    "changed_file_whitelist": "CHECKED",
+    "no_symlink_task_files": "CHECKED",
+    "package_relative_import_text": "CHECKED",
+    "private_cluster_path_text": "CHECKED",
+    "historical_csv_rows": 18,
+    "historical_requests_equal_success_zero_failures": true,
+    "historical_copies_byte_identical": true,
+    "license_and_origin_notices": "REVIEWED",
+    "configuration_field_references_and_actual_request_chain": "REVIEWED",
+    "cleanup_and_instance_ttl_paths": "STATIC_REVIEW_ONLY",
+    "documented_shell_syntax": "CHECKED_WITH_BASH_N_ONLY",
+    "git_diff_whitespace": "CHECKED_WITH_GIT_DIFF_CHECK",
+    "explicit_file_whitelist_count": 31
+  },
+  "new_test_source": {
+    "scenarios": 7,
+    "status": "NOT_RUN"
+  },
+  "historical_validation": "The separate history/PACKAGING_VALIDATION.json is the original archive record: 262 CPU tests then, 98 unchanged originals, zero new GPU experiments at packaging. It does not validate this adaptation.",
+  "runtime_limitations": [
+    "All new code remains unexecuted.",
+    "Current-main native/MUSA compatibility and cancellation/allocator stress require future validation.",
+    "Cost file requires independently obtained deployment measurements; no valid new calibration is supplied.",
+    "Only single-owner TP1 dense Qwen3/Llama text replica topology is supported.",
+    "Uncertain generation failures quarantine a backend until its instance changes."
+  ],
+  "ci": "Not manually triggered or rerun. Push/PR workflow events may automatically run host/format checks; report their remote status separately.",
+  "statement": "No local tests, benchmarks, model runs, builds, or calibration runs were executed during this adaptation, at the author's request. The reported MUSA results belong to the historical V3 experiment and do not validate the current upstream adaptation. Any automatically triggered upstream CI results are reported separately."
+}

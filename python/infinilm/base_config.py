@@ -120,6 +120,10 @@ class BaseConfig:
         self.endpoint = self.args.endpoint
         self.ignore_eos = self.args.ignore_eos
         self.tool_call_parser = self.args.tool_call_parser
+        self.bounded_hash_backend_key_env = self.args.bounded_hash_backend_key_env
+        self.bounded_hash_cache_policy = self.args.bounded_hash_cache_policy
+        self.bounded_hash_max_inflight = self.args.bounded_hash_max_inflight
+        self.bounded_hash_hardware_id = self.args.bounded_hash_hardware_id
         # PD separation (KV transfer)
         self.kv_transfer_config = self.args.kv_transfer_config
 
@@ -246,6 +250,26 @@ class BaseConfig:
             action="store_false",
             default=True,
             help="disable KV prefix cache reuse",
+        )
+        self.parser.add_argument(
+            "--bounded-hash-backend-key-env",
+            default=None,
+            help="opt in to the internal full-replica routing contract; "
+            "read its bearer secret from this environment variable",
+        )
+        self.parser.add_argument(
+            "--bounded-hash-max-inflight", type=int, default=3,
+            help="per-replica hard admission limit declared to the sole gateway",
+        )
+        self.parser.add_argument(
+            "--bounded-hash-hardware-id", default=None,
+            help="explicit hardware identity for routing cost compatibility",
+        )
+        self.parser.add_argument(
+            "--bounded-hash-cache-policy",
+            choices=["native", "prefix_lru"],
+            default="native",
+            help="idle-page eviction for the opt-in bounded-hash backend",
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"
