@@ -1,7 +1,8 @@
 """NSA-only immutable owner values, issued by the actual paged Scheduler.
 
 No device readbacks or host-success completion inference. First domain excludes
-connectors, speculative rewrite, multimodal, graphs and shared one-tail prefixes.
+connectors, speculative rewrite, graphs and shared one-tail prefixes.
+Fresh B1 video prefill has a separately validated media domain.
 """
 
 from dataclasses import dataclass
@@ -263,18 +264,12 @@ def freeze_model_input(engine, batch, model_input, core):
     if any(
         model_input.get(k) is not None
         for k in (
-            "pixel_values",
-            "image_bound",
-            "tgt_sizes",
-            "image_grid_thw",
-            "image_req_ids",
-            "visual_token_ranges",
             "target_hidden_states",
             "mamba_init_state_indices",
             "mamba_final_state_indices",
         )
     ):
-        raise ValueError("NSA owner slice accepts ordinary text inputs only")
+        raise ValueError("NSA owner slice excludes speculative and mamba inputs")
     if model_input.get("sample_all_positions", False):
         raise ValueError("NSA owner slice excludes speculative/all-position inputs")
     values = {}
@@ -307,6 +302,8 @@ def freeze_model_input(engine, batch, model_input, core):
     s = freeze_snapshot(
         batch.pool_epoch, batch.page_size, batch.page_count, batch.rows, upload
     )
+    from .nsa_video_input import freeze_video_input
+    freeze_video_input(engine, s, model_input, core)
     rows = [
         (
             r.incarnation,

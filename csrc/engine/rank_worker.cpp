@@ -7,6 +7,7 @@
 #include "compiler/paged_decode_bucket.hpp"
 #include "compiler/static_batching_compiler.hpp"
 #include "nsa_run_failure.hpp"
+#include "nsa_video_input.hpp"
 #include "request_sampling.hpp"
 #include "runtime/runtime.hpp"
 #include <algorithm>
@@ -53,6 +54,46 @@ void freeze_nsa_cpu(RankWorker::Input &a) {
     a.input_ids = clone_nsa_cpu(a.input_ids, D::kInt64, 2);
     // Text MRoPE is the actual processor's [3, tokens] CPU tensor.
     a.position_ids = clone_nsa_cpu(a.position_ids, D::kInt64, 2);
+}
+bool has_nsa_media(const RankWorker::Input &a) {
+    return a.pixel_values || a.image_bound || a.tgt_sizes || a.image_grid_thw
+        || a.image_req_ids || a.visual_token_ranges;
+}
+void freeze_nsa_video(RankWorker::Input &a, const nsa::Upload &u,
+                      const infinilm::config::ModelConfig &config) {
+    if (!has_nsa_media(a)) { return; }
+    if (!a.pixel_values || !a.image_bound || !a.tgt_sizes || !a.image_req_ids
+        || !a.visual_token_ranges || a.image_grid_thw
+        || a.pixel_values->size() != 1 || a.image_bound->size() != 1 || a.tgt_sizes->size() != 1
+        || *a.image_req_ids != std::vector<std::size_t>{0}
+        || u.past.size() != 1 || u.past[0] != 0 || u.total[0] < 2 || u.total[0] > 8192) {
+        throw std::invalid_argument("NSA video requires fresh complete B1 processor metadata");
+    }
+    using D = infinilm::runtime::DataType;
+    const auto dtype = config.get_dtype();
+    const auto &j = config.get_config_json();
+    const auto &v = j.at("vision_config");
+    if ((dtype != D::kBFloat16 && dtype != D::kFloat16)
+        || v.at("spatial_merge_size").get<int>() != 2
+        || v.at("in_channels").get<int>() != 3
+        || v.at("temporal_patch_size").get<int>() != 2
+        || v.at("patch_size").get<int>() != 14) {
+        throw std::invalid_argument("NSA video unsupported model geometry/dtype");
+    }
+    auto pixels = clone_nsa_cpu(a.pixel_values->at(0), dtype, 2);
+    auto bounds = clone_nsa_cpu(a.image_bound->at(0), D::kInt64, 3);
+    auto grids = clone_nsa_cpu(a.tgt_sizes->at(0), D::kInt64, 2);
+    if (pixels->size(1) != 1176 || bounds->size(0) != 1 || bounds->size(2) != 2
+        || grids->size(1) != 3 || bounds->size(1) != grids->size(0)) {
+        throw std::invalid_argument("NSA video native media tensor shape invalid");
+    }
+    nsa::validate_video_geometry(u.total[0], pixels->size(0),
+        nsa_values<std::int64_t>(bounds), nsa_values<std::int64_t>(grids),
+        *a.visual_token_ranges, nsa_values<std::int64_t>(a.position_ids),
+        config.get<std::size_t>("max_position_embeddings"));
+    a.pixel_values = std::vector<infinilm::runtime::Tensor>{pixels};
+    a.image_bound = std::vector<infinilm::runtime::Tensor>{bounds};
+    a.tgt_sizes = std::vector<infinilm::runtime::Tensor>{grids};
 }
 } // namespace
 
@@ -756,12 +797,10 @@ void RankWorker::thread_loop() {
                         try {
                             if (nsa_pool_epoch_) {
                                 if (runtime_->isGraphRecording() || rank_info_.pp_size != 1
-                                    || local_args.sample_all_positions || local_args.target_hidden_states || local_args.pixel_values
-                                    || local_args.image_bound || local_args.tgt_sizes || local_args.image_grid_thw
-                                    || local_args.image_req_ids || local_args.visual_token_ranges
+                                    || local_args.sample_all_positions || local_args.target_hidden_states
                                     || local_args.mamba_init_state_indices || local_args.mamba_final_state_indices
                                     || !local_args.nsa_owner_snapshot || local_args.nsa_owner_snapshot->pool_epoch != nsa_pool_epoch_) {
-                                    throw std::invalid_argument("NSA RUN requires current ordinary text owner DTO and eager worker");
+                                    throw std::invalid_argument("NSA RUN requires current owner DTO and eager worker");
                                 }
                                 freeze_nsa_cpu(effective_args);
                                 const auto original = nsa_upload(effective_args);
@@ -769,6 +808,7 @@ void RankWorker::thread_loop() {
                                     throw std::invalid_argument("NSA submitted CPU metadata changed after producer freeze");
                                 }
                                 nsa::validate(*local_args.nsa_owner_snapshot, original);
+                                freeze_nsa_video(effective_args, original, *model_config_);
                                 if (effective_args.input_ids.value()->size(0) != 1
                                     || effective_args.input_ids.value()->size(1) != original.slots.size()
                                     || effective_args.position_ids.value()->size(0) != 3

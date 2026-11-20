@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <array>
 #include <base/gemm.h>
+#include <base/nsa_videonsa_prefill.h>
 #include <base/reshape_and_cache_flash.h>
 #include <cmath>
 #include <cstdint>
@@ -322,7 +323,14 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     }
     const bool can_use_paged_decode_nsa = is_paged && has_paged_metadata && is_decode;
     if (can_use_paged_decode_nsa) {
-        throw std::runtime_error("Paged NSA decode requires InfiniOps compressed-cache and attention operators");
+        const auto device = runtime.device().type();
+        const auto dtype = hidden_states->dtype();
+        if (infini::ops::NsaCompressPagedCache::active_implementation_indices(device).empty()
+            || infini::ops::NsaPagedAttention::active_implementation_indices(device).empty()
+            || head_dim_ != 128 || !nsa_k_cmp_cache_ || !nsa_v_cmp_cache_
+            || (dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16)) {
+            throw std::runtime_error("Paged NSA decode requires supported native operators and prepared compressed caches");
+        }
     }
     if (can_use_paged_decode_nsa && !nsa_prepared_tail_) {
         throw std::invalid_argument("NSA one-tail evidence differs from actual model shape");
@@ -331,11 +339,26 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
                                    && has_paged_metadata
                                    && hidden_states->size(0) == 1
                                    && !is_decode;
-    const bool can_use_paged_prefill_nsa = false && has_visual_ranges
+    const bool can_use_paged_prefill_nsa = has_visual_ranges
                                         && is_paged
                                         && has_paged_metadata
                                         && hidden_states->size(0) == 1
                                         && hidden_states->size(1) != attn_metadata.total_sequence_lengths.value()->shape()[0];
+
+    if (can_use_paged_prefill_nsa) {
+        const auto &proof = *forward_context.nsa_owner;
+        const auto &rows = proof.owner.rows;
+        const auto dtype = hidden_states->dtype();
+        if (runtime.isGraphRecording() || proof.one_tail || rows.size() != 1
+            || rows[0].past != 0 || rows[0].total != hidden_states->size(1)
+            || rows[0].total < 2 || rows[0].total > 8192 || head_dim_ != 128
+            || !num_key_value_heads_ || num_attention_heads_ % num_key_value_heads_
+            || num_attention_heads_ / num_key_value_heads_ > 32
+            || (dtype != infinilm::runtime::DataType::kFloat16 && dtype != infinilm::runtime::DataType::kBFloat16)
+            || infini::ops::NsaVideonsaPrefill::active_implementation_indices(runtime.device().type()).empty()) {
+            throw std::invalid_argument("VideoNSA full prefill requires supported fresh B1 native domain");
+        }
+    }
 
     const bool can_use_static_scattered_nsa = ::infinilm::backends::AttentionBackend::STATIC_ATTN == attention_backend_;
     if (!can_use_static_scattered_nsa && !can_use_fast_prefill && !can_use_paged_prefill_nsa && !can_use_paged_decode_nsa) {
@@ -506,6 +529,71 @@ infinilm::runtime::Tensor VideoNSAAttention::forward(const infinilm::runtime::Te
     // NSA kernels consume BHSD while the shared paged cache is BSHD.
     auto k_cache_for_nsa = k_cache_layer->permute({0, 2, 1, 3});
     auto v_cache_for_nsa = v_cache_layer->permute({0, 2, 1, 3});
+
+    if (can_use_paged_decode_nsa) {
+        auto gate_hidden = g_proj_1_->forward(runtime, hidden_states_mutable);
+        {
+            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gate_hidden->shape(), gate_hidden->dtype());
+            infinilm::execution::submit<infini::ops::Silu>(
+                runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), gate_hidden, ops_output);
+            gate_hidden = std::move(ops_output);
+        }
+        auto gates = g_proj_2_->forward(runtime, gate_hidden);
+        gates = gates->view({1, seq_len, 3, total_num_attention_heads_});
+        gates = local_head_gates(gates, 3, total_num_attention_heads_, num_attention_heads_, tp_rank_);
+        {
+            auto ops_output = infinilm::runtime::Tensor::empty(runtime, gates->shape(), gates->dtype());
+            infinilm::execution::submit<infini::ops::Sigmoid>(
+                runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gates, ops_output);
+            INFINILM_TRACE_OP(Sigmoid, ops_output);
+            gates = std::move(ops_output);
+        }
+        auto k_compressed = nsa_k_cmp_cache_.value();
+        auto v_compressed = nsa_v_cmp_cache_.value();
+        const auto block_tables = attn_metadata.block_tables.value();
+        const auto cache_lens = attn_metadata.total_sequence_lengths.value();
+        auto decode_gates = gates->view({seq_len, 3, num_attention_heads_});
+        infinilm::execution::submit<infini::ops::NsaCompressPagedCache>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::NsaCompressPagedCache::DefaultConfig(runtime.device().type()),
+            k_cache_for_nsa, v_cache_for_nsa, block_tables, cache_lens,
+            int(kNsaBlockSize), nsa_update_last_only_, k_compressed, v_compressed);
+        nsa_lane_.compression_enqueued(); // Native compression accepted on the owner stream.
+        auto decoded = infinilm::runtime::Tensor::empty(runtime,
+            {seq_len, num_attention_heads_, head_dim_}, q_reshaped->dtype());
+        infinilm::execution::submit<infini::ops::NsaPagedAttention>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::NsaPagedAttention::DefaultConfig(runtime.device().type()),
+            q_reshaped, k_compressed, v_compressed, k_cache_for_nsa, v_cache_for_nsa,
+            block_tables, cache_lens, decode_gates, scale, int(kNsaBlockSize), int{256}, kNsaSelectBlocks, decoded);
+        auto output = decoded->view({1, seq_len, num_attention_heads_ * head_dim_});
+        return o_proj_->forward(runtime, output);
+    }
+
+    if (can_use_paged_prefill_nsa) {
+        auto gate_hidden = g_proj_1_->forward(runtime, hidden_states_mutable);
+        auto activated = infinilm::runtime::Tensor::empty(runtime, gate_hidden->shape(), gate_hidden->dtype());
+        infinilm::execution::submit<infini::ops::Silu>(
+            runtime, infini::ops::Silu::DefaultConfig(runtime.device().type()), gate_hidden, activated);
+        auto gates = g_proj_2_->forward(runtime, activated)->view({1, seq_len, 3, total_num_attention_heads_});
+        gates = local_head_gates(gates, 3, total_num_attention_heads_, num_attention_heads_, tp_rank_);
+        auto probabilities = infinilm::runtime::Tensor::empty(runtime, gates->shape(), gates->dtype());
+        infinilm::execution::submit<infini::ops::Sigmoid>(
+            runtime, infini::ops::Sigmoid::DefaultConfig(runtime.device().type()), gates, probabilities);
+        auto gc = probabilities->narrow({{2, 0, 1}})->squeeze(2)->contiguous(runtime);
+        auto gs = probabilities->narrow({{2, 1, 1}})->squeeze(2)->contiguous(runtime);
+        auto gw = probabilities->narrow({{2, 2, 1}})->squeeze(2)->contiguous(runtime);
+        auto q4 = q_reshaped->contiguous(runtime)->view({1, seq_len, num_attention_heads_, head_dim_});
+        auto k4 = k_reshaped->contiguous(runtime)->view({1, seq_len, num_key_value_heads_, head_dim_});
+        auto v4 = v_reshaped->contiguous(runtime)->view({1, seq_len, num_key_value_heads_, head_dim_});
+        auto heads = infinilm::runtime::Tensor::empty(runtime, q4->shape(), gc->dtype());
+        infinilm::execution::submit<infini::ops::NsaVideonsaPrefill>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::NsaVideonsaPrefill::DefaultConfig(runtime.device().type()),
+            q4, k4, v4, gc, gs, gw, kNsaSelectBlocks, int(kNsaBlockSize), int{256}, heads);
+        auto output = heads->view({1, seq_len, num_attention_heads_ * head_dim_});
+        return o_proj_->forward(runtime, output);
+    }
 
     auto k_cmp = mean_pool_blocks(runtime, k_reshaped, kNsaBlockSize);
     auto v_cmp = mean_pool_blocks(runtime, v_reshaped, kNsaBlockSize);
