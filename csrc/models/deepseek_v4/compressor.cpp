@@ -1,5 +1,6 @@
 #include "compressor.hpp"
 #include "native_ops.hpp"
+#include "request_rows.hpp"
 
 #include "execution/submit.hpp"
 #include "layers/linear/dense.hpp"
@@ -37,13 +38,16 @@ std::vector<std::shared_ptr<weights::ModelWeights>> Compressor::loading_children
 runtime::Tensor Compressor::forward(runtime::Runtime &runtime, const runtime::Tensor &hidden_states,
                                     const runtime::Tensor &sources, const runtime::Tensor &state_slots,
                                     const runtime::Tensor &state, const runtime::Tensor &positions,
-                                    const runtime::Tensor &cos_sin) const {
+                                    const runtime::Tensor &cos_sin,
+                                    const std::vector<size_t> &query_offsets) const {
     if (!hidden_states || hidden_states->ndim() != 2 || !sources || sources->ndim() != 2) {
         throw std::invalid_argument("DeepSeek V4 compressor requires rank-two input and source rows");
     }
-    auto projection = layers::linear::dense_projection(
-        runtime, hidden_states, projection_->weight(), std::nullopt, 1.0f,
-        runtime::DataType::kFloat32);
+    auto projection = project_requests(runtime, query_offsets, [&](const RequestRows &part) {
+        return layers::linear::dense_projection(
+            runtime, part.slice(hidden_states), projection_->weight(), std::nullopt, 1.0f,
+            runtime::DataType::kFloat32);
+    });
     auto output = runtime::Tensor::empty(runtime, {sources->size(0), head_dim_}, projection->dtype());
     using Op = infini::ops::DeepseekV4Compress;
     execution::submit<Op>(runtime, execution::RecordingPolicy::DeviceOnly,
