@@ -650,93 +650,17 @@ class ChunkedPrefillBranchMatrixTest(unittest.TestCase):
         self.assertTrue(saw_resumed)
 
     def test_connector_disabled_chunked_flag(self):
-        # chunked_prefill_size is force-disabled with a
-        # connector (constructor warning), so the
-        # skip_waiting branch can never fire there.
-        class FakeConnector:
-            pass
-
-        with self.assertLogs("infinilm.llm.scheduler", level="WARNING"):
-            s = make_scheduler(
-                connector=FakeConnector(), chunked_prefill_size=64, enable_mixed_batching=True
-            )
+        with self.assertLogs("infinilm.llm.scheduler", level="WARNING") as logs:
+            s = make_scheduler(connector=object(), chunked_prefill_size=64)
         self.assertIsNone(s.chunked_prefill_size)
-        self.assertTrue(s.enable_mixed_batching)
+        self.assertIn("chunked_prefill_size disabled", logs.records[0].getMessage())
 
-    def test_mooncake_decode_and_failed_receive_share_batch(self):
-        from infinilm.config.kv_transfer import KVTransferConfig
-        from infinilm.kv_connector.mooncake.mooncake_connector_scheduler import (
-            MooncakeConnectorScheduler,
-        )
-        from infinilm.llm.model_runner.model_runner import KVConnectorOutput, ModelRunnerOutput
-        from infinilm.processors.basic_llm_processor import BasicLLMProcessor
-
-        for budget in (5, 6):
-            with self.subTest(budget=budget):
-                connector = MooncakeConnectorScheduler(
-                    KVTransferConfig(kv_connector="MooncakeConnector", kv_role="kv_consumer"),
-                    engine_id="D",
-                )
-                s = make_scheduler(
-                    connector=connector, enable_mixed_batching=True,
-                    max_num_batched_tokens=budget,
-                )
-                ready, failed = make_request("ready", 20), make_request("failed", 20)
-                for req in (ready, failed):
-                    req.kv_transfer_params = {
-                        "do_remote_prefill": True, "remote_engine_id": "P",
-                        "remote_bootstrap_addr": "localhost", "transfer_id": req.request_id,
-                    }
-                    s.add_request(req)
-                running = make_request("running", 3)
-                s.add_request(running)
-                first = s.schedule()
-                self.assertEqual(first.scheduled_requests, [running])
-                self.assertEqual(set(first.kv_connector_metadata.reqs_to_recv["P"]), {"ready", "failed"})
-                running.append_generated_token_id(42)
-                s.complete_requests([running])
-
-                # Only the second page failed. The consumer can reuse the
-                # first 16 tokens and recompute the final four locally.
-                s.update_from_output(ModelRunnerOutput(kv_connector_output=KVConnectorOutput(
-                    finished_recving={"ready"}, failed_recving={"failed"},
-                    invalid_block_ids={failed.block_table[1]},
-                )))
-                remote_slot = list(ready.slot_mapping)
-                batch = s.schedule()
-                self.assertEqual(batch.num_decode_requests, 2)
-                self.assertEqual(ready.slot_mapping, remote_slot)
-                self.assertEqual(len(remote_slot), 1)
-                self.assertEqual(s.remote_kv_requests, {})
-                self.assertEqual(s.pending_kv_decode_blocks, 0)
-                if budget == 5:
-                    self.assertEqual(batch.scheduled_requests, [running, ready])
-                    for req in batch.scheduled_requests:
-                        req.append_generated_token_id(43)
-                    s.complete_requests(batch.scheduled_requests)
-                    batch = s.schedule()
-                    self.assertEqual(batch.scheduled_requests, [failed])
-                    self.assertEqual(batch.num_decode_requests, 0)
-                else:
-                    self.assertEqual(batch.scheduled_requests, [running, ready, failed])
-                    processor = BasicLLMProcessor.__new__(BasicLLMProcessor)
-                    inputs = processor.build_model_inputs(batch)
-                    self.assertEqual(inputs["input_offsets"].to_numpy().tolist(), [0, 1, 2, 6])
-                    self.assertEqual(inputs["input_ids"].to_numpy().tolist(), [
-                        [42, ready.prompt_token_ids[-1], *failed.prompt_token_ids[16:]]
-                    ])
-                self.assertFalse(batch.kv_connector_metadata.reqs_to_recv)
-                self.assertEqual(failed.num_local_cached_tokens, 16)
-                for req in batch.scheduled_requests:
-                    req.status = RequestStatus.FINISHED
-                s.complete_requests(batch.scheduled_requests)
-                if budget == 5:
-                    final = s.schedule()
-                    self.assertEqual(final.scheduled_requests, [running, ready])
-                    for req in final.scheduled_requests:
-                        req.status = RequestStatus.FINISHED
-                    s.complete_requests(final.scheduled_requests)
-                self.assertEqual(blocks_held(s), 0)
+    def test_connector_warns_when_mixed_batching_requested(self):
+        with self.assertLogs("infinilm.llm.scheduler", level="WARNING") as logs:
+            s = make_scheduler(connector=object(), enable_mixed_batching=True)
+        self.assertFalse(s.enable_mixed_batching)
+        self.assertIn("--enable-mixed-batching disabled", logs.records[0].getMessage())
+        self.assertIn("KV connector", logs.records[0].getMessage())
 
     def test_decode_batch_unlimited_by_token_budget(self):
         # Decode batches bypass max_num_batched_tokens (only
