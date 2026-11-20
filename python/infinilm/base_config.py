@@ -79,6 +79,7 @@ class BaseConfig:
         self.pre_transpose = self.args.pre_transpose
         self.num_blocks = self.args.num_blocks
         self.chunked_prefill_size = self.args.chunked_prefill_size
+        self.enable_mixed_batching = self.args.enable_mixed_batching
         self.block_size = self.args.block_size
         self.max_cache_len = self.args.max_cache_len
         self.kv_cache_dtype = self.args.kv_cache_dtype
@@ -249,6 +250,11 @@ class BaseConfig:
         )
         self.parser.add_argument(
             "--num-blocks", type=int, default=512, help="number of KV cache blocks"
+        )
+        self.parser.add_argument(
+            "--enable-mixed-batching",
+            action="store_true",
+            help="batch running decode tokens with whole or chunked prefills in paged text inference",
         )
         self.parser.add_argument(
             "--chunked-prefill-size",

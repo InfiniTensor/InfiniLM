@@ -39,6 +39,8 @@ def test(
     weight_load_mode="async",
     enable_prefix_caching=True,
     pre_transpose=False,
+    chunked_prefill_size=0,
+    enable_mixed_batching=False,
 ):
     if video_path is not None:
         from infinilm.processors.videonsa_processor import decode_video_frames
@@ -71,6 +73,8 @@ def test(
         top_k=top_k,
         top_p=top_p,
         enable_graph=enable_graph,
+        chunked_prefill_size=chunked_prefill_size,
+        enable_mixed_batching=enable_mixed_batching,
         attn_backend=attn_backend,
         use_mla=use_mla,
         skip_load=skip_load,
@@ -167,6 +171,8 @@ if __name__ == "__main__":
         ep=ep,
         enable_paged_attn=enable_paged_attn,
         enable_graph=enable_graph,
+        chunked_prefill_size=cfg.chunked_prefill_size,
+        enable_mixed_batching=cfg.enable_mixed_batching,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,
         top_k=cfg.top_k,
