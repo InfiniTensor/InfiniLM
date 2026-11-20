@@ -276,10 +276,16 @@ class Scheduler:
                     "chunked prefill"
                 )
             self.chunked_prefill_size = chunked_prefill_size
+        if enable_mixed_batching and connector is not None:
+            logger.warning(
+                "--enable-mixed-batching disabled because a KV connector is configured; "
+                "using separate prefill and decode batches"
+            )
+            enable_mixed_batching = False
         self.enable_mixed_batching = enable_mixed_batching
         if self.enable_mixed_batching and (has_mamba_cache or nsa_owner_pool_epoch is not None):
             raise ValueError(
-                "mixed batching requires standard paged attention"
+                "mixed batching requires standard local paged attention"
             )
         # A whole prompt deferred by decode tokens gets the first row next time.
         # Like other dequeued requests it is already owned by _active_requests.
@@ -693,12 +699,7 @@ class Scheduler:
                     num_tokens_this_step,
                     len(scheduled_requests),
                 ):
-                    # A failed transfer may retain a trusted local prefix.
-                    # Its remaining whole prefill needs the same retry as a new one.
-                    if num_decode_requests and self.chunked_prefill_size is None:
-                        self._whole_prefill_retry = req
-                    else:
-                        deferred_requests.append(req)
+                    deferred_requests.append(req)
                     break
                 self.commit_computed_tokens(req, req.num_computed_tokens)
 
@@ -729,10 +730,35 @@ class Scheduler:
 
         is_prefill = len(scheduled_requests) > num_decode_requests
         if not scheduled_requests and (not self.enable_mixed_batching or retry_whole):
-            limit = self.max_batch_size
-            if self.enable_mixed_batching:
-                limit = min(limit, self.max_num_batched_tokens)
-            self._schedule_running(scheduled_requests, seen_request_objects, limit)
+            self._schedule_running(
+                scheduled_requests, seen_request_objects, self.max_batch_size
+            )
+
+        # Promote completed remote KV transfers (lower priority than running queue).
+        # Cleanup (is_finished, failed re-queue) runs unconditionally; batch append only if slots remain.
+        if not is_prefill and self.connector is not None and self.remote_kv_requests:
+            for req_id in list(self.remote_kv_requests.keys()):
+                req = self.remote_kv_requests[req_id]
+                if req.is_finished():
+                    self.complete_requests([req])
+                    continue
+                if req_id in self.failed_receiving_kv_req_ids:
+                    logger.warning(
+                        f"Request {req_id[:8]}... failed receiving KV, re-queuing for prefill."
+                    )
+                    self.update_waiting_for_remote_kv(req)
+                    req.status = RequestStatus.WAITING
+                    self.waiting_queue.sync_q.put(req)
+                elif req_id in self.finished_receiving_kv_req_ids:
+                    if len(scheduled_requests) < self.max_batch_size:
+                        logger.info(
+                            f"Request {req_id[:8]}... finished receiving KV, scheduling for decode."
+                        )
+                        self.update_waiting_for_remote_kv(req)
+                        req.status = RequestStatus.RUNNING
+                        scheduled_requests.append(req)
+                    else:
+                        break  # Defer promotion to next schedule() if batch is full
 
         if scheduled_requests:
             self._last_batch_was_prefill = is_prefill
@@ -812,24 +838,6 @@ class Scheduler:
             req.num_blocks = len(req.block_table)
             req.num_local_cached_tokens = req.get_total_length() - 1
             scheduled_requests.append(req)
-
-        # A received prompt already owns the slot for its first decode step.
-        # Promote it after running decodes, before the prefill budget is computed.
-        if not self.remote_kv_requests:
-            return
-        for req_id, req in list(self.remote_kv_requests.items()):
-            if req.is_finished():
-                self.complete_requests([req])
-            elif req_id in self.failed_receiving_kv_req_ids:
-                logger.warning("Request %s failed receiving KV, re-queuing for prefill.", req_id)
-                self.update_waiting_for_remote_kv(req)
-                req.status = RequestStatus.WAITING
-                self.waiting_queue.sync_q.put(req)
-            elif req_id in self.finished_receiving_kv_req_ids and len(scheduled_requests) < limit:
-                logger.info("Request %s finished receiving KV, scheduling for decode.", req_id)
-                self.update_waiting_for_remote_kv(req)
-                req.status = RequestStatus.RUNNING
-                scheduled_requests.append(req)
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)
