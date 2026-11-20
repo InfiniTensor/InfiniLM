@@ -2,6 +2,7 @@
 #include "hyper_connection.hpp"
 #include "model_config.hpp"
 #include "native_ops.hpp"
+#include "request_rows.hpp"
 #include "rotary_frequencies.hpp"
 
 #include "engine/deepseek_v4_metadata.hpp"
@@ -94,9 +95,13 @@ Tensor cast(Runtime &rt, const Tensor &value, DataType dtype) {
 
 // The HCU custom reduction used by the reference accumulates rank-local
 // BF16 contributions in FP32 and truncates only the final writeback.
-Tensor reduce_tp(Runtime &rt, const Tensor &local, infinicclComm_t comm) {
+Tensor reduce_tp(Runtime &rt, const Tensor &local, infinicclComm_t comm,
+                 const std::vector<size_t> &query_offsets) {
     auto sum = cast(rt,local,DataType::kFloat32);
-    engine::distributed::allreduce_(rt,sum,sum,infinicclSum,comm);
+    for_each_request(query_offsets, [&](const RequestRows &rows) {
+        auto part = rows.slice(sum);
+        engine::distributed::allreduce_(rt, part, part, infinicclSum, comm);
+    });
     auto output = Tensor::empty(rt,local->shape(),local->dtype());
     submit<infini::ops::DeepseekV4CastRz>(rt,sum,output);
     return output;
@@ -126,6 +131,7 @@ struct BatchMetadata {
     Tensor position, swa_indices, swa_lengths, swa_slots, page_table;
     Tensor c4_slots, c4_positions, c4_lengths, c4_sparse_lengths, c4_sources, c4_state_slots;
     Tensor c128_slots, c128_positions, c128_indices, c128_lengths, c128_sources, c128_state_slots;
+    std::vector<size_t> query_offsets;
     bool single_decode{};
 
     auto tensors() const {
@@ -156,13 +162,15 @@ BatchMetadata make_batch(Runtime &rt, const InfinilmModel::Input &input) {
         (positions->dtype()==DataType::kInt64
           ? *reinterpret_cast<const int64_t*>(positions->data())>0
           : *reinterpret_cast<const int32_t*>(positions->data())>0);
+    const auto *row_offsets = reinterpret_cast<const int32_t*>(offsets->data());
+    std::vector<size_t> query_offsets(row_offsets, row_offsets + offsets->numel());
     return {input.position_ids.value()->view({positions->numel()}),
             device(metadata.swa_indices), device(metadata.swa_topk_lengths), device(metadata.raw_out_loc),
             device(metadata.page_table), device(metadata.c4_out_loc), device(metadata.c4_positions),
             device(metadata.c4_topk_lengths_raw), device(metadata.c4_sparse_topk_lengths),
             device(c4.sources), device(c4.state_slots), device(metadata.c128_out_loc),
             device(metadata.c128_positions), device(metadata.c128_page_indices),
-            device(metadata.c128_topk_lengths_clamp1), device(c128.sources), device(c128.state_slots),decode};
+            device(metadata.c128_topk_lengths_clamp1), device(c128.sources), device(c128.state_slots),std::move(query_offsets),decode};
 }
 
 class Attention final : public weights::ModelWeights {
@@ -212,16 +220,19 @@ public:
         Tensor indices, lengths;
         if (ratio_ == 4) {
             auto compressed = compressor_->forward(rt,x,batch.c4_sources,batch.c4_state_slots,
-                                                  cache.compressor_state,batch.c4_positions,frequencies);
+                                                  cache.compressor_state,batch.c4_positions,frequencies,batch.query_offsets);
             // Compressed NoPE values round to BF16 before FP8 cache quantization.
             store_mla_rows(rt,cast(rt,compressed,DataType::kBFloat16),
                            batch.c4_slots,cache.compressed,kV4PageSize/4);
             auto key = index_compressor_->forward(rt,x,batch.c4_sources,batch.c4_state_slots,
-                                                 cache.indexer_state,batch.c4_positions,frequencies);
+                                                 cache.indexer_state,batch.c4_positions,frequencies,batch.query_offsets);
             key = cast(rt,key,DataType::kBFloat16);
             auto query = index_query_->forward(rt,q_lora)->view({rows,index_heads_,128});
             apply_rotary_tail(rt,query,batch.position,frequencies);
-            auto weights = index_weights_->forward(rt,x);
+            auto weights = project_requests(rt, batch.query_offsets, [&](const RequestRows &part) {
+                auto input = part.slice(x);
+                return index_weights_->forward(rt, input);
+            });
             // A positive scalar common to all candidates does not change top-k.
             indices = Tensor::empty(rt,{rows,512},DataType::kInt32);
             submit<infini::ops::DeepseekV4C4Index>(rt,key,batch.c4_slots,query,weights,batch.page_table,
@@ -229,20 +240,25 @@ public:
             lengths = batch.c4_sparse_lengths;
         } else if (ratio_ == 128) {
             auto compressed = compressor_->forward(rt,x,batch.c128_sources,batch.c128_state_slots,
-                                                  cache.compressor_state,batch.c128_positions,frequencies);
+                                                  cache.compressor_state,batch.c128_positions,frequencies,batch.query_offsets);
             // Compressed NoPE values round to BF16 before FP8 cache quantization.
             store_mla_rows(rt,cast(rt,compressed,DataType::kBFloat16),
                            batch.c128_slots,cache.compressed,kV4PageSize/128);
             indices = batch.c128_indices;
             lengths = batch.c128_lengths;
         }
-        auto attended = sparse_mla(rt,q,cache,batch.swa_indices,batch.swa_lengths,sink_,
-                                   indices,lengths,1.0/std::sqrt(double(kV4HeadDim)));
-        apply_rotary_tail(rt,attended,batch.position,frequencies,true);
-        auto flattened = attended->view({rows,heads_*kV4HeadDim});
-        auto local = wo_a_->forward(rt,flattened);
+        // Match the request's standalone FlashMLA partitioning and GEMM
+        // shape even when the scheduler packs multiple requests together.
+        auto local = project_requests(rt, batch.query_offsets, [&](const RequestRows &part) {
+            auto attended = sparse_mla(rt, part.slice(q), cache, part.slice(batch.swa_indices),
+                                       part.slice(batch.swa_lengths), sink_, part.slice(indices),
+                                       part.slice(lengths), 1.0 / std::sqrt(double(kV4HeadDim)));
+            apply_rotary_tail(rt, attended, part.slice(batch.position), frequencies, true);
+            auto flattened = attended->view({part.count, heads_ * kV4HeadDim});
+            return wo_a_->forward(rt, flattened);
+        });
         auto contribution = static_cast<const nn::BaseLinear&>(*wo_b_).forward(rt,local);
-        return reduce_tp(rt,contribution,comm_);
+        return reduce_tp(rt, contribution, comm_, batch.query_offsets);
     }
 
 private:
@@ -280,8 +296,12 @@ public:
             rt,1,c.hidden,c.intermediate,rank.tp_rank,rank.tp_size,true));
     }
 
-    Tensor forward(Runtime &rt, Tensor x, const Tensor &tokens) const {
-        auto logits = gate_->forward(rt,x);
+    Tensor forward(Runtime &rt, Tensor x, const Tensor &tokens,
+                   const std::vector<size_t> &query_offsets) const {
+        auto logits = project_requests(rt, query_offsets, [&](const RequestRows &part) {
+            auto input = part.slice(x);
+            return gate_->forward(rt, input);
+        });
         using Opt=std::optional<Tensor>;
         const Shape routes{x->size(0),topk_};
         RoutedExperts route{Tensor::empty(rt,routes,DataType::kFloat32),
@@ -298,7 +318,7 @@ public:
         }
         auto shared = run_routed_experts(rt,x,{ones,zero},*shared_,limit_,std::nullopt);
         auto sum = add(rt,routed,shared);
-        return reduce_tp(rt,sum,comm_);
+        return reduce_tp(rt, sum, comm_, query_offsets);
     }
 
 private:
@@ -310,14 +330,20 @@ private:
     std::shared_ptr<W8A8ExpertWeights> experts_, shared_;
 };
 
-HyperConnectionMix run_mhc(Runtime &rt,const Tensor &x,const MixWeights &w,
-                           double norm_eps,double mix_eps,size_t iterations) {
-    const auto rows=x->size(0), streams=x->size(1);
-    HyperConnectionMix out{Tensor::empty(rt,{rows,x->size(2)},x->dtype()),
-                           Tensor::empty(rt,{rows,streams},DataType::kFloat32),
-                           Tensor::empty(rt,{rows,streams,streams},DataType::kFloat32)};
-    submit<infini::ops::DeepseekV4MhcPre>(rt,x,w.projection,w.scale,w.base,norm_eps,mix_eps,
-                                         static_cast<int64_t>(iterations),out.activation,out.post,out.combination);
+HyperConnectionMix run_mhc(Runtime &rt, const Tensor &x, const MixWeights &w,
+                           double norm_eps, double mix_eps, size_t iterations,
+                           const std::vector<size_t> &query_offsets) {
+    const auto rows = x->size(0), streams = x->size(1);
+    HyperConnectionMix out{Tensor::empty(rt, {rows, x->size(2)}, x->dtype()),
+                           Tensor::empty(rt, {rows, streams}, DataType::kFloat32),
+                           Tensor::empty(rt, {rows, streams, streams}, DataType::kFloat32)};
+    // The Hygon operator selects a projection/reduction from its row count.
+    for_each_request(query_offsets, [&](const RequestRows &part) {
+        submit<infini::ops::DeepseekV4MhcPre>(
+            rt, part.slice(x), w.projection, w.scale, w.base, norm_eps, mix_eps,
+            static_cast<int64_t>(iterations), part.slice(out.activation),
+            part.slice(out.post), part.slice(out.combination));
+    });
     return out;
 }
 
@@ -348,17 +374,19 @@ public:
 
     Tensor forward(Runtime &rt, const Tensor &residual, const Tensor &tokens,
                    const BatchMetadata &batch, const LayerPagedCache &cache, const Tensor &frequencies) const {
-        const auto attention = mix(rt,residual,attn_mix_);
+        const auto attention = mix(rt,residual,attn_mix_,batch.query_offsets);
         const auto attended = attn_->forward(rt,attn_norm_->forward(rt,attention.activation),batch,cache,frequencies);
         const auto next = run_mhc_post(rt,attended,residual,attention);
-        const auto feed_forward = mix(rt,next,ffn_mix_);
-        const auto experts = ffn_->forward(rt,ffn_norm_->forward(rt,feed_forward.activation),tokens);
+        const auto feed_forward = mix(rt,next,ffn_mix_,batch.query_offsets);
+        const auto experts = ffn_->forward(rt, ffn_norm_->forward(rt,feed_forward.activation),
+                                           tokens, batch.query_offsets);
         return run_mhc_post(rt,experts,next,feed_forward);
     }
 
 private:
-    HyperConnectionMix mix(Runtime &rt,const Tensor &x,const MixWeights &w) const {
-        return run_mhc(rt,x,w,norm_eps_,mix_eps_,iterations_);
+    HyperConnectionMix mix(Runtime &rt, const Tensor &x, const MixWeights &w,
+                           const std::vector<size_t> &query_offsets) const {
+        return run_mhc(rt, x, w, norm_eps_, mix_eps_, iterations_, query_offsets);
     }
     double norm_eps_, mix_eps_;
     size_t iterations_;
@@ -395,7 +423,7 @@ public:
             residual = layers_[i]->forward(rt,residual,tokens,batch,caches[i],
                                            caches[i].compression_ratio ? compressed_rope : swa_rope);
         }
-        return norm_->forward(rt,run_mhc(rt,residual,head_,rms_eps_,hc_eps_,0).activation);
+        return norm_->forward(rt,run_mhc(rt,residual,head_,rms_eps_,hc_eps_,0,batch.query_offsets).activation);
     }
 
 private:
