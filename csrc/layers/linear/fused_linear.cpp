@@ -209,6 +209,20 @@ QKVParallelLinear::forward_split(infinilm::runtime::Runtime &runtime, infinilm::
     return std::make_tuple(q_out, k_out, v_out);
 }
 
+std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor,
+           infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+QKVParallelLinear::forward_split_with_qk(infinilm::runtime::Runtime &runtime,
+                                         infinilm::runtime::Tensor &input) {
+    auto output = this->forward(runtime, input);
+
+    auto q_out = output->narrow({{2, 0, q_out_size_}});
+    auto k_out = output->narrow({{2, q_out_size_, k_out_size_}});
+    auto v_out = output->narrow({{2, q_out_size_ + k_out_size_, v_out_size_}});
+    auto qk_out = output->narrow({{2, 0, q_out_size_ + k_out_size_}});
+
+    return std::make_tuple(q_out, k_out, v_out, qk_out);
+}
+
 bool QKVParallelLinear::has_q_bias() const { return q_bias_; }
 bool QKVParallelLinear::has_k_bias() const { return k_bias_; }
 bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
