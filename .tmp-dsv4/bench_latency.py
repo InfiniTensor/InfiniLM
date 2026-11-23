@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-import argparse, concurrent.futures, hashlib, json, statistics, threading, time, urllib.request
+import argparse, concurrent.futures, hashlib, json, os, statistics, threading, time, urllib.request
+from pathlib import Path
 
 from transformers import AutoTokenize
 
@@ -110,7 +111,7 @@ def main():
     ap.add_argument("--output", type=int, required=True)
     ap.add_argument("--timeout", type=int, default=7200)
     ap.add_argument("--model", default="Eco-Tech_DeepSeek-V4-Flash-w8a8-mtp")
-    ap.add_argument("--out", default="/home/wuwei/InfiniLM/.tmp-dsv4/latency_results.jsonl")
+    ap.add_argument("--out", default=str(Path(__file__).resolve().parent / "latency_results.jsonl"))
     ap.add_argument("--prompt-salt", type=int, default=0)
     ap.add_argument("--save-details", action="store_true")
     args = ap.parse_args()
