@@ -90,6 +90,13 @@ Attention::Attention(infinilm::runtime::Runtime &runtime,
     num_attention_heads_ = heads / tp;
     num_key_value_heads_ = kv < tp ? 1 : kv / tp;
     attention_backend_ = attention_backend;
+    static_paired_rope_ = model_config->get_or<bool>("static_r5_profile", false)
+                       && runtime.device().type() == infinilm::runtime::Device::Type::kIluvatar
+                       && dtype == infinilm::runtime::DataType::kBFloat16
+                       && heads == 28 && kv == 28 && dim == 128
+                       && rank_info.tp_size == 1 && rank_info.pp_size == 1
+                       && model_config->get<std::string>("model_type") == "llama"
+                       && !model_config->get_config_json().contains("quantization_config");
     try {
         auto register_fn = [this](const std::string &name, infinilm::weights::Weight parameter) {
             this->bind_weight(name, std::move(parameter));
@@ -171,8 +178,13 @@ infinilm::runtime::Tensor Attention::forward_static_(const infinilm::runtime::Te
     }
 
     // 4. Apply RoPE to QK
-    rotary_emb_->forward(*forward_context.runtime, q_reshaped, pos_ids_for_rope, true);
-    rotary_emb_->forward(*forward_context.runtime, k_reshaped, pos_ids_for_rope, true);
+    if (static_paired_rope_ && !forward_context.runtime->isGraphRecording()) {
+        rotary_emb_->forward(*forward_context.runtime, q_reshaped, k_reshaped,
+                             q_reshaped, k_reshaped, pos_ids_for_rope);
+    } else {
+        rotary_emb_->forward(*forward_context.runtime, q_reshaped, pos_ids_for_rope, true);
+        rotary_emb_->forward(*forward_context.runtime, k_reshaped, pos_ids_for_rope, true);
+    }
 
     // 5. Attn Backend calculate
     auto attn_output = attn_->forward(q_reshaped, k_reshaped, v_reshaped, forward_context);

@@ -1,0 +1,152 @@
+{
+  "main_base": "1b005e15ad3a0f965935a645d46f3b69abe12314",
+  "model_commit": "d62e16c50849ee5a3e4d891fb515224b8f57b03f",
+  "control_ops": "4038a8ee1e432e8056c06e40d68edf228c9c8f1a",
+  "candidate_ops": "6489ac72cd99c487c11c4f0d582c2c12a4f3150a",
+  "model_cases": {
+    "mha_b4_short": {
+      "batch": 4,
+      "input": 64,
+      "output": 8,
+      "cache": 96,
+      "input_sha256": "87bbf1db4c372e992bc04ea97dff215967c022b8731bf731c0aa10728c5be0d6",
+      "roles": {
+        "control": {
+          "samples_ms": [
+            387.01544306240976,
+            390.98531706258655,
+            386.12006697803736
+          ],
+          "median_ms": 387.01544306240976,
+          "output_sha256": "b8fa9d9064744a40b335abf156bf462d689a3df17a13f2b132bd49ab030cc657",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "kernels": {
+          "samples_ms": [
+            368.3197780046612,
+            367.8177969995886,
+            368.0575410835445
+          ],
+          "median_ms": 368.0575410835445,
+          "output_sha256": "b8fa9d9064744a40b335abf156bf462d689a3df17a13f2b132bd49ab030cc657",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "combined": {
+          "samples_ms": [
+            366.60099285654724,
+            350.0568550080061,
+            340.03871004097164
+          ],
+          "median_ms": 350.0568550080061,
+          "output_sha256": "b8fa9d9064744a40b335abf156bf462d689a3df17a13f2b132bd49ab030cc657",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        }
+      }
+    },
+    "mha_b4": {
+      "batch": 4,
+      "input": 512,
+      "output": 8,
+      "cache": 544,
+      "input_sha256": "bbd7f394ce9a7b731537dede8e6505ffb4875e1b8b719e722e547ea807ac9e88",
+      "roles": {
+        "control": {
+          "samples_ms": [
+            864.7783889900893,
+            864.8156940471381,
+            865.8672370947897
+          ],
+          "median_ms": 864.8156940471381,
+          "output_sha256": "7eba3cabb315d31924d287a733c2790296ddcf070e61e7c03d7e2b9bf7c3f4ef",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "kernels": {
+          "samples_ms": [
+            773.2270129490644,
+            768.0485479068011,
+            769.0708690788597
+          ],
+          "median_ms": 769.0708690788597,
+          "output_sha256": "7eba3cabb315d31924d287a733c2790296ddcf070e61e7c03d7e2b9bf7c3f4ef",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "combined": {
+          "samples_ms": [
+            761.1808609217405,
+            759.9414770957083,
+            761.9609660468996
+          ],
+          "median_ms": 761.1808609217405,
+          "output_sha256": "7eba3cabb315d31924d287a733c2790296ddcf070e61e7c03d7e2b9bf7c3f4ef",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        }
+      }
+    },
+    "mha_b16": {
+      "batch": 16,
+      "input": 2048,
+      "output": 16,
+      "cache": 2080,
+      "input_sha256": "140c6003aed44e633c5e87fec6a11bbbf9905a02ec49e8ec83982ff3c34aa6c0",
+      "roles": {
+        "control": {
+          "samples_ms": [
+            12557.611685944721,
+            12557.28905601427,
+            12555.665073916316
+          ],
+          "median_ms": 12557.28905601427,
+          "output_sha256": "01522d1f98cff088e31fe71ca148839610f5512bab945681c715000529558965",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "kernels": {
+          "samples_ms": [
+            11499.040271155536,
+            11497.417937032878,
+            11493.530839914456
+          ],
+          "median_ms": 11497.417937032878,
+          "output_sha256": "01522d1f98cff088e31fe71ca148839610f5512bab945681c715000529558965",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        },
+        "combined": {
+          "samples_ms": [
+            11340.12108691968,
+            11336.179709993303,
+            11336.053231963888
+          ],
+          "median_ms": 11336.179709993303,
+          "output_sha256": "01522d1f98cff088e31fe71ca148839610f5512bab945681c715000529558965",
+          "all_repeats_equal": true,
+          "expected_ops_library_verified": true
+        }
+      }
+    }
+  },
+  "libraries": {
+    "control": "91236d0ace184af392cfccf5c5fa5c4fe415e86650eaf431f928864b896a5b7e",
+    "kernels": "2b3cf58e4004ea159fcefb6b04ae7c1067c0e6e3c0520a5a628f0ce2cd7cacd3",
+    "combined": "2b3cf58e4004ea159fcefb6b04ae7c1067c0e6e3c0520a5a628f0ce2cd7cacd3"
+  },
+  "method": {
+    "warmups": 2,
+    "measurements": 3,
+    "summary": "median",
+    "timed_region": "generate plus copying all output tokens to host",
+    "graphs": false,
+    "stop_on_eos": false
+  },
+  "date": "2026-10-27",
+  "device": "Iluvatar TG-V200",
+  "corex": "4.3",
+  "model": "9G7B_MHA",
+  "dtype": "bfloat16"
+}
