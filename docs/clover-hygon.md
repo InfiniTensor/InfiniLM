@@ -35,6 +35,7 @@ cmake -S third_party/InfiniCore/submodules/InfiniRT -B build/rt \
 cmake --build build/rt -j 12
 cmake --install build/rt
 cmake -S third_party/InfiniCore/submodules/InfiniOps -B build/ops \
+  -DCMAKE_BUILD_TYPE=Release \
   -C docs/clover-hygon-ops.cmake -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" \
   -DINFINI_RT_ROOT="$INFINI_ROOT" -DWITH_CPU=ON -DWITH_HYGON=ON \
   -DWITH_TRITON=ON -DHYGON_ARCH=gfx936 -DGENERATE_PYTHON_BINDINGS=ON \
@@ -42,6 +43,7 @@ cmake -S third_party/InfiniCore/submodules/InfiniOps -B build/ops \
 cmake --build build/ops -j 12
 cmake --install build/ops
 cmake -S third_party/InfiniCore/submodules/InfiniCCL -B build/ccl \
+  -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" -DWITH_HYGON=ON -DWITH_NCCL=ON \
   -DAUTO_DETECT_DEVICES=OFF -DBUILD_EXAMPLES=OFF
 cmake --build build/ccl -j 12
@@ -50,6 +52,14 @@ cmake --install build/ccl
 
 Match the C++ ABI to the installed DTK Torch build. `gfx936` is the tested
 architecture, not a default for all Hygon products.
+
+The build types match the entries the top-level README uses: `pip install`
+builds InfiniOps as Release (the scikit-build-core default) and
+`scripts/build.sh` builds InfiniCCL as Release, while the InfiniRT command
+sets none. Without a build type CMake adds no optimization flags. Release also
+defines `NDEBUG`, which compiles out InfiniOps' operator-contract `assert`s;
+drop it from the InfiniOps command when diagnosing rejected operator
+arguments.
 
 ### NVIDIA
 
