@@ -89,7 +89,9 @@ class CloverGenerator:
         length = len(ids)
         return self.engine.forward_raw(
             self._tensor([ids], wide=True),
-            position_ids=self._tensor([list(range(past, past + length))], wide=True),
+            # Mrope reads 2-D positions as [3, tokens] axis rows, so single-axis
+            # Clover passes the packed 1-D form like the engine's paged path.
+            position_ids=self._tensor(list(range(past, past + length)), wide=True),
             past_kv_lengths=self._tensor([past]),
             total_kv_lengths=self._tensor([past + length]),
             input_offsets=self._tensor([0, length]),
