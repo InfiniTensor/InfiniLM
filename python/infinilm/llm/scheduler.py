@@ -160,10 +160,15 @@ class SchedulerOutput:
         is_prefill: bool = False,
         speculative_cache_ops: Optional[SpeculativeCacheOps] = None,
         nsa_owner=None,
+        num_decode_requests: int | None = None,
     ):
         self.scheduled_requests = scheduled_requests
         self.num_requests = len(scheduled_requests)
-        self.is_prefill = is_prefill
+        self.is_prefill = is_prefill  # True if the batch contains prefill work.
+        # Decode rows lead a mixed batch. Pure batches use the same boundary.
+        if num_decode_requests is None:
+            num_decode_requests = 0 if is_prefill else self.num_requests
+        self.num_decode_requests = num_decode_requests
         self.speculative_cache_ops = speculative_cache_ops
         self.kv_connector_metadata = None
         self.nsa_owner = nsa_owner
@@ -190,6 +195,7 @@ class Scheduler:
         enable_prefix_caching: bool = True,
         nsa_owner_pool_epoch: int | None = None,
         chunked_prefill_size: int = 0,
+        enable_mixed_batching: bool = False,
     ):
         if nsa_owner_pool_epoch is not None and (
             connector is not None or has_mamba_cache
@@ -257,11 +263,8 @@ class Scheduler:
                     f"chunked_prefill_size must be >= block_size "
                     f"({block_size}), got {chunked_prefill_size}"
                 )
-            # Keep the chunk block-aligned even when the token budget
-            # is not: a resumed chunk reads KV back at the block-table
-            # boundary (allocate_slots requires num_computed_tokens to
-            # cover every fully cached block), so a misaligned chunk
-            # would make num_computed_tokens precede that boundary.
+            # Intermediate chunks must end at a page boundary so the next
+            # step can extend the cached block table.
             chunked_prefill_size = min(
                 chunked_prefill_size // block_size * block_size,
                 max_num_batched_tokens // block_size * block_size,
@@ -273,7 +276,21 @@ class Scheduler:
                     "chunked prefill"
                 )
             self.chunked_prefill_size = chunked_prefill_size
-        # When chunked prefill is enabled, alternate between
+        if enable_mixed_batching and connector is not None:
+            logger.warning(
+                "--enable-mixed-batching disabled because a KV connector is configured; "
+                "using separate prefill and decode batches"
+            )
+            enable_mixed_batching = False
+        self.enable_mixed_batching = enable_mixed_batching
+        if self.enable_mixed_batching and (
+            has_mamba_cache or nsa_owner_pool_epoch is not None
+        ):
+            raise ValueError("mixed batching requires standard local paged attention")
+        # A whole prompt deferred by decode tokens gets the first row next time.
+        # Like other dequeued requests it is already owned by _active_requests.
+        self._whole_prefill_retry: InferenceRequest | None = None
+        # The separate-batch policy alternates between
         # prefill and decode batches so a long chunked prompt
         # cannot starve decode work already in the running queue.
         self._last_batch_was_prefill = False
@@ -432,9 +449,20 @@ class Scheduler:
         deferred_requests = []
         scheduled_requests = []
         seen_request_objects = set()
-        is_prefill = False
-        current_num_batched_tokens = 0
-        current_prefill_extra_blocks = 0
+        retry_whole = self._whole_prefill_retry is not None
+        if self.enable_mixed_batching and not retry_whole:
+            self._schedule_running(
+                scheduled_requests,
+                seen_request_objects,
+                min(self.max_batch_size, self.max_num_batched_tokens),
+            )
+        num_decode_requests = len(scheduled_requests)
+        current_num_batched_tokens = num_decode_requests
+        # These decode rows have left the running queue. Admission must still
+        # reserve their remaining KV pages when admitting a new prefill.
+        current_prefill_extra_blocks = sum(
+            self._get_prefill_extra_blocks(req) for req in scheduled_requests
+        )
 
         # With chunked prefill enabled, a long prompt is split
         # over several prefill batches. Always returning the
@@ -443,12 +471,15 @@ class Scheduler:
         # batch, run decode first if any decode work exists.
         skip_waiting = (
             self.chunked_prefill_size is not None
+            and not self.enable_mixed_batching
             and self._last_batch_was_prefill
             and self.running_queue.sync_q.qsize() > 0
         )
 
         # Process Waiting queue (prefill phase)
         waiting_to_inspect = 0 if skip_waiting else self.waiting_queue.sync_q.qsize()
+        if retry_whole:
+            waiting_to_inspect += 1
         while (
             waiting_to_inspect > 0
             and len(scheduled_requests) < self.max_batch_size
@@ -456,7 +487,11 @@ class Scheduler:
         ):
             waiting_to_inspect -= 1
             try:
-                req = self.waiting_queue.sync_q.get_nowait()
+                if self._whole_prefill_retry is not None:
+                    req = self._whole_prefill_retry
+                    self._whole_prefill_retry = None
+                else:
+                    req = self.waiting_queue.sync_q.get_nowait()
                 self._dequeued_request = req
             except queue.Empty:
                 break
@@ -514,14 +549,12 @@ class Scheduler:
                 # stay referenced by the request, so a resumed chunk
                 # attends to the KV of earlier chunks.
                 num_scheduled_tokens = None
-                if (
-                    self.chunked_prefill_size is not None
-                    and not load_kv_async
-                    and not req.has_multimodal_inputs
-                    and num_new_tokens > self.chunked_prefill_size
-                ):
-                    num_scheduled_tokens = self.chunked_prefill_size
-
+                if not load_kv_async and not req.has_multimodal_inputs:
+                    size = self._prefill_step_size(
+                        num_new_tokens, current_num_batched_tokens
+                    )
+                    if size < num_new_tokens:
+                        num_scheduled_tokens = size
                 # Early token budget check: skip can_accept_request and allocate_slots
                 # for requests that would exceed the per-schedule token budget.
                 if not load_kv_async:
@@ -537,7 +570,10 @@ class Scheduler:
                     ):
                         if num_local_computed_tokens > 0:
                             self.cache_manager.free_blocks(cached_block_table)
-                        deferred_requests.append(req)
+                        if num_decode_requests and self.chunked_prefill_size is None:
+                            self._whole_prefill_retry = req
+                        else:
+                            deferred_requests.append(req)
                         break
 
                 if not self.can_accept_request(
@@ -619,10 +655,8 @@ class Scheduler:
                 load_kv_async = False
                 computed_start = req.num_computed_tokens
                 remaining = req.get_prompt_length() - computed_start
-                num_scheduled = (
-                    min(remaining, self.chunked_prefill_size)
-                    if self.chunked_prefill_size is not None
-                    else remaining
+                num_scheduled = self._prefill_step_size(
+                    remaining, current_num_batched_tokens
                 )
                 if self._exceeds_token_budget(
                     current_num_batched_tokens,
@@ -694,63 +728,15 @@ class Scheduler:
             for req in deferred_requests:
                 self.waiting_queue.sync_q.put(req)
 
-        # Return prefill batch if any waiting requests were scheduled
-        if scheduled_requests:
-            is_prefill = True
-            self._last_batch_was_prefill = True
-            if self._nsa_owner_clock is not None:
-                self.cache_manager.validate_nsa_request_writes(
-                    scheduled_requests, decode=not is_prefill
-                )
-            scheduler_output = SchedulerOutput(
-                scheduled_requests=scheduled_requests,
-                is_prefill=is_prefill,
-                speculative_cache_ops=self.speculative_cache_ops,
-                nsa_owner=(
-                    capture_owner_batch(
-                        self.cache_manager, scheduled_requests, is_prefill
-                    )
-                    if self._nsa_owner_clock is not None
-                    else None
-                ),
+        is_prefill = len(scheduled_requests) > num_decode_requests
+        if not scheduled_requests and (not self.enable_mixed_batching or retry_whole):
+            self._schedule_running(
+                scheduled_requests, seen_request_objects, self.max_batch_size
             )
-            if self.connector is not None:
-                meta = self.connector.build_connector_meta()
-                scheduler_output.kv_connector_metadata = meta
-            return self._publish_nsa_handoff(scheduler_output)
-
-        # Process Running queue (decode phase)
-        running_to_inspect = self.running_queue.sync_q.qsize()
-        while running_to_inspect > 0 and len(scheduled_requests) < self.max_batch_size:
-            running_to_inspect -= 1
-            try:
-                req = self.running_queue.sync_q.get_nowait()
-                self._dequeued_request = req
-            except queue.Empty:
-                break
-            if id(req) in seen_request_objects:
-                self._completion_failed = True
-                raise RuntimeError("paged request appeared twice in one schedule")
-            seen_request_objects.add(id(req))
-            self._claim_request(req)
-            self._dequeued_request = None
-            # Skip requests that were already finished (e.g., timed out/canceled while running)
-            if req.is_finished():
-                self.complete_requests([req])
-                continue
-
-            # Decode phase: allocate slot for newly generated token
-            req.block_table, new_slot = self.cache_manager.append_slot(
-                req.block_table, req.get_total_length()
-            )
-            req.slot_mapping = [new_slot]
-            req.num_blocks = len(req.block_table)
-            req.num_local_cached_tokens = req.get_total_length() - 1
-            scheduled_requests.append(req)
 
         # Promote completed remote KV transfers (lower priority than running queue).
         # Cleanup (is_finished, failed re-queue) runs unconditionally; batch append only if slots remain.
-        if self.connector is not None and self.remote_kv_requests:
+        if not is_prefill and self.connector is not None and self.remote_kv_requests:
             for req_id in list(self.remote_kv_requests.keys()):
                 req = self.remote_kv_requests[req_id]
                 if req.is_finished():
@@ -774,10 +760,8 @@ class Scheduler:
                     else:
                         break  # Defer promotion to next schedule() if batch is full
 
-        # Return decode batch if any running requests were scheduled
         if scheduled_requests:
-            is_prefill = False
-            self._last_batch_was_prefill = False
+            self._last_batch_was_prefill = is_prefill
             if self._nsa_owner_clock is not None:
                 self.cache_manager.validate_nsa_request_writes(
                     scheduled_requests, decode=not is_prefill
@@ -785,6 +769,7 @@ class Scheduler:
             scheduler_output = SchedulerOutput(
                 scheduled_requests=scheduled_requests,
                 is_prefill=is_prefill,
+                num_decode_requests=num_decode_requests if is_prefill else None,
                 speculative_cache_ops=self.speculative_cache_ops,
                 nsa_owner=(
                     capture_owner_batch(
@@ -811,6 +796,48 @@ class Scheduler:
 
         self._last_batch_was_prefill = False
         return None
+
+    def _prefill_step_size(self, remaining: int, used: int) -> int:
+        if self.chunked_prefill_size is None:
+            return remaining
+        size = min(remaining, self.chunked_prefill_size)
+        budget = self.max_num_batched_tokens - used
+        if self.enable_mixed_batching and size > budget:
+            # Only full pages can be resumed. A final slice can be shorter.
+            aligned = budget // self.block_size * self.block_size
+            if aligned > 0:
+                return aligned
+        return size
+
+    def _schedule_running(self, scheduled_requests, seen_request_objects, limit):
+        # Process Running queue (decode phase)
+        running_to_inspect = self.running_queue.sync_q.qsize()
+        while running_to_inspect > 0 and len(scheduled_requests) < limit:
+            running_to_inspect -= 1
+            try:
+                req = self.running_queue.sync_q.get_nowait()
+                self._dequeued_request = req
+            except queue.Empty:
+                break
+            if id(req) in seen_request_objects:
+                self._completion_failed = True
+                raise RuntimeError("paged request appeared twice in one schedule")
+            seen_request_objects.add(id(req))
+            self._claim_request(req)
+            self._dequeued_request = None
+            # Skip requests that were already finished (e.g., timed out/canceled while running)
+            if req.is_finished():
+                self.complete_requests([req])
+                continue
+
+            # Decode phase: allocate slot for newly generated token
+            req.block_table, new_slot = self.cache_manager.append_slot(
+                req.block_table, req.get_total_length()
+            )
+            req.slot_mapping = [new_slot]
+            req.num_blocks = len(req.block_table)
+            req.num_local_cached_tokens = req.get_total_length() - 1
+            scheduled_requests.append(req)
 
     def update_waiting_for_remote_kv(self, request: InferenceRequest):
         self.remote_kv_requests.pop(request.request_id, None)
@@ -956,6 +983,7 @@ class Scheduler:
                 self._claim_request(req)
                 self._dequeued_request = None
 
+        self._whole_prefill_retry = None
         active = list(self._active_requests.values())
         for req in active:
             finalize_request(req)

@@ -173,6 +173,19 @@ class LLMEngine:
             )
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
+            if (
+                config.enable_mixed_batching
+                and connector is None
+                and (
+                    type(self.processor).build_model_inputs
+                    is not BasicLLMProcessor.build_model_inputs
+                    or self.model_runner.speculative_runner is not None
+                    or config.use_mla
+                )
+            ):
+                raise ValueError(
+                    "mixed batching requires the standard paged text processor and attention path"
+                )
             self.scheduler = Scheduler(
                 max_batch_size=config.max_batch_size,
                 num_blocks=config.num_blocks,
@@ -188,6 +201,7 @@ class LLMEngine:
                     else None
                 ),
                 chunked_prefill_size=config.chunked_prefill_size,
+                enable_mixed_batching=config.enable_mixed_batching,
             )
             if model_engine.model_type == "videonsa":
                 self.model_runner.bind_nsa_scheduler(self.scheduler)
@@ -556,6 +570,7 @@ class LLM:
         enable_prefix_caching: bool = True,
         static_cache_capacity: int = 1,
         chunked_prefill_size: int = 0,
+        enable_mixed_batching: bool = False,
     ):
         """Initialize LLM.
 
@@ -596,6 +611,7 @@ class LLM:
             max_batch_size=max_batch_size,
             static_cache_capacity=static_cache_capacity,
             chunked_prefill_size=chunked_prefill_size,
+            enable_mixed_batching=enable_mixed_batching,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,
@@ -786,6 +802,7 @@ class AsyncLLMEngine:
         enable_prefix_caching: bool = True,
         static_cache_capacity: int = 1,
         chunked_prefill_size: int = 0,
+        enable_mixed_batching: bool = False,
     ):
         """Initialize AsyncLLMEngine.
 
@@ -830,6 +847,7 @@ class AsyncLLMEngine:
             max_batch_size=max_batch_size,
             static_cache_capacity=static_cache_capacity,
             chunked_prefill_size=chunked_prefill_size,
+            enable_mixed_batching=enable_mixed_batching,
             max_tokens=max_tokens,
             num_blocks=num_blocks,
             block_size=block_size,

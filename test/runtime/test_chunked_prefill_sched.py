@@ -91,6 +91,106 @@ def blocks_held(s):
 
 
 class ChunkedPrefillSchedTest(unittest.TestCase):
+    def test_mixed_decode_and_resumed_prefill_share_budget(self):
+        from infinilm.processors.basic_llm_processor import BasicLLMProcessor
+
+        processor = BasicLLMProcessor.__new__(BasicLLMProcessor)
+        s = make_scheduler(
+            chunked_prefill_size=64,
+            enable_mixed_batching=True,
+            max_num_batched_tokens=64,
+        )
+        short = make_request("short", 8)
+        long = make_request("long", 111)
+        s.add_request(short)
+        s.schedule()
+        short.append_generated_token_id(314)
+        s.complete_requests([short])
+        s.add_request(long)
+        for expected in (48, 63):
+            batch = s.schedule()
+            self.assertEqual(batch.scheduled_requests, [short, long])
+            self.assertEqual(batch.num_decode_requests, 1)
+            self.assertEqual(len(short.slot_mapping), 1)
+            self.assertEqual(len(long.slot_mapping), expected)
+            inputs = processor.build_model_inputs(batch)
+            start = long.num_local_cached_tokens
+            end = start + expected
+            self.assertEqual(
+                inputs["input_offsets"].to_numpy().tolist(), [0, 1, 1 + expected]
+            )
+            self.assertEqual(
+                inputs["input_ids"].to_numpy().tolist(),
+                [[314, *long.prompt_token_ids[start:end]]],
+            )
+            self.assertEqual(
+                inputs["position_ids"].to_numpy().tolist(),
+                [short.get_total_length() - 1, *range(start, end)],
+            )
+            self.assertEqual(
+                inputs["slot_mapping"].to_numpy().tolist(),
+                short.slot_mapping + long.slot_mapping,
+            )
+            short.append_generated_token_id(314)
+            long.num_computed_tokens = long.num_local_cached_tokens + expected
+            if not long.chunked_prefill_pending:
+                long.append_generated_token_id(42)
+            s.complete_requests(batch.scheduled_requests)
+        batch = s.schedule()
+        self.assertFalse(batch.is_prefill)
+        self.assertEqual(batch.num_decode_requests, 2)
+        for req in batch.scheduled_requests:
+            req.status = RequestStatus.FINISHED
+        s.complete_requests(batch.scheduled_requests)
+        self.assertEqual(blocks_held(s), 0)
+
+    def test_mixed_whole_prompt_fits_or_retries_without_splitting(self):
+        s = make_scheduler(enable_mixed_batching=True, max_num_batched_tokens=64)
+        running, fits, overflow = (
+            make_request("running", 8),
+            make_request("fits", 40),
+            make_request("overflow", 80),
+        )
+        s.add_request(running)
+        s.schedule()
+        running.append_generated_token_id(42)
+        s.complete_requests([running])
+        s.add_request(fits)
+        s.add_request(overflow)
+        first = s.schedule()
+        self.assertEqual(first.scheduled_requests, [running, fits])
+        self.assertEqual(first.num_decode_requests, 1)
+        self.assertEqual(len(fits.slot_mapping), 40)
+        self.assertFalse(fits.chunked_prefill_pending)
+        self.assertFalse(overflow.block_table)
+        for req in first.scheduled_requests:
+            req.append_generated_token_id(42)
+        s.complete_requests(first.scheduled_requests)
+        # Even with running decodes and a newly arrived prompt, the large
+        # prompt gets a complete forward using the existing single-row exception.
+        s.add_request(make_request("new", 16))
+        second = s.schedule()
+        self.assertEqual(second.scheduled_requests, [overflow])
+        self.assertEqual(second.num_decode_requests, 0)
+        self.assertEqual(len(overflow.slot_mapping), 80)
+        self.assertFalse(overflow.chunked_prefill_pending)
+        self.assertIsNone(overflow.num_scheduled_tokens)
+
+    def test_mixed_admission_reserves_running_decode_pages(self):
+        s = make_scheduler(
+            chunked_prefill_size=16, enable_mixed_batching=True, num_blocks=2
+        )
+        short = make_request("short", 15, max_tokens=16)
+        s.add_request(short)
+        s.schedule()
+        short.append_generated_token_id(42)
+        s.complete_requests([short])
+        waiting = make_request("waiting", 2)
+        s.add_request(waiting)
+        batch = s.schedule()
+        self.assertEqual(batch.scheduled_requests, [short])
+        self.assertEqual(waiting.block_table, [])
+
     def test_disabled_by_default_full_prefill(self):
         s = make_scheduler()
         req = make_request("r1", 300)
@@ -556,15 +656,17 @@ class ChunkedPrefillBranchMatrixTest(unittest.TestCase):
         self.assertTrue(saw_resumed)
 
     def test_connector_disabled_chunked_flag(self):
-        # chunked_prefill_size is force-disabled with a
-        # connector (constructor warning), so the
-        # skip_waiting branch can never fire there.
-        class FakeConnector:
-            pass
-
-        with self.assertLogs("infinilm.llm.scheduler", level="WARNING"):
-            s = make_scheduler(connector=FakeConnector(), chunked_prefill_size=64)
+        with self.assertLogs("infinilm.llm.scheduler", level="WARNING") as logs:
+            s = make_scheduler(connector=object(), chunked_prefill_size=64)
         self.assertIsNone(s.chunked_prefill_size)
+        self.assertIn("chunked_prefill_size disabled", logs.records[0].getMessage())
+
+    def test_connector_warns_when_mixed_batching_requested(self):
+        with self.assertLogs("infinilm.llm.scheduler", level="WARNING") as logs:
+            s = make_scheduler(connector=object(), enable_mixed_batching=True)
+        self.assertFalse(s.enable_mixed_batching)
+        self.assertIn("--enable-mixed-batching disabled", logs.records[0].getMessage())
+        self.assertIn("KV connector", logs.records[0].getMessage())
 
     def test_decode_batch_unlimited_by_token_budget(self):
         # Decode batches bypass max_num_batched_tokens (only

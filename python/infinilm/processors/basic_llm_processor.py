@@ -307,9 +307,9 @@ class BasicLLMProcessor(InfinilmProcessor):
         )
         current_offset = 0
 
-        for req in scheduler_output.scheduled_requests:
+        for row, req in enumerate(scheduler_output.scheduled_requests):
             num_cached = req.num_local_cached_tokens
-            if scheduler_output.is_prefill:
+            if row >= scheduler_output.num_decode_requests:
                 # Prefill phase
                 req_tokens = req.get_input_tokens()
                 # A chunked prefill schedules only part of the
