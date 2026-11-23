@@ -125,6 +125,12 @@ result = generator.generate('What is the capital of France?', max_new_tokens=64)
 print(result.text)
 ```
 
+A single-process smoke test with three prompts:
+
+```sh
+python examples/test_clover.py --device hygon --model /path/to/Clover-35B-A3B-Preview
+```
+
 ```sh
 HIP_VISIBLE_DEVICES=0,1 python -m infinilm.server.clover_server \
   --model /path/to/Clover-35B-A3B-Preview --tp 2 --max-context 2048 \
@@ -204,6 +210,23 @@ python examples/bench_clover.py --url http://127.0.0.1:8001 --model /served/mode
 Repeat `-1` is warmup and must be excluded. Sum `visible_tokens` over successful
 requests and divide by summed `elapsed_s` over all measured requests, retaining
 failures. Keep model weights, TP, sampling, output caps and context capacity fixed.
+
+### Logit comparison with the reference implementation
+
+`test/diffusion` compares engine logits with the checkpoint's reference
+implementation on the same inputs and decoding trajectory. Record the
+reference in BF16, repeat it in FP32 as the truth, replay it with the engine
+and compare:
+
+```sh
+python test/diffusion/reference_logits.py --model /path/to/Clover-35B-A3B-Preview --out ref_bf16
+python test/diffusion/reference_logits.py --model /path/to/Clover-35B-A3B-Preview --out ref_fp32 --dtype float32 --trajectory ref_bf16
+python test/diffusion/engine_logits.py --model /path/to/Clover-35B-A3B-Preview --reference ref_bf16 --out engine --device hygon
+python test/diffusion/compare_logits.py --truth ref_fp32 bf16_reference=ref_bf16 engine=engine
+```
+
+Each command handles cases `0,1,2,3` of the workload; `--cases` selects
+others. The FP32 run needs devices that hold about 139 GB of weights.
 
 ### Recorded short-prompt campaign
 
