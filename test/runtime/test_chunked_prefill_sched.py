@@ -96,7 +96,9 @@ class ChunkedPrefillSchedTest(unittest.TestCase):
 
         processor = BasicLLMProcessor.__new__(BasicLLMProcessor)
         s = make_scheduler(
-            chunked_prefill_size=64, enable_mixed_batching=True, max_num_batched_tokens=64
+            chunked_prefill_size=64,
+            enable_mixed_batching=True,
+            max_num_batched_tokens=64,
         )
         short = make_request("short", 8)
         long = make_request("long", 111)
@@ -114,7 +116,9 @@ class ChunkedPrefillSchedTest(unittest.TestCase):
             inputs = processor.build_model_inputs(batch)
             start = long.num_local_cached_tokens
             end = start + expected
-            self.assertEqual(inputs["input_offsets"].to_numpy().tolist(), [0, 1, 1 + expected])
+            self.assertEqual(
+                inputs["input_offsets"].to_numpy().tolist(), [0, 1, 1 + expected]
+            )
             self.assertEqual(
                 inputs["input_ids"].to_numpy().tolist(),
                 [[314, *long.prompt_token_ids[start:end]]],
@@ -143,7 +147,9 @@ class ChunkedPrefillSchedTest(unittest.TestCase):
     def test_mixed_whole_prompt_fits_or_retries_without_splitting(self):
         s = make_scheduler(enable_mixed_batching=True, max_num_batched_tokens=64)
         running, fits, overflow = (
-            make_request("running", 8), make_request("fits", 40), make_request("overflow", 80)
+            make_request("running", 8),
+            make_request("fits", 40),
+            make_request("overflow", 80),
         )
         s.add_request(running)
         s.schedule()

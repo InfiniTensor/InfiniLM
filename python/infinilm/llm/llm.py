@@ -173,11 +173,15 @@ class LLMEngine:
             )
             assert 1024 <= max_num_batched_tokens <= max_position_embeddings
 
-            if config.enable_mixed_batching and connector is None and (
-                type(self.processor).build_model_inputs
-                is not BasicLLMProcessor.build_model_inputs
-                or self.model_runner.speculative_runner is not None
-                or config.use_mla
+            if (
+                config.enable_mixed_batching
+                and connector is None
+                and (
+                    type(self.processor).build_model_inputs
+                    is not BasicLLMProcessor.build_model_inputs
+                    or self.model_runner.speculative_runner is not None
+                    or config.use_mla
+                )
             ):
                 raise ValueError(
                     "mixed batching requires the standard paged text processor and attention path"

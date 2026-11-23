@@ -283,10 +283,10 @@ class Scheduler:
             )
             enable_mixed_batching = False
         self.enable_mixed_batching = enable_mixed_batching
-        if self.enable_mixed_batching and (has_mamba_cache or nsa_owner_pool_epoch is not None):
-            raise ValueError(
-                "mixed batching requires standard local paged attention"
-            )
+        if self.enable_mixed_batching and (
+            has_mamba_cache or nsa_owner_pool_epoch is not None
+        ):
+            raise ValueError("mixed batching requires standard local paged attention")
         # A whole prompt deferred by decode tokens gets the first row next time.
         # Like other dequeued requests it is already owned by _active_requests.
         self._whole_prefill_retry: InferenceRequest | None = None
