@@ -1,5 +1,8 @@
 #include "runtime/api.hpp"
 #include "runtime/context.hpp"
+#include "runtime/runtime.hpp"
+#include <memory>
+#include <vector>
 #include <cstdint>
 #include <limits>
 #include <pybind11/pybind11.h>
@@ -345,6 +348,33 @@ Tensor from_list_py(py::handle data, DataType dtype) {
     auto runtime = context::resolveRuntime(Device(Device::Type::kCpu, 0));
     auto tensor = Tensor::empty(*runtime, layout.shape, dtype);
     write_with_dtype(layout, dtype, tensor->data());
+    return tensor;
+}
+
+Tensor from_list_host_py(py::handle data, DataType dtype) {
+    const ListLayout layout(data);
+    size_t elements = 1;
+    for (const auto dim : layout.shape) {
+        elements *= dim;
+    }
+    auto storage = std::make_shared<std::vector<std::byte>>(elements * dsize(dtype));
+    if (!storage->empty()) {
+        write_with_dtype(layout, dtype, storage->data());
+    }
+    return Tensor::from_blob(
+        storage->data(), layout.shape, dtype,
+        Device(Device::Type::kCpu), storage);
+}
+
+Tensor from_list_on_device_py(py::handle data, DataType dtype, const Device &device) {
+    const ListLayout layout(data);
+    auto runtime = context::resolveRuntime(device);
+    auto tensor = Tensor::empty(*runtime, layout.shape, dtype);
+    std::vector<std::byte> host(tensor->nbytes());
+    if (!host.empty()) {
+        write_with_dtype(layout, dtype, host.data());
+        runtime->memcpyH2D(tensor->data(), host.data(), host.size(), false);
+    }
     return tensor;
 }
 

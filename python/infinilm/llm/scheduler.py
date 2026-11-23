@@ -3,6 +3,7 @@ Scheduler - Request scheduling and batch management with Paged Attention KV Cach
 """
 
 import logging
+import os
 import queue
 import threading
 from contextlib import ExitStack, contextmanager
@@ -11,6 +12,7 @@ from typing import List, Optional
 import janus
 
 from infinilm.llm.cache_manager import BlockManager, MambaCacheManager
+from infinilm.llm.deepseek_v4_cache_manager import SlidingWindowBlockManager
 from infinilm.llm.nsa_paged_owner import OwnerClock, capture_owner_batch, claim_first
 from infinilm.llm.request import InferenceRequest, RequestStatus
 
@@ -190,6 +192,7 @@ class Scheduler:
         enable_prefix_caching: bool = True,
         nsa_owner_pool_epoch: int | None = None,
         chunked_prefill_size: int = 0,
+        enable_deepseek_v4_cache: bool = False,
     ):
         if nsa_owner_pool_epoch is not None and (
             connector is not None or has_mamba_cache
@@ -198,6 +201,10 @@ class Scheduler:
         self.waiting_queue = janus.Queue()
         self.running_queue = janus.Queue()
         self.max_batch_size = max_batch_size
+        self.single_prefill_step = os.getenv("INFINILM_SINGLE_PREFILL_STEP", "0") == "1"
+        self.dynamic_single_prefill_min_tokens = int(
+            os.getenv("INFINILM_DYNAMIC_SINGLE_PREFILL_MIN_TOKENS", "0")
+        )
 
         self.finished_receiving_kv_req_ids: set[str] = set()
         self.failed_receiving_kv_req_ids: set[str] = set()
@@ -226,6 +233,41 @@ class Scheduler:
                 else {}
             ),
         )
+        self.enable_deepseek_v4_cache = enable_deepseek_v4_cache
+        self.swa_cache_manager = None
+        self.ratio4_cache_manager = None
+        self.ratio128_cache_manager = None
+        self.state4_cache_manager = None
+        self.state128_cache_manager = None
+        if enable_deepseek_v4_cache:
+            if enable_prefix_caching:
+                raise ValueError("DeepSeek V4 heterogeneous cache requires prefix caching disabled")
+            if block_size != 32:
+                raise ValueError("DeepSeek V4 heterogeneous cache requires block_size=32")
+            self.cache_manager = SlidingWindowBlockManager(num_blocks, block_size, 128)
+            self.swa_cache_manager = self.cache_manager
+            self.ratio4_cache_manager = BlockManager(num_blocks, block_size * 4)
+            self.ratio128_cache_manager = BlockManager(num_blocks, block_size * 128)
+            state4_block_size = int(
+                os.getenv("INFINILM_DSV4_STATE4_BLOCK_SIZE", "4")
+            )
+            state128_block_size = int(
+                os.getenv("INFINILM_DSV4_STATE128_BLOCK_SIZE", "8")
+            )
+            if block_size % state4_block_size or block_size % state128_block_size:
+                raise ValueError(
+                    "DeepSeek V4 state block sizes must divide block_size"
+                )
+            self.state4_cache_manager = SlidingWindowBlockManager(
+                num_blocks * (block_size // state4_block_size),
+                state4_block_size,
+                8,
+            )
+            self.state128_cache_manager = SlidingWindowBlockManager(
+                num_blocks * (block_size // state128_block_size),
+                state128_block_size,
+                128,
+            )
         self.has_mamba_cache = has_mamba_cache
         self.mamba_cache_manager = (
             MambaCacheManager(num_mamba_cache_blocks or max(2, num_blocks // 4))
@@ -559,12 +601,22 @@ class Scheduler:
                     # already hold blocks.
                     continue
 
-                allocation = self.cache_manager.allocate_slots(
-                    num_scheduled_tokens
-                    if num_scheduled_tokens is not None
-                    else num_new_tokens,
-                    num_computed_tokens=num_computed_tokens,
-                    cached_block_table=cached_block_table,
+                allocation = (
+                    self._allocate_deepseek_v4_slots(
+                        req,
+                        num_scheduled_tokens
+                        if num_scheduled_tokens is not None
+                        else num_new_tokens,
+                        num_computed_tokens,
+                    )
+                    if self.enable_deepseek_v4_cache
+                    else self.cache_manager.allocate_slots(
+                        num_scheduled_tokens
+                        if num_scheduled_tokens is not None
+                        else num_new_tokens,
+                        num_computed_tokens=num_computed_tokens,
+                        cached_block_table=cached_block_table,
+                    )
                 )
 
                 if allocation is None:
@@ -631,10 +683,14 @@ class Scheduler:
                 ):
                     deferred_requests.append(req)
                     break
-                allocation = self.cache_manager.allocate_slots(
-                    num_scheduled,
-                    num_computed_tokens=computed_start,
-                    cached_block_table=req.block_table,
+                allocation = (
+                    self._allocate_deepseek_v4_slots(req, num_scheduled, computed_start)
+                    if self.enable_deepseek_v4_cache
+                    else self.cache_manager.allocate_slots(
+                        num_scheduled,
+                        num_computed_tokens=computed_start,
+                        cached_block_table=req.block_table,
+                    )
                 )
                 if allocation is None:
                     logger.warning(
@@ -689,6 +745,15 @@ class Scheduler:
             current_num_batched_tokens += num_tokens_this_step
 
             req.status = RequestStatus.RUNNING
+            if (
+                self.single_prefill_step
+                or (
+                    self.dynamic_single_prefill_min_tokens > 0
+                    and req.get_prompt_length()
+                    >= self.dynamic_single_prefill_min_tokens
+                )
+            ):
+                break
 
         if deferred_requests:
             for req in deferred_requests:
@@ -740,9 +805,12 @@ class Scheduler:
                 continue
 
             # Decode phase: allocate slot for newly generated token
-            req.block_table, new_slot = self.cache_manager.append_slot(
-                req.block_table, req.get_total_length()
-            )
+            if self.enable_deepseek_v4_cache:
+                req.block_table, new_slot = self._append_deepseek_v4_slots(req)
+            else:
+                req.block_table, new_slot = self.cache_manager.append_slot(
+                    req.block_table, req.get_total_length()
+                )
             req.slot_mapping = [new_slot]
             req.num_blocks = len(req.block_table)
             req.num_local_cached_tokens = req.get_total_length() - 1
@@ -878,7 +946,9 @@ class Scheduler:
                         self.failed_receiving_kv_req_ids.discard(req.request_id)
                         if not transfer_received:
                             delay_free_blocks = True
-                    if req.block_table and not delay_free_blocks:
+                    if self.enable_deepseek_v4_cache and not delay_free_blocks:
+                        self._free_deepseek_v4_tables(req)
+                    elif req.block_table and not delay_free_blocks:
                         self.cache_manager.free_blocks(req.block_table)
                     elif req.block_table and delay_free_blocks:
                         self.pending_free_blocks[req.request_id] = list(req.block_table)
@@ -976,6 +1046,53 @@ class Scheduler:
             self._completion_failed = True
             raise RuntimeError("paged shutdown left cache ownership active")
 
+    def _allocate_deepseek_v4_slots(
+        self,
+        request: InferenceRequest,
+        num_new_tokens: int,
+        num_computed_tokens: int,
+    ):
+        allocations = []
+        for manager, field_name in self._deepseek_v4_cache_groups():
+            allocation = manager.allocate_slots(
+                num_new_tokens,
+                num_computed_tokens=num_computed_tokens,
+                cached_block_table=getattr(request, field_name),
+            )
+            if allocation is None:
+                return None
+            allocations.append((field_name, allocation))
+
+        main_table, slot_mapping = allocations[0][1]
+        for field_name, (table, _) in allocations:
+            setattr(request, field_name, table)
+        return main_table, slot_mapping
+
+    def _append_deepseek_v4_slots(self, request: InferenceRequest):
+        new_slot = None
+        for manager, field_name in self._deepseek_v4_cache_groups():
+            table, slot = manager.append_slot(
+                getattr(request, field_name), request.get_total_length()
+            )
+            setattr(request, field_name, table)
+            if new_slot is None:
+                new_slot = slot
+        return request.block_table, new_slot
+
+    def _free_deepseek_v4_tables(self, request: InferenceRequest) -> None:
+        for manager, field_name in self._deepseek_v4_cache_groups():
+            manager.free_blocks(getattr(request, field_name))
+            setattr(request, field_name, [])
+
+    def _deepseek_v4_cache_groups(self):
+        return [
+            (self.cache_manager, "block_table"),
+            (self.ratio4_cache_manager, "ratio4_block_table"),
+            (self.ratio128_cache_manager, "ratio128_block_table"),
+            (self.state4_cache_manager, "state4_block_table"),
+            (self.state128_cache_manager, "state128_block_table"),
+        ]
+
     def can_accept_request(
         self,
         request: InferenceRequest,
@@ -988,6 +1105,37 @@ class Scheduler:
             and not self.mamba_cache_manager.can_allocate()
         ):
             return False
+
+        if self.enable_deepseek_v4_cache:
+            prompt_tokens = request.get_prompt_length()
+            requirements = (
+                (prompt_tokens + 31) // 32,
+                (prompt_tokens + 127) // 128,
+                (prompt_tokens + 4095) // 4096,
+                (
+                    prompt_tokens
+                    + self.state4_cache_manager.block_size
+                    - 1
+                )
+                // self.state4_cache_manager.block_size,
+                (
+                    prompt_tokens
+                    + self.state128_cache_manager.block_size
+                    - 1
+                )
+                // self.state128_cache_manager.block_size,
+            )
+            managers = (
+                self.cache_manager,
+                self.ratio4_cache_manager,
+                self.ratio128_cache_manager,
+                self.state4_cache_manager,
+                self.state128_cache_manager,
+            )
+            return all(
+                manager.get_total_usable_blocks() >= required
+                for manager, required in zip(managers, requirements)
+            )
 
         total_required_blocks = 0
 
@@ -1067,6 +1215,16 @@ class Scheduler:
     def commit_computed_tokens(
         self, request: InferenceRequest, num_computed_tokens: int
     ) -> None:
+        if self.enable_deepseek_v4_cache:
+            self.cache_manager.recycle_before(
+                num_computed_tokens, request.block_table
+            )
+            self.state4_cache_manager.recycle_before(
+                num_computed_tokens, request.state4_block_table
+            )
+            self.state128_cache_manager.recycle_before(
+                num_computed_tokens, request.state128_block_table
+            )
         if not self.enable_prefix_caching or self.has_mamba_cache:
             return
 

@@ -12,6 +12,7 @@ import os
 import queue
 import threading
 import time
+import traceback
 import uuid
 from typing import AsyncIterator, List, Optional, Union
 
@@ -188,6 +189,7 @@ class LLMEngine:
                     else None
                 ),
                 chunked_prefill_size=config.chunked_prefill_size,
+                enable_deepseek_v4_cache=model_engine.model_type == "deepseek_v4",
             )
             if model_engine.model_type == "videonsa":
                 self.model_runner.bind_nsa_scheduler(self.scheduler)
@@ -235,8 +237,13 @@ class LLMEngine:
         """
         # Schedule the next unit of work, which may be model execution,
         # connector control metadata, or both.
+        step_timing = os.environ.get("INFINILM_STEP_TIMING") == "1"
+        step_started = time.perf_counter()
         scheduler_output = self.scheduler.schedule()
+        schedule_finished = time.perf_counter()
         if scheduler_output is None:
+            if step_timing:
+                logger.info("step timing: idle schedule_ms=%.3f", (schedule_finished-step_started)*1000)
             return False
 
         requests = tuple(scheduler_output.scheduled_requests)
@@ -255,6 +262,7 @@ class LLMEngine:
         ):
             raise RuntimeError("scheduled batch has conflicting request identity")
         runner_output = self.model_runner.execute_model(scheduler_output)
+        model_finished = time.perf_counter()
         # Validate the entire returned batch before connector, KV, token or queue
         # consumption. Native writes/SPEC reservation commits already happened.
         if (
@@ -285,7 +293,18 @@ class LLMEngine:
         )
         self.scheduler.accept_model_output(requests, generations, physical_rows)
         self.scheduler.update_from_output(runner_output)
+        scheduler_update_finished = time.perf_counter()
         self._update_requests(requests, sampled_token_ids)
+        update_finished = time.perf_counter()
+        if step_timing:
+            logger.info(
+                "step timing: schedule_ms=%.3f model_ms=%.3f scheduler_ms=%.3f request_ms=%.3f total_ms=%.3f",
+                (schedule_finished-step_started)*1000,
+                (model_finished-schedule_finished)*1000,
+                (scheduler_update_finished-model_finished)*1000,
+                (update_finished-scheduler_update_finished)*1000,
+                (update_finished-step_started)*1000,
+            )
 
         # Return False (no immediate work) only when no requests were scheduled
         # and no KV transfers completed in this step.
@@ -1064,6 +1083,13 @@ class AsyncLLMEngine:
                 except Exception:
                     # Logging cannot undo the fault latch or request notifications.
                     pass
+                error_file = os.environ.get("INFINILM_ERROR_FILE")
+                if error_file:
+                    try:
+                        with open(error_file, "w", encoding="utf-8") as stream:
+                            traceback.print_exc(file=stream)
+                    except Exception:
+                        pass
                 break
 
     def add_request(

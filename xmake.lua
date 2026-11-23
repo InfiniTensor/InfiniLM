@@ -1,4 +1,7 @@
-add_requires("pybind11 3.0.4", {system = false})
+local PYBIND11_INCLUDE_DIR = os.getenv("PYBIND11_INCLUDE_DIR")
+if not PYBIND11_INCLUDE_DIR or not os.isdir(PYBIND11_INCLUDE_DIR) then
+    raise("PYBIND11_INCLUDE_DIR must point to the pybind11 include directory")
+end
 
 -- Core owns SDK builds; LM consumes an explicitly installed prefix.
 local INFINI_ROOT = os.getenv("INFINI_ROOT")
@@ -14,6 +17,7 @@ local MUSA_ROOT =
     or os.getenv("MUSA_PATH")
     or "/usr/local/musa"
 local TORCH_LIB = os.getenv("TORCH_LIB")
+local HAS_CUDA_FUSED_MOE = os.getenv("INFINILM_ENABLE_CUDA_FUSED_MOE") == "1"
 set_toolchains("gcc")
 
 -- A build configured with `-m release` does not gain optimization unless the
@@ -50,6 +54,15 @@ end
 -- Add spdlog from third_party directory
 add_includedirs("third_party/spdlog/include")
 add_includedirs("third_party/json/single_include/")
+if HAS_CUDA_FUSED_MOE then
+    add_defines("INFINILM_ENABLE_CUDA_FUSED_MOE")
+end
+if os.getenv("INFINILM_ENABLE_KV_INT8") == "1" then
+    add_defines("INFINILM_ENABLE_KV_INT8")
+end
+if os.getenv("INFINILM_ENABLE_W4_MARLIN") == "1" then
+    add_defines("INFINILM_ENABLE_W4_MARLIN")
+end
 if os.isdir(CUDA_ROOT .. "/include") then
     add_includedirs(CUDA_ROOT .. "/include")
 end
@@ -104,7 +117,7 @@ target("infinilm_runtime")
 target_end()
 
 target("_infinilm")
-    add_packages("pybind11")
+    add_includedirs(PYBIND11_INCLUDE_DIR)
     set_default(false)
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")

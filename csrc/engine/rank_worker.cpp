@@ -10,8 +10,12 @@
 #include "request_sampling.hpp"
 #include "runtime/runtime.hpp"
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <pthread.h>
+#include <sched.h>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
 
@@ -53,6 +57,25 @@ void freeze_nsa_cpu(RankWorker::Input &a) {
     a.input_ids = clone_nsa_cpu(a.input_ids, D::kInt64, 2);
     // Text MRoPE is the actual processor's [3, tokens] CPU tensor.
     a.position_ids = clone_nsa_cpu(a.position_ids, D::kInt64, 2);
+}
+void bind_rank_thread_if_enabled(size_t rank) {
+    const char *enabled = std::getenv("INFINILM_BIND_RANK_THREADS");
+    if (enabled == nullptr || enabled[0] != '1' || enabled[1] != '\0') {
+        return;
+    }
+    const int first_cpu = static_cast<int>(rank) * 40 + 2;
+    const int last_cpu = first_cpu + 36;
+    cpu_set_t cpus;
+    CPU_ZERO(&cpus);
+    for (int cpu = first_cpu; cpu < last_cpu; ++cpu) {
+        CPU_SET(cpu, &cpus);
+    }
+    if (pthread_setaffinity_np(pthread_self(), sizeof(cpus), &cpus) != 0) {
+        throw std::runtime_error("failed to bind rank worker thread");
+    }
+    char thread_name[16] = {};
+    std::snprintf(thread_name, sizeof(thread_name), "ilm-rank-%zu", rank);
+    (void)pthread_setname_np(pthread_self(), thread_name);
 }
 } // namespace
 
@@ -545,6 +568,7 @@ RankWorker::Output RankWorker::get_output() {
 void RankWorker::thread_loop() {
     try {
         {
+        bind_rank_thread_if_enabled(rank_info_.tp_rank);
             std::lock_guard<std::mutex> lk(mutex_);
 
             // Initialize device & model outside of holding the main mutex to avoid blocking callers.
@@ -833,19 +857,61 @@ void RankWorker::thread_loop() {
                                 forward_context_.nsa_owner = proof;
                                 model_->prepare_paged_owner(forward_context_); // all layers BEFORE any input/device/raw write
                             }
+                            const auto &model_json = model_config_->get_config_json();
+                            const bool snapshot_v4_sequence_lengths =
+                                model_json.value("model_type", std::string{}) == "deepseek_v4";
+                            if (snapshot_v4_sequence_lengths
+                                && effective_args.past_sequence_lengths
+                                && effective_args.past_sequence_lengths.value()
+                                && effective_args.past_sequence_lengths.value()->dtype()
+                                       == infinilm::runtime::DataType::kInt32
+                                && effective_args.past_sequence_lengths.value()->is_contiguous()
+                                && effective_args.past_sequence_lengths.value()->device().type()
+                                       == infinilm::runtime::Device::Type::kCpu
+                                && effective_args.input_offsets
+                                && effective_args.input_offsets.value()
+                                && effective_args.input_offsets.value()->dtype()
+                                       == infinilm::runtime::DataType::kInt32
+                                && effective_args.input_offsets.value()->is_contiguous()
+                                && effective_args.input_offsets.value()->device().type()
+                                       == infinilm::runtime::Device::Type::kCpu
+                                && effective_args.input_offsets.value()->numel()
+                                       == effective_args.past_sequence_lengths.value()->numel() + 1) {
+                                // Exact compressed-output rows: count group
+                                // boundaries crossed by new tokens per request.
+                                // This works for decode (1 new token), prefill
+                                // (many new tokens), and mixed batches.
+                                const auto past = effective_args.past_sequence_lengths.value();
+                                const auto offs = effective_args.input_offsets.value();
+                                const auto *pv = reinterpret_cast<const int32_t*>(past->data());
+                                const auto *ov = reinterpret_cast<const int32_t*>(offs->data());
+                                const auto count = past->numel();
+                                size_t r4 = 0, r128 = 0;
+                                for (size_t i = 0; i < count; ++i) {
+                                    const auto p = static_cast<size_t>(std::max(pv[i], 0));
+                                    const auto n = static_cast<size_t>(std::max(ov[i + 1] - ov[i], 0));
+                                    r4 += (p + n) / 4 - p / 4;
+                                    r128 += (p + n) / 128 - p / 128;
+                                }
+                                forward_context_.attn_metadata.compressed_rows_ratio4 = r4;
+                                forward_context_.attn_metadata.compressed_rows_ratio128 = r128;
+                            }
                             const char *eager_reason = !enable_graph_compiling_        ? "graphs_disabled"
                                                      : rank_info_.pp_size != 1         ? "pipeline_graph_not_supported"
                                                      : local_args.sample_all_positions ? "all_positions_not_compiled"
+                                                     : local_args.target_hidden_states ? "draft_branch_not_compiled"
                                                                                        : "no_matching_plan";
                             // Packed all-position runs do not match the one-token-per-request
                             // output shape captured by the compiled decode graphs.
-                            if (!local_args.sample_all_positions && enable_graph_compiling_ && rank_info_.pp_size == 1) {
+                            if (!local_args.sample_all_positions
+                                && !local_args.target_hidden_states
+                                && enable_graph_compiling_ && rank_info_.pp_size == 1) {
                                 GraphCompiler::Compiled compiled{nullptr, nullptr};
                                 {
                                     const auto lookup_input = effective_args.to_model_input(
-                                        infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu},
+                                        rank_info_.device,
                                         forward_context_,
-                                        false,
+                                        snapshot_v4_sequence_lengths,
                                         true,
                                         logical_kv_upper_bound, nsa_proof);
                                     if (compiler_) {
@@ -853,6 +919,13 @@ void RankWorker::thread_loop() {
                                     }
                                 }
                                 auto [graph, output] = std::move(compiled);
+                                if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+                                    std::fprintf(stderr,
+                                                 "V4_GRAPH_WORKER graph=%d output=%d "
+                                                 "bound=%zu\n",
+                                                 graph != nullptr, output != nullptr,
+                                                 logical_kv_upper_bound);
+                                }
                                 if (graph != nullptr && output != nullptr) {
                                     graph->run();
                                     graph_execution = graph->execution_report();
@@ -865,7 +938,8 @@ void RankWorker::thread_loop() {
                                 auto model_args = effective_args.to_model_input(
                                     rank_info_.device,
                                     forward_context_,
-                                    attention_backend_ == backends::AttentionBackend::STATIC_ATTN,
+                                    snapshot_v4_sequence_lengths
+                                        || attention_backend_ == backends::AttentionBackend::STATIC_ATTN,
                                     false,
                                     logical_kv_upper_bound, nsa_proof);
                                 if (attention_backend_ == backends::AttentionBackend::STATIC_ATTN
@@ -1041,8 +1115,10 @@ void RankWorker::thread_loop() {
                                         rank_info_.world_comm);
                                 }
 
-                                output_ids = output_ids->to(*runtime_, infinilm::runtime::Device{infinilm::runtime::Device::Type::kCpu});
-
+                                output_ids = output_ids->to(
+                                    *runtime_,
+                                    infinilm::runtime::Device{
+                                        infinilm::runtime::Device::Type::kCpu});
                                 runtime_->syncStream();
                                 if (nsa_pool_epoch_) {
                                     model_->finish_paged_owner(true);

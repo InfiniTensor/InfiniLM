@@ -170,7 +170,9 @@ class BaseConfig:
             "--num-draft-tokens",
             type=int,
             default=1,
-            help="number of Eagle draft tokens to verify per target step",
+            help=("number of draft tokens to verify per target step; DeepSeek V4 "
+                  "uses its checkpoint MTP layer when positive, and 0 disables "
+                  "speculative decoding"),
         )
         self.parser.add_argument(
             "--device",

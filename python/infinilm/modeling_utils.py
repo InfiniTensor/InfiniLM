@@ -163,6 +163,36 @@ def _cast_checkpoint_tensor(tensor, dtype):
         return tensor
     from .lib import _infinilm
 
+    # The Ascend-only runtime may not expose a CPU allocator. Keep the
+    # checkpoint mmap as the source and let Torch own the converted CPU copy.
+    if tensor.dtype in (infinicore.bfloat16, infinicore.float16, infinicore.float32, infinicore.float64):
+        import ctypes
+        import numpy as np
+        import torch
+
+        if tensor.dtype == infinicore.bfloat16:
+            scalar_type = ctypes.c_uint16
+            numpy_dtype = np.uint16
+        elif tensor.dtype == infinicore.float16:
+            scalar_type = ctypes.c_uint16
+            numpy_dtype = np.float16
+        elif tensor.dtype == infinicore.float32:
+            scalar_type = ctypes.c_float
+            numpy_dtype = np.float32
+        else:
+            scalar_type = ctypes.c_double
+            numpy_dtype = np.float64
+        raw_storage = (scalar_type * tensor.numel()).from_address(tensor.data_ptr())
+        raw = np.ctypeslib.as_array(raw_storage).reshape(tensor.shape)
+        converted_torch = torch.from_numpy(raw)
+        if tensor.dtype == infinicore.bfloat16:
+            converted_torch = converted_torch.view(torch.bfloat16)
+        converted_torch = converted_torch.to(dtype=infinicore.utils.to_torch_dtype(dtype))
+        return infinicore.from_blob(
+            converted_torch.data_ptr(), list(converted_torch.shape), dtype=dtype,
+            device="cpu", owner=converted_torch
+        )
+
     converted = infinicore.empty(tensor.shape, dtype=dtype, device="cpu")
     _infinilm._cast_checkpoint_tensor_(tensor._underlying, converted._underlying)
     return converted
@@ -279,6 +309,34 @@ def _load_checkpoint_shard(file_path, dtype, preserve_fp32_suffixes, *, raw, key
     )
 
 
+def _remap_deepseek_v4_checkpoint_keys(
+    params: Dict[str, object],
+) -> Dict[str, object]:
+    """Map the model's compact checkpoint names to the independent V4 tree."""
+    result = {}
+    for key, tensor in params.items():
+        if key.endswith(".weight_offset"):
+            continue
+        if key == "embed.weight":
+            mapped = "model.embed_tokens.weight"
+        elif key == "head.weight":
+            mapped = "lm_head.weight"
+        elif key == "norm.weight":
+            mapped = "model.norm.weight"
+        elif key == "mtp.0.emb.tok_emb.weight":
+            mapped = "mtp.0.emb.weight"
+        elif key.startswith("hc_head_"):
+            mapped = "model." + key
+        elif key.startswith("layers."):
+            mapped = "model." + key
+        else:
+            mapped = key
+        if mapped in result:
+            raise ValueError(f"DeepSeek V4 checkpoint key collision: {key} -> {mapped}")
+        result[mapped] = tensor
+    return result
+
+
 def load_model_state_dict_by_file(
     model: InferEngine,
     model_path: str,
@@ -293,6 +351,12 @@ def load_model_state_dict_by_file(
     tie_word_embeddings = _declares_tied_embeddings(model.hf_config)
     model_keys = model.state_dict_keyname()
     model_key_set = set(model_keys)
+    dump_model_keys = os.environ.get("INFINILM_DUMP_MODEL_KEYS")
+    if dump_model_keys:
+        payload = json.dumps(sorted(model_keys), indent=2)
+        with open(dump_model_keys, "w") as output:
+            output.write(payload)
+        raise SystemExit(f"DeepSeek V4 model keys written to {dump_model_keys}")
     parameter_dtypes = {
         name: infinicore.Tensor(parameter).dtype
         for parameters in model.state_dict()
@@ -345,7 +409,17 @@ def load_model_state_dict_by_file(
         )
     )
 
-    index_file_path = os.path.join(model_path, "model.safetensors.index.json")
+    index_filenames = ["model.safetensors.index.json"]
+    if model_type == "deepseek_v4":
+        index_filenames.insert(0, "quant_model_weights.safetensors.index.json")
+    index_file_path = next(
+        (
+            os.path.join(model_path, filename)
+            for filename in index_filenames
+            if os.path.exists(os.path.join(model_path, filename))
+        ),
+        os.path.join(model_path, index_filenames[0]),
+    )
     weight_map = None
     if os.path.exists(index_file_path):
         print(f"Found index file: {index_file_path}. Loading shards by index.")
@@ -383,8 +457,40 @@ def load_model_state_dict_by_file(
             weight_map = resolved
             file_list = sorted(set(weight_map.values()))
         else:
-            unique_filenames = sorted(set(weight_map.values()))
-            file_list = [os.path.join(model_path, fname) for fname in unique_filenames]
+            if model_type == "deepseek_v4":
+                if (
+                    not isinstance(weight_map, dict)
+                    or not weight_map
+                    or any(
+                        not isinstance(name, str)
+                        or not name
+                        or not isinstance(filename, str)
+                        or not filename
+                        for name, filename in weight_map.items()
+                    )
+                ):
+                    raise ValueError(
+                        "DeepSeek V4 checkpoint index requires a nonempty string weight_map"
+                    )
+                root = os.path.realpath(model_path)
+                resolved = {}
+                for name, filename in weight_map.items():
+                    file_path = os.path.realpath(os.path.join(root, filename))
+                    if (
+                        os.path.isabs(filename)
+                        or os.path.commonpath((root, file_path)) != root
+                        or not file_path.endswith(".safetensors")
+                    ):
+                        raise ValueError(
+                            "DeepSeek V4 checkpoint shard must be a safetensors file "
+                            "within the model directory"
+                        )
+                    resolved[name] = file_path
+                weight_map = resolved
+                file_list = sorted(set(weight_map.values()))
+            else:
+                unique_filenames = sorted(set(weight_map.values()))
+                file_list = [os.path.join(model_path, fname) for fname in unique_filenames]
     else:
         print("No index file found. Scanning all safetensors files...")
         file_list = sorted(glob.glob(os.path.join(model_path, "*.safetensors")))
@@ -510,6 +616,14 @@ def load_model_state_dict_by_file(
             if is_bin and not is_qwen35
             else tie_embedding_key
         )
+        if model_type == "deepseek_v4":
+            model_param = _remap_deepseek_v4_checkpoint_keys(model_param)
+            if os.environ.get("INFINILM_DISABLE_MTP") == "1":
+                model_param = {
+                    key: tensor for key, tensor in model_param.items()
+                    if not key.startswith("mtp.")
+                }
+            embedding_key = "model.embed_tokens.weight"
         if embedding_key in model_param:
             embed_tokens_torch_unscaled = model_param[embedding_key]
             if (
@@ -533,9 +647,13 @@ def load_model_state_dict_by_file(
         model_param_infini = {}
         for key in model_param:
             tensor = model_param[key]
-            model_param_infini[key] = _prepare_checkpoint_tensor(
-                tensor, parameter_dtypes.get(key)
-            )
+            try:
+                model_param_infini[key] = _prepare_checkpoint_tensor(
+                    tensor, parameter_dtypes.get(key)
+                )
+            except Exception:
+                print("checkpoint prepare failed", key, "source", tensor.dtype, "target", parameter_dtypes.get(key), flush=True)
+                raise
         if model_param:
             del tensor
         model.load_state_dict(model_param_infini, strict=strict)

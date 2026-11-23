@@ -77,8 +77,8 @@ class EngineConfig:
             or self.static_cache_capacity < 1
         ):
             raise ValueError("static_cache_capacity must be a positive integer")
-        if self.num_draft_tokens < 1:
-            raise ValueError("num_draft_tokens must be >= 1")
+        if self.num_draft_tokens < 0:
+            raise ValueError("num_draft_tokens must be >= 0")
         if self.pipeline_parallel_size < 1:
             raise ValueError("pipeline_parallel_size must be >= 1")
         if not 0 <= self.pipeline_parallel_stage < self.pipeline_parallel_size:

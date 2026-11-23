@@ -196,6 +196,10 @@ class InferenceRequest:
 
         # KV cache state
         self.block_table: List[int] = []  # Logical block to physical page ID
+        self.ratio4_block_table: List[int] = []
+        self.ratio128_block_table: List[int] = []
+        self.state4_block_table: List[int] = []
+        self.state128_block_table: List[int] = []
         self.slot_mapping: List[int] = []
         # Private static-cache row lease token; only the scheduler may update it.
         self._static_cache_lease_generation: Optional[int] = None

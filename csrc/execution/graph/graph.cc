@@ -9,9 +9,14 @@
 #endif
 
 #include <algorithm>
+#include <unordered_map>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <iterator>
+#include <map>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace infinilm::execution::graph {
@@ -38,6 +43,24 @@ void warn_runtime_failure(const char *operation, const char *detail) noexcept {
         spdlog::warn("{} failed during graph cleanup: {}", operation, detail);
     } catch (...) {
     }
+}
+
+struct GraphTimingState {
+    uint64_t runs = 0;
+    double total_ms = 0.0;
+    double sync_ms = 0.0;
+    double device_submit_ms = 0.0;
+    double host_ms = 0.0;
+};
+
+thread_local GraphTimingState graph_timing_state;
+const bool graph_timing_enabled =
+    std::getenv("INFINICORE_GRAPH_TIMING") != nullptr;
+thread_local uint64_t graph_segment_timing_replays = 0;
+
+template <typename TimePoint>
+double elapsed_ms(const TimePoint &start, const TimePoint &end) {
+    return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
 class StreamCaptureGuard {
@@ -186,25 +209,79 @@ void Graph::run() const {
     // Owner validation above is pre-submission and must not retire a
     // valid plan. Exceptions from its recorded execution path do retire it.
     try {
+        const auto run_started = std::chrono::steady_clock::now();
         if (segments_.empty()) {
             for (const auto &op : op_list_) {
                 op->run();
             }
             return;
         }
+        const bool log_segment_timing =
+            std::getenv("INFINICORE_GRAPH_SEGMENT_TIMING") != nullptr &&
+            ++graph_segment_timing_replays == 1;
         const Segment *previous = nullptr;
+        const char *skip_host_sync_env =
+            std::getenv("INFINICORE_GRAPH_SKIP_HOST_SYNC");
+        const bool skip_host_sync =
+            skip_host_sync_env != nullptr
+            && std::string_view(skip_host_sync_env) != "0";
         for (const auto &segment : segments_) {
 #ifdef USE_INFINIRT_GRAPH
             if (!segment->capture_safe && previous != nullptr
                 && previous->device_graph_ != nullptr
-                && previous->device_graph_->exec != nullptr) {
+                && previous->device_graph_->exec != nullptr
+                && !skip_host_sync) {
                 // Host code may inspect the preceding device result. Later device
                 // work is submitted on the same stream, so it stays ordered.
+                const auto sync_started = std::chrono::steady_clock::now();
                 previous->device_graph_->synchronize();
+                if (graph_timing_enabled) {
+                    graph_timing_state.sync_ms +=
+                        elapsed_ms(sync_started, std::chrono::steady_clock::now());
+                }
             }
 #endif
+            const auto segment_started = std::chrono::steady_clock::now();
             segment->run();
+            if (log_segment_timing && segment->capture_safe &&
+                segment->device_graph_ != nullptr &&
+                segment->device_graph_->exec != nullptr) {
+                segment->device_graph_->synchronize();
+            }
+            const auto segment_finished = std::chrono::steady_clock::now();
+            if (log_segment_timing) {
+                spdlog::info(
+                    "graph segment timing: index={}, safe={}, ops={}, ms={:.3f}",
+                    static_cast<size_t>(
+                        segment.get() - segments_.front().get()),
+                    segment->capture_safe, segment->ops.size(),
+                    elapsed_ms(segment_started, segment_finished));
+            }
+            if (graph_timing_enabled) {
+                const auto segment_ms = elapsed_ms(
+                    segment_started, segment_finished);
+                if (segment->capture_safe) {
+                    graph_timing_state.device_submit_ms += segment_ms;
+                } else {
+                    graph_timing_state.host_ms += segment_ms;
+                }
+            }
             previous = segment.get();
+        }
+        if (graph_timing_enabled) {
+            auto &timing = graph_timing_state;
+            timing.total_ms +=
+                elapsed_ms(run_started, std::chrono::steady_clock::now());
+            if (++timing.runs % 32 == 0) {
+                spdlog::info(
+                    "graph timing: runs={}, avg_total_ms={:.3f}, "
+                    "avg_sync_ms={:.3f}, avg_device_submit_ms={:.3f}, "
+                    "avg_host_ms={:.3f}",
+                    timing.runs, timing.total_ms / timing.runs,
+                    timing.sync_ms / timing.runs,
+                    timing.device_submit_ms / timing.runs,
+                    timing.host_ms / timing.runs);
+            }
         }
     } catch (...) {
         replay_failed_ = true;
@@ -239,8 +316,33 @@ void Graph::instantiate() {
         return;
     }
 
+    const auto *forced_capture_name = std::getenv("INFINICORE_GRAPH_FORCE_CAPTURE_OP");
+    const std::string forced_capture_names =
+        forced_capture_name == nullptr ? std::string{} : forced_capture_name;
+    const auto is_forced_capture_name = [&](const std::string &name) {
+        if (name == forced_capture_names) {
+            return true;
+        }
+        size_t cursor = 0;
+        while (cursor < forced_capture_names.size()) {
+            const size_t comma = forced_capture_names.find(',', cursor);
+            const size_t end = comma == std::string::npos
+                ? forced_capture_names.size() : comma;
+            if (forced_capture_names.substr(cursor, end - cursor) == name) {
+                return true;
+            }
+            cursor = end + 1;
+        }
+        return false;
+    };
+    const auto is_capture_safe = [&](const auto &op) {
+        return op->is_device_graph_capture_safe()
+            || (!forced_capture_names.empty()
+                && is_forced_capture_name(op->name()));
+    };
+
     for (const auto &op : op_list_) {
-        const bool capture_safe = op->is_device_graph_capture_safe();
+        const bool capture_safe = is_capture_safe(op);
         if (segments_.empty()
             || segments_.back()->capture_safe != capture_safe) {
             segments_.push_back(std::make_unique<Segment>(capture_safe));
@@ -255,17 +357,38 @@ void Graph::instantiate() {
         return;
     }
 
+    if (std::getenv("INFINICORE_GRAPH_LOG_SEGMENTS") != nullptr) {
+        for (size_t index = 0; index < segments_.size(); ++index) {
+            std::unordered_map<std::string, size_t> names;
+            for (const auto &op : segments_[index]->ops) {
+                ++names[op->name()];
+            }
+            std::string summary;
+            for (const auto &[name, count] : names) {
+                if (!summary.empty()) {
+                    summary += ", ";
+                }
+                summary += name + "x" + std::to_string(count);
+            }
+            spdlog::info(
+                "graph segment composition: index={}, safe={}, ops={}, names={}",
+                index, segments_[index]->capture_safe,
+                segments_[index]->ops.size(), summary);
+        }
+    }
+
     // Only explicitly declared host calls may split captured device segments.
     // An unqualified legacy operator keeps the conservative whole-host path.
     const auto first_unqualified = std::find_if(
         op_list_.begin(), op_list_.end(),
-        [](const auto &op) {
-            return !op->is_device_graph_capture_safe()
+        [&](const auto &op) {
+            return !is_capture_safe(op)
                 && !op->is_explicit_host_replay();
         });
     if (first_unqualified != op_list_.end()) {
         const auto index = std::distance(op_list_.begin(), first_unqualified);
-        const auto detail = "operator #" + std::to_string(index) + " (RecordedCall)";
+        const auto detail = "operator #" + std::to_string(index)
+            + " (" + (*first_unqualified)->name() + ")";
         if (require_device_graph_) {
             throw std::runtime_error(
                 "device graph is required but " + detail + " is not capture-qualified");
@@ -290,16 +413,32 @@ void Graph::instantiate() {
         return;
     }
 
+    const bool instantiate_log =
+        std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr;
+    if (instantiate_log) {
+        std::fprintf(stderr, "V4_GRAPH_INSTANTIATE_BEGIN segments=%zu\n",
+                     segments_.size());
+    }
     auto current_device = runtime_lease_->device();
     infini::rt::DeviceGuard device_guard{current_device.type(), current_device.index()};
     if (!device_guard.active()) {
         throw std::runtime_error("device graph candidate device selection failed");
     }
 
-    for (auto &segment : segments_) {
+
+    for (size_t segment_index = 0; segment_index < segments_.size(); ++segment_index) {
+        auto &segment = segments_[segment_index];
+        if (instantiate_log) {
+            std::fprintf(stderr, "V4_GRAPH_SEGMENT index=%zu safe=%d ops=%zu\n",
+                         segment_index, segment->capture_safe, segment->ops.size());
+        }
         if (!segment->capture_safe) {
             continue; // Do not execute a host segment while assembling the plan.
         }
+        const auto *capture_limit_env = std::getenv("INFINICORE_GRAPH_CAPTURE_MAX_OPS");
+        const size_t capture_op_limit = capture_limit_env == nullptr
+            ? segment->ops.size()
+            : std::min(segment->ops.size(), static_cast<size_t>(std::strtoull(capture_limit_env, nullptr, 10)));
         segment->device_graph_ = std::make_unique<DeviceGraph>();
         segment->device_graph_->device_type = current_device.type();
         segment->device_graph_->device_index = current_device.index();
@@ -313,16 +452,32 @@ void Graph::instantiate() {
                                      + std::to_string(static_cast<int>(begin_status)) + ")");
         }
 
+        if (std::getenv("INFINICORE_GRAPH_DEBUG") != nullptr) {
+            const auto first_name = segment->ops.empty() ? std::string{"<empty>"} : segment->ops.front()->name();
+            const auto last_name = capture_op_limit == 0 ? std::string{"<empty>"} : segment->ops[capture_op_limit - 1]->name();
+            spdlog::info(
+                "capturing device graph segment {}: operators={}, capture_ops={}, first={}, last={}",
+                segment_index, segment->ops.size(), capture_op_limit, first_name, last_name);
+        }
+
         // Running the segment records only capture-safe operators.
-        segment->run();
+        for (size_t op_index = 0; op_index < capture_op_limit; ++op_index) {
+            segment->ops[op_index]->run();
+        }
 
         auto end_status = capture_guard.end(&segment->device_graph_->graph);
+        if (instantiate_log) {
+            std::fprintf(stderr, "V4_GRAPH_CAPTURE_END index=%zu status=%d\n",
+                         segment_index, static_cast<int>(end_status));
+        }
         if (end_status != rt_runtime::kSuccess) {
             // A failed StreamEndCapture may leave the device stream in an
             // error state. Replaying on that stream would not be a safe
             // fallback, even when strict graph mode was not requested.
             throw std::runtime_error(
-                "device graph segment capture could not end (RT error "
+                "device graph segment " + std::to_string(segment_index)
+                + " capture could not end after " + std::to_string(capture_op_limit)
+                + " operators (RT error "
                 + std::to_string(static_cast<int>(end_status)) + ")");
         }
 
@@ -348,12 +503,21 @@ void Graph::instantiate() {
 
     if (std::getenv("INFINICORE_GRAPH_DEBUG") != nullptr) {
         size_t host_segments = 0;
+        std::map<std::string, size_t> host_operator_counts;
         for (const auto &segment : segments_) {
             host_segments += segment->capture_safe ? 0 : 1;
+            if (!segment->capture_safe) {
+                for (const auto &op : segment->ops) {
+                    ++host_operator_counts[op->name()];
+                }
+            }
         }
         spdlog::info(
             "segmented graph: operators={}, segments={}, host_segments={}",
             op_list_.size(), segments_.size(), host_segments);
+        for (const auto &[name, count] : host_operator_counts) {
+            spdlog::info("host graph operator: name={}, count={}", name, count);
+        }
     }
 
 #else

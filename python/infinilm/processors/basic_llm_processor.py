@@ -13,6 +13,11 @@ class BasicLLMProcessor(InfinilmProcessor):
             model_dir_path, trust_remote_code=True
         )
 
+    def _tensor_from_list(self, data, dtype):
+        from .. import _core as infinicore
+
+        return infinicore.from_list(data, dtype=dtype)
+
     @override
     def __call__(self, prompt: str, return_tensors: str = None, **kwargs) -> dict:
         # add_special_tokens=False Prevent duplicate BOS token for Llama-3/3.1 models.
@@ -164,27 +169,27 @@ class BasicLLMProcessor(InfinilmProcessor):
                     "static decode cumulative sequence length overflows int32"
                 )
             return {
-                "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
-                "position_ids": infinicore.from_list(
+                "input_ids": self._tensor_from_list(input_ids, dtype=infinicore.int64),
+                "position_ids": self._tensor_from_list(
                     position_ids, dtype=infinicore.int64
                 ),
-                "past_kv_lengths": infinicore.from_list(
+                "past_kv_lengths": self._tensor_from_list(
                     past_lengths, dtype=infinicore.int32
                 ),
-                "total_kv_lengths": infinicore.from_list(
+                "total_kv_lengths": self._tensor_from_list(
                     total_lengths, dtype=infinicore.int32
                 ),
-                "input_offsets": infinicore.from_list(
+                "input_offsets": self._tensor_from_list(
                     list(range(count + 1)), dtype=infinicore.int32
                 ),
-                "cu_seqlens": infinicore.from_list(
+                "cu_seqlens": self._tensor_from_list(
                     [0] + [sum(total_lengths[:i]) for i in range(1, count + 1)],
                     dtype=infinicore.int32,
                 ),
-                "block_tables": infinicore.from_list(
+                "block_tables": self._tensor_from_list(
                     [[row] for row in rows], dtype=infinicore.int32
                 ),
-                "slot_mapping": infinicore.from_list(slots, dtype=infinicore.int64),
+                "slot_mapping": self._tensor_from_list(slots, dtype=infinicore.int64),
                 "temperature": temperature,
                 "top_k": top_k,
                 "top_p": top_p,
@@ -234,27 +239,27 @@ class BasicLLMProcessor(InfinilmProcessor):
         ]
 
         return {
-            "input_ids": infinicore.from_list(input_ids, dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
-            "past_kv_lengths": infinicore.from_list(
+            "input_ids": self._tensor_from_list(input_ids, dtype=infinicore.int64),
+            "position_ids": self._tensor_from_list(position_ids, dtype=infinicore.int64),
+            "past_kv_lengths": self._tensor_from_list(
                 [past_kv_len], dtype=infinicore.int32
             ),
-            "total_kv_lengths": infinicore.from_list(
+            "total_kv_lengths": self._tensor_from_list(
                 [total_kv_len], dtype=infinicore.int32
             ),
-            "input_offsets": infinicore.from_list(
+            "input_offsets": self._tensor_from_list(
                 input_offsets, dtype=infinicore.int32
             ),
-            "cu_seqlens": infinicore.from_list(
+            "cu_seqlens": self._tensor_from_list(
                 [0, total_kv_len], dtype=infinicore.int32
             ),
             "block_tables": (
-                infinicore.from_list([[row]], dtype=infinicore.int32)
+                self._tensor_from_list([[row]], dtype=infinicore.int32)
                 if scheduler_output.cache_capacity > 1
                 else None
             ),
             "slot_mapping": (
-                infinicore.from_list(slot_mapping, dtype=infinicore.int64)
+                self._tensor_from_list(slot_mapping, dtype=infinicore.int64)
                 if scheduler_output.cache_capacity > 1
                 else None
             ),
@@ -297,6 +302,12 @@ class BasicLLMProcessor(InfinilmProcessor):
         seq_lens = []
         seq_offsets = [0]
         block_tables = []
+        deepseek_v4_block_tables = {
+            "ratio4_block_tables": [],
+            "ratio128_block_tables": [],
+            "state4_block_tables": [],
+            "state128_block_tables": [],
+        }
         slot_mapping = []
         cached_lens = []
         position_ids = []
@@ -358,19 +369,34 @@ class BasicLLMProcessor(InfinilmProcessor):
                 max_block_table_len - len(req.block_table)
             )
             block_tables.append(padded_block_table)
+            for field_name, tables in deepseek_v4_block_tables.items():
+                tables.append(getattr(req, field_name[:-1]))
             cu_seqlens.append(cu_seqlens[-1] + seq_len)
 
+        def padded_deepseek_v4_table(field_name):
+            tables = deepseek_v4_block_tables[field_name]
+            if not tables:
+                return None
+            width = max(len(table) for table in tables)
+            return self._tensor_from_list(
+                [table + [-1] * (width - len(table)) for table in tables],
+                dtype=infinicore.int32,
+            )
         return {
-            "input_ids": infinicore.from_list([tokens], dtype=infinicore.int64),
-            "position_ids": infinicore.from_list(position_ids, dtype=infinicore.int64),
-            "past_kv_lengths": infinicore.from_list(
+            "input_ids": self._tensor_from_list([tokens], dtype=infinicore.int64),
+            "position_ids": self._tensor_from_list(position_ids, dtype=infinicore.int64),
+            "past_kv_lengths": self._tensor_from_list(
                 cached_lens, dtype=infinicore.int32
             ),
-            "total_kv_lengths": infinicore.from_list(seq_lens, dtype=infinicore.int32),
-            "input_offsets": infinicore.from_list(seq_offsets, dtype=infinicore.int32),
-            "cu_seqlens": infinicore.from_list(cu_seqlens, dtype=infinicore.int32),
-            "block_tables": infinicore.from_list(block_tables, dtype=infinicore.int32),
-            "slot_mapping": infinicore.from_list(slot_mapping, dtype=infinicore.int64),
+            "total_kv_lengths": self._tensor_from_list(seq_lens, dtype=infinicore.int32),
+            "input_offsets": self._tensor_from_list(seq_offsets, dtype=infinicore.int32),
+            "cu_seqlens": self._tensor_from_list(cu_seqlens, dtype=infinicore.int32),
+            "block_tables": self._tensor_from_list(block_tables, dtype=infinicore.int32),
+            "ratio4_block_tables": padded_deepseek_v4_table("ratio4_block_tables"),
+            "ratio128_block_tables": padded_deepseek_v4_table("ratio128_block_tables"),
+            "state4_block_tables": padded_deepseek_v4_table("state4_block_tables"),
+            "state128_block_tables": padded_deepseek_v4_table("state128_block_tables"),
+            "slot_mapping": self._tensor_from_list(slot_mapping, dtype=infinicore.int64),
             "temperature": temperature,
             "top_k": top_k,
             "top_p": top_p,

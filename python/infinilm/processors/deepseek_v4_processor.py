@@ -12,11 +12,20 @@ from .history_encoding import deepseek_history_encoder
 class DeepSeekV4Processor(BasicLLMProcessor):
     def __init__(self, model_dir_path: str):
         super().__init__(model_dir_path)
+        self._input_device = None
         source = Path(model_dir_path) / "encoding/encoding_dsv4.py"
         spec = importlib.util.spec_from_file_location("deepseek_v4_encoding", source)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         self.encode_messages = deepseek_history_encoder(module.encode_messages)
+
+    def set_input_device(self, device):
+        self._input_device = device
+
+    def _tensor_from_list(self, data, dtype):
+        from .. import _core as infinicore
+
+        return infinicore.from_list_host(data, dtype=dtype)
 
     def apply_chat_template(
         self, conversation, add_generation_prompt=False, tokenize=True, **kwargs

@@ -52,7 +52,8 @@ public:
          const Device &device = Device(),
          std::shared_ptr<RopeScalingConfig> scaling = nullptr,
          std::optional<std::vector<int>> mrope_section = std::nullopt,
-         bool mrope_interleaved = false);
+         bool mrope_interleaved = false,
+         bool materialize_interleaved_cache = false);
 
     /**
      * @brief Forward pass: apply standard RoPE to a tensor
@@ -63,6 +64,9 @@ public:
      * @return Rotated tensor with same shape as input
      */
     Tensor forward(Runtime &runtime, const Tensor &x, const Tensor &pos, bool in_place = false) const;
+
+    // Apply the inverse standard RoPE transform using the same cached tables.
+    Tensor inverse(Runtime &runtime, const Tensor &x, const Tensor &pos, bool in_place = false) const;
 
     /**
      * @brief Apply MRoPE to q and k.
@@ -94,6 +98,9 @@ public:
     // retain its shared storage beyond the RoPE lifetime, not this const reference.
     const Tensor &sin_cache() const { return sin_cache_; }
     const Tensor &cos_cache() const { return cos_cache_; }
+    const Tensor &interleaved_sin_cache() const { return interleaved_sin_cache_; }
+    const Tensor &interleaved_inverse_sin_cache() const { return interleaved_inverse_sin_cache_; }
+    const Tensor &interleaved_cos_cache() const { return interleaved_cos_cache_; }
 
     // String representation
     std::string extra_repr() const;
@@ -103,6 +110,9 @@ protected:
     infinilm::runtime::Tensor sin_cache_;
     infinilm::runtime::Tensor cos_cache_;
     infinilm::runtime::Tensor cos_sin_cache_;
+    infinilm::runtime::Tensor interleaved_sin_cache_;
+    infinilm::runtime::Tensor interleaved_inverse_sin_cache_;
+    infinilm::runtime::Tensor interleaved_cos_cache_;
 
 private:
     infinilm::runtime::Device device_;
@@ -117,6 +127,7 @@ private:
     std::shared_ptr<RopeScalingConfig> scaling_; // RoPE scaling configuration
     std::optional<std::vector<int>> mrope_section_;
     bool mrope_interleaved_;
+    bool materialize_interleaved_cache_;
 };
 
 } // namespace infinilm::layers

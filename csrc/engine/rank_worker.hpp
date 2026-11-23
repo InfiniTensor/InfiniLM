@@ -60,6 +60,11 @@ public:
         std::optional<infinilm::runtime::Tensor> cu_seqlens;
         /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
         std::optional<infinilm::runtime::Tensor> block_tables;
+        std::optional<infinilm::runtime::Tensor> ratio4_block_tables;
+        // Table signatures are not needed by the stable replay path.
+        std::optional<infinilm::runtime::Tensor> ratio128_block_tables;
+        std::optional<infinilm::runtime::Tensor> state4_block_tables;
+        std::optional<infinilm::runtime::Tensor> state128_block_tables;
         /// Slot ids for each token `[seq]`. Used for paged cache.
         std::optional<infinilm::runtime::Tensor> slot_mapping;
         /// Mamba state cache indices read at the start of each request forward.

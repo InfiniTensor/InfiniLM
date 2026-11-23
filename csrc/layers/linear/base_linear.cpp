@@ -117,6 +117,15 @@ infinilm::runtime::Tensor BaseLinear::forward(infinilm::runtime::Runtime &runtim
     return compute_linear(runtime, input);
 }
 
+infinilm::runtime::Tensor BaseLinear::forward_quantized(
+    infinilm::runtime::Runtime &runtime,
+    const infinilm::runtime::Tensor &packed,
+    const infinilm::runtime::Tensor &scale) const {
+    runtime.assertOwnerThread();
+    return quantization_->forward_quantized(
+        runtime, bound_params_, packed, scale, has_bias_, alpha_, dtype_);
+}
+
 infinilm::runtime::Tensor BaseLinear::forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input,
                                               infinilm::runtime::Tensor &residual) const {
     runtime.assertOwnerThread();

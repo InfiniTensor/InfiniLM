@@ -30,7 +30,7 @@ from infinilm.server.tool_parsers import TOOL_CALL_FORMATS, ToolCallParser
 logger = logging.getLogger(__name__)
 
 DEFAULT_STREAM_TIMEOUT = 100.0
-DEFAULT_REQUEST_TIMEOUT = 1000.0
+DEFAULT_REQUEST_TIMEOUT = 21600.0
 
 
 def sse_json(payload):
@@ -128,6 +128,7 @@ class InferenceServer:
         moe_ep_size: int = 1,
         cache_type: str = "paged",
         max_tokens: int = 4096,
+        num_draft_tokens: int = 1,
         max_batch_size: int = 16,
         num_blocks: int = 512,
         block_size: int = 256,
@@ -191,6 +192,7 @@ class InferenceServer:
         self.moe_ep_size = moe_ep_size
         self.cache_type = cache_type
         self.max_tokens = max_tokens
+        self.num_draft_tokens = num_draft_tokens
         self.max_batch_size = max_batch_size
         self.num_blocks = num_blocks
         self.block_size = block_size
@@ -242,6 +244,7 @@ class InferenceServer:
                 cache_type=self.cache_type,
                 max_batch_size=self.max_batch_size,
                 max_tokens=self.max_tokens,
+                num_draft_tokens=self.num_draft_tokens,
                 num_blocks=self.num_blocks,
                 block_size=self.block_size,
                 max_cache_len=self.max_cache_len,
@@ -428,7 +431,7 @@ class InferenceServer:
             top_k=int(pick("top_k", self.top_k)),
             max_tokens=int(max_tokens) if max_tokens is not None else None,
             stop=stop,
-            ignore_eos=self.ignore_eos,
+            ignore_eos=bool(pick("ignore_eos", self.ignore_eos)),
         )
 
     async def _stream_chat(self, request_id: str, data: dict, http_request: Request):
@@ -751,6 +754,7 @@ def main():
         moe_ep_size=ep,
         cache_type="paged" if cfg.enable_paged_attn else "static",
         max_tokens=cfg.max_new_tokens,
+        num_draft_tokens=cfg.num_draft_tokens,
         max_batch_size=cfg.max_batch_size,
         num_blocks=cfg.num_blocks,
         block_size=cfg.block_size,

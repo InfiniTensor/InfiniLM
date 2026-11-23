@@ -6,11 +6,14 @@
 #include "runtime/utils.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
 #include <limits>
 #include <optional>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -126,17 +129,41 @@ PagedCompiler::PagedCompiler(const std::shared_ptr<InfinilmModel> &model,
         }
     };
 
-    for (size_t b = 1; b < 64; ++b) {
-        append_batch_size(b);
-    }
-    for (size_t b = 64; b < 128; b += 16) {
-        append_batch_size(b);
-    }
-    for (size_t b = 128; b < 256; b += 32) {
-        append_batch_size(b);
-    }
-    for (size_t b = 256; b <= 512; b += 64) {
-        append_batch_size(b);
+    if (const char *custom_batches =
+            std::getenv("INFINILM_DECODE_GRAPH_BATCHES")) {
+        std::istringstream input(custom_batches);
+        std::string item;
+        while (std::getline(input, item, ',')) {
+            if (item.empty()) {
+                continue;
+            }
+            size_t batch_size = 0;
+            try {
+                batch_size = std::stoull(item);
+            } catch (...) {
+                throw std::invalid_argument(
+                    "INFINILM_DECODE_GRAPH_BATCHES contains an invalid batch: "
+                    + item);
+            }
+            if (batch_size == 0) {
+                throw std::invalid_argument(
+                    "INFINILM_DECODE_GRAPH_BATCHES batches must be positive");
+            }
+            append_batch_size(batch_size);
+        }
+    } else {
+        for (size_t b = 1; b < 64; ++b) {
+            append_batch_size(b);
+        }
+        for (size_t b = 64; b < 128; b += 16) {
+            append_batch_size(b);
+        }
+        for (size_t b = 128; b < 256; b += 32) {
+            append_batch_size(b);
+        }
+        for (size_t b = 256; b <= 512; b += 64) {
+            append_batch_size(b);
+        }
     }
     if (decode_batch_sizes_.empty() || decode_batch_sizes_.back() != max_batch_size) {
         decode_batch_sizes_.push_back(max_batch_size);
@@ -151,12 +178,19 @@ void PagedCompiler::compile() {
         compiled_map_decode_.clear();
         block_tables_holder_.reset();
         short_block_tables_holder_.reset();
+        ratio4_block_tables_holder_.reset();
+        ratio128_block_tables_holder_.reset();
+        state4_block_tables_holder_.reset();
+        state128_block_tables_holder_.reset();
 
         const size_t nblocks = paged_config->num_blocks();
         auto &forward_context = forward_context_;
         const bool has_mamba_state = has_mamba_cache(forward_context);
 
         const auto &model_config = model_->get_model_config();
+        const bool uses_v4_decode_metadata = model_config != nullptr
+            && model_config->get_or<std::string>("model_type", "")
+                == "deepseek_v4";
         if (decode_batch_sizes_.empty()) {
             return;
         }
@@ -177,6 +211,20 @@ void PagedCompiler::compile() {
         }
 
         const size_t max_batch_size = *std::max_element(decode_batch_sizes_.begin(), decode_batch_sizes_.end());
+        size_t capture_block_per_req = nblocks;
+        if (const char *custom_width =
+                std::getenv("INFINILM_DECODE_GRAPH_TABLE_BLOCKS")) {
+            try {
+                capture_block_per_req = std::stoull(custom_width);
+            } catch (...) {
+                throw std::invalid_argument(
+                    "INFINILM_DECODE_GRAPH_TABLE_BLOCKS must be an integer");
+            }
+            if (capture_block_per_req == 0 || capture_block_per_req > nblocks) {
+                throw std::invalid_argument(
+                    "INFINILM_DECODE_GRAPH_TABLE_BLOCKS is outside the cache pool");
+            }
+        }
         if (nblocks > static_cast<size_t>(std::numeric_limits<int32_t>::max())
             || nblocks > static_cast<size_t>(std::numeric_limits<ptrdiff_t>::max()) / max_batch_size) {
             throw std::invalid_argument("paged prepare block table size overflows");
@@ -189,6 +237,42 @@ void PagedCompiler::compile() {
         infinilm::runtime::Tensor candidate_short_holder;
         auto candidate_holder = infinilm::runtime::Tensor::empty(
             runtime_, {nblocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+        const auto state_block_size = [](const char *name, size_t fallback) {
+            const char *raw = std::getenv(name);
+            if (raw == nullptr) return fallback;
+            const size_t value = static_cast<size_t>(std::stoull(raw));
+            if (value == 0) throw std::invalid_argument(std::string(name) + " must be positive");
+            return value;
+        };
+        const size_t state4_block_size = state_block_size(
+            "INFINILM_DSV4_STATE4_BLOCK_SIZE", 4);
+        const size_t state128_block_size = state_block_size(
+            "INFINILM_DSV4_STATE128_BLOCK_SIZE", 8);
+        if (paged_config->block_size() % state4_block_size != 0
+            || paged_config->block_size() % state128_block_size != 0) {
+            throw std::invalid_argument(
+                "DeepSeek V4 state block sizes must divide block_size");
+        }
+        const size_t state4_pool_blocks =
+            nblocks * (paged_config->block_size() / state4_block_size);
+        const size_t state128_pool_blocks =
+            nblocks * (paged_config->block_size() / state128_block_size);
+        auto candidate_ratio4_holder = infinilm::runtime::Tensor::empty(
+            runtime_, {nblocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+        auto candidate_ratio128_holder = infinilm::runtime::Tensor::empty(
+            runtime_, {nblocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+        auto candidate_state4_holder = infinilm::runtime::Tensor::empty(
+            runtime_, {state4_pool_blocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+        auto candidate_state128_holder = infinilm::runtime::Tensor::empty(
+            runtime_, {state128_pool_blocks * max_batch_size}, infinilm::runtime::DataType::kInt32);
+        for (auto *holder : {
+                 &candidate_ratio4_holder,
+                 &candidate_ratio128_holder,
+                 &candidate_state4_holder,
+                 &candidate_state128_holder}) {
+            runtime_.setDeviceMemoryAsync(
+                (*holder)->data(), 0, (*holder)->nbytes(), runtime_.stream());
+        }
 
         auto make_decode_input = [&](size_t b,
                                      size_t block_per_req,
@@ -203,9 +287,12 @@ void PagedCompiler::compile() {
                     ? std::vector<size_t>{position_id_axes, b}
                     : std::vector<size_t>{b},
                 infinilm::runtime::DataType::kInt64);
+            input.past_sequence_lengths = infinilm::runtime::Tensor::empty(
+                runtime_, {b}, infinilm::runtime::DataType::kInt32);
             input.total_sequence_lengths = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt32);
             runtime_.setDeviceMemory(input.input_ids.value()->data(), 0, input.input_ids.value()->nbytes());
             runtime_.setDeviceMemory(input.position_ids.value()->data(), 0, input.position_ids.value()->nbytes());
+            runtime_.setDeviceMemory(input.past_sequence_lengths.value()->data(), 0, input.past_sequence_lengths.value()->nbytes());
             runtime_.setDeviceMemory(input.total_sequence_lengths.value()->data(), 0, input.total_sequence_lengths.value()->nbytes());
             std::vector<int32_t> total_sequence_lengths_vec(b, 1);
             runtime_.memcpyH2D(input.total_sequence_lengths.value()->data(), total_sequence_lengths_vec.data(), b * sizeof(int32_t), false);
@@ -220,6 +307,20 @@ void PagedCompiler::compile() {
             input.block_tables = block_tables_holder->as_strided(
                 {b, block_per_req},
                 {static_cast<ptrdiff_t>(block_per_req), 1});
+            const size_t ratio4_width = std::max<size_t>(1, (block_per_req + 3) / 4);
+            const size_t ratio128_width = std::max<size_t>(1, (block_per_req + 127) / 128);
+            const size_t state4_width =
+                block_per_req * (paged_config->block_size() / state4_block_size);
+            const size_t state128_width =
+                block_per_req * (paged_config->block_size() / state128_block_size);
+            input.ratio4_block_tables = candidate_ratio4_holder->as_strided(
+                {b, ratio4_width}, {static_cast<ptrdiff_t>(ratio4_width), 1});
+            input.ratio128_block_tables = candidate_ratio128_holder->as_strided(
+                {b, ratio128_width}, {static_cast<ptrdiff_t>(ratio128_width), 1});
+            input.state4_block_tables = candidate_state4_holder->as_strided(
+                {b, state4_width}, {static_cast<ptrdiff_t>(state4_width), 1});
+            input.state128_block_tables = candidate_state128_holder->as_strided(
+                {b, state128_width}, {static_cast<ptrdiff_t>(state128_width), 1});
             input.slot_mapping = infinilm::runtime::Tensor::empty(runtime_, {b}, infinilm::runtime::DataType::kInt64);
             initialize_paged_prepare_metadata(
                 runtime_, input.block_tables.value(), input.slot_mapping.value(),
@@ -234,7 +335,20 @@ void PagedCompiler::compile() {
                 input.block_tables,
                 input.slot_mapping,
             };
+            forward_context.attn_metadata.ratio4_block_tables =
+                input.ratio4_block_tables;
+            forward_context.attn_metadata.ratio128_block_tables =
+                input.ratio128_block_tables;
+            forward_context.attn_metadata.state4_block_tables =
+                input.state4_block_tables;
+            forward_context.attn_metadata.state128_block_tables =
+                input.state128_block_tables;
             forward_context.attn_metadata.logical_kv_upper_bound = logical_bound;
+            if (uses_v4_decode_metadata) {
+                // Paged graphs are decode-only. Keep the synthetic tensors at
+                // slot zero while recording V4's decode-specific operator path.
+                forward_context.attn_metadata.first_past_sequence_length = 1;
+            }
             forward_context.mamba_metadata = {
                 input.input_offsets,
                 std::nullopt,
@@ -267,7 +381,13 @@ void PagedCompiler::compile() {
                 runtime_.syncStream();
                 GraphRecordingGuard recording{runtime_};
                 auto output = model_->forward(input, forward_context_);
+                if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+                    std::fprintf(stderr, "V4_MODEL_RECORDED\n");
+                }
                 auto graph = recording.finish();
+                if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+                    std::fprintf(stderr, "V4_RECORDING_FINISHED\n");
+                }
                 barrier_->wait();
 
                 return make_compiled_result(
@@ -283,7 +403,7 @@ void PagedCompiler::compile() {
         for (size_t b : decode_batch_sizes_) {
             candidate_decode.emplace(
                 std::make_pair(b, size_t{0}),
-                capture_decode(b, nblocks, candidate_holder, 0));
+                capture_decode(b, capture_block_per_req, candidate_holder, 0));
         }
 
         const auto finite_profile = make_finite_paged_decode_profile(
@@ -325,10 +445,26 @@ void PagedCompiler::compile() {
         compiled_short_decode_b1_.swap(candidate_short_decode);
         block_tables_holder_ = std::move(candidate_holder);
         short_block_tables_holder_ = std::move(candidate_short_holder);
+        ratio4_block_tables_holder_ = std::move(candidate_ratio4_holder);
+        ratio128_block_tables_holder_ = std::move(candidate_ratio128_holder);
+        state4_block_tables_holder_ = std::move(candidate_state4_holder);
+        state128_block_tables_holder_ = std::move(candidate_state128_holder);
     }
 }
 
 PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &input) {
+    const bool lookup_log =
+        std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr;
+    const auto log_lookup = [&](const char *reason) {
+        if (lookup_log) {
+            std::fprintf(stderr,
+                         "V4_GRAPH_LOOKUP reason=%s bound=%zu has_blocks=%d "
+                         "has_ids=%d\n",
+                         reason, input.logical_kv_upper_bound,
+                         input.block_tables.has_value(),
+                         input.input_ids.has_value());
+        }
+    };
     const auto *paged_config = dynamic_cast<const cache::PagedKVCacheConfig *>(
         model_->get_cache_config());
     if (paged_config == nullptr
@@ -338,6 +474,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         || !input.input_ids.has_value()
         || !input.input_ids.value()
         || input.input_ids.value()->ndim() != 2) {
+        log_lookup("invalid_base");
         return {nullptr, nullptr};
     }
 
@@ -349,15 +486,34 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     bool use_short_decode_graph = false;
     size_t required_pages = 0;
     {
-        // Compiled paged plans are decode-only.
-        if (!is_cpu_contiguous_tensor(input.input_offsets,
-                                      infinilm::runtime::DataType::kInt32,
-                                      {batch_size + 1})
+        // Compiled paged plans are decode-only. InferEngine may already have
+        // copied CPU metadata to the device; validate a local CPU snapshot.
+        const auto &input_offsets = input.input_offsets.value();
+        const bool offsets_readable = input_offsets
+            && input_offsets->dtype() == infinilm::runtime::DataType::kInt32
+            && input_offsets->ndim() == 1
+            && input_offsets->shape() == std::vector<size_t>{batch_size + 1}
+            && input_offsets->is_contiguous();
+        infinilm::runtime::Tensor input_offsets_cpu;
+        if (offsets_readable
+            && input_offsets->device().type()
+                != infinilm::runtime::Device::Type::kCpu) {
+            input_offsets_cpu = input_offsets->to(
+                runtime_, infinilm::runtime::Device{
+                    infinilm::runtime::Device::Type::kCpu});
+        }
+        const auto &offsets_for_check = input_offsets->device().type()
+                == infinilm::runtime::Device::Type::kCpu
+            ? input_offsets
+            : input_offsets_cpu;
+        if (!offsets_readable
+            || !offsets_for_check
             || !is_packed_paged_decode(
                 input.input_ids.value()->size(0),
                 input.input_ids.value()->size(1),
-                reinterpret_cast<const int32_t *>(input.input_offsets.value()->data()),
+                reinterpret_cast<const int32_t *>(offsets_for_check->data()),
                 batch_size + 1, batch_size)) {
+            log_lookup("not_packed_decode");
             return {nullptr, nullptr};
         }
 
@@ -375,6 +531,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 || !input.total_sequence_lengths.value()->is_contiguous()
                 || input.total_sequence_lengths.value()->ndim() != 1
                 || input.total_sequence_lengths.value()->size(0) != batch_size) {
+                log_lookup("finite_metadata_invalid");
                 return {nullptr, nullptr};
             }
             const auto *lengths = reinterpret_cast<const int32_t *>(
@@ -389,6 +546,7 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         auto general_result = compiled_map_decode_.find(
             std::make_pair(batch_size, logical_bound));
         if (general_result == compiled_map_decode_.end()) {
+            log_lookup("map_miss");
             return {nullptr, nullptr};
         }
         selected_result = &general_result->second;
@@ -429,6 +587,15 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
     }
 
     auto &graph_input = selected_result->input;
+    auto wider_runtime_table_compatible = [](
+                                       const std::optional<infinilm::runtime::Tensor> &target,
+                                       const std::optional<infinilm::runtime::Tensor> &source) {
+        return target.has_value()
+            && source.has_value()
+            && target.value()->size(0) == source.value()->size(0)
+            && target.value()->size(1) >= source.value()->size(1)
+            && target.value()->dtype() == source.value()->dtype();
+    };
     const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
     if ((!use_short_decode_graph && block_per_req > compiled_block_per_req)
         || graph_input.block_tables.value()->dtype()
@@ -437,6 +604,9 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         || !required_tensors_compatible(graph_input.input_ids, input.input_ids)
         || !required_tensors_compatible(
             graph_input.position_ids, input.position_ids)
+        || !required_tensors_compatible(
+            graph_input.past_sequence_lengths,
+            input.past_sequence_lengths)
         || !required_tensors_compatible(
             graph_input.total_sequence_lengths,
             input.total_sequence_lengths)
@@ -451,17 +621,41 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
             input.mamba_init_state_indices)
         || !optional_tensors_compatible(
             graph_input.mamba_final_state_indices,
-            input.mamba_final_state_indices)) {
+            input.mamba_final_state_indices)
+        || !wider_runtime_table_compatible(
+            graph_input.ratio4_block_tables,
+            input.ratio4_block_tables)
+        || !wider_runtime_table_compatible(
+            graph_input.ratio128_block_tables,
+            input.ratio128_block_tables)
+        || !wider_runtime_table_compatible(
+            graph_input.state4_block_tables,
+            input.state4_block_tables)
+        || !wider_runtime_table_compatible(
+            graph_input.state128_block_tables,
+            input.state128_block_tables)) {
         // Validate every input before mutating storage shared by a graph.
+        log_lookup("input_incompatible");
         return {nullptr, nullptr};
     }
+    // Basic graph inputs always change on decode and must be refreshed.
 
-    graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
-    graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
-    graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
-    graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
-    graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
+    // Refresh captured graph inputs before replay.
+    // Always refresh scalar and packed-length graph inputs.
+    {
+        graph_input.input_ids.value()->copy_from(runtime_, input.input_ids.value());
+        graph_input.position_ids.value()->copy_from(runtime_, input.position_ids.value());
+        graph_input.past_sequence_lengths.value()->copy_from(
+            runtime_, input.past_sequence_lengths.value());
+        graph_input.total_sequence_lengths.value()->copy_from(runtime_, input.total_sequence_lengths.value());
+        graph_input.input_offsets.value()->copy_from(runtime_, input.input_offsets.value());
+        graph_input.cu_seqlens.value()->copy_from(runtime_, input.cu_seqlens.value());
+    }
+    // Basic graph inputs are refreshed above.
+    // All graph-owned tables and metadata are refreshed below.
 
+    // Refresh the primary and DeepSeek V4 auxiliary block tables.
+    {
     auto &graph_block_tables = graph_input.block_tables.value();
     if (use_short_decode_graph) {
         runtime_.setDeviceMemoryAsync(graph_block_tables->data(), 0xFF,
@@ -480,12 +674,57 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
         graph_block_tables->narrow({{1, 0, block_per_req}})
             ->copy_from(runtime_, runtime_block_tables);
     }
+    }
+    auto copy_v4_block_table = [this](
+                                      infinilm::runtime::Tensor &graph_table,
+                                      const infinilm::runtime::Tensor &runtime_table) {
+        graph_table->narrow({{1, 0, runtime_table->size(1)}})
+            ->copy_from(runtime_, runtime_table);
+    };
+    if (input.ratio4_block_tables) {
+        copy_v4_block_table(
+            graph_input.ratio4_block_tables.value(), input.ratio4_block_tables.value());
+    }
+    if (input.ratio128_block_tables) {
+        copy_v4_block_table(
+            graph_input.ratio128_block_tables.value(),
+            input.ratio128_block_tables.value());
+    }
+    if (input.state4_block_tables) {
+        copy_v4_block_table(
+            graph_input.state4_block_tables.value(), input.state4_block_tables.value());
+    }
+    if (input.state128_block_tables) {
+        copy_v4_block_table(
+            graph_input.state128_block_tables.value(),
+            input.state128_block_tables.value());
+    }
+    // All captured tables have been refreshed.
     graph_input.slot_mapping.value()->copy_from(runtime_, input.slot_mapping.value());
 
+    {
+    const auto replay_key_length =
+        forward_context_.attn_metadata.first_total_sequence_length.value_or(
+            paged_config->block_size() * paged_config->num_blocks());
+    for (auto &[layer, state] : forward_context_.deepseek_v4_qli_metadata) {
+        if (state && state->refresh) {
+            state->refresh(replay_key_length);
+        }
+    }
+    const auto replay_past_length =
+        forward_context_.attn_metadata.first_past_sequence_length.value_or(0);
+    for (auto &[row_count, state] : forward_context_.deepseek_v4_rope) {
+        if (state && state->refresh && !state->device_gathered) {
+            state->refresh(replay_past_length);
+        }
+    }
+
+    }
     auto graph = std::get<0>(selected_result->compiled);
     const auto &compiled_output = std::get<1>(selected_result->compiled);
     auto shared_output = resume_output(*compiled_output);
 
+    log_lookup("success");
     return std::make_tuple(graph, shared_output);
 }
 

@@ -16,6 +16,8 @@
 
 namespace infinilm::layers::moe {
 
+#ifdef INFINILM_ENABLE_CUDA_FUSED_MOE
+
 CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
                                        size_t hidden_size,
                                        size_t intermediate_size_per_partition,
@@ -249,5 +251,26 @@ CudaFusedMoeRunnerOutput CudaFusedMoeRunner::run_fused_core(infinilm::runtime::R
         workspace.fused_moe_output,
     };
 }
+
+#else
+
+CudaFusedMoeRunner::CudaFusedMoeRunner(size_t num_local_experts,
+                                       size_t hidden_size,
+                                       size_t intermediate_size_per_partition,
+                                       size_t align_block_size)
+    : num_local_experts_(num_local_experts),
+      hidden_size_(hidden_size),
+      intermediate_size_per_partition_(intermediate_size_per_partition),
+      align_block_size_(align_block_size) {}
+
+CombineInput CudaFusedMoeRunner::run(infinilm::runtime::Runtime &,
+                                     const DispatchOutput &,
+                                     const MoeWeights &,
+                                     MoeWorkspace &) const {
+    throw std::runtime_error(
+        "CUDA fused MoE requires MoeAlignBlockSize and MoeFusedDense providers in the installed InfiniOps");
+}
+
+#endif
 
 } // namespace infinilm::layers::moe

@@ -147,7 +147,8 @@ void submitNow(Runtime &runtime, Tensor output, const Tensor &input,
 // key, dispatcher, instance/cache, derived operator or computation policy.
 template <typename NativeCall>
 void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
-                      bool capture_safe, NativeCall native_call) {
+                      bool capture_safe, const char *name,
+                      NativeCall native_call) {
     requireSubmissionPolicy(runtime);
     if (!runtime.isGraphRecording()) {
         submitNow(runtime, output, input, native_call);
@@ -171,7 +172,9 @@ void submitCollective(Runtime &runtime, Tensor output, const Tensor &input,
                       recorded_input ? static_cast<const Tensor &>(*recorded_input) : Tensor{},
                       native_call);
         },
-        capture_safe));
+        capture_safe,
+        true,
+        name));
 }
 
 template <infini::rt::Device::Type... types>
@@ -304,7 +307,12 @@ void allreduce_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireSubmissionPolicy(runtime);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, output, input, true,
+    const auto *hccl_expansion_mode = std::getenv("HCCL_OP_EXPANSION_MODE");
+    const bool ascend_graph_safe = hccl_expansion_mode != nullptr
+                                && std::string(hccl_expansion_mode) == "AIV";
+    const bool capture_safe = runtime.device().type() != infini::rt::Device::Type::kAscend
+                           || ascend_graph_safe;
+    submitCollective(runtime, output, input, capture_safe, "AllReduce",
                      [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
                          return infinicclAllReduce(src, dst, count, dtype, op, communicator, stream);
                      });
@@ -321,7 +329,7 @@ void allgather_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor o
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, output, input, false,
+    submitCollective(runtime, output, input, false, "AllGather",
                      [count, dtype, communicator](const void *src, void *dst, void *stream) {
                          return infinicclAllGather(src, dst, count, dtype, communicator, stream);
                      });
@@ -339,7 +347,7 @@ void reduce_scatter_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Ten
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = output->numel();
-    submitCollective(runtime, output, input, false,
+    submitCollective(runtime, output, input, false, "ReduceScatter",
                      [count, dtype, op, communicator](const void *src, void *dst, void *stream) {
                          return infinicclReduceScatter(src, dst, count, dtype, op, communicator, stream);
                      });
@@ -355,7 +363,7 @@ void send(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &
     requireCommunicator(communicator);
     const auto dtype = cclDataType(input->dtype());
     const auto count = input->numel();
-    submitCollective(runtime, {}, input, false,
+    submitCollective(runtime, {}, input, false, "Send",
                      [count, dtype, peer, communicator](const void *src, void *, void *stream) {
                          return infinicclSend(src, count, dtype, peer, communicator, stream);
                      });
@@ -370,7 +378,7 @@ void recv_(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor output
     requireCommunicator(communicator);
     const auto dtype = cclDataType(output->dtype());
     const auto count = output->numel();
-    submitCollective(runtime, output, {}, false,
+    submitCollective(runtime, output, {}, false, "Recv",
                      [count, dtype, peer, communicator](const void *, void *dst, void *stream) {
                          return infinicclRecv(dst, count, dtype, peer, communicator, stream);
                      });
@@ -468,8 +476,9 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
 
     try {
         if (tp_size > 1) {
-            const bool use_single_node_init_all = device_type_ == infinilm::runtime::Device::Type::kCambricon
-                                               || device_type_ == infinilm::runtime::Device::Type::kAscend;
+            const bool use_single_node_init_all = device_type_ == infinilm::runtime::Device::Type::kCambricon;
+            // Upstream InfiniCCL implements HCCL communicator creation through
+            // GetUniqueId + CommInitRank only; CommInitAll is not available.
             if (use_single_node_init_all) {
                 try {
                     if (infinicclCommInitAll(

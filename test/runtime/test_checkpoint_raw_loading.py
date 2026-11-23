@@ -49,6 +49,61 @@ def _write_shard(path, entries, metadata=_MISSING_METADATA):
 
 
 class RawCheckpointLoadingTest(unittest.TestCase):
+    def test_deepseek_v4_quant_index_selects_and_validates_shards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            _write_shard(
+                root / "quant_model_weights-00001-of-00001.safetensors",
+                [("embed.weight", "BF16", [1], b"\x80\x3f")],
+            )
+            _write_shard(
+                root / "ignored.safetensors",
+                [("unexpected.weight", "BF16", [1], b"\x00\x40")],
+            )
+            (root / "quant_model_weights.safetensors.index.json").write_text(
+                json.dumps(
+                    {
+                        "weight_map": {
+                            "embed.weight": "quant_model_weights-00001-of-00001.safetensors"
+                        }
+                    }
+                )
+            )
+            seen = []
+            test = self
+
+            class Consumer:
+                hf_config = {"model_type": "deepseek_v4"}
+                distributed_config = SimpleNamespace(pp_size=1)
+
+                def state_dict(self):
+                    return _parameter_metadata({"embed.weight": infinicore.bfloat16})
+
+                def state_dict_keyname(self):
+                    return ["embed.weight"]
+
+                def load_state_dict(self, tensors, strict):
+                    test.assertFalse(strict)
+                    test.assertEqual(list(tensors), ["embed.weight"])
+                    seen.extend(tensors)
+
+                def process_weights_after_loading(self):
+                    test.assertEqual(seen, ["embed.weight"])
+
+            loading.load_model_state_dict_by_file(
+                Consumer(), str(root), dtype=infinicore.bfloat16
+            )
+
+            (root / "quant_model_weights.safetensors.index.json").write_text(
+                json.dumps({"weight_map": {"embed.weight": "../outside.safetensors"}})
+            )
+            with self.assertRaisesRegex(
+                ValueError, "DeepSeek V4 checkpoint shard must"
+            ):
+                loading.load_model_state_dict_by_file(
+                    Consumer(), str(root), dtype=infinicore.bfloat16
+                )
+
     def test_qwen35_final_norm_offset_preserves_gated_norm(self):
         config = {"text_config": {"linear_key_head_dim": 2, "linear_num_key_heads": 1}}
         gated_key = "model.language_model.layers.0.linear_attn.norm.weight"

@@ -8,6 +8,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <unordered_map>
 #include <vector>
 
@@ -67,6 +68,33 @@ public:
         bool has_bias,
         float alpha = 1.0f) const
         = 0;
+
+    virtual infinilm::runtime::Tensor forward_quantized(
+        infinilm::runtime::Runtime &runtime,
+        const ParamsMap &params,
+        const infinilm::runtime::Tensor &packed,
+        const infinilm::runtime::Tensor &scale,
+        bool has_bias,
+        float alpha,
+        const infinilm::runtime::DataType &output_dtype) const {
+        throw std::logic_error("quantization has no prequantized forward path");
+    }
+
+    virtual std::pair<infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+    forward_gate_up(
+        infinilm::runtime::Runtime &runtime,
+        const ParamsMap &gate_params,
+        const ParamsMap &up_params,
+        const infinilm::runtime::Tensor &input,
+        bool gate_has_bias,
+        bool up_has_bias,
+        float gate_alpha = 1.0f,
+        float up_alpha = 1.0f) const {
+        return {
+            forward(runtime, gate_params, input, gate_has_bias, gate_alpha),
+            forward(runtime, up_params, input, up_has_bias, up_alpha),
+        };
+    }
 
     virtual infinilm::runtime::Tensor forward_allreduce(
         infinilm::runtime::Runtime &runtime,

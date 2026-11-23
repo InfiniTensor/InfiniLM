@@ -39,11 +39,38 @@ public:
         bool has_bias,
         float alpha = 1.0f) const override;
 
+    infinilm::runtime::Tensor forward_quantized(
+        infinilm::runtime::Runtime &runtime,
+        const ParamsMap &params,
+        const infinilm::runtime::Tensor &packed,
+        const infinilm::runtime::Tensor &scale,
+        bool has_bias,
+        float alpha,
+        const infinilm::runtime::DataType &output_dtype) const override;
+
+    std::pair<infinilm::runtime::Tensor, infinilm::runtime::Tensor>
+    forward_gate_up(
+        infinilm::runtime::Runtime &runtime,
+        const ParamsMap &gate_params,
+        const ParamsMap &up_params,
+        const infinilm::runtime::Tensor &input,
+        bool gate_has_bias,
+        bool up_has_bias,
+        float gate_alpha = 1.0f,
+        float up_alpha = 1.0f) const override;
+
     std::vector<SplitParam> split_params(
         const std::unordered_map<std::string, infinilm::weights::Weight> &params,
         const std::vector<SplitInfo> &splits,
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;
+
+    std::shared_ptr<BaseQuantization> process_weights_after_loading(
+        infinilm::runtime::Runtime &runtime, ParamsMap &params,
+        bool pre_transpose, int split_dim) const override;
+
+private:
+    mutable bool weight_prepacked_{false};
 };
 
 } // namespace infinilm::quantization

@@ -208,3 +208,19 @@ def from_list(data, *, dtype):
     if dtype is None:
         raise TypeError("from_list() requires dtype")
     return Tensor(_infinicore.from_list(data, dtype._underlying))
+
+
+def from_list_host(data, *, dtype):
+    if dtype is None:
+        raise TypeError("from_list_host() requires dtype")
+    return Tensor(_infinicore.from_list_host(data, dtype._underlying))
+
+
+def from_list_on_device(data, *, dtype, device):
+    if dtype is None:
+        raise TypeError("from_list_on_device() requires dtype")
+    return Tensor(
+        _infinicore.from_list_on_device(
+            data, dtype._underlying, Device(device)._underlying
+        )
+    )

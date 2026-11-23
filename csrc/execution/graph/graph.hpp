@@ -32,10 +32,12 @@ class RecordedCall final {
 public:
     explicit RecordedCall(std::function<void()> call,
                           bool device_graph_capture_safe,
-                          bool explicit_host_replay = true)
+                          bool explicit_host_replay = true,
+                          std::string name = "RecordedCall")
         : call_(std::move(call)),
           device_graph_capture_safe_(device_graph_capture_safe),
-          explicit_host_replay_(explicit_host_replay) {}
+          explicit_host_replay_(explicit_host_replay),
+          name_(std::move(name)) {}
 
     void run() const { call_(); }
     bool is_device_graph_capture_safe() const {
@@ -44,11 +46,13 @@ public:
     bool is_explicit_host_replay() const {
         return !device_graph_capture_safe_ && explicit_host_replay_;
     }
+    const std::string &name() const { return name_; }
 
 private:
     std::function<void()> call_;
     bool device_graph_capture_safe_;
     bool explicit_host_replay_;
+    std::string name_;
 };
 
 class Graph {

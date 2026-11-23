@@ -30,6 +30,12 @@ public:
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input,
                                       infinilm::runtime::Tensor &residual) const;
 
+    // Execute with an already quantized dynamic-INT8 activation.
+    infinilm::runtime::Tensor forward_quantized(
+        infinilm::runtime::Runtime &runtime,
+        const infinilm::runtime::Tensor &packed,
+        const infinilm::runtime::Tensor &scale) const;
+
     // Module information
     size_t in_features() const { return in_features_; }
     size_t out_features() const { return out_features_; }

@@ -64,7 +64,8 @@ RoPE::RoPE(Runtime &runtime, size_t head_dim,
            const Device &device,
            std::shared_ptr<RopeScalingConfig> scaling,
            std::optional<std::vector<int>> mrope_section,
-           bool mrope_interleaved)
+           bool mrope_interleaved,
+           bool materialize_interleaved_cache)
     : rotary_dim_(rotary_dim),
       head_dim_(head_dim),
       max_seq_len_(max_seq_len),
@@ -73,7 +74,8 @@ RoPE::RoPE(Runtime &runtime, size_t head_dim,
       dtype_(dtype),
       scaling_(scaling),
       mrope_section_(mrope_section),
-      mrope_interleaved_(mrope_interleaved) {
+      mrope_interleaved_(mrope_interleaved),
+      materialize_interleaved_cache_(materialize_interleaved_cache) {
     runtime.assertOwnerThread();
     if (runtime.device() != device) {
         throw std::invalid_argument("RoPE cache construction Runtime and device must agree");
@@ -112,6 +114,21 @@ void RoPE::initialize_cache(Runtime &runtime) {
     Tensor sin_cache_next;
     Tensor cos_cache_next;
     Tensor cos_sin_cache_next;
+    Tensor interleaved_sin_cache_next;
+    Tensor interleaved_inverse_sin_cache_next;
+    Tensor interleaved_cos_cache_next;
+    if (materialize_interleaved_cache_) {
+        if (mrope_section_ || algo_ != Algo::GPT_J) {
+            throw std::invalid_argument(
+                "Interleaved RoPE cache requires standard GPT-J RoPE");
+        }
+        interleaved_sin_cache_next = Tensor::empty_parameter(
+            runtime, {max_seq_len_, rotary_dim_}, dtype_);
+        interleaved_inverse_sin_cache_next = Tensor::empty_parameter(
+            runtime, {max_seq_len_, rotary_dim_}, dtype_);
+        interleaved_cos_cache_next = Tensor::empty_parameter(
+            runtime, {max_seq_len_, rotary_dim_}, dtype_);
+    }
 
     if ((device_.type() == Device::Type::kNvidia
          || device_.type() == Device::Type::kMetax
@@ -165,7 +182,35 @@ void RoPE::initialize_cache(Runtime &runtime) {
         }
     }
 
-    auto upload_typed_cache = [&](auto &sin_values, auto &cos_values) {
+    auto upload_typed_cache = [&](auto &sin_values, auto &inverse_sin_values,
+                                  auto &cos_values) {
+        if (interleaved_sin_cache_next) {
+            using Value = typename std::decay_t<decltype(sin_values)>::value_type;
+            std::vector<Value> interleaved_sin(max_seq_len_ * rotary_dim_);
+            std::vector<Value> interleaved_inverse_sin(max_seq_len_ * rotary_dim_);
+            std::vector<Value> interleaved_cos(max_seq_len_ * rotary_dim_);
+            for (size_t pos = 0; pos < max_seq_len_; ++pos) {
+                for (size_t dim = 0; dim < cache_dim; ++dim) {
+                    const auto source = pos * cache_dim + dim;
+                    const auto target = pos * rotary_dim_ + 2 * dim;
+                    interleaved_sin[target] = sin_values[source];
+                    interleaved_sin[target + 1] = sin_values[source];
+                    interleaved_inverse_sin[target] = inverse_sin_values[source];
+                    interleaved_inverse_sin[target + 1] = inverse_sin_values[source];
+                    interleaved_cos[target] = cos_values[source];
+                    interleaved_cos[target + 1] = cos_values[source];
+                }
+            }
+            auto sin_cpu = Tensor::from_blob(
+                interleaved_sin.data(), {max_seq_len_, rotary_dim_}, dtype_, cpu_device);
+            auto inverse_sin_cpu = Tensor::from_blob(
+                interleaved_inverse_sin.data(), {max_seq_len_, rotary_dim_}, dtype_, cpu_device);
+            auto cos_cpu = Tensor::from_blob(
+                interleaved_cos.data(), {max_seq_len_, rotary_dim_}, dtype_, cpu_device);
+            upload_cache(runtime, interleaved_sin_cache_next, sin_cpu);
+            upload_cache(runtime, interleaved_inverse_sin_cache_next, inverse_sin_cpu);
+            upload_cache(runtime, interleaved_cos_cache_next, cos_cpu);
+        }
         if (cos_sin_cache_next) {
             auto combined = combine_cos_sin_cache(cos_values, sin_values, max_seq_len_, cache_dim);
             auto combined_cpu = Tensor::from_blob(combined.data(), {max_seq_len_, rotary_dim_}, dtype_, cpu_device);
@@ -182,30 +227,38 @@ void RoPE::initialize_cache(Runtime &runtime) {
     // Python: np_array.astype(ml_dtypes.bfloat16, copy=True) converts F32 -> BF16
     if (dtype_ == DataType::kFloat32) {
         // Direct use of F32 data
-        upload_typed_cache(sin_data, cos_data);
+        std::vector<float> inverse_sin_data(sin_data.size());
+        std::transform(sin_data.begin(), sin_data.end(), inverse_sin_data.begin(),
+                       [](float value) { return -value; });
+        upload_typed_cache(sin_data, inverse_sin_data, cos_data);
     } else if (dtype_ == DataType::kBFloat16) {
         // Convert F32 to BF16 using the same conversion as Python's ml_dtypes.bfloat16
         // This uses round-to-nearest-even (matching _f32_to_bf16 implementation)
         std::vector<bf16_t> sin_bf16_data(max_seq_len_ * cache_dim);
+        std::vector<bf16_t> inverse_sin_bf16_data(max_seq_len_ * cache_dim);
         std::vector<bf16_t> cos_bf16_data(max_seq_len_ * cache_dim);
 
         for (size_t i = 0; i < sin_data.size(); i++) {
             sin_bf16_data[i] = ::utils::cast<bf16_t, float>(sin_data[i]);
+            inverse_sin_bf16_data[i] = ::utils::cast<bf16_t, float>(-sin_data[i]);
             cos_bf16_data[i] = ::utils::cast<bf16_t, float>(cos_data[i]);
         }
 
-        upload_typed_cache(sin_bf16_data, cos_bf16_data);
+        upload_typed_cache(
+            sin_bf16_data, inverse_sin_bf16_data, cos_bf16_data);
     } else if (dtype_ == DataType::kFloat16) {
         // Convert F32 to F16
         std::vector<fp16_t> sin_f16_data(max_seq_len_ * cache_dim);
+        std::vector<fp16_t> inverse_sin_f16_data(max_seq_len_ * cache_dim);
         std::vector<fp16_t> cos_f16_data(max_seq_len_ * cache_dim);
 
         for (size_t i = 0; i < sin_data.size(); i++) {
             sin_f16_data[i] = ::utils::cast<fp16_t, float>(sin_data[i]);
+            inverse_sin_f16_data[i] = ::utils::cast<fp16_t, float>(-sin_data[i]);
             cos_f16_data[i] = ::utils::cast<fp16_t, float>(cos_data[i]);
         }
 
-        upload_typed_cache(sin_f16_data, cos_f16_data);
+        upload_typed_cache(sin_f16_data, inverse_sin_f16_data, cos_f16_data);
     } else {
         throw std::runtime_error(
             "RoPE cache dtype conversion not yet supported for dtype: "
@@ -222,6 +275,9 @@ void RoPE::initialize_cache(Runtime &runtime) {
     sin_cache_ = sin_cache_next;
     cos_cache_ = cos_cache_next;
     cos_sin_cache_ = cos_sin_cache_next;
+    interleaved_sin_cache_ = interleaved_sin_cache_next;
+    interleaved_inverse_sin_cache_ = interleaved_inverse_sin_cache_next;
+    interleaved_cos_cache_ = interleaved_cos_cache_next;
 }
 
 Tensor RoPE::forward(Runtime &runtime, const Tensor &x, const Tensor &pos, bool in_place) const {
@@ -265,15 +321,51 @@ Tensor RoPE::forward(Runtime &runtime, const Tensor &x, const Tensor &pos, bool 
         return y;
     }
 
-    size_t ndim = x->ndim();
-    auto rope_output = y->narrow({{ndim - 1, 0, rotary_dim_}});
-    auto rope_input = x->narrow({{ndim - 1, 0, rotary_dim_}});
-    execution::submit<infini::ops::SeparateTableRope>(
-        runtime, execution::RecordingPolicy::HostOnly,
-        infini::ops::SeparateTableRope::DefaultConfig(runtime.device().type()),
-        rope_input, pos, sin_cache_, cos_cache_, algo_ == Algo::GPT_NEOX, rope_output);
-    INFINILM_TRACE_OP(RoPE, rope_output);
-    return y;
+    throw std::runtime_error("Separate-table RoPE is unavailable in the installed InfiniOps prefix");
+}
+
+Tensor RoPE::inverse(Runtime &runtime, const Tensor &x, const Tensor &pos, bool in_place) const {
+    runtime.assertOwnerThread();
+    if (cache_runtime_owner_.get() != &runtime) {
+        throw std::invalid_argument("RoPE cache belongs to another Runtime owner");
+    }
+    if (runtime.device() != device_ || x->device() != device_ || pos->device() != device_) {
+        throw std::invalid_argument("RoPE Runtime, input, positions and cache devices must agree");
+    }
+    if (mrope_section_.has_value()) {
+        throw std::runtime_error("MRoPE inverse is not implemented");
+    }
+    Tensor y;
+    if (in_place) {
+        y = Tensor(x);
+    } else {
+        y = Tensor::empty(runtime, x->shape(), x->dtype());
+        if (cos_sin_cache_ || rotary_dim_ < head_dim_) {
+            if (device_.type() == Device::Type::kCpu) {
+                y->copy_from(runtime, x);
+            } else {
+                infinilm::execution::submit<infini::ops::Copy>(
+                    runtime, infini::ops::Copy::DefaultConfig(runtime.device().type()),
+                    x, false, y);
+            }
+        }
+    }
+
+    if (cos_sin_cache_) {
+        execution::submit<infini::ops::RotaryEmbedding>(
+            runtime, execution::RecordingPolicy::AllowHostReplay,
+            infini::ops::RotaryEmbedding::DefaultConfig(runtime.device().type()),
+            pos, y, std::optional<Tensor>{}, cos_sin_cache_,
+            static_cast<int64_t>(
+                x->ndim() == pos->ndim() + 2
+                    ? x->size(x->ndim() - 1)
+                    : head_dim_),
+            algo_ == Algo::GPT_NEOX, int64_t{0}, true);
+        INFINILM_TRACE_OP(RotaryEmbedding, y);
+        return y;
+    }
+
+    throw std::runtime_error("Separate-table RoPE is unavailable in the installed InfiniOps prefix");
 }
 
 static Tensor mrope_flatten_input(const Tensor &x, size_t head_dim, const char *name) {
@@ -321,15 +413,7 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, const Tensor &q, const
     auto k_flat = mrope_flatten_input(k, head_dim_, "k");
     auto q_out = Tensor::empty(runtime, q_flat->shape(), q_flat->dtype());
     auto k_out = Tensor::empty(runtime, k_flat->shape(), k_flat->dtype());
-    const auto &section = mrope_section_.value();
-    execution::submit<infini::ops::Mrope>(
-        runtime, execution::RecordingPolicy::HostOnly,
-        infini::ops::Mrope::DefaultConfig(runtime.device().type()),
-        q_flat, k_flat, cos_cache_, sin_cache_, positions,
-        static_cast<int>(head_dim_), static_cast<int>(rotary_dim_),
-        section[0], section[1], section[2], mrope_interleaved_, q_out, k_out);
-    INFINILM_TRACE_OP(MRoPE, q_out);
-    return {q_out->view(q->shape()), k_out->view(k->shape())};
+    throw std::runtime_error("MRoPE is unavailable in the installed InfiniOps prefix");
 }
 
 std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
@@ -370,14 +454,7 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
             if (rotary_dim_ < head_dim_) {
                 out->copy_from(runtime, in);
             }
-            size_t ndim = in->ndim();
-            auto rope_output = out->narrow({{ndim - 1, 0, rotary_dim_}});
-            auto rope_input = in->narrow({{ndim - 1, 0, rotary_dim_}});
-            execution::submit<infini::ops::SeparateTableRope>(
-                runtime, execution::RecordingPolicy::HostOnly,
-                infini::ops::SeparateTableRope::DefaultConfig(runtime.device().type()),
-                rope_input, positions, sin_cache_, cos_cache_, algo_ == Algo::GPT_NEOX, rope_output);
-            INFINILM_TRACE_OP(RoPE, rope_output);
+            throw std::runtime_error("Separate-table RoPE is unavailable in the installed InfiniOps prefix");
         };
         apply_standard(q_out, q);
         apply_standard(k_out, k);
@@ -387,15 +464,7 @@ std::pair<Tensor, Tensor> RoPE::forward(Runtime &runtime, Tensor q_out,
     auto k_flat = mrope_flatten_input(k, head_dim_, "k");
     auto q_out_flat = mrope_flatten_output(q_out, head_dim_, "q_out");
     auto k_out_flat = mrope_flatten_output(k_out, head_dim_, "k_out");
-    const auto &section = mrope_section_.value();
-    execution::submit<infini::ops::Mrope>(
-        runtime, execution::RecordingPolicy::HostOnly,
-        infini::ops::Mrope::DefaultConfig(runtime.device().type()),
-        q_flat, k_flat, cos_cache_, sin_cache_, positions,
-        static_cast<int>(head_dim_), static_cast<int>(rotary_dim_),
-        section[0], section[1], section[2], mrope_interleaved_, q_out_flat, k_out_flat);
-    INFINILM_TRACE_OP(MRoPE, q_out_flat);
-    return {q_out, k_out};
+    throw std::runtime_error("MRoPE is unavailable in the installed InfiniOps prefix");
 }
 
 std::string RoPE::extra_repr() const {

@@ -1,4 +1,5 @@
 #include <infini/ops.h>
+#include <cmath>
 #include <pybind11/pybind11.h>
 #include <stdexcept>
 
@@ -66,7 +67,23 @@ PYBIND11_MODULE(_infinilm, m) {
                 && input->dtype() != infinilm::runtime::DataType::kBFloat16)) {
             throw std::invalid_argument("checkpoint RowL2Normalize requires matching rank2 CPU shapes and FP32/FP16/BF16 dtype");
         }
-        const infini::ops::Tensor input_view{input->view()};
-        const infini::ops::Tensor output_view{output->view()};
-        infini::ops::RowL2Normalize::Call(input_view, eps, output_view); }, py::arg("input"), py::arg("eps"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
+        if (input->dtype() != infinilm::runtime::DataType::kFloat32) {
+            throw std::invalid_argument("checkpoint RowL2Normalize fallback currently requires FP32 CPU tensors");
+        }
+        const auto rows = input->shape().at(0);
+        const auto cols = input->shape().at(1);
+        const auto *src = reinterpret_cast<const float *>(input->data());
+        auto *dst = reinterpret_cast<float *>(output->data());
+        for (size_t row = 0; row < rows; ++row) {
+            double sum = 0.0;
+            for (size_t col = 0; col < cols; ++col) {
+                const double value = src[row * cols + col];
+                sum += value * value;
+            }
+            const float inv = static_cast<float>(1.0 / std::sqrt(sum + eps));
+            for (size_t col = 0; col < cols; ++col) {
+                dst[row * cols + col] = src[row * cols + col] * inv;
+            }
+        }
+    }, py::arg("input"), py::arg("eps"), py::arg("output"), py::call_guard<py::gil_scoped_release>());
 }

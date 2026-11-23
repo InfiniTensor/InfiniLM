@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <future>
 #include <limits>
@@ -362,6 +363,8 @@ std::vector<std::string> InferEngine::state_dict_keys() {
 }
 
 //------------------------------------------------------
+// Block-table signatures were removed from the stable replay path.
+
 // forward
 //------------------------------------------------------
 infinilm::InfinilmModel::Input
@@ -434,6 +437,10 @@ InferEngine::Input::to_model_input(
         to_device(input_offsets),
         to_device(cu_seqlens),
         to_device(block_tables),
+        to_device(ratio4_block_tables),
+        to_device(ratio128_block_tables),
+        to_device(state4_block_tables),
+        to_device(state128_block_tables),
         to_device(slot_mapping),
         to_device(mamba_init_state_indices),
         to_device(mamba_final_state_indices),
@@ -448,6 +455,7 @@ InferEngine::Input::to_model_input(
             : to_device(target_hidden_states),
         sample_all_positions};
     input.logical_kv_upper_bound = logical_kv_upper_bound;
+    // Graph inputs are refreshed by PagedCompiler on replay.
 
     auto &attn_metadata = forward_context.attn_metadata;
     attn_metadata = {
@@ -459,6 +467,10 @@ InferEngine::Input::to_model_input(
         input.slot_mapping,
         max_query_length,
         max_sequence_length};
+    attn_metadata.ratio4_block_tables = input.ratio4_block_tables;
+    attn_metadata.ratio128_block_tables = input.ratio128_block_tables;
+    attn_metadata.state4_block_tables = input.state4_block_tables;
+    attn_metadata.state128_block_tables = input.state128_block_tables;
     attn_metadata.first_past_sequence_length = first_past_sequence_length;
     attn_metadata.first_total_sequence_length = first_total_sequence_length;
     attn_metadata.logical_kv_upper_bound = logical_kv_upper_bound;

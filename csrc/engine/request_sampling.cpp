@@ -41,8 +41,6 @@ void sample_request_token(
     if (greedy) {
         INFINILM_ASSERT((logits->ndim() == 1 || batched) && logits->numel() > 0);
         INFINILM_ASSERT(indices->numel() == num_rows);
-        // Provider Argmax supports the common one-dimensional reduction. Keep
-        // each result scalar (including B=1), matching a full-row reduction.
         auto flat_indices = indices->view({num_rows});
         for (size_t row = 0; row < num_rows; ++row) {
             auto row_logits = batched
@@ -55,6 +53,8 @@ void sample_request_token(
                 row_logits, std::optional<int64_t>{}, false, row_index);
         }
         return;
+
+
     }
 
     // Validate request scalars and the LM single-row/output-scalar layout.

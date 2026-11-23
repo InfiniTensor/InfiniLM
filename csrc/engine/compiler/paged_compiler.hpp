@@ -59,8 +59,14 @@ private:
 
     infinilm::runtime::Tensor block_tables_holder_;
     infinilm::runtime::Tensor short_block_tables_holder_;
+    infinilm::runtime::Tensor ratio4_block_tables_holder_;
+    infinilm::runtime::Tensor ratio128_block_tables_holder_;
+    infinilm::runtime::Tensor state4_block_tables_holder_;
+    infinilm::runtime::Tensor state128_block_tables_holder_;
 
+    // Captured graph inputs are refreshed on every replay.
     struct CompiledResult {
+        // Captured graph inputs are refreshed on every replay.
         InfinilmModel::Input input;
         Compiled compiled;
     };

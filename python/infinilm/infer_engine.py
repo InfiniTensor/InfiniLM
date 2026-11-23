@@ -327,6 +327,10 @@ class InferEngine(_infinilm.InferEngine):
         input_offsets=None,
         cu_seqlens=None,
         block_tables=None,
+        ratio4_block_tables=None,
+        ratio128_block_tables=None,
+        state4_block_tables=None,
+        state128_block_tables=None,
         slot_mapping=None,
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
@@ -356,6 +360,10 @@ class InferEngine(_infinilm.InferEngine):
         total_kv_lengths = unwrap_tensor(total_kv_lengths)
         input_offsets = unwrap_tensor(input_offsets)
         block_tables = unwrap_tensor(block_tables)
+        ratio4_block_tables = unwrap_tensor(ratio4_block_tables)
+        ratio128_block_tables = unwrap_tensor(ratio128_block_tables)
+        state4_block_tables = unwrap_tensor(state4_block_tables)
+        state128_block_tables = unwrap_tensor(state128_block_tables)
         cu_seqlens = unwrap_tensor(cu_seqlens)
         slot_mapping = unwrap_tensor(slot_mapping)
         mamba_init_state_indices = unwrap_tensor(mamba_init_state_indices)
@@ -388,6 +396,10 @@ class InferEngine(_infinilm.InferEngine):
             input_offsets=input_offsets,
             cu_seqlens=cu_seqlens,
             block_tables=block_tables,
+            ratio4_block_tables=ratio4_block_tables,
+            ratio128_block_tables=ratio128_block_tables,
+            state4_block_tables=state4_block_tables,
+            state128_block_tables=state128_block_tables,
             slot_mapping=slot_mapping,
             mamba_init_state_indices=mamba_init_state_indices,
             mamba_final_state_indices=mamba_final_state_indices,
@@ -417,6 +429,10 @@ class InferEngine(_infinilm.InferEngine):
         input_offsets=None,
         cu_seqlens=None,
         block_tables=None,
+        ratio4_block_tables=None,
+        ratio128_block_tables=None,
+        state4_block_tables=None,
+        state128_block_tables=None,
         slot_mapping=None,
         mamba_init_state_indices=None,
         mamba_final_state_indices=None,
@@ -451,6 +467,26 @@ class InferEngine(_infinilm.InferEngine):
             )
             block_tables = (
                 block_tables._underlying if block_tables is not None else None
+            )
+            ratio4_block_tables = (
+                ratio4_block_tables._underlying
+                if ratio4_block_tables is not None
+                else None
+            )
+            ratio128_block_tables = (
+                ratio128_block_tables._underlying
+                if ratio128_block_tables is not None
+                else None
+            )
+            state4_block_tables = (
+                state4_block_tables._underlying
+                if state4_block_tables is not None
+                else None
+            )
+            state128_block_tables = (
+                state128_block_tables._underlying
+                if state128_block_tables is not None
+                else None
             )
             cu_seqlens = cu_seqlens._underlying if cu_seqlens is not None else None
             slot_mapping = (
@@ -492,6 +528,10 @@ class InferEngine(_infinilm.InferEngine):
                         input_offsets=input_offsets,
                         cu_seqlens=cu_seqlens,
                         block_tables=block_tables,
+                        ratio4_block_tables=ratio4_block_tables,
+                        ratio128_block_tables=ratio128_block_tables,
+                        state4_block_tables=state4_block_tables,
+                        state128_block_tables=state128_block_tables,
                         slot_mapping=slot_mapping,
                         mamba_init_state_indices=mamba_init_state_indices,
                         mamba_final_state_indices=mamba_final_state_indices,
@@ -526,6 +566,10 @@ class InferEngine(_infinilm.InferEngine):
         input_offsets=None,
         cu_seqlens=None,
         block_tables=None,
+        ratio4_block_tables=None,
+        ratio128_block_tables=None,
+        state4_block_tables=None,
+        state128_block_tables=None,
         slot_mapping=None,
         pixel_values=None,
         image_bound=None,

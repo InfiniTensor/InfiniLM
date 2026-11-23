@@ -1,6 +1,7 @@
 #include "kv_quant.hpp"
 #include "../../execution/submit.hpp"
 #include "runtime/runtime.hpp"
+#include <base/per_tensor_dequant_i8.h>
 #include <base/per_tensor_quant_i8.h>
 #include <stdexcept>
 
@@ -34,6 +35,10 @@ void KVQuantUtils::quantize(
         throw std::invalid_argument("unsupported KV quantization algorithm");
     }
     validate_kv(runtime, k, v, k_scale, v_scale);
+#ifndef INFINILM_ENABLE_KV_INT8
+    throw std::runtime_error(
+        "INT8 KV cache requires PerTensorQuantI8 and PerTensorDequantI8 providers in the installed InfiniOps");
+#else
     auto k_quant = infinilm::runtime::Tensor::strided_empty(
         runtime, k->shape(), k->strides(), infinilm::runtime::DataType::kInt8);
     execution::submit<infini::ops::PerTensorQuantI8>(
@@ -50,6 +55,7 @@ void KVQuantUtils::quantize(
     INFINILM_TRACE_OP(PerTensorQuantI8, v);
     k = std::move(k_quant);
     v = std::move(v_quant);
+#endif
 }
 
 void KVQuantUtils::dequantize(
@@ -69,6 +75,10 @@ void KVQuantUtils::dequantize(
         throw std::invalid_argument("unsupported KV quantization algorithm");
     }
     validate_kv(runtime, k, v, k_scale, v_scale);
+#ifndef INFINILM_ENABLE_KV_INT8
+    throw std::runtime_error(
+        "INT8 KV cache requires PerTensorQuantI8 and PerTensorDequantI8 providers in the installed InfiniOps");
+#else
     if (!reference || reference->device() != runtime.device()) {
         throw std::invalid_argument("KV dequantization reference must belong to Runtime device");
     }
@@ -90,6 +100,7 @@ void KVQuantUtils::dequantize(
 
     k = std::move(k_dequant);
     v = std::move(v_dequant);
+#endif
 }
 
 } // namespace infinilm

@@ -68,10 +68,18 @@ inline std::vector<infinilm::runtime::Tensor> paged_prepare_views(
         if (!cache) {
             continue;
         }
+        const bool ordinary_kv = cache->ndim() == 5
+            && cache->size(0) == 2
+            && cache->size(1) == num_blocks
+            && cache->size(2) == block_size
+            && cache->size(3) != 0
+            && cache->size(4) != 0;
+        const bool paged_state = (cache->ndim() == 3 || cache->ndim() == 4)
+            && cache->size(0) != 0
+            && cache->size(1) != 0
+            && cache->size(0) * cache->size(1) == num_blocks * block_size;
         if (cache->device() != runtime.device() || !cache->is_contiguous()
-            || cache->ndim() != 5 || cache->size(0) != 2
-            || cache->size(1) != num_blocks || cache->size(2) != block_size
-            || cache->size(3) == 0 || cache->size(4) == 0) {
+            || (!ordinary_kv && !paged_state)) {
             throw std::invalid_argument("paged prepare requires ordinary contiguous KV caches");
         }
         ++active_layers;
@@ -83,7 +91,13 @@ inline std::vector<infinilm::runtime::Tensor> paged_prepare_views(
     views.reserve(active_layers);
     for (const auto &cache : context.kv_cache_vec) {
         if (cache) {
-            views.push_back(cache->narrow({{1, 0, prepare_blocks}, {2, 0, token_count}}));
+            if (cache->ndim() == 5) {
+                views.push_back(cache->narrow(
+                    {{1, 0, prepare_blocks}, {2, 0, token_count}}));
+            } else {
+                views.push_back(cache->narrow(
+                    {{0, 0, prepare_blocks}, {1, 0, token_count}}));
+            }
         }
     }
     return views;

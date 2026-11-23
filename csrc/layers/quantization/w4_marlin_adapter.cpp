@@ -8,6 +8,8 @@
 #include <numeric>
 #include <stdexcept>
 
+#ifdef INFINILM_ENABLE_W4_MARLIN
+
 namespace infinilm::quantization {
 using infinilm::runtime::DataType;
 using infinilm::runtime::Runtime;
@@ -234,3 +236,5 @@ PreparedW4 prepare_w4_marlin(Runtime &runtime, const ParamsMap &raw, const nlohm
     }
 }
 } // namespace infinilm::quantization
+
+#endif

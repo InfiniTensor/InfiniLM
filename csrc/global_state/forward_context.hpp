@@ -1,5 +1,9 @@
 #pragma once
+#include <functional>
+#include <map>
+#include <memory>
 #include <stdexcept>
+#include <utility>
 
 #include "../engine/nsa_owner_input.hpp"
 #include "../models/infinilm_model.hpp"
@@ -41,8 +45,14 @@ struct AttentionMetadata {
     std::optional<infinilm::runtime::Tensor> cu_seqlens;
     /// Block ids for each request `[batch, max_block_table_length]`. Used for paged cache.
     std::optional<infinilm::runtime::Tensor> block_tables;
+    std::optional<infinilm::runtime::Tensor> ratio4_block_tables;
+    std::optional<infinilm::runtime::Tensor> ratio128_block_tables;
+    std::optional<infinilm::runtime::Tensor> state4_block_tables;
+    std::optional<infinilm::runtime::Tensor> state128_block_tables;
     /// Slot ids for each token `[seq]`. Used for paged cache.
     std::optional<infinilm::runtime::Tensor> slot_mapping;
+    /// Device indices of each request's final prefill token.
+    std::optional<infinilm::runtime::Tensor> last_token_ids;
     /// Maximum query length in the current batch.
     size_t max_query_length{0};
     /// Maximum total sequence length in the current batch.
@@ -59,6 +69,11 @@ struct AttentionMetadata {
     // Compiler-only warmup probe; cleared before recording and restored with metadata.
     bool *static_decode_recordable = nullptr;
     std::optional<StaticPrefillHostDescription> static_prefill_host;
+    // Exact compressed-output rows per ratio, set by the rank worker from
+    // CPU past lengths. The vendor metadata op emits [-1,31] sentinel slots
+    // for incomplete groups; scattering those corrupts shared cache memory.
+    std::optional<size_t> compressed_rows_ratio4;
+    std::optional<size_t> compressed_rows_ratio128;
 
     AttentionMetadata() = default;
 
@@ -97,6 +112,37 @@ struct MultiModalMetadata {
     std::optional<std::vector<size_t>> visual_token_ranges;
 };
 
+struct DeepseekV4QliMetadataState {
+    infinilm::runtime::Tensor tensor;
+    size_t query_length{};
+    size_t last_key_length{SIZE_MAX};
+    std::function<void(size_t)> refresh;
+    bool pre_uploaded{false};
+};
+
+struct DeepseekV4SasMetadataState {
+    infinilm::runtime::Tensor tensor;
+    bool ready{false};
+};
+
+struct DeepseekV4CompressorMetadataState {
+    infinilm::runtime::Tensor cos;
+    infinilm::runtime::Tensor sin;
+    infinilm::runtime::Tensor slots;
+    bool ready{false};
+};
+
+struct DeepseekV4RopeState {
+    // Stable [rows, 1, 1, rotary_dim] buffers rebound by graph replay.
+    infinilm::runtime::Tensor cos;
+    infinilm::runtime::Tensor sin;
+    infinilm::runtime::Tensor inverse_sin;
+    std::function<void(size_t)> refresh;
+    // True when graph replay gathers rows from position_ids on device.
+    bool device_gathered{false};
+    bool gathered_this_forward{false};
+};
+
 struct MambaMetadata {
     /// Offsets of each request in a continous-batched sequence, of shape `[num_requests + 1]`.
     std::optional<infinilm::runtime::Tensor> input_offsets;
@@ -122,6 +168,13 @@ struct ForwardContext {
     std::vector<infinilm::runtime::Tensor> kv_cache_vec;
     std::vector<infinilm::runtime::Tensor> conv_state_vec;
     std::vector<infinilm::runtime::Tensor> ssm_state_vec;
+    std::map<size_t, std::shared_ptr<DeepseekV4QliMetadataState>> deepseek_v4_qli_metadata;
+    std::map<size_t, std::shared_ptr<DeepseekV4SasMetadataState>> deepseek_v4_sas_metadata;
+    std::map<size_t, std::shared_ptr<DeepseekV4CompressorMetadataState>>
+        deepseek_v4_compressor_metadata;
+    std::map<std::pair<size_t, size_t>,
+             std::shared_ptr<DeepseekV4RopeState>>
+        deepseek_v4_rope;
 };
 
 } // namespace infinilm::global_state

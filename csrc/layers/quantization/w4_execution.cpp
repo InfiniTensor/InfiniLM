@@ -8,6 +8,7 @@
 namespace infinilm::quantization {
 using infinilm::runtime::Runtime;
 using infinilm::runtime::Tensor;
+#ifdef INFINILM_ENABLE_W4_MARLIN
 namespace {
 void require(bool ok, const char *msg) {
     if (!ok) {
@@ -77,4 +78,26 @@ Tensor W4Execution::forward_allreduce(Runtime &runtime, const Tensor &input, boo
         throw;
     }
 }
+#else
+W4Execution::W4Execution(Runtime &runtime, const ParamsMap &raw, const ParamsMap &,
+                         size_t k, size_t n, int scheme, int group, bool full)
+    : owner_(runtime.shared_from_this()), raw_leases_(raw), k_(k), n_(n),
+      scheme_(scheme), group_(group), full_(full) {}
+
+std::shared_ptr<const W4Execution> W4Execution::prepare(
+    Runtime &, const ParamsMap &, const nlohmann::json &, int, bool,
+    std::optional<int64_t>) {
+    throw std::runtime_error(
+        "W4 Marlin requires W4MarlinRepack and W4MarlinGemm providers in the installed InfiniOps");
+}
+
+Tensor W4Execution::forward(Runtime &, const Tensor &, bool, float) const {
+    throw std::runtime_error("W4 Marlin is unavailable in this build");
+}
+
+Tensor W4Execution::forward_allreduce(Runtime &, const Tensor &, bool,
+                                      infinicclComm_t, float) const {
+    throw std::runtime_error("W4 Marlin is unavailable in this build");
+}
+#endif
 } // namespace infinilm::quantization

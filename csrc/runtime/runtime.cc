@@ -5,8 +5,11 @@
 
 #include <infini/rt/device_guard.h>
 
+
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <limits>
 #include <stdexcept>
@@ -312,8 +315,15 @@ void Runtime::memcpyH2D(void *dst, const void *src, size_t size, bool async) {
         }
 
         const auto current_stream = stream();
-        INFINILM_CHECK_ERROR(
-            infini::rt::runtime::MemcpyAsync(dst, src, size, infini::rt::runtime::kMemcpyHostToDevice, current_stream));
+        auto h2d_status = infini::rt::runtime::MemcpyAsync(
+            dst, src, size, infini::rt::runtime::kMemcpyHostToDevice, current_stream);
+        if (h2d_status != infini::rt::runtime::kSuccess) {
+            std::fprintf(stderr, "H2D_FAIL size=%zu dst=%p src=%p async=%d stream=%p status=%d\n",
+                         size, dst, src, static_cast<int>(async),
+                         static_cast<void*>(current_stream),
+                         static_cast<int>(h2d_status));
+        }
+        INFINILM_CHECK_ERROR(h2d_status);
         if (!async) {
             syncStream();
         }
@@ -420,9 +430,18 @@ std::shared_ptr<::infinilm::execution::graph::Graph> Runtime::stopGraphRecording
         std::rethrow_exception(original_error);
     }
 
+    if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+        std::fprintf(stderr, "V4_STOP_GRAPH_RETURNED\n");
+    }
     std::shared_ptr<infini::rt::ReusableMemoryPool::PinLease> allocation_lease;
     try {
+        if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+            std::fprintf(stderr, "V4_COMMIT_PIN_BEGIN\n");
+        }
         allocation_lease = device_memory_allocator_->commit_pin_mode();
+        if (std::getenv("INFINILM_LOG_GRAPH_LOOKUP") != nullptr) {
+            std::fprintf(stderr, "V4_COMMIT_PIN_END\n");
+        }
     } catch (...) {
         const auto original_error = std::current_exception();
         try {

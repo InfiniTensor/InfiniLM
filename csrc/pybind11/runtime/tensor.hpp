@@ -13,6 +13,8 @@ namespace py = pybind11;
 namespace infinilm::runtime::tensor {
 
 Tensor from_list_py(py::handle data, DataType dtype);
+Tensor from_list_host_py(py::handle data, DataType dtype);
+Tensor from_list_on_device_py(py::handle data, DataType dtype, const Device &device);
 
 inline std::shared_ptr<void> retain_python_owner(const py::object &owner) {
     if (owner.is_none()) {
@@ -120,6 +122,8 @@ inline void bind(py::module &m) {
         pybind11::arg("raw_ptr"), pybind11::arg("shape"), pybind11::arg("dtype"), pybind11::arg("device"), pybind11::arg("owner") = pybind11::none());
 
     m.def("from_list", &from_list_py, py::arg("data"), py::arg("dtype"));
+    m.def("from_list_host", &from_list_host_py, py::arg("data"), py::arg("dtype"));
+    m.def("from_list_on_device", &from_list_on_device_py, py::arg("data"), py::arg("dtype"), py::arg("device"));
 }
 
 } // namespace infinilm::runtime::tensor

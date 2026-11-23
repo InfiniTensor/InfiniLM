@@ -187,6 +187,10 @@ inline void bind_infer_engine(py::module &m) {
                          std::optional<infinilm::runtime::Tensor> input_offsets,
                          std::optional<infinilm::runtime::Tensor> cu_seqlens,
                          std::optional<infinilm::runtime::Tensor> block_tables,
+                         std::optional<infinilm::runtime::Tensor> ratio4_block_tables,
+                         std::optional<infinilm::runtime::Tensor> ratio128_block_tables,
+                         std::optional<infinilm::runtime::Tensor> state4_block_tables,
+                         std::optional<infinilm::runtime::Tensor> state128_block_tables,
                          std::optional<infinilm::runtime::Tensor> slot_mapping,
                          std::optional<infinilm::runtime::Tensor> mamba_init_state_indices,
                          std::optional<infinilm::runtime::Tensor> mamba_final_state_indices,
@@ -207,6 +211,10 @@ inline void bind_infer_engine(py::module &m) {
                     std::move(input_offsets),
                     std::move(cu_seqlens),
                     std::move(block_tables),
+                    std::move(ratio4_block_tables),
+                    std::move(ratio128_block_tables),
+                    std::move(state4_block_tables),
+                    std::move(state128_block_tables),
                     std::move(slot_mapping),
                     std::move(mamba_init_state_indices),
                     std::move(mamba_final_state_indices),
@@ -274,6 +282,10 @@ inline void bind_infer_engine(py::module &m) {
             py::arg("input_offsets") = std::nullopt,
             py::arg("cu_seqlens") = std::nullopt,
             py::arg("block_tables") = std::nullopt,
+            py::arg("ratio4_block_tables") = std::nullopt,
+            py::arg("ratio128_block_tables") = std::nullopt,
+            py::arg("state4_block_tables") = std::nullopt,
+            py::arg("state128_block_tables") = std::nullopt,
             py::arg("slot_mapping") = std::nullopt,
             py::arg("mamba_init_state_indices") = std::nullopt,
             py::arg("mamba_final_state_indices") = std::nullopt,
@@ -292,6 +304,10 @@ inline void bind_infer_engine(py::module &m) {
         .def_readwrite("input_offsets", &InferEngine::Input::input_offsets)
         .def_readwrite("cu_seqlens", &InferEngine::Input::cu_seqlens)
         .def_readwrite("block_tables", &InferEngine::Input::block_tables)
+        .def_readwrite("ratio4_block_tables", &InferEngine::Input::ratio4_block_tables)
+        .def_readwrite("ratio128_block_tables", &InferEngine::Input::ratio128_block_tables)
+        .def_readwrite("state4_block_tables", &InferEngine::Input::state4_block_tables)
+        .def_readwrite("state128_block_tables", &InferEngine::Input::state128_block_tables)
         .def_readwrite("slot_mapping", &InferEngine::Input::slot_mapping)
         .def_readwrite("mamba_init_state_indices", &InferEngine::Input::mamba_init_state_indices)
         .def_readwrite("mamba_final_state_indices", &InferEngine::Input::mamba_final_state_indices)

@@ -1,4 +1,5 @@
 import logging
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Generator
@@ -12,12 +13,16 @@ from infinilm.kv_connector import (
     KVConnectorFactory,
     KVConnectorRole,
 )
+from infinilm.llm.model_runner.deepseek_v4_mtp_runner import DeepseekV4MtpRunner
 from infinilm.llm.model_runner.speculative_runner import SpeculativeRunner
 from infinilm.llm.nsa_paged_owner import freeze_model_input
 from infinilm.modeling_utils import load_model_state_dict_by_file
 from infinilm.processors import AutoInfinilmProcessor
 
 from ... import _core as infinicore
+
+import torch_npu
+from torch_npu.profiler import ProfilerActivity, profile
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +54,36 @@ class ModelRunner:
         self.config = config
         self._closed = False
         self._nsa_scheduler = None
+        self._profile_forward_step = 0
         self.kv_transfer_config = config.kv_transfer_config
         logger.info(f"kv_transfer_config: {self.kv_transfer_config}")
 
+        if (
+            config.enable_graph
+            and config.device.lower() in {"ascend", "npu"}
+            and config.tensor_parallel_size > 1
+        ):
+            os.environ.setdefault("HCCL_OP_EXPANSION_MODE", "AIV")
+            os.environ.setdefault("HCCL_DETERMINISTIC", "strict")
+            logger.info("Using deterministic HCCL AIV mode for Ascend graph capture")
+
+        hf_model_type = read_hf_config(config.model_path).get("model_type")
+        if (
+            config.enable_graph
+            and config.device.lower() in {"ascend", "npu"}
+            and hf_model_type == "deepseek_v4"
+        ):
+            os.environ.setdefault("INFINICORE_GRAPH_SKIP_HOST_SYNC", "1")
+            os.environ.setdefault(
+                "INFINICORE_GRAPH_FORCE_CAPTURE_OP",
+                "N6infini3ops9EmbeddingE,N6infini3ops18CompressorMetadataE,"
+                "N6infini3ops25VllmQuantLightningIndexerE,"
+                "N6infini3ops16DeepseekV4HcHeadE",
+            )
+            logger.info("Using deferred host synchronization for DeepSeek V4 graphs")
+
         self._nsa_paged_owner = (
-            config.cache_type == "paged"
-            and read_hf_config(config.model_path).get("model_type") == "videonsa"
+            config.cache_type == "paged" and hf_model_type == "videonsa"
         )
         if self._nsa_paged_owner and (
             config.draft_model_path is not None
@@ -67,6 +96,13 @@ class ModelRunner:
                 "NSA request ownership does not support speculative decoding or KV transfer"
             )
         self._init_device()
+
+        # The MTP layer is only needed by the speculative runner. Avoid loading
+        # its weights in normal serving so they remain available for KV cache.
+        if config.num_draft_tokens > 0:
+            os.environ.pop("INFINILM_DISABLE_MTP", None)
+        else:
+            os.environ["INFINILM_DISABLE_MTP"] = "1"
 
         # Initialize KV cache based on cache type
         if config.cache_type == "static":
@@ -128,12 +164,24 @@ class ModelRunner:
             self.speculative_runner = SpeculativeRunner(
                 config, self.model_engine, self.device
             )
+        else:
+            hf_config = read_hf_config(config.model_path)
+            if (
+                config.num_draft_tokens > 0
+                and self.model_engine.model_type == "deepseek_v4"
+                and hf_config.get("num_nextn_predict_layers", 0) > 0
+            ):
+                self.speculative_runner = DeepseekV4MtpRunner(
+                    config, self.model_engine
+                )
 
         self.processor = (
             AutoInfinilmProcessor.from_pretrained(config.model_path)
             if initialize_processor
             else None
         )
+        if self.processor is not None and hasattr(self.processor, "set_input_device"):
+            self.processor.set_input_device(self.device)
 
         self.pipeline_control = None
         if config.pipeline_parallel_size > 1 and config.pipeline_parallel_stage == 0:
@@ -302,14 +350,48 @@ class ModelRunner:
         model_input["random_values"] = [
             request.next_sampling_random_value() for request in requests
         ]
+        debug_file = os.environ.get("INFINILM_INPUT_DEBUG_FILE")
+        if debug_file:
+            try:
+                with open(debug_file, "w", encoding="utf-8") as stream:
+                    for name, value in model_input.items():
+                        if hasattr(value, "device"):
+                            stream.write(f"{name}: shape={value.shape} dtype={value.dtype} device={value.device}\n")
+                        else:
+                            stream.write(f"{name}: {type(value).__name__}\n")
+            except Exception:
+                pass
 
         # Wake every stage before stage 0 enters forward. Each worker receives
         # the same metadata and then blocks in its model on the activation from
         # the preceding stage. Stage 0 waits for all acknowledgements afterward.
+        profile_start = int(os.environ.get("INFINILM_PROFILE_FORWARD_START", "-1"))
+        profile_count = int(os.environ.get("INFINILM_PROFILE_FORWARD_COUNT", "0"))
+        profile_step = self._profile_forward_step
+        self._profile_forward_step += 1
+        should_profile = 0 <= profile_start <= profile_step < profile_start + profile_count
+        profiler = None
+        if should_profile:
+            output_dir = os.environ.get(
+                "INFINILM_PROFILE_DIR", "/tmp/infinilm_profile")
+            os.makedirs(output_dir, exist_ok=True)
+            profiler = profile(
+                activities=[ProfilerActivity.CPU, ProfilerActivity.NPU],
+                record_shapes=True,
+                profile_memory=False,
+            )
+            profiler.start()
         try:
             if self.pipeline_control is not None:
                 self.pipeline_control.dispatch_forward(model_input)
-            sampled_tokens = self.model_engine.forward(**model_input)
+            if os.environ.get("INFINILM_LOG_EXECUTION_REPORT") == "1":
+                raw_output = self.model_engine.forward_raw(**model_input)
+                logger.info(
+                    "model execution report: %s", raw_output["execution_report"]
+                )
+                sampled_tokens = raw_output["output_ids"]
+            else:
+                sampled_tokens = self.model_engine.forward(**model_input)
         except BaseException:
             if self.pipeline_control is not None:
                 # A downstream stage may already be blocked waiting for an
@@ -317,9 +399,20 @@ class ModelRunner:
                 # acknowledgement here would deadlock the coordinator.
                 self.pipeline_control.abort()
             raise
+        finally:
+            if profiler is not None:
+                profiler.stop()
+                profiler.export_chrome_trace(
+                    os.path.join(output_dir, f"forward-{profile_step}.json"))
         if self.pipeline_control is not None:
             self.pipeline_control.wait_forward()
         sampled_tokens_list = sampled_tokens.to_numpy().tolist()
+        if os.environ.get("INFINILM_STEP_TIMING") == "1":
+            logger.info(
+                "model output shape=%s sample=%s",
+                tuple(sampled_tokens.shape),
+                sampled_tokens_list,
+            )
 
         return sampled_tokens_list
 

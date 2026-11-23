@@ -9,6 +9,7 @@
 #include <optional>
 #include <stdexcept>
 #include <tuple>
+#include <typeinfo>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -51,8 +52,14 @@ template <class T>
 void check_owner(infinilm::runtime::Runtime &, const T &);
 
 inline void check_owner(infinilm::runtime::Runtime &runtime, const infinilm::runtime::Tensor &tensor) {
-    if (!tensor || tensor->device() != runtime.device()) {
-        throw std::invalid_argument("Ops submission requires tensors on the owning Runtime device");
+    if (!tensor) {
+        throw std::invalid_argument("Ops submission received an empty tensor");
+    }
+    if (tensor->device() != runtime.device()) {
+        throw std::invalid_argument(
+            "Ops submission device mismatch: tensor=" + tensor->device().ToString()
+            + " runtime=" + runtime.device().ToString()
+            + " " + tensor->info());
     }
 }
 template <class T>
@@ -142,12 +149,22 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
             const infini::ops::Config &config,
             const Args &...args) {
     runtime.assertOwnerThread();
-    (detail::check_owner(runtime, args), ...);
+    try {
+        (detail::check_owner(runtime, args), ...);
+    } catch (const std::exception &error) {
+        throw std::invalid_argument(
+            std::string("Ops submission for ") + typeid(OpsKey).name() + ": " + error.what());
+    }
     infini::rt::DeviceGuard guard{runtime.device().type(), runtime.device().index(), true};
     const auto views = std::make_tuple(detail::view(args)...);
     if (!runtime.isGraphRecording()) {
         detail::RuntimeWorkspaceHandle handle{runtime};
-        std::apply([&](const auto &...values) { OpsKey::Call(handle, config, values...); }, views);
+        try {
+            std::apply([&](const auto &...values) { OpsKey::Call(handle, config, values...); }, views);
+        } catch (const std::exception &error) {
+            throw std::runtime_error(
+                std::string("Ops call for ") + typeid(OpsKey).name() + ": " + error.what());
+        }
         return;
     }
 
@@ -174,7 +191,9 @@ void submit(infinilm::runtime::Runtime &runtime, RecordingPolicy policy,
                                            recorded);
             std::apply([&](const auto &...args) { (*instance)(handle, args...); }, values);
         },
-        capture_safe, policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly));
+        capture_safe,
+        policy == RecordingPolicy::AllowHostReplay || policy == RecordingPolicy::HostOnly,
+        typeid(OpsKey).name()));
 }
 
 template <class OpsKey, class... Args>
