@@ -3,7 +3,7 @@ import argparse, concurrent.futures, hashlib, json, statistics, threading, time,
 
 from transformers import AutoTokenize
 
-MODEL = "/home/wuwei/models/Eco-Tech_DeepSeek-V4-Flash-w8a8-mtp"
+MODEL = os.environ.get("DSV4_MODEL_PATH", "/home/wuwei/models/Eco-Tech_DeepSeek-V4-Flash-w8a8-mtp")
 
 CORPUS = (
     "大模型推理系统在昇腾九百一十C集群上运行时，需要同时关心算子内核效率、通信重叠、内存水位与调度策略。"
