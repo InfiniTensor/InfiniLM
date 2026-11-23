@@ -468,8 +468,7 @@ CommunicationGroup::CommunicationGroup(const DistConfig &dist_config,
 
     try {
         if (tp_size > 1) {
-            const bool use_single_node_init_all = device_type_ == infinilm::runtime::Device::Type::kCambricon
-                                               || device_type_ == infinilm::runtime::Device::Type::kAscend;
+            const bool use_single_node_init_all = device_type_ == infinilm::runtime::Device::Type::kCambricon;
             if (use_single_node_init_all) {
                 try {
                     if (infinicclCommInitAll(
