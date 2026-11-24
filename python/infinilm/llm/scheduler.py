@@ -273,9 +273,7 @@ class Scheduler:
                     "chunked prefill"
                 )
             self.chunked_prefill_size = chunked_prefill_size
-        # When chunked prefill is enabled, alternate between
-        # prefill and decode batches so a long chunked prompt
-        # cannot starve decode work already in the running queue.
+        # Alternate prefill and decode when both phases have runnable work.
         self._last_batch_was_prefill = False
 
     def add_request(self, request: InferenceRequest):
@@ -435,16 +433,15 @@ class Scheduler:
         is_prefill = False
         current_num_batched_tokens = 0
         current_prefill_extra_blocks = 0
+        running_decode_blocks = None
 
-        # With chunked prefill enabled, a long prompt is split
-        # over several prefill batches. Always returning the
-        # prefill batch first would delay every running decode
-        # by one step per chunk. Alternate: after a prefill
-        # batch, run decode first if any decode work exists.
-        skip_waiting = (
-            self.chunked_prefill_size is not None
-            and self._last_batch_was_prefill
-            and self.running_queue.sync_q.qsize() > 0
+        # Alternate phases even without chunking so continuous arrivals cannot
+        # indefinitely delay running requests or completed remote transfers.
+        ready_remote = self.remote_kv_requests.keys() & (
+            self.finished_receiving_kv_req_ids | self.failed_receiving_kv_req_ids
+        )
+        skip_waiting = self._last_batch_was_prefill and (
+            self.running_queue.sync_q.qsize() > 0 or bool(ready_remote)
         )
 
         # Process Waiting queue (prefill phase)
@@ -540,10 +537,18 @@ class Scheduler:
                         deferred_requests.append(req)
                         break
 
+                if (
+                    running_decode_blocks is None
+                    and self.connector is None
+                    and self.mamba_cache_manager is None
+                ):
+                    running_decode_blocks = self._get_running_decode_blocks()
+
                 if not self.can_accept_request(
                     req,
                     num_local_computed_tokens,
                     current_prefill_extra_blocks,
+                    running_decode_blocks=running_decode_blocks,
                 ):
                     logger.warning(
                         "Insufficient KV cache blocks for request %s, deferring.",
@@ -800,6 +805,12 @@ class Scheduler:
                 scheduler_output.kv_connector_metadata = meta
             return self._publish_nsa_handoff(scheduler_output)
 
+        if skip_waiting:
+            # Canceled decodes and failed transfers must not leave runnable
+            # waiting work idle. Reset first so this retry is bounded.
+            self._last_batch_was_prefill = False
+            return self.schedule()
+
         if self.connector is not None:
             scheduler_output = SchedulerOutput(
                 scheduled_requests=[],
@@ -976,19 +987,8 @@ class Scheduler:
             self._completion_failed = True
             raise RuntimeError("paged shutdown left cache ownership active")
 
-    def can_accept_request(
-        self,
-        request: InferenceRequest,
-        num_local_computed_tokens: int,
-        current_prefill_extra_blocks: int = 0,
-    ) -> bool:
-        if (
-            self.mamba_cache_manager is not None
-            and request.mamba_cache_index is None
-            and not self.mamba_cache_manager.can_allocate()
-        ):
-            return False
-
+    def _get_running_decode_blocks(self) -> int:
+        """Read running reservations without changing their queue order."""
         total_required_blocks = 0
 
         # Calculate blocks needed for running requests
@@ -1003,6 +1003,29 @@ class Scheduler:
             ) // self.block_size
             total_required_blocks += num_blocks_needed
             self.running_queue.sync_q.put(req)
+
+        return total_required_blocks
+
+    def can_accept_request(
+        self,
+        request: InferenceRequest,
+        num_local_computed_tokens: int,
+        current_prefill_extra_blocks: int = 0,
+        *,
+        running_decode_blocks: Optional[int] = None,
+    ) -> bool:
+        if (
+            self.mamba_cache_manager is not None
+            and request.mamba_cache_index is None
+            and not self.mamba_cache_manager.can_allocate()
+        ):
+            return False
+
+        total_required_blocks = (
+            self._get_running_decode_blocks()
+            if running_decode_blocks is None
+            else running_decode_blocks
+        )
 
         # Reserve capacity for incomplete chunked requests in the
         # waiting queue: they already hold blocks for earlier chunks

@@ -82,6 +82,7 @@ class BlockManager:
 
         self.blocks: List[Block] = [Block(i) for i in range(num_blocks)]
         self.hash_to_block_ids: Dict[BlockHash, Set[int]] = {}
+        self._reclaimable_block_ids: Set[int] = set()
         self.free_block_ids: deque[int] = deque(range(num_blocks))
         self.used_block_ids: Set[int] = set()
 
@@ -123,6 +124,7 @@ class BlockManager:
         self._remove_block_hash(block)
         block.free()
         self.used_block_ids.remove(block_id)
+        self._reclaimable_block_ids.discard(block_id)
         self.free_block_ids.append(block_id)
 
     def can_allocate(self, num_required_blocks: int) -> bool:
@@ -132,12 +134,7 @@ class BlockManager:
         return len(self.free_block_ids)
 
     def get_total_usable_blocks(self) -> int:
-        freeable_used_blocks = sum(
-            1
-            for block_id in self.used_block_ids
-            if self.blocks[block_id].ref_count == 0
-        )
-        return len(self.free_block_ids) + freeable_used_blocks
+        return len(self.free_block_ids) + len(self._reclaimable_block_ids)
 
     def get_computed_blocks(
         self,
@@ -157,6 +154,7 @@ class BlockManager:
             block_id = next(iter(block_ids))
             block = self.blocks[block_id]
             assert block.hash == block_hash and block_id in self.used_block_ids
+            self._reclaimable_block_ids.discard(block_id)
             block.ref_count += 1
             cached_block_table.append(block_id)
         return cached_block_table, len(cached_block_table) * self.block_size
@@ -436,6 +434,8 @@ class BlockManager:
             block = self.blocks[block_id]
             assert block.ref_count > 0, "block ref_count must be greater than 0"
             block.ref_count -= 1
+            if block.ref_count == 0:
+                self._reclaimable_block_ids.add(block_id)
 
     def try_free_blocks(self, num_required: int) -> bool:
         """Evict unreferenced blocks until the requested capacity is available."""
