@@ -2,6 +2,7 @@
 #include "../../execution/submit.hpp"
 #include "runtime/runtime.hpp"
 #include <base/per_tensor_quant_i8.h>
+#include <base/per_tensor_dequant_i8.h>
 #include <stdexcept>
 
 namespace infinilm {

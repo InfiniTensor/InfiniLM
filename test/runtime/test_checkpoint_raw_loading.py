@@ -584,16 +584,11 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 "BF16",
                 struct.pack("<8H", *bf16_bits),
                 infinicore.float32,
+                # IEEE bit literals keep the oracle independent of the host
+                # CPU flush-to-zero mode used by third-party math libraries.
                 struct.pack(
-                    "<8f",
-                    0.0,
-                    -0.0,
-                    2**-133,
-                    1 + 2**-7,
-                    -1,
-                    65536,
-                    float("inf"),
-                    -float("inf"),
+                    "<8I", 0, 0x80000000, 0x00010000, 0x3F810000,
+                    0xBF800000, 0x47800000, 0x7F800000, 0xFF800000,
                 ),
             ),
             (
@@ -674,6 +669,19 @@ class RawCheckpointLoadingTest(unittest.TestCase):
                 source._underlying, same_address._underlying
             )
         self.assertEqual(ctypes.string_at(source.data_ptr(), 8), before)
+
+    def test_checkpoint_cast_rejects_partial_overlap_before_writing(self):
+        from infinilm.lib import _infinilm
+
+        source = infinicore.from_list([1.0, 2.0, 3.0, 4.0], dtype=infinicore.float32)
+        partial = infinicore.from_blob(
+            source.data_ptr() + 4, [4], dtype=infinicore.float16,
+            device="cpu", owner=source,
+        )
+        before = ctypes.string_at(source.data_ptr(), 16)
+        with self.assertRaises(ValueError):
+            _infinilm._cast_checkpoint_tensor_(source._underlying, partial._underlying)
+        self.assertEqual(ctypes.string_at(source.data_ptr(), 16), before)
 
     def test_unqualified_dtype_conversion_keeps_its_bridge(self):
         with tempfile.TemporaryDirectory() as directory:

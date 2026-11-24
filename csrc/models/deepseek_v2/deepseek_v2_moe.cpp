@@ -1,7 +1,8 @@
 #include "deepseek_v2_moe.hpp"
 #include "../../layers/linear/dense.hpp"
 #include "../../weights/weights.hpp"
-#include "execution/submit.hpp"
+#include "execution/optional_submit.hpp"
+#include <base/deepseek_moe.h>
 #include <exception>
 
 #include "../../engine/distributed/communication_group.hpp"
@@ -18,16 +19,7 @@ namespace infinilm::models::deepseek_v2 {
 namespace {
 
 bool supports_fused_deepseek_moe(infinilm::runtime::Device::Type device_type) {
-    switch (device_type) {
-    case infinilm::runtime::Device::Type::kNvidia:
-    case infinilm::runtime::Device::Type::kHygon:
-    case infinilm::runtime::Device::Type::kIluvatar:
-    case infinilm::runtime::Device::Type::kMetax:
-    case infinilm::runtime::Device::Type::kMoore:
-        return true;
-    default:
-        return false;
-    }
+    return infinilm::execution::has_sdk_implementation<infini::ops::DeepseekMoe>(device_type);
 }
 
 } // namespace
@@ -232,9 +224,9 @@ infinilm::runtime::Tensor DeepseekV2Experts::forward(infinilm::runtime::Runtime 
         // Fallback is selected before entering this branch. Once fused
         // execution is attempted, propagate compute and collective errors.
         auto output = infinilm::runtime::Tensor::empty(runtime, hidden_states->shape(), hidden_states->dtype());
-        infinilm::execution::submit<infini::ops::DeepseekMoe>(
-            runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
-            infini::ops::DeepseekMoe::DefaultConfig(runtime.device().type()),
+        infinilm::execution::submit_optional<infini::ops::DeepseekMoe>(
+            "DeepseekMoe", runtime, infinilm::execution::RecordingPolicy::AllowHostReplay,
+            infinilm::execution::optional_default_config<infini::ops::DeepseekMoe>("DeepseekMoe", runtime.device().type()),
             output, hidden_states, top_k_index, top_k_weights,
             gate_weights_, up_weights_, down_weights_,
             local_moe_intermediate_size_, num_experts_);

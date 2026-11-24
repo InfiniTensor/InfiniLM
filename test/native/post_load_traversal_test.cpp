@@ -264,7 +264,7 @@ void typed_preflight_case(infinilm::runtime::Runtime &runtime) {
     typed_require(quant->typed_calls == 1, "wrong preflight consumed attempt");
 }
 
-void typed_no_matching_tls() {
+void typed_no_matching_tls(Device::Type device_type) {
     // Fresh thread proves no matching Context Runtime without relying on a setter.
     std::exception_ptr failure;
     std::thread worker([&] {
@@ -272,7 +272,7 @@ void typed_no_matching_tls() {
             const auto previous_type = infini::rt::runtime_device_type();
             int previous_index = 0;
             const bool had_device = infini::rt::runtime::GetDevice(&previous_index) == infini::rt::runtime::kSuccess;
-            auto runtime = infinilm::runtime::Runtime::create(Device{Device::Type::kNvidia, 0});
+            auto runtime = infinilm::runtime::Runtime::create(Device{device_type, 0});
             for (bool first : {false, true}) {
                 for (bool repeat : {false, true}) {
                     typed_success_case(*runtime, first, repeat);
@@ -305,8 +305,22 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--forward-boundary-only") {
             return 0;
         }
-        typed_no_matching_tls();
-        auto runtime = infinilm::runtime::Runtime::create({Device::Type::kNvidia, 0});
+        Device::Type device_type = Device::Type::kNvidia;
+        std::string mode;
+        for (int i = 1; i < argc; ++i) {
+            const std::string arg = argv[i];
+            if (arg == "--device=hygon") {
+                device_type = Device::Type::kHygon;
+            } else if (arg == "--device=nvidia") {
+                device_type = Device::Type::kNvidia;
+            } else if (arg == "transpose" || arg == "no-transpose") {
+                mode = arg;
+            } else {
+                throw std::invalid_argument("Unsupported post-load test argument");
+            }
+        }
+        typed_no_matching_tls(device_type);
+        auto runtime = infinilm::runtime::Runtime::create({device_type, 0});
         auto settings = std::make_shared<infinilm::global_state::InfinilmConfig>();
         settings->attention_backend = infinilm::backends::AttentionBackend::STATIC_ATTN;
         infinilm::engine::distributed::RankInfo rank{runtime->device()};
@@ -314,11 +328,11 @@ int main(int argc, char **argv) {
         forward_context.runtime = runtime.get();
         typed_require(&forward_context.require_runtime() == runtime.get(),
                       "explicit ForwardContext Runtime changed");
-        if (argc == 1) {
+        if (mode.empty()) {
             check(false, *runtime, settings, rank);
             check(true, *runtime, settings, rank);
         } else {
-            check(std::string(argv[1]) == "transpose", *runtime, settings, rank);
+            check(mode == "transpose", *runtime, settings, rank);
         }
         std::puts("post-load traversal PASS; unregistered fused weights preserved");
     } catch (const std::exception &error) {

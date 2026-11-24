@@ -1,4 +1,28 @@
-add_requires("pybind11 3.0.4", {system = false})
+option("pybind11-include")
+    set_default(nil)
+    set_showmenu(true)
+    set_description("Use an existing pybind11 include directory without downloading a package")
+option_end()
+
+option("python-include")
+    set_default(nil)
+    set_showmenu(true)
+    set_description("Use existing headers matching the target Python interpreter")
+option_end()
+
+local python_include = get_config("python-include")
+if python_include and not os.isfile(path.join(python_include, "Python.h")) then
+    raise("The configured Python include directory must contain Python.h")
+end
+
+local pybind11_include = get_config("pybind11-include")
+if pybind11_include then
+    if not os.isfile(path.join(pybind11_include, "pybind11", "pybind11.h")) then
+        raise("The configured pybind11 include directory must contain pybind11/pybind11.h")
+    end
+else
+    add_requires("pybind11 3.0.4", {system = false})
+end
 
 -- Core owns SDK builds; LM consumes an explicitly installed prefix.
 local INFINI_ROOT = os.getenv("INFINI_ROOT")
@@ -109,7 +133,14 @@ target("infinilm_runtime")
 target_end()
 
 target("_infinilm")
-    add_packages("pybind11")
+    if python_include then
+        add_includedirs(python_include)
+    end
+    if pybind11_include then
+        add_includedirs(pybind11_include)
+    else
+        add_packages("pybind11")
+    end
     set_default(false)
     add_rules("python.module", {soabi = true})
     set_languages("cxx17")
@@ -153,7 +184,7 @@ target("test_rank_barrier")
     end
 target_end()
 
-for _, name in ipairs({"operator_tuning", "tensor_empty_view"}) do
+for _, name in ipairs({"operator_tuning", "tensor_empty_view", "optional_submit"}) do
     target("test_" .. name)
         set_default(false)
         set_kind("binary")
@@ -185,6 +216,7 @@ target("test_post_load_traversal")
     add_files("csrc/layers/rotary_embedding/*.cpp", "csrc/layers/quantization/kv_quant.cpp")
     add_files("csrc/config/model_config.cpp", "csrc/config/quant_config.cpp")
     add_files("csrc/layers/quantization/base_quantization.cpp", "csrc/layers/quantization/none_quantization.cpp")
+    add_files("csrc/layers/quantization/compressed_tensors.cpp")
     add_files("csrc/layers/quantization/awq.cpp", "csrc/layers/quantization/gptq.cpp")
     add_files("csrc/layers/quantization/w4_execution.cpp", "csrc/layers/quantization/w4_marlin_adapter.cpp")
     add_files("csrc/engine/distributed/communication_group.cpp",
@@ -201,4 +233,19 @@ target("test_parallel_topology")
     set_languages("cxx17")
     add_files("test/native/parallel_topology_test.cpp",
               "csrc/engine/distributed/dist_config.cpp")
+target_end()
+
+-- Exercise the actual LM W8A8 layer and Runtime graph, not a probe-only path.
+target("test_w8a8_linear")
+    set_default(false)
+    set_kind("binary")
+    set_languages("cxx17")
+    add_deps("infinilm_runtime")
+    add_includedirs("csrc")
+    add_files("test/native/w8a8_linear_test.cpp", "csrc/weights/weights.cpp")
+    add_files("csrc/layers/quantization/compressed_tensors.cpp", "csrc/layers/quantization/base_quantization.cpp")
+    add_files("csrc/engine/distributed/communication_group.cpp", "csrc/engine/distributed/tcp_rendezvous.cpp", "csrc/engine/distributed/dist_config.cpp")
+    if is_plat("linux") then
+        add_syslinks("pthread")
+    end
 target_end()

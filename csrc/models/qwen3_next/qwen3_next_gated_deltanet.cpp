@@ -1,7 +1,10 @@
 #include "qwen3_next_gated_deltanet.hpp"
 #include "../../layers/normalization/rmsnorm.hpp"
 #include "../../weights/weights.hpp"
-#include "execution/submit.hpp"
+#include "execution/optional_submit.hpp"
+#include <base/chunk_gated_delta_rule.h>
+#include <base/fused_gated_delta_net_gating.h>
+#include <base/recurrent_gated_delta_rule.h>
 
 #include "../../global_state/forward_context.hpp"
 #include "runtime/runtime.hpp"
@@ -28,6 +31,11 @@ Qwen3NextCausalConv1D::Qwen3NextCausalConv1D(
         || rank_info.tp_size <= 0 || rank_info.tp_rank < 0 || rank_info.tp_rank >= rank_info.tp_size
         || (rank_info.tp_size > 1 && !rank_info.comm)) {
         throw std::invalid_argument("Next construction requires matching eager Runtime/rank");
+    }
+    if (!infinilm::execution::HasSdkFactory<infini::ops::FusedGatedDeltaNetGating>::value
+        || !infinilm::execution::HasSdkFactory<infini::ops::RecurrentGatedDeltaRule>::value
+        || !infinilm::execution::HasSdkFactory<infini::ops::ChunkGatedDeltaRule>::value) {
+        throw std::runtime_error("Installed InfiniOps SDK has incomplete DeltaNet call bindings.");
     }
     (void)attention_backend;
     (void)ep_config;
@@ -328,10 +336,10 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
                 throw std::invalid_argument("gating Runtime/tensor device mismatch");
             }
         }
-        infinilm::execution::submit<infini::ops::FusedGatedDeltaNetGating>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::FusedGatedDeltaNetGating::DefaultConfig(runtime.device().type()),
-            gating_A_log, a_heads, b_heads, gating_dt_bias, 1.0f, 20.0f, g, beta);
+        infinilm::execution::submit_optional<infini::ops::FusedGatedDeltaNetGating>("FusedGatedDeltaNetGating",
+                                                                                    runtime, infinilm::execution::RecordingPolicy::HostOnly,
+                                                                                    infinilm::execution::optional_default_config<infini::ops::FusedGatedDeltaNetGating>("FusedGatedDeltaNetGating", runtime.device().type()),
+                                                                                    gating_A_log, a_heads, b_heads, gating_dt_bias, 1.0f, 20.0f, g, beta);
         INFINILM_TRACE_OP(FusedGatedDeltaNetGating, g);
 
         const auto &delta_initial_indices = mamba_metadata.init_state_indices.value();
@@ -345,13 +353,13 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
                 throw std::invalid_argument("recurrent delta Runtime/tensor device mismatch");
             }
         }
-        infinilm::execution::submit<infini::ops::RecurrentGatedDeltaRule>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::RecurrentGatedDeltaRule::DefaultConfig(runtime.device().type()),
-            q_delta, k_delta, v_delta, g, beta, ssm_state,
-            std::optional<infinilm::runtime::Tensor>{delta_initial_indices},
-            std::optional<infinilm::runtime::Tensor>{delta_final_indices}, delta_out,
-            std::optional<infinilm::runtime::Tensor>{}, true);
+        infinilm::execution::submit_optional<infini::ops::RecurrentGatedDeltaRule>("RecurrentGatedDeltaRule",
+                                                                                   runtime, infinilm::execution::RecordingPolicy::HostOnly,
+                                                                                   infinilm::execution::optional_default_config<infini::ops::RecurrentGatedDeltaRule>("RecurrentGatedDeltaRule", runtime.device().type()),
+                                                                                   q_delta, k_delta, v_delta, g, beta, ssm_state,
+                                                                                   std::optional<infinilm::runtime::Tensor>{delta_initial_indices},
+                                                                                   std::optional<infinilm::runtime::Tensor>{delta_final_indices}, delta_out,
+                                                                                   std::optional<infinilm::runtime::Tensor>{}, true);
         INFINILM_TRACE_OP(RecurrentGatedDeltaRule, delta_out);
         delta_out = delta_out->as_strided(
             {seq_len, local_num_value_heads_, value_head_dim_},
@@ -388,10 +396,10 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
                 throw std::invalid_argument("gating Runtime/tensor device mismatch");
             }
         }
-        infinilm::execution::submit<infini::ops::FusedGatedDeltaNetGating>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::FusedGatedDeltaNetGating::DefaultConfig(runtime.device().type()),
-            gating_A_log, a_heads, b_heads, gating_dt_bias, 1.0f, 20.0f, g, beta);
+        infinilm::execution::submit_optional<infini::ops::FusedGatedDeltaNetGating>("FusedGatedDeltaNetGating",
+                                                                                    runtime, infinilm::execution::RecordingPolicy::HostOnly,
+                                                                                    infinilm::execution::optional_default_config<infini::ops::FusedGatedDeltaNetGating>("FusedGatedDeltaNetGating", runtime.device().type()),
+                                                                                    gating_A_log, a_heads, b_heads, gating_dt_bias, 1.0f, 20.0f, g, beta);
         INFINILM_TRACE_OP(FusedGatedDeltaNetGating, g);
 
         const auto &chunk_offsets = mamba_metadata.input_offsets.value();
@@ -412,14 +420,14 @@ infinilm::runtime::Tensor Qwen3NextGatedDeltaNet::forward(
             }
         }
         const std::optional<infinilm::runtime::Tensor> no_chunk_final_state;
-        infinilm::execution::submit<infini::ops::ChunkGatedDeltaRule>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::ChunkGatedDeltaRule::DefaultConfig(runtime.device().type()),
-            q_delta, k_delta, v_delta, g, beta, ssm_state,
-            std::optional<infinilm::runtime::Tensor>{chunk_offsets},
-            std::optional<infinilm::runtime::Tensor>{chunk_initial},
-            std::optional<infinilm::runtime::Tensor>{chunk_final},
-            delta_out, no_chunk_final_state, true, size_t{64});
+        infinilm::execution::submit_optional<infini::ops::ChunkGatedDeltaRule>("ChunkGatedDeltaRule",
+                                                                               runtime, infinilm::execution::RecordingPolicy::HostOnly,
+                                                                               infinilm::execution::optional_default_config<infini::ops::ChunkGatedDeltaRule>("ChunkGatedDeltaRule", runtime.device().type()),
+                                                                               q_delta, k_delta, v_delta, g, beta, ssm_state,
+                                                                               std::optional<infinilm::runtime::Tensor>{chunk_offsets},
+                                                                               std::optional<infinilm::runtime::Tensor>{chunk_initial},
+                                                                               std::optional<infinilm::runtime::Tensor>{chunk_final},
+                                                                               delta_out, no_chunk_final_state, true, size_t{64});
         INFINILM_TRACE_OP(ChunkGatedDeltaRule, delta_out);
         delta_out = delta_out->as_strided(
             {seq_len, local_num_value_heads_, value_head_dim_},

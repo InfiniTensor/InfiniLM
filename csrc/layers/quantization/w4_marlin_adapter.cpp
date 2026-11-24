@@ -1,6 +1,7 @@
 #include "w4_marlin_adapter.hpp"
 #include "../../execution/submit.hpp"
 #include "runtime/runtime.hpp"
+#include "w4_sdk.hpp"
 #include <algorithm>
 #include <climits>
 #include <cstdint>
@@ -204,13 +205,11 @@ PreparedW4 prepare_w4_marlin(Runtime &runtime, const ParamsMap &raw, const nlohm
         packed = Tensor::empty(runtime, {k / 16, n * 2}, DataType::kInt32);
         reordered_scales = Tensor::empty(runtime, {groups, n}, scales->dtype());
         reordered_zeros = scheme == 0 ? Tensor::empty(runtime, {groups, n / 8}, DataType::kInt32) : empty;
-        infinilm::execution::submit<infini::ops::W4MarlinRepack>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::Config::Automatic(), qw, perm,
+        w4_detail::submit<infini::ops::W4MarlinRepack>(
+            runtime, qw, perm,
             static_cast<int64_t>(scheme), static_cast<int64_t>(k), static_cast<int64_t>(n), packed);
-        infinilm::execution::submit<infini::ops::W4MarlinParameters>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::Config::Automatic(), scales, zeros,
+        w4_detail::submit<infini::ops::W4MarlinParameters>(
+            runtime, scales, zeros,
             static_cast<int64_t>(scheme), static_cast<int64_t>(k),
             static_cast<int64_t>(n), static_cast<int64_t>(group),
             reordered_scales, reordered_zeros);

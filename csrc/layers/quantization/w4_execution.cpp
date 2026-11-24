@@ -3,6 +3,7 @@
 #include "execution/submit.hpp"
 #include "runtime/runtime.hpp"
 #include "w4_marlin_adapter.hpp"
+#include "w4_sdk.hpp"
 #include <stdexcept>
 
 namespace infinilm::quantization {
@@ -45,9 +46,8 @@ Tensor W4Execution::forward(Runtime &runtime, const Tensor &input, bool has_bias
         const size_t m = a->numel() / k_;
         const auto out_view = output->view({m, n_});
         const auto a_view = a->view({m, k_});
-        infinilm::execution::submit<infini::ops::W4MarlinGemm>(
-            runtime, infinilm::execution::RecordingPolicy::HostOnly,
-            infini::ops::Config::Automatic(), a_view, weight_, scales_, zeros_,
+        w4_detail::submit<infini::ops::W4MarlinGemm>(
+            runtime, a_view, weight_, scales_, zeros_,
             gidx_, perm_, has_bias ? bias_ : empty_bias_,
             static_cast<int64_t>(scheme_), static_cast<int64_t>(group_), full_, alpha, out_view);
         return output;

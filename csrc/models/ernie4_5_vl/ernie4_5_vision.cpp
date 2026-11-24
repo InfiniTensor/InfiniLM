@@ -1,5 +1,5 @@
 #include "ernie4_5_vision.hpp"
-#include "../../execution/submit.hpp"
+#include "../../execution/optional_submit.hpp"
 #include "../../execution/tensor_checks.hpp"
 #include "../../layers/normalization/checks.hpp"
 #include "../../layers/rotary_embedding/rope.hpp"
@@ -250,10 +250,10 @@ infinilm::runtime::Tensor Ernie45VisionMLP::forward(infinilm::runtime::Runtime &
     if (!x || runtime.device() != x->device()) {
         throw std::invalid_argument("QuickGelu requires nonnull input on the Runtime device");
     }
-    const auto quick_gelu_config = infini::ops::QuickGelu::DefaultConfig(runtime.device().type());
+    const auto quick_gelu_config = infinilm::execution::optional_default_config<infini::ops::QuickGelu>("QuickGelu", runtime.device().type());
     auto quick_gelu_output = infinilm::runtime::Tensor::empty(runtime, x->shape(), x->dtype());
-    infinilm::execution::submit<infini::ops::QuickGelu>(
-        runtime, infinilm::execution::RecordingPolicy::HostOnly,
+    infinilm::execution::submit_optional<infini::ops::QuickGelu>(
+        "QuickGelu", runtime, infinilm::execution::RecordingPolicy::HostOnly,
         quick_gelu_config, x, quick_gelu_output);
     x = std::move(quick_gelu_output);
     return fc2_->forward(runtime, x);

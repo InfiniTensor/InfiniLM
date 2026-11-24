@@ -1,6 +1,8 @@
 #pragma once
 
+#include "optional_submit.hpp"
 #include "tensor_checks.hpp"
+#include <base/pad.h>
 
 namespace infinilm::execution {
 
@@ -45,8 +47,8 @@ inline infinilm::runtime::Tensor pad_constant_alloc(infinilm::runtime::Runtime &
     const auto layout = tensor_checks::pad::analyze(input, padding);
     auto output = infinilm::runtime::Tensor::empty(runtime, layout.output_shape, input->dtype());
     if (output->numel()) {
-        submit<infini::ops::Pad>(
-            runtime, infini::ops::Pad::DefaultConfig(runtime.device().type()),
+        submit_optional<infini::ops::Pad>(
+            "Pad", runtime, RecordingPolicy::AllowHostReplay, infinilm::execution::optional_default_config<infini::ops::Pad>("Pad", runtime.device().type()),
             input, std::vector<int64_t>(padding.begin(), padding.end()),
             std::string{"constant"}, std::optional<double>{value}, output);
     }
