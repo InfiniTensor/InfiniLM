@@ -15,6 +15,8 @@ public:
 
     const std::optional<infinilm::runtime::DataType> &output_dtype() const { return output_dtype_; }
 
+    bool weight_prepacked() const noexcept { return weight_prepacked_; }
+
     QuantScheme get_quant_scheme() const override {
         return QuantScheme::NONE;
     };

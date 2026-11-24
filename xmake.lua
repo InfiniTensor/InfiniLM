@@ -30,6 +30,11 @@ option("cxx11-abi")
     set_values("0", "1")
 option_end()
 
+option("row-batch-plan")
+    set_default(false)
+    set_description("Build RowBatchPlan with an SDK providing infinicclAllReduceBatch")
+option_end()
+
 local cxx11_abi = os.getenv("INFINILM_CXX11_ABI")
 if not cxx11_abi or cxx11_abi == "" then
     cxx11_abi = get_config("cxx11-abi")
@@ -124,6 +129,9 @@ target("_infinilm")
 
     add_files("csrc/**.cpp|runtime/**.cpp")
     add_files("csrc/**.cc|runtime/**.cc|execution/graph/graph.cc|execution/trace/op_trace.cc")
+    if not has_config("row-batch-plan") then
+        remove_files("csrc/layers/linear/row_batch_plan.cpp")
+    end
 
     set_installdir("python")
     on_install(function (target)
@@ -171,7 +179,7 @@ target("test_post_load_traversal")
     add_files("csrc/models/infinilm_model.cpp", "csrc/models/models_registry.cpp", "csrc/models/model_factory.cpp")
     add_files("csrc/models/minicpm4/minicpm4_for_causal_lm.cpp")
     add_files("csrc/cache/kv_cache.cpp")
-    add_files("csrc/layers/linear/*.cpp", "csrc/layers/mlp/mlp.cpp")
+    add_files("csrc/layers/linear/*.cpp|row_batch_plan.cpp", "csrc/layers/mlp/mlp.cpp")
     add_files("csrc/layers/attention/attention.cpp", "csrc/layers/attention/backends/*.cpp")
     add_files("csrc/layers/attention/kv_cache_quant_params.cpp")
     add_files("csrc/layers/rotary_embedding/*.cpp", "csrc/layers/quantization/kv_quant.cpp")
