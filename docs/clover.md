@@ -36,7 +36,8 @@ cmake -S third_party/InfiniCore/submodules/InfiniRT -B build/rt \
 cmake --build build/rt -j 12
 cmake --install build/rt
 cmake -S third_party/InfiniCore/submodules/InfiniOps -B build/ops \
-  -C docs/clover-ops.cmake -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" \
+  -DINFINI_OPS_OPS="$PWD/third_party/InfiniCore/submodules/InfiniOps/scripts/configs/infiniops_ops_nvidia_infinilm.json" \
+  -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" \
   -DINFINI_RT_ROOT="$INFINI_ROOT" -DWITH_CPU=ON -DWITH_NVIDIA=ON \
   -DWITH_TRITON=ON -DCMAKE_CUDA_ARCHITECTURES=80 \
   -DGENERATE_PYTHON_BINDINGS=ON \
@@ -68,7 +69,8 @@ cmake --build build/rt -j 12
 cmake --install build/rt
 cmake -S third_party/InfiniCore/submodules/InfiniOps -B build/ops \
   -DCMAKE_BUILD_TYPE=Release \
-  -C docs/clover-ops.cmake -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" \
+  -DINFINI_OPS_OPS="$PWD/third_party/InfiniCore/submodules/InfiniOps/scripts/configs/infiniops_ops_hygon_infinilm.json" \
+  -DCMAKE_INSTALL_PREFIX="$INFINI_ROOT" \
   -DINFINI_RT_ROOT="$INFINI_ROOT" -DWITH_CPU=ON -DWITH_HYGON=ON \
   -DWITH_TRITON=ON -DHYGON_ARCH=gfx936 -DGENERATE_PYTHON_BINDINGS=ON \
   -DAUTO_DETECT_DEVICES=OFF -DAUTO_DETECT_BACKENDS=OFF
@@ -103,10 +105,17 @@ importable. A direct CMake install puts that package at the install prefix;
 placing a link named `infini` to this prefix in a Python search directory is
 sufficient for a development build. A wheel installs this namespace normally.
 
-The declaration preset lets the complete InfiniLM source compile when other
-model families reference operators without providers for the selected
-platform. Such operators remain unsupported; generating their APIs does not
-install substitute kernels.
+`INFINI_OPS_OPS` selects what the InfiniOps build generates. The profiles
+live in the InfiniOps checkout, beside its own build profiles, and are
+documented in its `docs/build-hygon-inference.md`: they list every operator
+InfiniLM references, with the providers of the platform or as
+`public_api_only` where there are none. The latter keep the complete InfiniLM
+source compiling while those model families report unsupported; they install
+no substitute kernels. The NVIDIA profile also covers the lean build above,
+which leaves a few operators without providers — `upsample_bicubic2d` has
+no NVIDIA provider under any backend flag, as in InfiniOps' own torch-free
+profiles. Update the profiles when InfiniLM references another operator or a
+platform gains a provider.
 
 The `pip install -e` step copies the Infini libraries from `$INFINI_ROOT/lib`
 into `python/infinilm/_lib`, and the package loads those copies. Repeat it
