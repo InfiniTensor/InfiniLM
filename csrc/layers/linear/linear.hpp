@@ -58,6 +58,11 @@ public:
 
     infinilm::runtime::Tensor forward(infinilm::runtime::Runtime &runtime, infinilm::runtime::Tensor &input) const;
 
+    infinilm::runtime::Size tp_rank() const noexcept { return tp_rank_; }
+    infinilm::runtime::Size tp_size() const noexcept { return tp_size_; }
+    // Borrowed; the CommunicationGroup must outlive the layer and its plans.
+    infinicclComm_t communicator() const noexcept { return communicator_; }
+
 protected:
     infinilm::runtime::Size tp_rank_ = 0;
     infinilm::runtime::Size tp_size_ = 1;
