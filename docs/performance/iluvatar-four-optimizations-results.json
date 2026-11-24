@@ -1,0 +1,61 @@
+{
+  "official_commit": "6e7f9537173cd33bb30539ebf8d92ab6d869660d",
+  "same_card_per_question": true,
+  "new_independent_questions": 100,
+  "model_processes": 50,
+  "formal_requests": 200,
+  "warmup_requests": 100,
+  "roles": {
+    "official": {
+      "correct": 82,
+      "total": 100,
+      "accuracy_pct": 82,
+      "completed": 100,
+      "parseable": 100,
+      "truncated": 0,
+      "errors": 0,
+      "formal_seconds": 749.203817545,
+      "requests_per_second": 0.13347502729988908,
+      "tokens": 13894,
+      "tokens_per_second": 18.54502029304659,
+      "median_ttft_ms": 2521.8428675,
+      "median_tpot_ms": 69.50871872384035,
+      "median_latency_ms": 11942.6921875
+    },
+    "combined": {
+      "correct": 84,
+      "total": 100,
+      "accuracy_pct": 84,
+      "completed": 100,
+      "parseable": 100,
+      "truncated": 0,
+      "errors": 0,
+      "formal_seconds": 505.326616325,
+      "requests_per_second": 0.19789181248209806,
+      "tokens": 14213,
+      "tokens_per_second": 28.126363308080595,
+      "median_ttft_ms": 1802.3383135,
+      "median_tpot_ms": 44.95782571872432,
+      "median_latency_ms": 8004.2276055
+    }
+  },
+  "changes": {
+    "accuracy_change_percentage_points": 2,
+    "time_reduction_pct": 32.55151609066005,
+    "request_throughput_change_pct": 48.26130137248717,
+    "token_throughput_change_pct": 51.66531426566574
+  },
+  "measurement_scope": "Historical 100-target private combination; current submitted-code two-task validation is recorded separately",
+  "token_different_questions": 34,
+  "regression_ids": [
+    1097
+  ],
+  "improvement_ids": [
+    672,
+    1259,
+    1203
+  ],
+  "current_pr_revision_gpu_tested": true,
+  "original_summary_sha256": "6dfa8dbd43c100ec45b27886edb5294c7a8eb15e03578a9388862add06567ea9",
+  "current_revision_evidence": "iluvatar-current-corex-validation.json"
+}

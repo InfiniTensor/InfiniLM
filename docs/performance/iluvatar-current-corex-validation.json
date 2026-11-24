@@ -1,0 +1,132 @@
+{
+  "checked_at": "2026-11-06T03:07:38.108896+00:00",
+  "source": {
+    "prs": {
+      "mlp": "bcc46a7187e718d69a5c5ef03f79fa14743c09d0",
+      "causal": "3cc3092109fa0fa0c1601af0cb8d981d6a6b2360",
+      "decode": "28acd380a5d37b9118ef3f2934361c9688c169a0"
+    },
+    "refs": {
+      "official_ops": {
+        "sha": "1a68b261d19f0ed6f76bbabeab7a25f479f05e07",
+        "archive_sha256": "ef3c9f5dcc1fca3c6410818761c433160da89af69c7ad55fcfb6bb769ba71389",
+        "bytes": 778442
+      },
+      "candidate_ops": {
+        "sha": "1b21a625915d718fa8498e38f042b3db1863d1b2",
+        "archive_sha256": "082997319a3a4fe1c0b6e4551a9d4ba7d2817518a0a7c7f6229ea527a7e3c1b2",
+        "bytes": 788964
+      },
+      "official_lm": {
+        "sha": "12a4492f70dd33235e3d142e333ad4a9629d3b7b",
+        "archive_sha256": "87e84843d8a6088d48963f28056f6dc8b45b7787a58acbec0b57ced8c37de560",
+        "bytes": 572272
+      },
+      "candidate_lm": {
+        "sha": "25b0010838e8f0c83c748b51d60ff17bd702c97f",
+        "archive_sha256": "c2cb946fbd10c5aafc62e2426ce3539f719b40247603a813ef5ef3efd63f3f17",
+        "bytes": 576756
+      }
+    },
+    "only_tasks": [
+      "554",
+      "172"
+    ]
+  },
+  "common_compatibility": [
+    "Paged-only FlashVarlen supports metadata guard, identical on both roles; original static-cache fallback",
+    "Explicit ABI0 CoreX dispatch and original empty-provider DefaultConfig instantiation",
+    "CoreX COW mmap with read-only NumPy views",
+    "thin registration of existing generic CUDA Argmax/Triu/Tril plus original unused-op base declarations and rejecting unavailable-factory primary"
+  ],
+  "aggregate": {
+    "official": {
+      "seconds_sum": 29.953550354999997,
+      "seconds_mean": 14.976775177499999,
+      "completed": 4,
+      "tokens": 618,
+      "req_s": 0.13354009633560182,
+      "token_s": 20.631944883850483
+    },
+    "combined": {
+      "seconds_sum": 19.564384524,
+      "seconds_mean": 9.782192262,
+      "completed": 4,
+      "tokens": 618,
+      "req_s": 0.20445314776414888,
+      "token_s": 31.588011329561002
+    },
+    "time_reduction_pct": 34.68425514795705,
+    "request_throughput_change_pct": 53.102441419792235
+  },
+  "request_mean_metrics": {
+    "554": {
+      "official": {
+        "ttft_ms": 2122.730384,
+        "tpot_ms": 76.51120279166666,
+        "latency_ms": 14976.7751775,
+        "tokens": 169
+      },
+      "combined": {
+        "ttft_ms": 1469.3836394999998,
+        "tpot_ms": 49.47990835416667,
+        "latency_ms": 9782.192262,
+        "tokens": 169
+      }
+    },
+    "172": {
+      "official": {
+        "ttft_ms": 3866.144424,
+        "tpot_ms": 66.01594433812949,
+        "latency_ms": 13042.610771,
+        "tokens": 140
+      },
+      "combined": {
+        "ttft_ms": 2552.589745,
+        "tpot_ms": 42.779778985611514,
+        "latency_ms": 8499.2257035,
+        "tokens": 140
+      }
+    }
+  },
+  "correct": 16,
+  "requests": 16,
+  "published_tokens": 2472,
+  "native_calls": 1360,
+  "native_tests_passed": 27,
+  "new_quality_samples": 0,
+  "optimization_accepted": true,
+  "ordinary_exits": true,
+  "same_gpu": true,
+  "model_processes": 4,
+  "warmup_requests": 8,
+  "measured_requests": 8,
+  "pairs": [
+    {
+      "order": "forward",
+      "time_reduction_pct": 34.66898857183457,
+      "request_throughput_change_pct": 53.06666438182237,
+      "token_throughput_change_pct": 53.06666438182239,
+      "token_different_question_ids": [],
+      "official_seconds": 14.973374084,
+      "combined_seconds": 9.782256734
+    },
+    {
+      "order": "reverse",
+      "time_reduction_pct": 34.69951479184433,
+      "request_throughput_change_pct": 53.13821892936033,
+      "token_throughput_change_pct": 53.13821892936035,
+      "token_different_question_ids": [],
+      "official_seconds": 14.980176271,
+      "combined_seconds": 9.78212779
+    }
+  ],
+  "raw_review_sha256": "c1e73043dd0d3e149c17e95546f1a35c54c006a81c15b1b735834328b807a553",
+  "checkpoint_sha256": "7ae847ac5b390850d596ba74b93d06fdd429a34afef7b3f77792e2d8a741fbd5",
+  "independent_sha256": "9b896fb354f97e194142940546b13cd21af30599c974b95f344e6a759f369e37",
+  "native_test_fixture_commits": {
+    "InfiniOps#1024": "9cc5e9adcf38411f6597a41b4d759d48e9eb03eb",
+    "InfiniOps#1025": "4ca6f7184dd35aca47baf8bc6486a158b476d98c",
+    "InfiniOps#1026": "a608677206ae5b6740458cb47c02621671069073"
+  }
+}
