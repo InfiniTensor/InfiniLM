@@ -11,10 +11,13 @@
 
 namespace infinilm::runtime {
 
+void bind_event_notification(pybind11::module_ &m);
+
 void bind_runtime(pybind11::module_ &m) {
     context::bind(m);
     device::bind(m);
     dtype::bind(m);
+    bind_event_notification(m);
     ops::bind_add(m);
     ops::bind_cat(m);
     tensor::bind(m);

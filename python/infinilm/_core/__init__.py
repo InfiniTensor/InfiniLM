@@ -29,6 +29,7 @@ from .dtype import (
     uint32,
     uint64,
 )
+from .notification import StreamNotification, stream_notification
 from .ops import add, cat
 from .tensor import (
     Tensor,
@@ -46,6 +47,8 @@ __all__ = [
     "Tensor",
     "device",
     "dtype",
+    "StreamNotification",
+    "stream_notification",
     "empty",
     "ones",
     "from_blob",
