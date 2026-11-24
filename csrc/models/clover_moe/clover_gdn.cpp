@@ -4,7 +4,7 @@
 #include "runtime/runtime.hpp"
 #include <base/clover_block_conv1d.h>
 #include <base/clover_local_memory.h>
-#include <base/clover_recurrent_gdn.h>
+#include <base/recurrent_gated_delta_rule.h>
 
 namespace infinilm::models::clover_moe {
 
@@ -86,12 +86,15 @@ runtime::Tensor CloverGatedDeltaNet::forward(const runtime::Tensor &hidden,
             context.diffusion_valid, logit_scale_.tensor(), history_bias_.tensor(), history_c_.tensor(),
             context.diffusion_block_size, out);
     } else {
-        execution::submit<infini::ops::CloverRecurrentGdn>(
+        // Causal replay of the block: the packed form of the recurrence, which
+        // reads the state slot of every request and writes its final slot.
+        execution::submit<infini::ops::RecurrentGatedDeltaRule>(
             runtime, execution::RecordingPolicy::HostOnly,
-            infini::ops::CloverRecurrentGdn::DefaultConfig(device),
-            q, k, v, g, beta, context.mamba_metadata.input_offsets.value(),
-            context.mamba_metadata.init_state_indices.value(), context.mamba_metadata.final_state_indices.value(),
-            context.ssm_state_vec[layer_idx_], out);
+            infini::ops::RecurrentGatedDeltaRule::DefaultConfig(device),
+            q, k, v, g, beta, context.ssm_state_vec[layer_idx_],
+            context.mamba_metadata.input_offsets.value(),
+            context.mamba_metadata.init_state_indices.value(),
+            context.mamba_metadata.final_state_indices.value(), out, true);
     }
     auto normalized = norm_->forward(runtime, out->view({tokens * local_num_value_heads_, value_head_dim_}));
     normalized = normalized->view(z->shape());
