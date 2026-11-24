@@ -85,10 +85,9 @@ cmake --install build/ccl
 Match the C++ ABI to the installed DTK Torch build. `gfx936` is the tested
 architecture, not a default for all Hygon products.
 
-With InfiniOps at `1d44dcaa` or later the fused MoE runs native `gfx936`
+With the InfiniOps revision of PR #1015 the fused MoE runs native `gfx936`
 kernels instead of Triton; `INFINI_OPS_HYGON_MOE_TRITON=1` selects the Triton
-kernels (see "Native fused MoE on gfx936" in the InfiniOps
-`docs/clover-hygon.md`).
+kernels (see [Native fused MoE on gfx936](#native-fused-moe-on-gfx936)).
 
 ### Common
 
@@ -223,6 +222,35 @@ python examples/bench_clover.py --url http://127.0.0.1:8001 --model /served/mode
 Repeat `-1` is warmup and must be excluded. Sum `visible_tokens` over successful
 requests and divide by summed `elapsed_s` over all measured requests, retaining
 failures. Keep model weights, TP, sampling, output caps and context capacity fixed.
+
+### Native fused MoE on gfx936
+
+On `gfx936` the Hygon provider of `MoeFusedDense` runs native kernels for
+block size 16 with hidden and intermediate sizes that are multiples of 8 of at
+least 32, which covers the Clover shapes. One wavefront streams two 16-row
+weight bands of an expert block and feeds the matrix instructions through
+shared memory; the Triton kernels use the same instruction with one 16 x 64
+output tile per four-wavefront workgroup. Other shapes, other Hygon
+architectures and `INFINI_OPS_HYGON_MOE_TRITON=1` select the Triton kernels.
+
+What this gains depends on the routing. With the routes of a forward spread
+over the experts, every MoE layer streams hundreds of expert blocks. Clover
+per-rank shapes (256 experts, hidden 2048, intermediate 256, top-8), routes
+spread:
+
+| Tokens | Native | Triton | Speedup |
+| ---: | ---: | ---: | ---: |
+| 32 | 0.51 ms | 1.78 ms | 3.5x |
+| 64 | 0.69 ms | 2.98 ms | 4.3x |
+| 128 | 0.79 ms | 3.31 ms | 4.2x |
+| 256 | 0.82 ms | 3.47 ms | 4.2x |
+| 1024 | 1.64 ms | 4.09 ms | 2.5x |
+
+The block coreset of the model concentrates the routes of a 32-token block on
+a few experts instead. So few blocks are left to stream that both
+implementations take the same time: with about 25 active blocks, 0.10 ms at 32
+tokens for either. In the 32-token blocks of the model the fused MoE is 4-5%
+of a forward's GPU kernel time, and the native kernels save 1-2% end to end.
 
 ### Logit comparison with the reference implementation
 
