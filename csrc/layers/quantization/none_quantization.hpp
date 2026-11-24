@@ -2,7 +2,9 @@
 #include "../../weights/weights.hpp"
 
 #include "base_quantization.hpp"
+#include <mutex>
 #include <optional>
+#include <unordered_map>
 namespace infinilm::quantization {
 
 class NoneQuantization : public BaseQuantization {
@@ -39,15 +41,35 @@ public:
         int narrow_dim,
         int tp_rank, int tp_size, int tp_num_heads) const override;
 
-    // Ascend: pre-pack weight to [IC, OC] after loading to skip runtime permute.
-    // Returns shared_from_this() only on Ascend; nullptr otherwise (no-op).
+    // With pre_transpose, materialize [IC, OC]. Eligible Ascend weights are
+    // additionally converted to the ACLNN MatmulWeightNz physical layout.
     std::shared_ptr<BaseQuantization> process_weights_after_loading(
         infinilm::runtime::Runtime &runtime, ParamsMap &params, bool pre_transpose,
         int split_dim = -1) const override;
 
 private:
+    enum class WeightLayout {
+        None,
+        PackedNd,
+        AscendNz,
+    };
+
+    WeightLayout weight_layout(const infinilm::runtime::Tensor &weight) const;
+    void set_weight_layout(const infinilm::runtime::Tensor &weight,
+                           WeightLayout layout, size_t nz_output_width = 0) const;
+    void erase_weight_layout(const infinilm::runtime::Tensor &weight) const;
+
+    infinilm::runtime::Tensor narrow_nz_output(
+        infinilm::runtime::Runtime &runtime,
+        const infinilm::runtime::Tensor &output,
+        const infinilm::runtime::Tensor &weight) const;
+
     const std::optional<infinilm::runtime::DataType> output_dtype_;
-    mutable bool weight_prepacked_ = false; // true when weight was pre-packed for Ascend
+    mutable std::mutex weight_layouts_mutex_;
+    mutable std::unordered_map<const infinilm::runtime::TensorImpl *, WeightLayout>
+        weight_layouts_;
+    mutable std::unordered_map<const infinilm::runtime::TensorImpl *, size_t>
+        nz_output_widths_;
 };
 
 } // namespace infinilm::quantization
