@@ -545,6 +545,7 @@ class TestModel:
         model = InferEngine(
             model_path,
             device=infini_device,
+            dtype=cfg.dtype,
             distributed_config=DistConfig(
                 tp,
                 moe_ep_backend=moe_ep_backend,

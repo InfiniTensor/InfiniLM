@@ -221,6 +221,7 @@ class InferEngine(_infinilm.InferEngine):
         device=None,
         distributed_config=None,
         cache_config=None,
+        dtype="default",
         enable_graph_compiling=False,
         attention_backend="default",
         kv_cache_dtype=None,
@@ -234,9 +235,13 @@ class InferEngine(_infinilm.InferEngine):
         self.hf_generation_config = read_hf_generation_config(model_path)
         self.position_id_axes = _infer_position_id_axes(self.hf_config)
         self.hf_config["position_id_axes"] = self.position_id_axes
+        if dtype != "default":
+            self.hf_config["torch_dtype"] = dtype
         text_config = self.hf_config.get("text_config")
         if isinstance(text_config, dict):
             text_config.setdefault("position_id_axes", self.position_id_axes)
+            if dtype != "default":
+                text_config["torch_dtype"] = dtype
 
         if device is None:
             device = infinicore.device()

@@ -93,6 +93,7 @@ class ModelRunner:
         self.model_engine = InferEngine(
             model_path=config.model_path,
             device=self.device,
+            dtype=config.dtype,
             distributed_config=DistConfig(
                 config.tensor_parallel_size,
                 moe_ep_backend=config.moe_ep_backend,
