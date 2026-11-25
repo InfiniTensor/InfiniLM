@@ -208,8 +208,8 @@ clean-state immutability, packed recurrent commits, expert selection, fused
 MoE, liveness and cached-row merging. Broader generative outputs can differ
 across kernel implementations even with identical sampling settings.
 
-All throughput numbers below were recorded on Hygon, on two BW 64GB devices
-with TP=2.
+The throughput numbers below were recorded with TP=2, on two Hygon BW 64GB
+devices and on two NVIDIA A100 80GB.
 
 The recorded HTTP campaign uses the same model, tokenizer, BF16 precision,
 TP2 budget, prompts, per-request output caps and sampling controls. Each of five
@@ -303,3 +303,31 @@ Python and repetitions and was rejected. Keep outputs and failed candidates in
 any further evaluation.
 
 ![Rendered validation record of the Hygon campaign](images/clover-hygon-validation.png)
+
+### Recorded short-prompt campaign on NVIDIA
+
+The same client, workload, prompts, per-request output caps and sampling
+controls, on two A100 80GB (CUDA 13.1) with TP=2, BF16, concurrency one and a
+context capacity of 2048. Each variant ran the 32 prompts three times after a
+separate warmup, alternating variant order.
+
+| Variant | Requests | Visible output tok/s | Per device tok/s |
+| --- | ---: | ---: | ---: |
+| InfiniLM baseline | 96/96 | 44.09 | 22.05 |
+| Expert budget and live-row reuse | 96/96 | 46.98 | 23.49 |
+| Frontier stride | 96/96 | 57.51 | 28.76 |
+| Joint, confidence floor 0.7 | 96/96 | 58.51 | 29.26 |
+
+The joint path is 1.327x the native baseline. Three joint repetitions measured
+57.24–59.58 visible tok/s. Every measured request completed, and each variant
+answered the workload's own `check` on all 96 requests. This checks the included
+fixture, not general quality equivalence. The SGLang comparison was not run: that
+port is not available on the NVIDIA host.
+
+A profiled generation ran the native kernel of every Clover operator and of the
+packed recurrence; no Triton kernel ran. With the NVIDIA operator profile,
+InfiniRT passed 14 tests and InfiniOps 133 Clover tests, with one skipped that
+needs Hygon. Two upstream `moe_fused_dense` tests (block size 4, an operator this
+path does not call) fail on NVIDIA independently of this work.
+
+![Rendered validation record of the NVIDIA campaign](images/clover-nvidia-validation.png)
