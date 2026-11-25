@@ -203,6 +203,7 @@ class ModelRunner:
             "cuda",
             "hygon",
             "iluvatar",
+            "mars",
             "metax",
             "mlu",
             "musa",

@@ -10,6 +10,10 @@
 #include <algorithm>
 #include <base/flash_attn_varlen_func.h>
 #include <base/reshape_and_cache_flash.h>
+#if defined(WITH_MARS)
+#include <base/paged_attention_infinilm.h>
+#include <base/paged_attention_prefill_infinilm.h>
+#endif
 #include <limits>
 
 namespace infinilm::layers::attention::backends {
@@ -64,6 +68,13 @@ infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &laye
             throw std::invalid_argument("Paged prefill maximum length exceeds int64");
         }
         const auto max_seqlen_k = block_width * page_size;
+#if defined(WITH_MARS)
+        infinilm::execution::submit<infini::ops::PagedAttentionPrefillInfinilm>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::Config::Automatic(), query, k_total, v_total,
+            block_tables.value(), total_sequence_lengths.value(),
+            input_offsets.value(), std::nullopt, scale_, attn_output);
+#else
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
             infini::ops::Config::Automatic(),
@@ -72,9 +83,17 @@ infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &laye
             static_cast<int64_t>(seq_len), static_cast<int64_t>(max_seqlen_k),
             0.0, std::optional<double>{scale_}, true, layer.window_size(), 0.0, false, false,
             attn_output, std::optional<infinilm::runtime::Tensor>{}, std::optional<infinilm::runtime::Tensor>{});
+#endif
         INFINILM_TRACE_OP(MultiheadAttentionVarlen, attn_output);
     } else {
         ASSERT(query->ndim() == 3 && attn_output->shape() == query->shape());
+#if defined(WITH_MARS)
+        infinilm::execution::submit<infini::ops::PagedAttentionInfinilm>(
+            runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
+            infini::ops::Config::Automatic(), query, k_total, v_total,
+            block_tables.value(), total_sequence_lengths.value(), std::nullopt,
+            scale_, attn_output);
+#else
         const auto kv_query = query->unsqueeze(1);
         const auto kv_output = attn_output->unsqueeze(1);
         const auto kv_window = layer.window_size();
@@ -92,6 +111,7 @@ infinilm::runtime::Tensor PagedAttentionImpl::forward(const AttentionLayer &laye
             std::optional<double>{scale_}, true, kv_window, double{0.0}, true,
             int64_t{0}, false, kv_output, kv_none);
         INFINILM_TRACE_OP(MhaKVCache, kv_output);
+#endif
     }
     attn_output = attn_output->view({1, seq_len, num_heads_ * value_head_dim});
     return attn_output;

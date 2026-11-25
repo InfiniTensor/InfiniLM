@@ -22,6 +22,7 @@ bool supports_fused_deepseek_moe(infinilm::runtime::Device::Type device_type) {
     case infinilm::runtime::Device::Type::kNvidia:
     case infinilm::runtime::Device::Type::kHygon:
     case infinilm::runtime::Device::Type::kIluvatar:
+    case infinilm::runtime::Device::Type::kMars:
     case infinilm::runtime::Device::Type::kMetax:
     case infinilm::runtime::Device::Type::kMoore:
         return true;

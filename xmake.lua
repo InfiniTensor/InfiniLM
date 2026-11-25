@@ -28,6 +28,7 @@ local MUSA_ROOT =
     or os.getenv("MUSA_HOME")
     or os.getenv("MUSA_PATH")
     or "/usr/local/musa"
+local HPCC_ROOT = os.getenv("HPCC_PATH") or "/opt/hpcc"
 local TORCH_LIB = os.getenv("TORCH_LIB")
 set_toolchains("gcc")
 
@@ -79,6 +80,11 @@ end
 if os.isdir(MUSA_ROOT .. "/include") then
     add_includedirs(MUSA_ROOT .. "/include")
     add_linkdirs(MUSA_ROOT .. "/lib", MUSA_ROOT .. "/lib64")
+end
+if os.isdir(HPCC_ROOT .. "/include") then
+    add_defines("WITH_MARS=1")
+    add_includedirs(HPCC_ROOT .. "/include", HPCC_ROOT .. "/tools/cu-bridge/include")
+    add_linkdirs(HPCC_ROOT .. "/lib", HPCC_ROOT .. "/htgpu_llvm/lib")
 end
 
 target("infinilm_runtime")

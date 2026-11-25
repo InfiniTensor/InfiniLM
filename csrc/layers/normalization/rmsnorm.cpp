@@ -55,6 +55,7 @@ void RMSNorm::forward_inplace(Runtime &runtime, Tensor &x, Tensor &residual) con
         if (device_.type() == Device::Type::kCpu
             || device_.type() == Device::Type::kNvidia
             || device_.type() == Device::Type::kIluvatar
+            || device_.type() == Device::Type::kMars
             || device_.type() == Device::Type::kMetax
             || device_.type() == Device::Type::kMoore
             || device_.type() == Device::Type::kCambricon

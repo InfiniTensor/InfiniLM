@@ -10,6 +10,7 @@ _TYPE_ALIASES = {
     "mlu": (_infinicore.Device.Type.CAMBRICON, "mlu"),
     "ascend": (_infinicore.Device.Type.ASCEND, "npu"),
     "npu": (_infinicore.Device.Type.ASCEND, "npu"),
+    "mars": (_infinicore.Device.Type.MARS, "mars"),
     "metax": (_infinicore.Device.Type.METAX, "metax"),
     "moore": (_infinicore.Device.Type.MOORE, "musa"),
     "musa": (_infinicore.Device.Type.MOORE, "musa"),

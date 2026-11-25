@@ -16,6 +16,7 @@ inline void bind(py::module &m) {
         .value("NVIDIA", Device::Type::kNvidia)
         .value("CAMBRICON", Device::Type::kCambricon)
         .value("ASCEND", Device::Type::kAscend)
+        .value("MARS", Device::Type::kMars)
         .value("METAX", Device::Type::kMetax)
         .value("MOORE", Device::Type::kMoore)
         .value("ILUVATAR", Device::Type::kIluvatar)

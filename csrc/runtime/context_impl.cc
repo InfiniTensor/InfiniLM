@@ -12,6 +12,7 @@ constexpr std::array<Device::Type, static_cast<size_t>(Device::Type::kCount)> kD
     Device::Type::kNvidia,
     Device::Type::kCambricon,
     Device::Type::kAscend,
+    Device::Type::kMars,
     Device::Type::kMetax,
     Device::Type::kMoore,
     Device::Type::kIluvatar,
@@ -85,6 +86,9 @@ void ContextImpl::initializeDeviceTypeLocked(Device::Type type) {
         break;
     case Device::Type::kMetax:
         initializeDeviceType<Device::Type::kMetax>();
+        break;
+    case Device::Type::kMars:
+        initializeDeviceType<Device::Type::kMars>();
         break;
     case Device::Type::kMoore:
         initializeDeviceType<Device::Type::kMoore>();

@@ -114,6 +114,7 @@ void RoPE::initialize_cache(Runtime &runtime) {
     Tensor cos_sin_cache_next;
 
     if ((device_.type() == Device::Type::kNvidia
+         || device_.type() == Device::Type::kMars
          || device_.type() == Device::Type::kMetax
          || device_.type() == Device::Type::kIluvatar
          || device_.type() == Device::Type::kMoore

@@ -178,7 +178,7 @@ class BaseConfig:
             type=str,
             default="auto",
             help=(
-                "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
+                "device platform: auto, cpu, nvidia, mars, metax, moore, iluvatar, "
                 "cambricon, ascend, hygon, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
@@ -519,6 +519,7 @@ class BaseConfig:
                 "cambricon",
                 "ascend",
                 "moore",
+                "mars",
                 "metax",
                 "hygon",
                 "iluvatar",
@@ -539,6 +540,7 @@ class BaseConfig:
                 return device_name
 
         env_checks = [
+            ("mars", ["HPCC_PATH"]),
             ("metax", ["MACA_PATH", "MACA_HOME", "MACA_ROOT"]),
             ("hygon", ["DTK_HOME", "DTK_PATH"]),
         ]
@@ -550,6 +552,7 @@ class BaseConfig:
             ("cambricon", ["cnmon"]),
             ("ascend", ["npu-smi"]),
             ("moore", ["mthreads-gmi"]),
+            ("mars", ["ht-smi"]),
             ("metax", ["mx-smi", "ht-smi"]),
             ("hygon", ["hy-smi"]),
             ("iluvatar", ["ixsmi"]),
@@ -575,6 +578,7 @@ class BaseConfig:
             "nvidia": "cuda",
             "cambricon": "mlu",
             "ascend": "npu",
+            "mars": "mars",
             "metax": "metax",
             "moore": "musa",
             "iluvatar": "iluvatar",
