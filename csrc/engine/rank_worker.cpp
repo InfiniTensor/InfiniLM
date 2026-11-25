@@ -551,6 +551,7 @@ void RankWorker::thread_loop() {
             runtime_ = infinilm::runtime::Runtime::create(rank_info_.device);
             runtime_->activate();
             forward_context_.runtime = runtime_.get();
+            forward_context_.pre_transpose = infinilm_config_->pre_transpose;
             // Submission failure is terminal for this dedicated job-host process.
             // This also opts every worker into the existing strict failure-drain paths.
             runtime_->enableOwnerDrainFailStop();

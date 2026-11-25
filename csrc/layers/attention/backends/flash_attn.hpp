@@ -38,7 +38,8 @@ public:
                                       const infinilm::runtime::Tensor &value,
                                       infinilm::runtime::Tensor &kv_cache,
                                       const infinilm::global_state::AttentionMetadata &attn_metadata,
-                                      infinilm::runtime::Runtime &runtime) const;
+                                      infinilm::runtime::Runtime &runtime,
+                                      bool pre_transpose = false) const;
 
     std::tuple<infinilm::runtime::Tensor, infinilm::runtime::Tensor> do_kv_cache_update(const AttentionLayer &layer,
                                                                                         const infinilm::runtime::Tensor key,

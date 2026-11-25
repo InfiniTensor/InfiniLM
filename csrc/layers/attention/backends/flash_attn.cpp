@@ -32,7 +32,8 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
                                                       const infinilm::runtime::Tensor &value,
                                                       infinilm::runtime::Tensor &kv_cache,
                                                       const infinilm::global_state::AttentionMetadata &attn_metadata,
-                                                      infinilm::runtime::Runtime &runtime) const {
+                                                      infinilm::runtime::Runtime &runtime,
+                                                      bool pre_transpose) const {
     runtime.assertOwnerThread();
     if (!query || !key || !value || !kv_cache) {
         throw std::invalid_argument("Flash Attention requires non-null Q/K/V and KV cache tensors");
@@ -70,12 +71,13 @@ infinilm::runtime::Tensor FlashAttentionImpl::forward(const AttentionLayer &laye
     auto attn_output = infinilm::runtime::Tensor::empty(
         runtime, {seq_len, num_heads_, head_dim_}, query->dtype());
     if (is_prefill) {
-        const auto prefill_query = query->is_contiguous()
-                                     ? query
-                                     : query->contiguous(runtime);
-        const auto prefill_block_tables = block_tables.value()->is_contiguous()
-                                            ? block_tables.value()
-                                            : block_tables.value()->contiguous(runtime);
+        const auto prefill_query = pre_transpose && !query->is_contiguous()
+                                       ? query->contiguous(runtime)
+                                       : query;
+        const auto prefill_block_tables =
+            pre_transpose && !block_tables.value()->is_contiguous()
+                ? block_tables.value()->contiguous(runtime)
+                : block_tables.value();
         infinilm::execution::submit<infini::ops::FlashAttnVarlenFunc>(
             runtime, infinilm::execution::RecordingPolicy::DeviceOnly,
             infini::ops::Config::Automatic(),
