@@ -1,5 +1,12 @@
 # InfiniLM MetaX C500 basic workflow
 
+> **IMPORTANT: Reference-only workflow and branch**
+>
+> - This workflow is a reference record for one validated C500 environment.
+> - This branch exists only to preserve the reference documentation and profile.
+> - All development work must start from the latest remote `main` branch.
+> - Do not base any feature, bugfix, or follow-up development work on this branch.
+
 This runbook reproduces basic Qwen3-0.6B inference on a fresh MetaX C500
 container. It tracks each repository's remote default branch; older C550 commit
 pins are not used.
