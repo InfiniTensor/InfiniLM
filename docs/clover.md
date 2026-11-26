@@ -96,8 +96,16 @@ kernels (see [Native fused MoE on gfx936](#native-fused-moe-on-gfx936)).
 ```sh
 export INFINILM_CXX11_ABI=1
 xmake f -y -m release --cxx11-abi=1
-pip install -e '.[clover]' --no-build-isolation
+pip install -e '.[server,torch-compat]' --no-build-isolation
 ```
+
+Clover needs the Torch checkpoint path (`torch-compat`) for checkpoint
+loading, confidence selection and the diffusion tests, and the server
+entry point (`server`) when it is served; drop `server` for local
+generation only. Triton itself is a runtime dependency of the InfiniOps
+`infini` package, not of InfiniLM: the DTK Torch wheel ships it, and the
+environment must provide the same Triton the InfiniOps stack was built
+with.
 
 Install the InfiniOps Python
 package as `infini` as well: its JIT compiler and kernel sources must remain
