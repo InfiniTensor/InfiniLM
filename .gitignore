@@ -25,6 +25,9 @@ __pycache__/
 # JSON
 *.json
 
+# Checked-in build configurations.
+!scripts/configs/*.json
+
 #GGUF
 *.gguf
 
