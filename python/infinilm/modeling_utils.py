@@ -305,12 +305,13 @@ def load_model_state_dict_by_file(
     embed_tokens_torch_unscaled = None
     remapper = _WEIGHT_REMAPPER.get(model_type)
     is_qwen35 = remapper in (_remap_qwen3_5, _remap_qwen3_5_moe)
+    is_gemma4 = remapper is _remap_gemma4
     is_baichuan2 = remapper is _remap_baichuan and _is_baichuan2(model.hf_config)
     tie_embedding_key = (
         "backbone.embeddings.weight"
         if remapper is _remap_mamba
         else "model.language_model.embed_tokens.weight"
-        if is_qwen35
+        if (is_qwen35 or (is_gemma4 and model_type == "gemma4"))
         else "model.embed_tokens.weight"
     )
     # Ernie uses selected native reads through its single group iterator below.
@@ -329,6 +330,7 @@ def load_model_state_dict_by_file(
                 _remap_qwen3_5,
                 _remap_qwen3_5_moe,
                 _remap_kimi_k3,
+                _remap_gemma4,
             )
             or (
                 remapper is _remap_baichuan
@@ -523,7 +525,7 @@ def load_model_state_dict_by_file(
                     ),
                     float(scale_emb),
                 )
-        if is_pipeline_parallel:
+        if is_pipeline_parallel or is_gemma4:
             model_param = {
                 key: tensor
                 for key, tensor in model_param.items()
@@ -1328,6 +1330,67 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+def _remap_gemma4(state_dict, config=None):
+    """Adapt Gemma 4 checkpoints (E2B/E4B/26B-A4B/31B) to InfiniLM module names.
+
+    1. Drops unused k_proj/v_proj/k_norm tensors stored in checkpoints for KV-shared layers
+       (matching HuggingFace Gemma4TextModel._keys_to_ignore_on_load_unexpected).
+    2. Reshapes 0-D scalar clamping buffers (input_min/input_max/output_min/output_max)
+       to 1-D [1] tensors for InfiniLM Weight binding.
+    """
+    cfg = config or {}
+    text_cfg = cfg.get("text_config", cfg)
+    num_layers = int(text_cfg.get("num_hidden_layers", 0))
+    num_shared = int(text_cfg.get("num_kv_shared_layers", 0))
+    first_shared = num_layers - num_shared if num_shared > 0 else num_layers
+    lang_prefix = (
+        "model.language_model.layers."
+        if cfg.get("model_type") == "gemma4"
+        else "model.layers."
+    )
+    shared_ignored = (
+        tuple(
+            f"{lang_prefix}{idx}.self_attn.{name}."
+            for idx in range(first_shared, num_layers)
+            for name in ("k_proj", "v_proj", "k_norm", "v_norm")
+        )
+        if num_shared > 0
+        else ()
+    )
+    scalar_suffixes = (".input_min", ".input_max", ".output_min", ".output_max")
+    remapped = {}
+    for key, tensor in state_dict.items():
+        if shared_ignored and any(marker in key for marker in shared_ignored):
+            continue
+        if key.endswith(scalar_suffixes) and len(tensor.shape) == 0:
+            tensor = tensor.view([1])
+        if key.endswith(".experts.gate_up_proj") and len(tensor.shape) == 3:
+            # Split [E, 2*M, H] into [E, M, H] gate_proj and up_proj for TP sharding on dim 1.
+            # Copy per-expert contiguous [M, H] slices (pure memcpy) instead of 3D strided contiguous().
+            num_experts, two_m, hidden = tensor.shape
+            half = two_m // 2
+            prefix = key[: -len("gate_up_proj")]
+            if isinstance(tensor, infinicore.Tensor):
+                gate = infinicore.empty(
+                    (num_experts, half, hidden), dtype=tensor.dtype, device="cpu"
+                )
+                up = infinicore.empty(
+                    (num_experts, half, hidden), dtype=tensor.dtype, device="cpu"
+                )
+                for e in range(num_experts):
+                    src_e = tensor.narrow(0, e, 1).squeeze(0)
+                    gate.narrow(0, e, 1).squeeze(0).copy_(src_e.narrow(0, 0, half))
+                    up.narrow(0, e, 1).squeeze(0).copy_(src_e.narrow(0, half, half))
+                remapped[prefix + "gate_proj"] = gate
+                remapped[prefix + "up_proj"] = up
+            else:
+                remapped[prefix + "gate_proj"] = tensor[:, :half, :].contiguous()
+                remapped[prefix + "up_proj"] = tensor[:, half:, :].contiguous()
+            continue
+        remapped[key] = tensor
+    return remapped
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1339,4 +1402,6 @@ _WEIGHT_REMAPPER = {
     "qwen3_5_moe": _remap_qwen3_5_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
+    "gemma4": _remap_gemma4,
+    "gemma4_text": _remap_gemma4,
 }

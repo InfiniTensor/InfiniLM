@@ -68,6 +68,8 @@ _BUILTIN_PROCESSORS = {
     "zero21_model": ("basic_llm_processor", "BasicLLMProcessor"),
     "ernie4_5_moe_vl": ("ernie4_5_vl_processor", "Ernie45VLProcessor"),
     "fm9g": ("sentencepiece_processor", "FM9GProcessor"),
+    "gemma4": ("gemma4_processor", "Gemma4Processor"),
+    "gemma4_text": ("gemma4_processor", "Gemma4Processor"),
     "gpt2": ("gpt2_processor", "GPT2Processor"),
     "internlm3": ("sentencepiece_processor", "InternLMProcessor"),
     "kimi_k3": ("kimi_k3_processor", "KimiK3Processor"),
