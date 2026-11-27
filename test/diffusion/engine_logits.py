@@ -72,15 +72,18 @@ def forward(generator, ids, past, *, preview, layout, shift=0):
 def logits_of(generator, result, tokens):
     """Copy the engine logits out before the next forward reuses the buffer."""
     value = result["logits"]
+    # Copy between like-typed buffers: a BF16 model with an FP32 output head
+    # yields FP32 logits, which a BF16 staging buffer would truncate.
+    value_dtype = value.dtype
     out = torch.empty(
         value.shape,
         device=generator.torch_device,
-        dtype=to_torch_dtype(generator.engine.dtype),
+        dtype=to_torch_dtype(value_dtype),
     )
     target = generator.core.from_blob(
         out.data_ptr(),
         list(value.shape),
-        dtype=generator.engine.dtype,
+        dtype=value_dtype,
         device=generator.device,
         owner=out,
     )
@@ -196,11 +199,22 @@ def main():
                     f"case {case}: repeated replays produced different logits."
                 )
         np.savez(f"{args.out}_{case}.npz", **saved)
+        # Compare the complete first block: with EOS honored, an engine
+        # that emits EOS at the first position and a reference that starts
+        # with a real token both truncate to an empty list and a broken
+        # comparison would still report the first block as identical.
         result = generator.generate(
-            items[case]["prompt"], max_new_tokens=generator.block_size
+            items[case]["prompt"],
+            max_new_tokens=generator.block_size,
+            ignore_eos=True,
         )
         tokens = result.token_ids
-        same = tokens == reference["resolved_block"][: len(tokens)].tolist()
+        same = tokens == reference["resolved_block"][: len(tokens)].tolist() and (
+            len(tokens) == generator.block_size
+            if "resolved_block" in reference
+            and reference["resolved_block"] is not None
+            else True
+        )
         print(
             f"case {case}: replay {time.perf_counter() - start:.1f}s | "
             f"first block identical to the reference: {same} | "

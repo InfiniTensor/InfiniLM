@@ -23,13 +23,43 @@ public:
         context.diffusion_expert_budget = input.diffusion_expert_budget;
         context.attn_metadata.diffusion_preview = input.diffusion_preview;
         context.diffusion_block_size = model_config_->get<size_t>("block_size");
+        // The MRoPE provider takes a 1-D packed [tokens] row, or a 2-D
+        // [3, tokens] axis-row form for multimodal callers. Anything else
+        // reaching the device would be an out-of-bounds read in release
+        // builds. Every Clover forward passes through here: prompt prefill,
+        // block preview and causal replay, so the shape is checked before
+        // any submit on all three paths.
+        if (input.input_ids && input.position_ids) {
+            const auto tokens = input.input_ids.value()->numel();
+            const auto &positions = input.position_ids.value();
+            const auto pos_rank = positions->ndim();
+            const bool packed = pos_rank == 1 &&
+                                positions->size(0) == tokens;
+            const bool axis_rows = pos_rank == 2 && positions->size(0) == 3 &&
+                                   positions->size(1) == tokens;
+            if (!packed && !axis_rows) {
+                throw std::invalid_argument(
+                    "Clover positions must be [tokens] or [3, tokens].");
+            }
+        }
         if (!input.diffusion_preview) {
             denoise_step_ = 0;
         }
         if (input.diffusion_preview) {
-            const auto tokens = input.input_ids.value()->numel();
+            const auto &ids = input.input_ids.value();
+            const auto tokens = ids->numel();
             if (!input.sample_all_positions || tokens % context.diffusion_block_size) {
                 throw std::invalid_argument("Clover preview requires complete blocks and all-position logits.");
+            }
+            // Every layer of the preview is written for exactly one block of
+            // one request: the block convolution and the coreset route per
+            // request, and the static attention lifts the causal mask for the
+            // whole suffix. Inputs that merely divide by the block size, like
+            // [2, 16] or [1, 64], would silently take unsupported paths.
+            if (ids->ndim() != 2 || ids->size(0) != 1 ||
+                ids->size(1) != static_cast<size_t>(context.diffusion_block_size)) {
+                throw std::invalid_argument(
+                    "Clover preview input must be [1, block_size].");
             }
             context.diffusion_valid = runtime::Tensor::empty(runtime, {tokens}, runtime::DataType::kInt8);
             execution::submit<infini::ops::Fill>(runtime, infini::ops::Fill::DefaultConfig(runtime.device().type()),

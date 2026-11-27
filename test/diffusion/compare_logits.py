@@ -67,6 +67,11 @@ def gather(truth, runs, key, measure):
         for index, reference in enumerate(truth)
         if all(key in case for case in (reference, *(run[index] for run in runs)))
     ]
+    if not cases:
+        # Every case resolved in its first unmask step or recorded a
+        # different stage set; the caller treats zero samples as "stage not
+        # present" instead of crashing on an empty concatenation.
+        return [[] for _ in runs], 0
     measures = [
         np.concatenate([measure(truth[index][key], run[index][key]) for index in cases])
         for run in runs

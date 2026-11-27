@@ -62,10 +62,29 @@ class CloverGenerator:
         self.cache_config = StaticKVCacheConfig(1, max_context)
         self.device = core.device(device)
         self.torch_device = self._torch_device_str(self.device)
+        # The TP ranks must sit on the requested device, not on the first
+        # `tp` devices of the platform: `device="cuda:1", tp=1` would
+        # otherwise put the engine's weights on GPU 0 while Torch buffers
+        # live on GPU 1. A bare platform name keeps the first `tp` ranks
+        # (CUDA_VISIBLE_DEVICES / HIP_VISIBLE_DEVICES already place them);
+        # an index written into the string or an already-normalized device
+        # object both name one specific accelerator, which is only
+        # meaningful for the single rank of tp=1.
+        explicit_index = not isinstance(device, str) or ":" in device
+        if explicit_index:
+            if tp != 1:
+                raise ValueError(
+                    "An indexed device is only supported with tp=1; use "
+                    "CUDA_VISIBLE_DEVICES / HIP_VISIBLE_DEVICES to place "
+                    "wider TP ranks."
+                )
+            device_ids = [self.device.index]
+        else:
+            device_ids = list(range(tp))
         self.engine = InferEngine(
             model_path,
             device=self.device,
-            distributed_config=DistConfig(tp),
+            distributed_config=DistConfig(device_ids),
             cache_config=self.cache_config,
         )
         if self.engine.model_type != "clover_moe":
@@ -107,16 +126,20 @@ class CloverGenerator:
         )
 
     def _logits(self, value):
+        # The copy runs between like-typed buffers: a model with BF16 weights
+        # and an FP32 output head produces FP32 logits, and copying those
+        # through a BF16 buffer would truncate them before `.float()`.
         torch, core = self.torch, self.core
+        value_dtype = value.dtype
         out = torch.empty(
             value.shape,
             device=self.torch_device,
-            dtype=to_torch_dtype(self.engine.dtype),
+            dtype=to_torch_dtype(value_dtype),
         )
         target = core.from_blob(
             out.data_ptr(),
             list(value.shape),
-            dtype=self.engine.dtype,
+            dtype=value_dtype,
             device=self.device,
             owner=out,
         )
