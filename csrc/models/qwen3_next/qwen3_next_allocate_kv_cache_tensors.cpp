@@ -16,7 +16,8 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     const engine::distributed::RankInfo &rank_info,
     const cache::CacheConfig *cache_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
-    const backends::AttentionBackend &attention_backend) {
+    const backends::AttentionBackend &attention_backend,
+    std::optional<infinilm::runtime::DataType> ssm_state_dtype) {
     if (nullptr == cache_config) {
         return {};
     }
@@ -73,7 +74,7 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
             linear_value_head_dim,
             linear_num_key_heads,
             linear_num_value_heads,
-            dtype,
+            ssm_state_dtype.value_or(dtype),
             pool_size);
 
         kv_cache_vec.emplace_back();

@@ -328,6 +328,7 @@ def load_model_state_dict_by_file(
                 _remap_qwen3_next,
                 _remap_qwen3_5,
                 _remap_qwen3_5_moe,
+                _remap_clover_moe,
                 _remap_kimi_k3,
             )
             or (
@@ -1328,6 +1329,12 @@ def _remap_kimi_k3(state_dict, config):
     return state_dict
 
 
+def _remap_clover_moe(state_dict, config, *, defer_tie=False):
+    """Load Clover's Qwen weights while retaining every diffusion parameter."""
+    wrapped = dict(config, text_config=config)
+    return _remap_qwen3_5_moe(state_dict, wrapped, defer_tie=defer_tie)
+
+
 _WEIGHT_REMAPPER = {
     "glm4": _remap_glm4,
     "chatglm": _remap_chatglm,
@@ -1337,6 +1344,7 @@ _WEIGHT_REMAPPER = {
     "videonsa": _remap_videonsa,
     "qwen3_5": _remap_qwen3_5,
     "qwen3_5_moe": _remap_qwen3_5_moe,
+    "clover_moe": _remap_clover_moe,
     "qwen3_next": _remap_qwen3_next,
     "kimi_k3": _remap_kimi_k3,
 }

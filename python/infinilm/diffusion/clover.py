@@ -1,0 +1,258 @@
+"""Native Clover block diffusion on the InfiniLM C++ model and InfiniOps."""
+
+import time
+from dataclasses import dataclass
+
+from infinilm._core.utils import to_torch_dtype
+
+from .frontier import FrontierPolicy
+
+
+@dataclass
+class CloverResult:
+    text: str
+    token_ids: list[int]
+    iterations: list[int]
+    elapsed_s: float
+    prompt_token_count: int
+
+    @property
+    def output_tokens_per_second(self):
+        return len(self.token_ids) / self.elapsed_s
+
+
+class CloverGenerator:
+    """Run greedy diffusion with clean prefix state and causal block replay."""
+
+    # Canonical device.type -> Torch device string (Hygon DTK Torch exposes
+    # its GPUs through the regular torch.cuda namespace).
+    _TORCH_DEVICE = {
+        "cpu": "cpu",
+        "cuda": "cuda",
+        "hygon": "cuda",
+        "metax": "metax",
+        "iluvatar": "iluvatar",
+        "mlu": "mlu",
+        "musa": "musa",
+        "npu": "npu",
+    }
+
+    def _torch_device_str(self, device):
+        try:
+            name = self._TORCH_DEVICE[device.type]
+        except KeyError as error:
+            raise ValueError(
+                f"Torch device name unknown for '{device.type}'; "
+                "Clover diffusion currently supports "
+                f"{', '.join(sorted(self._TORCH_DEVICE))}."
+            ) from error
+        return f"{name}:{device.index}"
+
+    def __init__(self, model_path, *, tp=1, max_context=4096, device="cuda"):
+        import torch
+        from transformers import AutoTokenizer
+
+        from infinilm import _core as core
+        from infinilm.cache import StaticKVCacheConfig
+        from infinilm.distributed import DistConfig
+        from infinilm.infer_engine import InferEngine, read_hf_config
+        from infinilm.modeling_utils import load_model_state_dict_by_file
+
+        config = read_hf_config(model_path)
+        if config["model_type"] != "clover_moe":
+            raise ValueError("CloverGenerator requires a Clover checkpoint.")
+        max_positions = config["max_position_embeddings"]
+        if not 1 <= max_context <= max_positions:
+            raise ValueError(f"max_context must be between 1 and {max_positions}.")
+
+        self.torch = torch
+        self.core = core
+        self.cache_config = StaticKVCacheConfig(1, max_context)
+        self.device = core.device(device)
+        self.torch_device = self._torch_device_str(self.device)
+        # The TP ranks must sit on the requested device, not on the first
+        # `tp` devices of the platform: `device="cuda:1", tp=1` would
+        # otherwise put the engine's weights on GPU 0 while Torch buffers
+        # live on GPU 1. A bare platform name keeps the first `tp` ranks
+        # (CUDA_VISIBLE_DEVICES / HIP_VISIBLE_DEVICES already place them);
+        # an index written into the string or an already-normalized device
+        # object both name one specific accelerator, which is only
+        # meaningful for the single rank of tp=1.
+        explicit_index = not isinstance(device, str) or ":" in device
+        if explicit_index:
+            if tp != 1:
+                raise ValueError(
+                    "An indexed device is only supported with tp=1; use "
+                    "CUDA_VISIBLE_DEVICES / HIP_VISIBLE_DEVICES to place "
+                    "wider TP ranks."
+                )
+            device_ids = [self.device.index]
+        else:
+            device_ids = list(range(tp))
+        self.engine = InferEngine(
+            model_path,
+            device=self.device,
+            distributed_config=DistConfig(device_ids),
+            cache_config=self.cache_config,
+        )
+        load_model_state_dict_by_file(self.engine, model_path, self.engine.dtype)
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            model_path, trust_remote_code=True
+        )
+        self.mask_id = self.engine.hf_config["mask_token_id"]
+        self.block_size = self.engine.hf_config["block_size"]
+        self.max_context = max_context
+
+    def _tensor(self, values, *, wide=False):
+        import numpy as np
+
+        return self.core.from_numpy(
+            np.asarray(values, dtype=np.int64 if wide else np.int32)
+        )
+
+    def _forward(self, ids, past, *, preview=False, expert_budget=False):
+        length = len(ids)
+        return self.engine.forward_raw(
+            self._tensor([ids], wide=True),
+            # Mrope reads 2-D positions as [3, tokens] axis rows, so single-axis
+            # Clover passes the packed 1-D form like the engine's paged path.
+            position_ids=self._tensor(list(range(past, past + length)), wide=True),
+            past_kv_lengths=self._tensor([past]),
+            total_kv_lengths=self._tensor([past + length]),
+            input_offsets=self._tensor([0, length]),
+            cu_seqlens=self._tensor([0, past + length]),
+            block_tables=self._tensor([[0]]),
+            mamba_init_state_indices=self._tensor([0]),
+            mamba_final_state_indices=self._tensor([0]),
+            diffusion_preview=preview,
+            diffusion_expert_budget=expert_budget,
+            sample_all_positions=preview,
+            temperature=0,
+            top_k=1,
+        )
+
+    def _logits(self, value):
+        # The copy runs between like-typed buffers: a model with BF16 weights
+        # and an FP32 output head produces FP32 logits, and copying those
+        # through a BF16 buffer would truncate them before `.float()`.
+        torch, core = self.torch, self.core
+        value_dtype = value.dtype
+        out = torch.empty(
+            value.shape,
+            device=self.torch_device,
+            dtype=to_torch_dtype(value_dtype),
+        )
+        target = core.from_blob(
+            out.data_ptr(),
+            list(value.shape),
+            dtype=value_dtype,
+            device=self.device,
+            owner=out,
+        )
+        target.copy_(value)
+        core.set_device(self.device)
+        core.sync_device()
+        return out.view(self.block_size, -1).float()
+
+    def generate(
+        self,
+        prompt,
+        *,
+        max_new_tokens=128,
+        policy="baseline",
+        threshold=0.95,
+        ignore_eos=False,
+        expert_budget=False,
+        frontier_confidence_floor=0.9,
+    ):
+        if policy not in ("baseline", "frontier"):
+            raise ValueError("Policy must be baseline or frontier.")
+        if max_new_tokens < 0 or not 0 <= threshold <= 1:
+            raise ValueError("Invalid output limit or confidence threshold.")
+        frontier = (
+            FrontierPolicy(confidence_floor=frontier_confidence_floor)
+            if policy == "frontier"
+            else None
+        )
+        torch = self.torch
+        prompt_ids = self.tokenizer.apply_chat_template(
+            (
+                [{"role": "user", "content": prompt}]
+                if isinstance(prompt, str)
+                else prompt
+            ),
+            tokenize=True,
+            add_generation_prompt=True,
+            enable_thinking=False,
+        )
+        if hasattr(prompt_ids, "keys"):
+            prompt_ids = prompt_ids["input_ids"]
+        blocks = (max_new_tokens + self.block_size - 1) // self.block_size
+        prompt_token_count = len(prompt_ids)
+        if prompt_token_count + blocks * self.block_size > self.max_context:
+            raise ValueError(
+                "Prompt and complete diffusion blocks exceed the cache capacity."
+            )
+        start = time.perf_counter()
+        if max_new_tokens == 0:
+            return CloverResult(
+                "", [], [], time.perf_counter() - start, prompt_token_count
+            )
+        self.engine.reset_cache(self.cache_config)
+        self._forward(prompt_ids, 0)
+        output, iterations = [], []
+        eos = set(self.engine.eos_token_id)
+        for _ in range(blocks):
+            past = prompt_token_count + len(output)
+            ids = torch.full(
+                (self.block_size,),
+                self.mask_id,
+                device=self.torch_device,
+                dtype=torch.int64,
+            )
+            for iteration in range(self.block_size):
+                result = self._forward(
+                    ids.cpu().tolist(),
+                    past,
+                    preview=True,
+                    expert_budget=expert_budget,
+                )
+                logits = self._logits(result["logits"])
+                logits[:, self.mask_id] = -float("inf")
+                confidence, proposed = logits.softmax(-1).max(-1)
+                masked = ids == self.mask_id
+                if frontier is not None:
+                    selected = frontier.select(
+                        confidence[None], masked[None], iteration
+                    )[0]
+                else:
+                    selected = masked & (confidence >= threshold)
+                    if not bool(selected.any()):
+                        selected[confidence.masked_fill(~masked, -1).argmax()] = True
+                ids = torch.where(selected, proposed, ids)
+                if not bool((ids == self.mask_id).any()):
+                    break
+            resolved = ids.cpu().tolist()
+            if self.mask_id in resolved:
+                raise RuntimeError("An unresolved diffusion block cannot be committed.")
+            iterations.append(iteration + 1)
+            remaining = max_new_tokens - len(output)
+            for token in resolved[:remaining]:
+                if not ignore_eos and token in eos:
+                    return CloverResult(
+                        self.tokenizer.decode(output, skip_special_tokens=True),
+                        output,
+                        iterations,
+                        time.perf_counter() - start,
+                        prompt_token_count,
+                    )
+                output.append(token)
+            if len(output) < max_new_tokens:
+                self._forward(resolved, past)
+        return CloverResult(
+            self.tokenizer.decode(output, skip_special_tokens=True),
+            output,
+            iterations,
+            time.perf_counter() - start,
+            prompt_token_count,
+        )

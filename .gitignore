@@ -34,3 +34,8 @@ __pycache__/
 *.http
 
 *.nsys-rep
+
+# Pip editable-install artifacts (copied native libs & generated licenses)
+python/_infinilm.cpython-*.so
+python/infinilm/_lib/*.so
+python/infinilm/licenses/InfiniOps/
