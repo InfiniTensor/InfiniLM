@@ -14,6 +14,7 @@ class CloverResult:
     token_ids: list[int]
     iterations: list[int]
     elapsed_s: float
+    prompt_token_count: int
 
     @property
     def output_tokens_per_second(self):
@@ -54,8 +55,15 @@ class CloverGenerator:
         from infinilm import _core as core
         from infinilm.cache import StaticKVCacheConfig
         from infinilm.distributed import DistConfig
-        from infinilm.infer_engine import InferEngine
+        from infinilm.infer_engine import InferEngine, read_hf_config
         from infinilm.modeling_utils import load_model_state_dict_by_file
+
+        config = read_hf_config(model_path)
+        if config["model_type"] != "clover_moe":
+            raise ValueError("CloverGenerator requires a Clover checkpoint.")
+        max_positions = config["max_position_embeddings"]
+        if not 1 <= max_context <= max_positions:
+            raise ValueError(f"max_context must be between 1 and {max_positions}.")
 
         self.torch = torch
         self.core = core
@@ -87,8 +95,6 @@ class CloverGenerator:
             distributed_config=DistConfig(device_ids),
             cache_config=self.cache_config,
         )
-        if self.engine.model_type != "clover_moe":
-            raise ValueError("CloverGenerator requires a Clover checkpoint.")
         load_model_state_dict_by_file(self.engine, model_path, self.engine.dtype)
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_path, trust_remote_code=True
@@ -163,6 +169,11 @@ class CloverGenerator:
             raise ValueError("Policy must be baseline or frontier.")
         if max_new_tokens < 0 or not 0 <= threshold <= 1:
             raise ValueError("Invalid output limit or confidence threshold.")
+        frontier = (
+            FrontierPolicy(confidence_floor=frontier_confidence_floor)
+            if policy == "frontier"
+            else None
+        )
         torch = self.torch
         prompt_ids = self.tokenizer.apply_chat_template(
             (
@@ -177,19 +188,22 @@ class CloverGenerator:
         if hasattr(prompt_ids, "keys"):
             prompt_ids = prompt_ids["input_ids"]
         blocks = (max_new_tokens + self.block_size - 1) // self.block_size
-        if len(prompt_ids) + blocks * self.block_size > self.max_context:
+        prompt_token_count = len(prompt_ids)
+        if prompt_token_count + blocks * self.block_size > self.max_context:
             raise ValueError(
                 "Prompt and complete diffusion blocks exceed the cache capacity."
             )
-        self.engine.reset_cache(self.cache_config)
         start = time.perf_counter()
         if max_new_tokens == 0:
-            return CloverResult("", [], [], time.perf_counter() - start)
+            return CloverResult(
+                "", [], [], time.perf_counter() - start, prompt_token_count
+            )
+        self.engine.reset_cache(self.cache_config)
         self._forward(prompt_ids, 0)
         output, iterations = [], []
-        frontier = FrontierPolicy(confidence_floor=frontier_confidence_floor)
         eos = set(self.engine.eos_token_id)
         for _ in range(blocks):
+            past = prompt_token_count + len(output)
             ids = torch.full(
                 (self.block_size,),
                 self.mask_id,
@@ -199,7 +213,7 @@ class CloverGenerator:
             for iteration in range(self.block_size):
                 result = self._forward(
                     ids.cpu().tolist(),
-                    len(prompt_ids) + len(output),
+                    past,
                     preview=True,
                     expert_budget=expert_budget,
                 )
@@ -207,7 +221,7 @@ class CloverGenerator:
                 logits[:, self.mask_id] = -float("inf")
                 confidence, proposed = logits.softmax(-1).max(-1)
                 masked = ids == self.mask_id
-                if policy == "frontier":
+                if frontier is not None:
                     selected = frontier.select(
                         confidence[None], masked[None], iteration
                     )[0]
@@ -221,7 +235,6 @@ class CloverGenerator:
             resolved = ids.cpu().tolist()
             if self.mask_id in resolved:
                 raise RuntimeError("An unresolved diffusion block cannot be committed.")
-            self._forward(resolved, len(prompt_ids) + len(output))
             iterations.append(iteration + 1)
             remaining = max_new_tokens - len(output)
             for token in resolved[:remaining]:
@@ -231,11 +244,15 @@ class CloverGenerator:
                         output,
                         iterations,
                         time.perf_counter() - start,
+                        prompt_token_count,
                     )
                 output.append(token)
+            if len(output) < max_new_tokens:
+                self._forward(resolved, past)
         return CloverResult(
             self.tokenizer.decode(output, skip_special_tokens=True),
             output,
             iterations,
             time.perf_counter() - start,
+            prompt_token_count,
         )

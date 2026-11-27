@@ -8,9 +8,10 @@ from functools import partial
 
 import anyio
 from fastapi import FastAPI, HTTPException, Request
+from jinja2 import TemplateError
 from pydantic import BaseModel, Field
 
-from infinilm.diffusion.clover import CloverGenerator
+from infinilm.diffusion.frontier import FrontierPolicy
 
 
 class ChatRequest(BaseModel):
@@ -21,7 +22,9 @@ class ChatRequest(BaseModel):
     stream: bool = False
     diffusion_policy: str | None = None
     expert_budget: bool | None = None
-    frontier_confidence_floor: float | None = Field(default=None, ge=0, le=1)
+    frontier_confidence_floor: float | None = Field(
+        default=None, ge=0, le=FrontierPolicy.confident_threshold
+    )
     presence_penalty: float = 0
     frequency_penalty: float = 0
     repetition_penalty: float = 1
@@ -149,17 +152,9 @@ def create_app(
         )
         try:
             result = await _generate_when_connected(raw, slot, generate)
-        except ValueError as exc:
+        except (ValueError, TemplateError) as exc:
             raise HTTPException(400, str(exc)) from exc
-        prompt = generator.tokenizer.apply_chat_template(
-            request.messages,
-            tokenize=False,
-            add_generation_prompt=True,
-            enable_thinking=False,
-        )
-        prompt_count = len(
-            generator.tokenizer(prompt, add_special_tokens=False)["input_ids"]
-        )
+        prompt_count = result.prompt_token_count
         output_count = len(result.token_ids)
         return {
             "id": "chatcmpl-" + uuid.uuid4().hex,
@@ -208,7 +203,12 @@ def main():
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
+    if not 0 <= args.frontier_floor <= FrontierPolicy.confident_threshold:
+        parser.error(
+            f"--frontier-floor must be between 0 and {FrontierPolicy.confident_threshold}"
+        )
     from infinilm.base_config import BaseConfig
+    from infinilm.diffusion.clover import CloverGenerator
 
     # Reuse the framework's device resolution (auto-detection + alias
     # normalization) without parsing the server's argv a second time.

@@ -6,6 +6,7 @@
 #include "../../config/model_config.hpp"
 
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -23,6 +24,7 @@ AllocatedHybridCache qwen3_next_allocate_cache_tensors(
     const engine::distributed::RankInfo &rank_info,
     const cache::CacheConfig *cache_config,
     const std::shared_ptr<infinilm::config::ModelConfig> &text_config,
-    const backends::AttentionBackend &attention_backend);
+    const backends::AttentionBackend &attention_backend,
+    std::optional<infinilm::runtime::DataType> ssm_state_dtype = std::nullopt);
 
 } // namespace infinilm::models::qwen3_next

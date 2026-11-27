@@ -55,28 +55,26 @@ def load(prefix, cases):
     return [np.load(f"{prefix}_{case}.npz") for case in cases]
 
 
-def gather(truth, runs, key, measure):
-    """Return `measure` over the positions of a stage, one array per run.
-
-    A case is left out when the truth or any run did not record the stage,
-    which happens when a block resolves in its first unmask step. The number
-    of cases used is returned as well.
-    """
-    cases = [
-        index
-        for index, reference in enumerate(truth)
-        if all(key in case for case in (reference, *(run[index] for run in runs)))
-    ]
-    if not cases:
-        # Every case resolved in its first unmask step or recorded a
-        # different stage set; the caller treats zero samples as "stage not
-        # present" instead of crashing on an empty concatenation.
-        return [[] for _ in runs], 0
-    measures = [
-        np.concatenate([measure(truth[index][key], run[index][key]) for index in cases])
-        for run in runs
-    ]
-    return measures, len(cases)
+def gather(truth, runs, key, measure, *, truth_key=None):
+    """Measure matched positions, omitting only an optional second preview."""
+    results = [[] for _ in runs]
+    count = 0
+    for reference, *candidates in zip(truth, *runs):
+        if key == "preview_partial_logits" and any(
+            key not in case for case in (reference, *candidates)
+        ):
+            continue
+        expected = reference[truth_key or key]
+        for output, candidate in zip(results, candidates):
+            actual = candidate[key]
+            if expected.ndim != 2 or actual.shape != expected.shape:
+                raise ValueError(
+                    f"{key}: expected [positions, vocabulary] {expected.shape}, "
+                    f"got {actual.shape}"
+                )
+            output.append(measure(expected, actual))
+        count += 1
+    return [np.concatenate(output) if count else [] for output in results], count
 
 
 def print_table(title, stat, table_rows, labels):
@@ -163,14 +161,13 @@ def main():
         labels,
     )
 
-    common = set(truth[0]).intersection(*(set(case) for run in runs for case in run))
+    common = set.intersection(*(set(case) for run in (truth, *runs) for case in run))
     shift_keys = sorted(
         (key for key in common if key.startswith("prompt_logits_shift_")),
         key=lambda key: int(key.rsplit("_", 1)[1]),
     )
     if not shift_keys:
         return
-    reference = np.concatenate([case["prompt_logits"] for case in truth])
     width = max(12, *(len(label) for label in labels)) + 2
     print(
         "=== Mean KL from the truth's prefill for prefills with all positions "
@@ -178,10 +175,10 @@ def main():
     )
     print(f"{'':<28}" + "".join(f"{label:>{width}}" for label in ("truth", *labels)))
     for key in shift_keys:
-        cells = [
-            kl_divergence(reference, np.concatenate([case[key] for case in run])).mean()
-            for run in (truth, *runs)
-        ]
+        measures, _ = gather(
+            truth, (truth, *runs), key, kl_divergence, truth_key="prompt_logits"
+        )
+        cells = [values.mean() for values in measures]
         print(
             f"{'shift ' + key.rsplit('_', 1)[1]:<28}"
             + "".join(f"{value:>{width}.5f}" for value in cells)

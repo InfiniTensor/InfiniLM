@@ -1,11 +1,65 @@
-"""Regression tests for cancellation at the single Clover generation slot."""
+"""CPU tests for the Clover chat endpoint and its serial generation slot."""
 
 import asyncio
 import threading
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from fastapi import HTTPException, Request
-from infinilm.server.clover_server import _generate_when_connected
+from fastapi.testclient import TestClient
+from jinja2 import TemplateError
+from test_agent_protocol import SERVER, load_module
+
+frontier = load_module(
+    "clover_frontier_under_test", SERVER.parent / "diffusion/frontier.py"
+)
+server = load_module(
+    "clover_server_under_test",
+    SERVER / "clover_server.py",
+    {"infinilm.diffusion.frontier": frontier},
+)
+_generate_when_connected = server._generate_when_connected
+
+
+def test_chat_template_error_releases_slot_and_valid_request_reports_usage():
+    generator = Mock()
+    generator.generate.side_effect = [
+        TemplateError("No user query found in messages."),
+        SimpleNamespace(text="4", token_ids=[19], prompt_token_count=7),
+    ]
+    with TestClient(server.create_app(generator)) as client:
+        rejected = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "system", "content": "System only."}]},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["detail"] == "No user query found in messages."
+        response = client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "2+2?"}]},
+        )
+    assert response.status_code == 200
+    assert response.json()["usage"] == {
+        "prompt_tokens": 7,
+        "completion_tokens": 1,
+        "total_tokens": 8,
+    }
+    assert generator.generate.call_count == 2
+
+
+def test_frontier_floor_above_policy_threshold_is_rejected_before_generation():
+    generator = Mock()
+    with TestClient(server.create_app(generator)) as client:
+        response = client.post(
+            "/v1/chat/completions",
+            json={
+                "messages": [{"role": "user", "content": "2+2?"}],
+                "frontier_confidence_floor": 0.96,
+            },
+        )
+    assert response.status_code == 422
+    generator.generate.assert_not_called()
 
 
 @pytest.fixture

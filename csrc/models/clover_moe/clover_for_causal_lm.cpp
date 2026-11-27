@@ -33,10 +33,8 @@ public:
             const auto tokens = input.input_ids.value()->numel();
             const auto &positions = input.position_ids.value();
             const auto pos_rank = positions->ndim();
-            const bool packed = pos_rank == 1 &&
-                                positions->size(0) == tokens;
-            const bool axis_rows = pos_rank == 2 && positions->size(0) == 3 &&
-                                   positions->size(1) == tokens;
+            const bool packed = pos_rank == 1 && positions->size(0) == tokens;
+            const bool axis_rows = pos_rank == 2 && positions->size(0) == 3 && positions->size(1) == tokens;
             if (!packed && !axis_rows) {
                 throw std::invalid_argument(
                     "Clover positions must be [tokens] or [3, tokens].");
@@ -56,8 +54,7 @@ public:
             // request, and the static attention lifts the causal mask for the
             // whole suffix. Inputs that merely divide by the block size, like
             // [2, 16] or [1, 64], would silently take unsupported paths.
-            if (ids->ndim() != 2 || ids->size(0) != 1 ||
-                ids->size(1) != static_cast<size_t>(context.diffusion_block_size)) {
+            if (ids->ndim() != 2 || ids->size(0) != 1 || ids->size(1) != static_cast<size_t>(context.diffusion_block_size)) {
                 throw std::invalid_argument(
                     "Clover preview input must be [1, block_size].");
             }
@@ -91,14 +88,24 @@ public:
         denoise_step_ = 0;
         previous_budget_ = false;
         previous_ids_.reset();
-        auto allocated = qwen3_next::qwen3_next_allocate_cache_tensors(runtime, rank, cache_config, model_config_, backend);
-        for (auto &state : allocated.ssm_state_tensors) {
-            if (!state) {
-                continue;
+        const auto *current = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config_.get());
+        const auto *requested = dynamic_cast<const cache::StaticKVCacheConfig *>(cache_config);
+        if (current && requested && current->max_batch_size() == requested->max_batch_size()
+            && current->max_cache_len() == requested->max_cache_len()) {
+            // The allocation helpers create contiguous, owning cache tensors.
+            // Clear all three caches before admitting the next request.
+            for (auto *layers : {&context.kv_cache_vec, &context.conv_state_vec, &context.ssm_state_vec}) {
+                for (auto &tensor : *layers) {
+                    if (tensor && tensor->nbytes()) {
+                        runtime.setDeviceMemoryAsync(tensor->data(), 0, tensor->nbytes(), runtime.stream());
+                    }
+                }
             }
-            state = runtime::Tensor::empty(runtime, state->shape(), runtime::DataType::kFloat32);
-            execution::submit<infini::ops::Fill>(runtime, infini::ops::Fill::DefaultConfig(runtime.device().type()), state, 0.0, state);
+            runtime.syncStream();
+            return;
         }
+        auto allocated = qwen3_next::qwen3_next_allocate_cache_tensors(
+            runtime, rank, cache_config, model_config_, backend, runtime::DataType::kFloat32);
         context.kv_cache_vec = std::move(allocated.kv_cache_tensors);
         context.conv_state_vec = std::move(allocated.conv_state_tensors);
         context.ssm_state_vec = std::move(allocated.ssm_state_tensors);

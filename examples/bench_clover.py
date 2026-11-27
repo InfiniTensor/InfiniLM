@@ -1,9 +1,9 @@
 """Measure serial Clover chat requests and retain every response and failure."""
 
 import argparse
+import http.client
 import json
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -81,7 +81,13 @@ def main():
                             tokenizer(text, add_special_tokens=False)["input_ids"]
                         ),
                     )
-                except (urllib.error.URLError, ValueError, KeyError) as error:
+                except (
+                    OSError,
+                    http.client.HTTPException,
+                    ValueError,
+                    LookupError,
+                    TypeError,
+                ) as error:
                     record.update(
                         elapsed_s=time.perf_counter() - start,
                         error=str(error),

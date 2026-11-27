@@ -3,9 +3,8 @@
 `clover_moe` loads the complete Clover-35B-A3B-Preview checkpoint, including its
 right-convolution and bidirectional GDN scalar shards. Model forward runs in
 InfiniLM C++; InfiniOps supplies the device kernels, on NVIDIA and on Hygon.
-Both platforms run Triton kernels that are compiled on first use and launched
-by the native driver thereafter; differences between the two are noted where
-they apply. Torch is used by the Python decoder for confidence selection, not
+NVIDIA uses native CUDA Clover kernels. The Hygon stack also uses Triton
+kernels compiled on first use. Torch is used by the Python decoder for confidence selection, not
 as a model-forward fallback.
 
 The model currently requires BF16 weights. Validated configurations: TP=2 on
@@ -18,12 +17,8 @@ they are not a measurement of maximum concurrent-serving capacity or
 
 ## Build
 
-Build the matching InfiniRT, InfiniOps and InfiniCCL revisions first. The
-InfiniRT driver API and InfiniOps Clover providers for your device are
-required; the original InfiniLM dependency pin does not supply them. The
-dependency PR links are recorded in this change's PR description. Pick the
-block matching your platform below (same `INFINI_ROOT` and final `pip install`
-step for both).
+Build InfiniRT, InfiniOps and InfiniCCL for the selected platform, then
+install InfiniLM using the common step below.
 
 ### NVIDIA
 
@@ -52,10 +47,7 @@ cmake --install build/ccl
 ```
 
 Set `CMAKE_CUDA_ARCHITECTURES` to the real target arch (e.g. `80` for A100);
-the default `75` compiles but CUTLASS bf16 MMA paths fail at runtime. The
-InfiniOps build needs the multi-device Clover operators (see the companion
-InfiniOps PR referenced above); the operators in the pinned revision are
-Hygon-only.
+the default `75` compiles but CUTLASS bf16 MMA paths fail at runtime.
 
 ### Hygon
 

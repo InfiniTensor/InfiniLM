@@ -63,6 +63,8 @@ def run_case(model, tokenizer, prompt, forced, shifts):
     )
     if hasattr(prompt_ids, "keys"):
         prompt_ids = prompt_ids["input_ids"]
+    if forced is not None and not np.array_equal(prompt_ids, forced["prompt_ids"]):
+        raise ValueError("Reference trajectory was recorded with different prompt IDs.")
     ids = torch.tensor([prompt_ids], device=device)
     saved = {"prompt_ids": np.asarray(prompt_ids, dtype=np.int64)}
 
@@ -108,21 +110,20 @@ def run_case(model, tokenizer, prompt, forced, shifts):
             transfer = (confidence > threshold) & pending
             if not bool(transfer.any()):
                 transfer[confidence.argmax()] = True
-            if forced is None:
+            if forced is not None:
                 if iterations == 1:
-                    saved.update(
-                        step1_prediction=prediction.cpu().numpy(),
-                        step1_transfer=transfer.cpu().numpy(),
-                    )
-            else:
-                prediction = torch.from_numpy(forced["step1_prediction"]).to(device)
-                if iterations == 1:
+                    prediction = torch.from_numpy(forced["step1_prediction"]).to(device)
                     transfer = torch.from_numpy(
                         forced["step1_transfer"].astype(bool)
                     ).to(device)
                 else:
-                    transfer = pending.clone()
                     prediction = torch.from_numpy(forced["resolved_block"]).to(device)
+                    transfer = pending.clone()
+            if iterations == 1:
+                saved.update(
+                    step1_prediction=prediction.cpu().numpy(),
+                    step1_transfer=transfer.cpu().numpy(),
+                )
             block[0, transfer] = prediction[transfer]
             pending[transfer] = False
         saved["resolved_block"] = block[0].cpu().numpy()

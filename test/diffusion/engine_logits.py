@@ -45,7 +45,7 @@ def forward(generator, ids, past, *, preview, layout, shift=0):
     """Call the engine like `CloverGenerator._forward`, keeping every position's logits."""
     length = len(ids)
     rows = list(range(past + shift, past + shift + length))
-    positions = [rows] if layout == "batched" else rows
+    positions = [rows] * 3 if layout == "axis-rows" else rows
 
     def tensor(values, dtype):
         return generator.core.from_numpy(np.asarray(values, dtype=dtype))
@@ -98,6 +98,11 @@ def replay_case(generator, reference, *, layout, shifts):
     mask, width = generator.mask_id, generator.block_size
     prompt_ids = reference["prompt_ids"].tolist()
     past = len(prompt_ids)
+    if past + 2 * width > generator.max_context:
+        raise ValueError("Replay needs cache space for the prompt and two blocks.")
+    position_limit = generator.engine.hf_config["max_position_embeddings"]
+    if any(shift < 0 or shift + past > position_limit for shift in shifts):
+        raise ValueError("Shifted prompt positions exceed the rotary table.")
     full_mask = [mask] * width
     transfer = reference["step1_transfer"].astype(bool)
     partial = list(full_mask)
@@ -151,9 +156,9 @@ def main():
     parser.add_argument("--max-context", type=int, default=2048)
     parser.add_argument(
         "--positions",
-        choices=("packed", "batched"),
+        choices=("packed", "axis-rows"),
         default="packed",
-        help="`batched` passes `[1, tokens]`, which `Mrope` reads as three axis rows.",
+        help="Use packed positions or repeat the text positions on all three axes.",
     )
     parser.add_argument(
         "--shifts",
@@ -199,22 +204,12 @@ def main():
                     f"case {case}: repeated replays produced different logits."
                 )
         np.savez(f"{args.out}_{case}.npz", **saved)
-        # Compare the complete first block: with EOS honored, an engine
-        # that emits EOS at the first position and a reference that starts
-        # with a real token both truncate to an empty list and a broken
-        # comparison would still report the first block as identical.
         result = generator.generate(
             items[case]["prompt"],
             max_new_tokens=generator.block_size,
             ignore_eos=True,
         )
-        tokens = result.token_ids
-        same = tokens == reference["resolved_block"][: len(tokens)].tolist() and (
-            len(tokens) == generator.block_size
-            if "resolved_block" in reference
-            and reference["resolved_block"] is not None
-            else True
-        )
+        same = result.token_ids == reference["resolved_block"].tolist()
         print(
             f"case {case}: replay {time.perf_counter() - start:.1f}s | "
             f"first block identical to the reference: {same} | "
