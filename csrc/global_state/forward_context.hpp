@@ -116,6 +116,9 @@ struct ForwardContext {
     // Worker-owned; the context is used only while that worker is alive.
     infinilm::runtime::Runtime *runtime{nullptr};
     std::shared_ptr<const engine::nsa::Proof> nsa_owner;
+    // Dense NZ/packed layouts require contiguous FlashAttention prefill inputs.
+    // Keep the layout policy explicit instead of inferring it from the device.
+    bool pre_transpose{false};
     AttentionMetadata attn_metadata;
     MambaMetadata mamba_metadata;
     MultiModalMetadata mm_metadata;

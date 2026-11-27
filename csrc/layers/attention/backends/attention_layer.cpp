@@ -64,6 +64,14 @@ infinilm::runtime::Tensor AttentionLayer::forward(
     auto &kv_cache = forward_context.kv_cache_vec[layer_idx_];
     auto &runtime = *forward_context.runtime;
 
+    if (const auto *flash_impl =
+            std::get_if<std::shared_ptr<backends::FlashAttentionImpl>>(
+                &attn_backend_impl_)) {
+        return (*flash_impl)->forward(*this, query, key, value, kv_cache,
+                                      attn_metadata, runtime,
+                                      forward_context.pre_transpose);
+    }
+
     return std::visit(
         [&](auto &impl_ptr) -> infinilm::runtime::Tensor {
             return impl_ptr->forward(*this, query, key, value, kv_cache,
