@@ -75,8 +75,17 @@ def resolve_multimodal_inputs(messages: Union[List[dict], dict]):
                     video_urls.append(
                         f"predecoded_video:{len(video_urls)}:{len(video)}"
                     )
-            else:  # TODO support audio
-                raise NotImplementedError("Only image/video input is supported for now")
+            elif item.get("type") == "audio_url":
+                audio_url = item["audio_url"]["url"]
+                audios.append(audio_url)
+                if isinstance(audio_url, str):
+                    audio_urls.append(audio_url)
+                else:
+                    audio_urls.append(f"preloaded_audio:{len(audio_urls)}")
+            else:
+                raise NotImplementedError(
+                    f"Unsupported multimodal content type: {item.get('type')}"
+                )
 
     return {
         "images": images,

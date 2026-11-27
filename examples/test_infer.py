@@ -34,6 +34,7 @@ def test(
     use_mla=False,
     image_path=None,
     video_path=None,
+    audio_path=None,
     video_num_frames=None,
     skip_load=False,
     weight_load_mode="async",
@@ -99,6 +100,11 @@ def test(
         for conversation in conversations:
             conversation[0]["content"] = [
                 {"type": "image_url", "image_url": {"url": image_path}}
+            ] + conversation[0]["content"]
+    if audio_path is not None:
+        for conversation in conversations:
+            conversation[0]["content"] = [
+                {"type": "audio_url", "audio_url": {"url": audio_path}}
             ] + conversation[0]["content"]
 
     t1 = time.time()
@@ -182,6 +188,7 @@ if __name__ == "__main__":
         use_mla=cfg.use_mla,
         image_path=cfg.image,
         video_path=cfg.video,
+        audio_path=cfg.audio,
         video_num_frames=cfg.video_num_frames,
         skip_load=cfg.skip_load,
         weight_load_mode=cfg.weight_load_mode,

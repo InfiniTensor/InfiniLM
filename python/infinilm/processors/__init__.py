@@ -22,7 +22,7 @@ class AutoInfinilmProcessor:
                 raw_config = json.load(f)
 
         raw_model_type = str(raw_config.get("model_type", "")).lower()
-        if raw_model_type in {"qwen3_5", "qwen3_5_moe"}:
+        if raw_model_type in {"qwen3_5", "qwen3_5_moe", "gemma4", "gemma4_text"}:
             model_type = raw_model_type
         else:
             from transformers import AutoConfig

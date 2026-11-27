@@ -127,6 +127,7 @@ class BaseConfig:
         # Multimodal parameters
         self.image = self.args.image
         self.video = self.args.video
+        self.audio = self.args.audio
         self.image_max_pixels = self.args.image_max_pixels
         self.image_min_pixels = self.args.image_min_pixels
         self.video_num_frames = self.args.video_num_frames
@@ -443,6 +444,12 @@ class BaseConfig:
             type=str,
             default=None,
             help="video path for multimodal models",
+        )
+        self.parser.add_argument(
+            "--audio",
+            type=str,
+            default=None,
+            help="audio path for multimodal models",
         )
         self.parser.add_argument(
             "--video-num-frames",
