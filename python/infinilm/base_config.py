@@ -179,7 +179,7 @@ class BaseConfig:
             default="auto",
             help=(
                 "device platform: auto, cpu, nvidia, metax, moore, iluvatar, "
-                "cambricon, ascend, hygon, or backend name "
+                "cambricon, ascend, hygon, kunlun, or backend name "
                 "(cuda/mlu/musa/npu)"
             ),
         )
@@ -579,6 +579,7 @@ class BaseConfig:
             "moore": "musa",
             "iluvatar": "iluvatar",
             "hygon": "hygon",
+            "kunlun": "kunlun",
         }
         device = device.lower()
         if device == "auto":
